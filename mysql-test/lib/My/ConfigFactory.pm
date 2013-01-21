@@ -34,7 +34,20 @@ use My::Find;
 use My::Platform;
 
 # Rules to run first of all
-my @pre_rules = ();
+
+sub add_opt_values {
+  my ($self, $config)= @_;
+
+  # add auto-options
+  $config->insert('OPT', 'port'   => fix_port($self, $config) );
+  $config->insert('OPT', 'vardir' => sub { $self->{ARGS}->{vardir} });
+  $config->insert('mysqld', "loose-skip-$_" => undef) for (@::optional_plugins);
+}
+
+my @pre_rules=
+(
+  \&add_opt_values,
+);
 
 sub get_basedir {
   my ($self, $group) = @_;
@@ -100,9 +113,9 @@ sub fix_pidfile {
 }
 
 sub fix_port {
-  my ($self, $config, $group_name, $group) = @_;
-  my $hostname = $group->value('#host');
-  return $self->{HOSTS}->{$hostname}++;
+  my ($self, $config, $group_name, $group)= @_;
+  my $port= $self->{PORT}++;
+  return $port;
 }
 
 sub fix_x_port {
@@ -585,6 +598,7 @@ sub new_config {
 
   my $self = bless { CONFIG    => $config,
                      ARGS      => $args,
+                     PORT      => $args->{baseport},
                      HOSTS     => $hosts,
                      NEXT_HOST => 0,
                      SERVER_ID => 1,
