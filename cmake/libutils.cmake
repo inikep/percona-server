@@ -32,9 +32,9 @@
 # The intention behind convenience libraries is simplify the build and to
 # reduce excessive recompiles.
 
-# Except for convenience libraries, this file provides macros to merge static
-# libraries (we need it for mysqlclient) and to create shared library out of
-# convenience libraries(again, for mysqlclient)
+# Except for convenience libraries, this file provides macros to merge static 
+# libraries (we need it for perconaserverclient) and to create shared library out of 
+# convenience libraries(again, for perconaserverclient)
 
 
 GET_FILENAME_COMPONENT(MYSQL_CMAKE_SCRIPT_DIR ${CMAKE_CURRENT_LIST_FILE} PATH)
