@@ -1249,6 +1249,7 @@ class Rdb_transaction
   ulonglong m_lock_count= 0;
 
   rocksdb::Transaction *m_rocksdb_tx= nullptr;
+  rocksdb::Transaction *m_rocksdb_reuse_tx= nullptr;
 
   bool m_is_tx_failed= false;
   bool m_is_delayed_snapshot= false;
@@ -1396,6 +1397,16 @@ public:
     }
   }
 
+ private:
+  void release_tx(void)
+  {
+    // We are done with the current active transaction object.  Preserve it
+    // for later reuse.
+    DBUG_ASSERT(m_rocksdb_reuse_tx == nullptr);
+    m_rocksdb_reuse_tx= m_rocksdb_tx;
+    m_rocksdb_tx= nullptr;
+  }
+
   bool commit_no_binlog()
   {
     bool res= false;
@@ -1406,8 +1417,10 @@ public:
       rocksdb_handle_io_error(s, ROCKSDB_IO_ERROR_TX_COMMIT);
       res= true;
     }
-    delete m_rocksdb_tx;
-    m_rocksdb_tx= nullptr;
+
+    /* Save the transaction object to be reused */
+    release_tx();
+
     m_write_count= 0;
     m_lock_count= 0;
     set_tx_read_only(false);
@@ -1415,6 +1428,7 @@ public:
     return res;
   }
 
+ public:
   void rollback()
   {
     m_write_count= 0;
@@ -1425,8 +1439,10 @@ public:
       release_snapshot();
       /* This will also release all of the locks: */
       m_rocksdb_tx->Rollback();
-      delete m_rocksdb_tx;
-      m_rocksdb_tx= nullptr;
+
+      /* Save the transaction object to be reused */
+      release_tx();
+
       set_tx_read_only(false);
       m_rollback_only= false;
     }
@@ -1642,7 +1658,13 @@ public:
     write_opts.ignore_missing_column_families=
       THDVAR(m_thd, write_ignore_missing_column_families);
 
-    m_rocksdb_tx= rdb->BeginTransaction(write_opts, tx_opts);
+    /*
+      If m_rocksdb_reuse_tx is null this will create a new transaction object.
+      Otherwise it will reuse the existing one.
+    */
+    m_rocksdb_tx= rdb->BeginTransaction(write_opts, tx_opts,
+                                        m_rocksdb_reuse_tx);
+    m_rocksdb_reuse_tx= nullptr;
 
     m_read_opts= rocksdb::ReadOptions();
 
@@ -1754,6 +1776,10 @@ public:
     // of the shared_ptr), so let it know it can't reference the transaction
     // anymore.
     m_notifier->detach();
+
+    // Free any transaction memory that is still hanging around.
+    delete m_rocksdb_reuse_tx;
+    DBUG_ASSERT(m_rocksdb_tx == nullptr);
   }
 };
 
