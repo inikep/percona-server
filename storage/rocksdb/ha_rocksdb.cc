@@ -7321,6 +7321,7 @@ int ha_rocksdb::rnd_next_with_direction(uchar *buf, bool move_forward)
   int rc;
   DBUG_ENTER("ha_rocksdb::rnd_next");
 
+  table->status= STATUS_NOT_FOUND;
   stats.rows_requested++;
 
   if (!m_scan_it || !m_scan_it->Valid())
@@ -7333,7 +7334,6 @@ int ha_rocksdb::rnd_next_with_direction(uchar *buf, bool move_forward)
 
       In this case, we should return EOF.
     */
-    table->status= STATUS_NOT_FOUND;
     DBUG_RETURN(HA_ERR_END_OF_FILE);
   }
 
@@ -7356,7 +7356,6 @@ int ha_rocksdb::rnd_next_with_direction(uchar *buf, bool move_forward)
     if (!m_pk_descr->covers_key(key))
     {
       rc= HA_ERR_END_OF_FILE;
-      table->status= STATUS_NOT_FOUND;
     }
     else
     {
