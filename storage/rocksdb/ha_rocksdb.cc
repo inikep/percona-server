@@ -113,7 +113,7 @@ void key_copy(uchar *to_key, uchar *from_record, KEY *key_info,
 void* background_thread(void*);
 void* drop_index_thread(void*);
 void signal_drop_index_thread(bool stop_thread = false);
-bool can_use_bloom_filter(Rdb_key_def *keydef,
+bool can_use_bloom_filter(THD *thd, Rdb_key_def *keydef,
                           const rocksdb::Slice &eq_cond,
                           const bool use_all_keys,
                           bool is_ascending);
@@ -439,6 +439,9 @@ static MYSQL_THDVAR_BOOL(skip_unique_check, PLUGIN_VAR_RQCMDARG,
 static MYSQL_THDVAR_BOOL(commit_in_the_middle, PLUGIN_VAR_RQCMDARG,
   "Commit rows implicitly every rocksdb_bulk_load_size, on bulk load/insert",
   nullptr, nullptr, FALSE);
+
+static MYSQL_THDVAR_BOOL(skip_bloom_filter_on_read, PLUGIN_VAR_RQCMDARG,
+  "Skip using bloom filter for reads", nullptr, nullptr, FALSE);
 
 static MYSQL_THDVAR_ULONG(max_row_locks, PLUGIN_VAR_RQCMDARG,
   "Maximum number of locks a transaction can have",
@@ -1002,6 +1005,7 @@ static struct st_mysql_sys_var* rocksdb_system_variables[]= {
   MYSQL_SYSVAR(skip_unique_check),
   MYSQL_SYSVAR(commit_in_the_middle),
   MYSQL_SYSVAR(bulk_load_size),
+  MYSQL_SYSVAR(skip_bloom_filter_on_read),
 
   MYSQL_SYSVAR(create_if_missing),
   MYSQL_SYSVAR(create_missing_column_families),
@@ -5953,7 +5957,8 @@ int ha_rocksdb::update_write_row(const uchar *old_data,
         The bloom filter may need to be disabled for this lookup.
       */
       bool total_order_seek=
-        !can_use_bloom_filter(key_descr[i], new_key_slice, all_parts_used,
+        !can_use_bloom_filter(ha_thd(), key_descr[i], new_key_slice,
+                              all_parts_used,
                               is_ascending(key_descr[i], HA_READ_KEY_EXACT));
       bool fill_cache= !THDVAR(ha_thd(), skip_fill_cache);
 
@@ -6170,7 +6175,8 @@ void ha_rocksdb::setup_scan_iterator(Rdb_key_def *keydef,
   bool skip_bloom= true;
 
   rocksdb::Slice eq_cond(slice->data(), eq_cond_len);
-  if (can_use_bloom_filter(keydef, eq_cond, use_all_keys, is_ascending))
+  if (can_use_bloom_filter(ha_thd(), keydef, eq_cond,
+                           use_all_keys, is_ascending))
     skip_bloom= false;
 
   /*
@@ -8058,12 +8064,18 @@ void* background_thread(void*)
   @param use_all_keys True if all key parts are set with equal conditions.
                       This is aware of extended keys.
 */
-bool can_use_bloom_filter(Rdb_key_def *keydef,
+bool can_use_bloom_filter(THD *thd, Rdb_key_def *keydef,
                           const rocksdb::Slice &eq_cond,
                           const bool use_all_keys,
                           bool is_ascending)
 {
   bool can_use= false;
+
+  if (THDVAR(thd, skip_bloom_filter_on_read))
+  {
+    return can_use;
+  }
+
   rocksdb::Options opt = rdb->GetOptions(keydef->get_cf());
   if (opt.prefix_extractor)
   {
