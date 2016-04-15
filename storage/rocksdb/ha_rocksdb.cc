@@ -2578,6 +2578,7 @@ static int rocksdb_init_func(void *p)
     // mmap_reads is on and os_buffer is off.   (NO_LINT_DEBUG)
     sql_print_error("RocksDB: Can't disable allow_os_buffer "
                     "if allow_mmap_reads is enabled\n");
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
@@ -2599,6 +2600,7 @@ static int rocksdb_init_func(void *p)
     {
       std::string err_text= status.ToString();
       sql_print_error("RocksDB: Error listing column families: %s", err_text.c_str());
+      my_hash_free(&rocksdb_open_tables);
       DBUG_RETURN(1);
     }
   }
@@ -2641,6 +2643,7 @@ static int rocksdb_init_func(void *p)
                                    properties_collector_factory,
                                    rocksdb_default_cf_options,
                                    rocksdb_override_cf_options)) {
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
@@ -2695,6 +2698,7 @@ static int rocksdb_init_func(void *p)
     {
       sql_print_error("RocksDB: Failed to open flashcahce device at fd %d",
                       cachedev_fd);
+      my_hash_free(&rocksdb_open_tables);
       DBUG_RETURN(1);
     }
     sql_print_information("RocksDB: Disabling flashcache on background "
@@ -2719,6 +2723,7 @@ static int rocksdb_init_func(void *p)
     // NO_LINT_DEBUG
     sql_print_error("RocksDB: compatibility check against existing database " \
                     "options failed. %s", status.ToString().c_str());
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
@@ -2730,6 +2735,7 @@ static int rocksdb_init_func(void *p)
   {
     std::string err_text= status.ToString();
     sql_print_error("RocksDB: Error opening instance: %s", err_text.c_str());
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
   cf_manager.init(&rocksdb_cf_options_map, &cf_handles);
@@ -2737,14 +2743,21 @@ static int rocksdb_init_func(void *p)
   if (dict_manager.init(rdb, &cf_manager))
   {
     sql_print_error("RocksDB: Failed to initialize data dictionary.");
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
   if (binlog_manager.init(&dict_manager))
+  {
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
+  }
 
   if (ddl_manager.init(&dict_manager, &cf_manager, rocksdb_validate_tables))
+  {
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
+  }
 
   /*
     Enable auto compaction, things needed for compaction filter are finished
@@ -2764,6 +2777,7 @@ static int rocksdb_init_func(void *p)
     std::string err_text= status.ToString();
     // NO_LINT_DEBUG
     sql_print_error("RocksDB: Error enabling compaction: %s", err_text.c_str());
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
@@ -2775,6 +2789,7 @@ static int rocksdb_init_func(void *p)
   if (err != 0) {
     sql_print_error("RocksDB: Couldn't start the background thread: (errno=%d)",
                     err);
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
@@ -2787,6 +2802,7 @@ static int rocksdb_init_func(void *p)
   if (err != 0) {
     sql_print_error("RocksDB: Couldn't start the drop index thread: (errno=%d)",
                     err);
+    my_hash_free(&rocksdb_open_tables);
     DBUG_RETURN(1);
   }
 
