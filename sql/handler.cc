@@ -2959,8 +2959,7 @@ int handler::ha_rnd_init(bool scan) {
   assert(table_share->tmp_table != NO_TMP_TABLE || m_lock_type != F_UNLCK);
   assert(inited == NONE || (inited == RND && scan));
 
-  if (scan && is_using_prohibited_gap_locks(table->in_use,
-                                            table->reginfo.lock_type, false)) {
+  if (scan && is_using_prohibited_gap_locks(table, false)) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
@@ -3288,10 +3287,11 @@ int handler::ha_index_read_map(uchar *buf, const uchar *key,
   assert(!pushed_idx_cond || buf == table->record[0]);
 
   if (is_using_prohibited_gap_locks(
-          table->in_use, table->reginfo.lock_type,
+          table,
           is_using_full_unique_key(active_index, keypart_map, find_flag))) {
     return HA_ERR_LOCK_DEADLOCK;
   }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3320,8 +3320,7 @@ int handler::ha_index_read_last_map(uchar *buf, const uchar *key,
   assert(table_share->tmp_table != NO_TMP_TABLE || m_lock_type != F_UNLCK);
   assert(inited == INDEX);
   assert(!pushed_idx_cond || buf == table->record[0]);
-  if (is_using_prohibited_gap_locks(table->in_use, table->reginfo.lock_type,
-                                    false)) {
+  if (is_using_prohibited_gap_locks(table, false)) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
@@ -3357,8 +3356,7 @@ int handler::ha_index_read_idx_map(uchar *buf, uint index, const uchar *key,
   assert(end_range == nullptr);
   assert(!pushed_idx_cond || buf == table->record[0]);
   if (is_using_prohibited_gap_locks(
-          table->in_use, table->reginfo.lock_type,
-          is_using_full_unique_key(index, keypart_map, find_flag))) {
+          table, is_using_full_unique_key(index, keypart_map, find_flag))) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
@@ -3480,10 +3478,10 @@ int handler::ha_index_first(uchar *buf) {
   assert(inited == INDEX);
   assert(!pushed_idx_cond || buf == table->record[0]);
 
-  if (is_using_prohibited_gap_locks(table->in_use, table->reginfo.lock_type,
-                                    false)) {
+  if (is_using_prohibited_gap_locks(table, false)) {
     return HA_ERR_LOCK_DEADLOCK;
   }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3536,8 +3534,7 @@ int handler::ha_index_last(uchar *buf) {
   assert(table_share->tmp_table != NO_TMP_TABLE || m_lock_type != F_UNLCK);
   assert(inited == INDEX);
   assert(!pushed_idx_cond || buf == table->record[0]);
-  if (is_using_prohibited_gap_locks(table->in_use, table->reginfo.lock_type,
-                                    false)) {
+  if (is_using_prohibited_gap_locks(table, false)) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
@@ -8391,13 +8388,16 @@ bool can_hold_locks_on_trans(THD *thd, thr_lock_type lock_type) {
           can_hold_read_locks_on_select(thd, lock_type));
 }
 
-bool handler::is_using_prohibited_gap_locks(THD *thd, thr_lock_type lock_type,
+bool handler::is_using_prohibited_gap_locks(TABLE *table,
                                             bool using_full_primary_key) {
   /*
     Engines without gap locks (MyRocks) cannot provide gap-lock semantics:
     reject statements that would rely on them in multi-table or
     multi-statement REPEATABLE READ (or stricter) transactions.
   */
+  THD *thd = table->in_use;
+  thr_lock_type lock_type = table->reginfo.lock_type;
+
   if (!using_full_primary_key &&
       table->s->table_category != TABLE_CATEGORY_DICTIONARY &&
       !thd->is_system_thread() && ht && ht->db_type == DB_TYPE_ROCKSDB &&
