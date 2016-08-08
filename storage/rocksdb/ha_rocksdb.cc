@@ -10168,6 +10168,15 @@ void rdb_queue_save_stats_request()
   rdb_bg_thread.request_save_stats();
 }
 
+double ha_rocksdb::read_time(uint index, uint ranges, ha_rows rows)
+{
+  if (index != table->s->primary_key) {
+    /* Non covering index range scan */
+    return(handler::read_time(index, ranges, rows));
+  }
+  return (rows/20.0) + 1;
+}
+
 }  // namespace myrocks
 
 /*
