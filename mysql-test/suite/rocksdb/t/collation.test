@@ -102,5 +102,18 @@ DROP TABLE t1;
 --error ER_UNKNOWN_ERROR
 CREATE TABLE u1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 
+# test allowing alters to create temporary tables
+SET GLOBAL rocksdb_strict_collation_exceptions='t1';
+CREATE TABLE t1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb;
+ALTER TABLE t1 AUTO_INCREMENT=1;
+DROP TABLE t1;
+--error ER_UNKNOWN_ERROR
+CREATE TABLE t2 (id INT primary key, value varchar(50), index(value)) engine=rocksdb;
+CREATE TABLE t2 (id INT primary key, value varchar(50)) engine=rocksdb;
+--error ER_UNKNOWN_ERROR
+ALTER TABLE t2 ADD INDEX(value);
+DROP TABLE t2;
+
+
 # cleanup
 SET GLOBAL rocksdb_strict_collation_exceptions=@start_global_value;
