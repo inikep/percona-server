@@ -509,8 +509,8 @@ static MYSQL_THDVAR_BOOL(trace_sst_api, PLUGIN_VAR_RQCMDARG,
   nullptr, nullptr, FALSE);
 
 static MYSQL_THDVAR_BOOL(bulk_load, PLUGIN_VAR_RQCMDARG,
-  "Use bulk-load mode for inserts. This enables both "
-  "rocksdb_skip_unique_check and rocksdb_commit_in_the_middle.",
+  "Use bulk-load mode for inserts. This disables "
+  "unique_checks and enables rocksdb_commit_in_the_middle.",
   nullptr, rocksdb_set_bulk_load, FALSE);
 
 static MYSQL_SYSVAR_BOOL(enable_bulk_load_api,
@@ -523,9 +523,6 @@ static MYSQL_THDVAR_STR(tmpdir,
   PLUGIN_VAR_OPCMDARG|PLUGIN_VAR_MEMALLOC,
   "Directory for temporary files during DDL operations.",
   nullptr, nullptr, "");
-
-static MYSQL_THDVAR_BOOL(skip_unique_check, PLUGIN_VAR_RQCMDARG,
-  "Skip unique constraint checking", nullptr, nullptr, FALSE);
 
 static MYSQL_THDVAR_BOOL(commit_in_the_middle, PLUGIN_VAR_RQCMDARG,
   "Commit rows implicitly every rocksdb_bulk_load_size, on bulk load/insert, "
@@ -1170,7 +1167,6 @@ static struct st_mysql_sys_var* rocksdb_system_variables[]= {
   MYSQL_SYSVAR(lock_scanned_rows),
   MYSQL_SYSVAR(bulk_load),
   MYSQL_SYSVAR(trace_sst_api),
-  MYSQL_SYSVAR(skip_unique_check),
   MYSQL_SYSVAR(commit_in_the_middle),
   MYSQL_SYSVAR(rpl_skip_tx_api),
   MYSQL_SYSVAR(bulk_load_size),
@@ -7321,7 +7317,7 @@ bool ha_rocksdb::can_use_single_delete(const uint &index) const
 bool ha_rocksdb::skip_unique_check() const
 {
   return THDVAR(table->in_use, bulk_load) ||
-         THDVAR(table->in_use, skip_unique_check);
+         my_core::thd_test_options(table->in_use, OPTION_RELAXED_UNIQUE_CHECKS);
 }
 
 bool ha_rocksdb::commit_in_the_middle()
