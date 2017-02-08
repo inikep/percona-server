@@ -6758,7 +6758,9 @@ bool ha_rocksdb::can_use_single_delete(const uint &index) const {
 
 bool ha_rocksdb::skip_unique_check() const {
   return THDVAR(table->in_use, bulk_load) ||
-         my_core::thd_test_options(table->in_use, OPTION_RELAXED_UNIQUE_CHECKS);
+         (my_core::thd_test_options(table->in_use,
+                                    OPTION_RELAXED_UNIQUE_CHECKS) &&
+          m_tbl_def->m_key_count == 1);
 }
 
 bool ha_rocksdb::commit_in_the_middle() {
