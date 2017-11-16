@@ -2940,7 +2940,7 @@ next_block:
       goto func_exit;
     }
 
-    IORequest request;
+    IORequest request(IORequest::NO_ENCRYPTION | IORequest::READ);
 
     byte *buf = index->online_log->head.block;
 
@@ -3741,7 +3741,7 @@ next_block:
       goto func_exit;
     }
 
-    IORequest request;
+    IORequest request(IORequest::NO_ENCRYPTION | IORequest::READ);
 
     byte *buf = index->online_log->head.block;
 
