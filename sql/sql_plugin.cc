@@ -988,8 +988,7 @@ static bool plugin_add(MEM_ROOT *tmp_root, const LEX_STRING *name,
     report_error(report, ER_UDF_EXISTS, name->str);
     DBUG_RETURN(true);
   }
-  if (!(tmp.plugin_dl = plugin_dl_add(dl, report)))
-    DBUG_RETURN(true);
+  if (!(tmp.plugin_dl = plugin_dl_add(dl, report))) DBUG_RETURN(true);
   /* Find plugin by name */
   for (plugin = tmp.plugin_dl->plugins; plugin->info; plugin++) {
     size_t name_len = strlen(plugin->name);
@@ -1874,6 +1873,7 @@ void plugin_shutdown(void) {
   st_plugin_int **plugins, *plugin;
   st_plugin_dl **dl;
   bool skip_binlog = true;
+  std::list<st_plugin_int *> keyring_plugins;
 
   DBUG_ENTER("plugin_shutdown");
 
@@ -1895,13 +1895,14 @@ void plugin_shutdown(void) {
       for (i = 0; i < count; i++) {
         plugin = plugin_array->at(i);
 
-        if (plugin->state == PLUGIN_IS_READY &&
-            strcmp(plugin->name.str, "binlog") == 0 && skip_binlog) {
-          skip_binlog = false;
-
-        } else if (plugin->state == PLUGIN_IS_READY) {
-          plugin->state = PLUGIN_IS_DELETED;
-          reap_needed = true;
+        if (plugin->state == PLUGIN_IS_READY) {
+          if (strcmp(plugin->name.str, "binlog") == 0 && skip_binlog) {
+            skip_binlog = false;
+          } else if (plugin->plugin->type != MYSQL_KEYRING_PLUGIN) {
+            plugin->state = PLUGIN_IS_DELETED;
+            reap_needed = true;
+          } else if (plugin->plugin->type == MYSQL_KEYRING_PLUGIN)
+            keyring_plugins.push_back(plugin);
         }
       }
       if (!reap_needed) {
@@ -1925,6 +1926,13 @@ void plugin_shutdown(void) {
         plugins[i]->state = PLUGIN_IS_DYING;
     }
     mysql_mutex_unlock(&LOCK_plugin);
+
+    for (std::list<st_plugin_int *>::iterator keyring_iter =
+             keyring_plugins.begin();
+         keyring_iter != keyring_plugins.end(); ++keyring_iter) {
+      if (!((*keyring_iter)->state & PLUGIN_IS_UNINITIALIZED))
+        plugin_deinitialize(*keyring_iter, false);
+    }
 
     /*
       We loop through all plugins and call deinit() if they have one.
@@ -2417,6 +2425,14 @@ static bool mysql_uninstall_plugin(THD *thd, const LEX_STRING *name) {
                "Plugin is still in use.");
       goto err;
     }
+  }
+
+  if (plugin->ref_count && plugin->plugin->type == MYSQL_KEYRING_PLUGIN) {
+    mysql_mutex_unlock(&LOCK_plugin);
+
+    my_error(ER_PLUGIN_CANNOT_BE_UNINSTALLED, MYF(0), name->str,
+             "Plugin is busy, it cannot be uninstalled. ");
+    goto err;
   }
 
   plugin->state = PLUGIN_IS_DELETED;
