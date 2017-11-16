@@ -57,6 +57,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0load.h"
 #include "dict0mem.h"
 #include "dict0types.h"
+#include "fil0crypt.h"
 #include "fsp0sysspace.h"
 #include "fts0opt.h"
 #include "fts0priv.h"
@@ -7301,7 +7302,7 @@ struct st_mysql_plugin i_s_innodb_cached_indexes = {
 
 /**  INNODB_SESSION_TEMPORARY TABLESPACES   ***********************/
 /* Fields of the dynamic table
-INFORMATION_SCHEMA.INNODB_SESSION_TEMPORARY_TABLESPACES */
+   INFORMATION_SCHEMA.INNODB_SESSION_TEMPORARY_TABLESPACES */
 static ST_FIELD_INFO innodb_session_temp_tablespaces_fields_info[] = {
 #define INNODB_SESSION_TEMP_TABLESPACES_ID 0
     {STRUCT_FLD(field_name, "ID"),
@@ -7416,10 +7417,10 @@ static int i_s_innodb_session_temp_tablespaces_fill(THD *thd,
   }
 
   /* Allocate one session temp tablespace to avoid allocating a session
-  temp tabelspaces during iteration of session temp tablespaces.
-  This is because we have already acquired session pool mutex and iterating.
-  After acquiring mutex, the I_S query tries to acquire session temp pool
-  mutex again */
+     temp tabelspaces during iteration of session temp tablespaces.
+     This is because we have already acquired session pool mutex and iterating.
+     After acquiring mutex, the I_S query tries to acquire session temp pool
+     mutex again */
   check_trx_exists(thd);
   innodb_session_t *innodb_session = thd_to_innodb_session(thd);
   innodb_session->get_instrinsic_temp_tblsp();
@@ -7533,57 +7534,57 @@ static ST_FIELD_INFO i_s_innodb_changed_pages_info[] = {
     END_OF_ST_FIELD_INFO};
 
 /**
-  This function implements ICP for I_S.INNODB_CHANGED_PAGES by parsing a
-  condition and getting lower and upper bounds for start and end LSNs if the
-  condition corresponds to a certain pattern.
+   This function implements ICP for I_S.INNODB_CHANGED_PAGES by parsing a
+   condition and getting lower and upper bounds for start and end LSNs if the
+   condition corresponds to a certain pattern.
 
-  In the most general form, we understand queries like
+   In the most general form, we understand queries like
 
-  SELECT * FROM INNODB_CHANGED_PAGES
-      WHERE START_LSN > num1 AND START_LSN < num2
-            AND END_LSN > num3 AND END_LSN < num4;
+   SELECT * FROM INNODB_CHANGED_PAGES
+   WHERE START_LSN > num1 AND START_LSN < num2
+   AND END_LSN > num3 AND END_LSN < num4;
 
-  That's why the pattern syntax is:
+   That's why the pattern syntax is:
 
-  pattern:  comp | and_comp;
-  comp:     lsn <  int_num | lsn <= int_num | int_num > lsn  | int_num >= lsn;
-  lsn:	    start_lsn | end_lsn;
-  and_comp: expression AND expression | expression AND and_comp;
-  expression: comp | any_other_expression;
+   pattern:  comp | and_comp;
+   comp:     lsn <  int_num | lsn <= int_num | int_num > lsn  | int_num >= lsn;
+   lsn:	    start_lsn | end_lsn;
+   and_comp: expression AND expression | expression AND and_comp;
+   expression: comp | any_other_expression;
 
-  The two bounds are handled differently: the lower bound is used to find the
-  correct starting _file_, the upper bound the last _block_ that needs reading.
+   The two bounds are handled differently: the lower bound is used to find the
+   correct starting _file_, the upper bound the last _block_ that needs reading.
 
-  Lower bound conditions are handled in the following way: start_lsn >= X
-  specifies that the reading must start from the file that has the highest
-  starting LSN less than or equal to X. start_lsn > X is equivalent to
-  start_lsn >= X + 1.  For end_lsn, end_lsn >= X is treated as
-  start_lsn >= X - 1 and end_lsn > X as start_lsn >= X.
+   Lower bound conditions are handled in the following way: start_lsn >= X
+   specifies that the reading must start from the file that has the highest
+   starting LSN less than or equal to X. start_lsn > X is equivalent to
+   start_lsn >= X + 1.  For end_lsn, end_lsn >= X is treated as
+   start_lsn >= X - 1 and end_lsn > X as start_lsn >= X.
 
-  For the upper bound, suppose the condition is start_lsn < 100, this means we
-  have to read all blocks with start_lsn < 100. Which is equivalent to reading
-  all the blocks with end_lsn <= 99, or just end_lsn < 100. That's why it's
-  enough to find maximum lsn value, doesn't matter if this is start or end lsn
-  and compare it with "start_lsn" field. LSN <= 100 is treated as LSN < 101.
+   For the upper bound, suppose the condition is start_lsn < 100, this means we
+   have to read all blocks with start_lsn < 100. Which is equivalent to reading
+   all the blocks with end_lsn <= 99, or just end_lsn < 100. That's why it's
+   enough to find maximum lsn value, doesn't matter if this is start or end lsn
+   and compare it with "start_lsn" field. LSN <= 100 is treated as LSN < 101.
 
-  Example:
+   Example:
 
-  SELECT * FROM INNODB_CHANGED_PAGES
-    WHERE
-    start_lsn > 10  AND
-    end_lsn <= 1111 AND
-    555 > end_lsn   AND
-    page_id = 100;
+   SELECT * FROM INNODB_CHANGED_PAGES
+   WHERE
+   start_lsn > 10  AND
+   end_lsn <= 1111 AND
+   555 > end_lsn   AND
+   page_id = 100;
 
-  end_lsn will be set to 555, start_lsn will be set 11.
+   end_lsn will be set to 555, start_lsn will be set 11.
 
-  Support for other functions (equal, NULL-safe equal, BETWEEN, IN, etc.) will
-  be added on demand.
+   Support for other functions (equal, NULL-safe equal, BETWEEN, IN, etc.) will
+   be added on demand.
 
-@param[in]	table		table
-@param[in]	cond		condition
-@param[out]	start_lsn	minimum LSN
-@param[out[	end_lsn		maximum LSN */
+   @param[in]	table		table
+   @param[in]	cond		condition
+   @param[out]	start_lsn	minimum LSN
+   @param[out[	end_lsn		maximum LSN */
 static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
                                            lsn_t *start_lsn, lsn_t *end_lsn) {
   if (cond->type() != Item::COND_ITEM && cond->type() != Item::FUNC_ITEM)
@@ -7606,8 +7607,8 @@ static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
     case Item_func::GT_FUNC:
     case Item_func::GE_FUNC: {
       /* a <= b equals to b >= a that's why we just exchange "left"
-      and "right" in the case of ">" or ">=" function.  We don't
-      touch the operation itself.  */
+         and "right" in the case of ">" or ">=" function.  We don't
+         touch the operation itself.  */
       Item *left;
       Item *right;
       if (((Item_func *)cond)->functype() == Item_func::LT_FUNC ||
@@ -7645,7 +7646,7 @@ static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
       uint64_t tmp_result;
       if (left->type() == Item::FIELD_ITEM && right->type() == Item::INT_ITEM) {
         /* The case of start_lsn|end_lsn <|<= const, i.e. the
-        upper bound.  */
+           upper bound.  */
 
         tmp_result = right->val_int();
         if (((func_type == Item_func::LE_FUNC) ||
@@ -7660,7 +7661,7 @@ static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
       } else if (left->type() == Item::INT_ITEM &&
                  right->type() == Item::FIELD_ITEM) {
         /* The case of const <|<= start_lsn|end_lsn, i.e. the
-        lower bound */
+           lower bound */
 
         tmp_result = left->val_int();
         if (is_end_lsn && tmp_result != 0) {
@@ -7683,10 +7684,10 @@ static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
 }
 
 /** Fill the dynamic table information_schema.innodb_changed_pages.
-@param[in]	thd	thread
-@param[in,out]	tables	tables to fill
-@param[in]	cond	condition
-@return 0 on success, 1 on failure */
+    @param[in]	thd	thread
+    @param[in,out]	tables	tables to fill
+    @param[in]	cond	condition
+    @return 0 on success, 1 on failure */
 static int i_s_innodb_changed_pages_fill(THD *thd, TABLE_LIST *tables,
                                          Item *cond) {
   DBUG_ENTER("i_s_innodb_changed_pages_fill");
@@ -7704,8 +7705,8 @@ static int i_s_innodb_changed_pages_fill(THD *thd, TABLE_LIST *tables,
   }
 
   /* If the log tracker is running and our max_lsn > current tracked LSN,
-  cap the max lsn so that we don't try to read any partial runs as the
-  tracked LSN advances. */
+     cap the max lsn so that we don't try to read any partial runs as the
+     tracked LSN advances. */
   if (srv_track_changed_pages) {
     const lsn_t tracked_lsn = log_sys->tracked_lsn.load();
     if (max_lsn > tracked_lsn) max_lsn = tracked_lsn;
@@ -7794,3 +7795,284 @@ struct st_mysql_plugin i_s_innodb_changed_pages = {
     STRUCT_FLD(__reserved1, nullptr),
     STRUCT_FLD(flags, 0UL),
 };
+
+/**  TABLESPACES_ENCRYPTION    ********************************************/
+/* Fields of the table INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION */
+static ST_FIELD_INFO innodb_tablespaces_encryption_fields_info[] = {
+#define TABLESPACES_ENCRYPTION_SPACE 0
+    {STRUCT_FLD(field_name, "SPACE"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_NAME 1
+    {STRUCT_FLD(field_name, "NAME"),
+     STRUCT_FLD(field_length, MAX_FULL_NAME_LEN + 1),
+     STRUCT_FLD(field_type, MYSQL_TYPE_STRING), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_MAYBE_NULL), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_ENCRYPTION_SCHEME 2
+    {STRUCT_FLD(field_name, "ENCRYPTION_SCHEME"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_KEYSERVER_REQUESTS 3
+    {STRUCT_FLD(field_name, "KEYSERVER_REQUESTS"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_MIN_KEY_VERSION 4
+    {STRUCT_FLD(field_name, "MIN_KEY_VERSION"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_CURRENT_KEY_VERSION 5
+    {STRUCT_FLD(field_name, "CURRENT_KEY_VERSION"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_KEY_ROTATION_PAGE_NUMBER 6
+    {STRUCT_FLD(field_name, "KEY_ROTATION_PAGE_NUMBER"),
+     STRUCT_FLD(field_length, MY_INT64_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONGLONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED | MY_I_S_MAYBE_NULL),
+     STRUCT_FLD(old_name, ""), STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_KEY_ROTATION_MAX_PAGE_NUMBER 7
+    {STRUCT_FLD(field_name, "KEY_ROTATION_MAX_PAGE_NUMBER"),
+     STRUCT_FLD(field_length, MY_INT64_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONGLONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED | MY_I_S_MAYBE_NULL),
+     STRUCT_FLD(old_name, ""), STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_CURRENT_KEY_ID 8
+    {STRUCT_FLD(field_name, "CURRENT_KEY_ID"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+#define TABLESPACES_ENCRYPTION_ROTATING_OR_FLUSHING 9
+    {STRUCT_FLD(field_name, "ROTATING_OR_FLUSHING"),
+     STRUCT_FLD(field_length, 1), STRUCT_FLD(field_type, MYSQL_TYPE_LONG),
+     STRUCT_FLD(value, 0), STRUCT_FLD(field_flags, MY_I_S_UNSIGNED),
+     STRUCT_FLD(old_name, ""), STRUCT_FLD(open_method, 0)},
+
+    END_OF_ST_FIELD_INFO};
+
+/**********************************************************************/ /**
+ Function to fill INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION
+ with information collected by scanning SYS_TABLESPACES table.
+ @param[in]	thd		thread handle
+ @param[in]	space		Tablespace
+ @param[in]	table_to_fill	I_S table to fill
+ @return 0 on success */
+static int i_s_dict_fill_tablespaces_encryption(THD *thd, fil_space_t *space,
+                                                TABLE *table_to_fill) {
+  Field **fields;
+  struct fil_space_crypt_status_t status;
+
+  DBUG_ENTER("i_s_dict_fill_tablespaces_encryption");
+
+  fields = table_to_fill->field;
+
+  fil_space_crypt_get_status(space, &status);
+
+  /* If tablespace id does not match, we did not find
+  encryption information for this tablespace. */
+  if (!space->crypt_data || space->id != status.space) {
+    goto skip;
+  }
+
+  OK(fields[TABLESPACES_ENCRYPTION_SPACE]->store(space->id, true));
+
+  OK(field_store_string(fields[TABLESPACES_ENCRYPTION_NAME], space->name));
+
+  OK(fields[TABLESPACES_ENCRYPTION_ENCRYPTION_SCHEME]->store(status.scheme,
+                                                             true));
+  OK(fields[TABLESPACES_ENCRYPTION_KEYSERVER_REQUESTS]->store(
+      status.keyserver_requests, true));
+  OK(fields[TABLESPACES_ENCRYPTION_MIN_KEY_VERSION]->store(
+      status.min_key_version, true));
+  OK(fields[TABLESPACES_ENCRYPTION_CURRENT_KEY_VERSION]->store(
+      status.current_key_version, true));
+  OK(fields[TABLESPACES_ENCRYPTION_CURRENT_KEY_ID]->store(status.key_id, true));
+  OK(fields[TABLESPACES_ENCRYPTION_ROTATING_OR_FLUSHING]->store(
+      status.rotating || status.flushing, true));
+
+  if (status.rotating) {
+    fields[TABLESPACES_ENCRYPTION_KEY_ROTATION_PAGE_NUMBER]->set_notnull();
+    OK(fields[TABLESPACES_ENCRYPTION_KEY_ROTATION_PAGE_NUMBER]->store(
+        status.rotate_next_page_number, true));
+    fields[TABLESPACES_ENCRYPTION_KEY_ROTATION_MAX_PAGE_NUMBER]->set_notnull();
+    OK(fields[TABLESPACES_ENCRYPTION_KEY_ROTATION_MAX_PAGE_NUMBER]->store(
+        status.rotate_max_page_number, true));
+  } else {
+    fields[TABLESPACES_ENCRYPTION_KEY_ROTATION_PAGE_NUMBER]->set_null();
+    fields[TABLESPACES_ENCRYPTION_KEY_ROTATION_MAX_PAGE_NUMBER]->set_null();
+  }
+  OK(schema_table_store_record(thd, table_to_fill));
+
+skip:
+  DBUG_RETURN(0);
+}
+/*******************************************************************/ /**
+ Function to populate INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION table.
+ Loop through each record in TABLESPACES_ENCRYPTION, and extract the column
+ information and fill the INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION
+ table.
+ @return 0 on success */
+static int i_s_tablespaces_encryption_fill_table(
+    THD *thd, TABLE_LIST *tables, /*!< in/out: tables to fill */
+    Item *)                       /*!< in: condition (not used) */
+{
+  btr_pcur_t pcur;
+  const rec_t *rec;
+  mem_heap_t *heap;
+  mtr_t mtr;
+  dict_table_t *dd_spaces;
+  MDL_ticket *mdl = nullptr;
+  bool ret;
+
+  DBUG_ENTER("i_s_innodb_tablespaces_fill_table");
+
+  /* deny access to user without PROCESS_ACL privilege */
+  if (check_global_access(thd, PROCESS_ACL)) {
+    DBUG_RETURN(0);
+  }
+
+  heap = mem_heap_create(1000, UT_LOCATION_HERE);
+  mutex_enter(&dict_sys->mutex);
+  mtr_start(&mtr);
+
+  for (rec = dd_startscan_system(thd, &mdl, &pcur, &mtr,
+                                 dd_tablespaces_name.c_str(), &dd_spaces);
+       rec != NULL; rec = dd_getnext_system_rec(&pcur, &mtr)) {
+    space_id_t space_id;
+    char *name;
+    uint flags;
+    uint32 server_version;
+    uint32 space_version;
+    bool is_encrypted;
+    dd::String_type state;
+    uint64_t autoextend_size;
+
+    /* Extract necessary information from a INNODB_TABLESPACES
+    row */
+    ret = dd_process_dd_tablespaces_rec(
+        heap, rec, &space_id, &name, &flags, &server_version, &space_version,
+        &is_encrypted, &autoextend_size, &state, dd_spaces);
+
+    mtr_commit(&mtr);
+    mutex_exit(&dict_sys->mutex);
+
+    fil_space_t *space = fil_space_acquire_silent(space_id);
+
+    if (ret && space != nullptr) {
+      i_s_dict_fill_tablespaces_encryption(thd, space, tables->table);
+    } else {
+      push_warning_printf(thd, Sql_condition::SL_WARNING,
+                          ER_CANT_FIND_SYSTEM_REC, "%s", name);
+    }
+
+    if (space) {
+      fil_space_release(space);
+    }
+
+    mem_heap_empty(heap);
+
+    /* Get the next record */
+    mutex_enter(&dict_sys->mutex);
+    mtr_start(&mtr);
+  }
+
+  mtr_commit(&mtr);
+  dd_table_close(dd_spaces, thd, &mdl, true);
+  mutex_exit(&dict_sys->mutex);
+  mem_heap_free(heap);
+
+  DBUG_RETURN(0);
+}
+
+/*******************************************************************/ /**
+ Bind the dynamic table INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION
+ @return 0 on success */
+static int innodb_tablespaces_encryption_init(
+    void *p) /*!< in/out: table schema object */
+{
+  ST_SCHEMA_TABLE *schema;
+
+  DBUG_ENTER("innodb_tablespaces_encryption_init");
+
+  schema = (ST_SCHEMA_TABLE *)p;
+
+  schema->fields_info = innodb_tablespaces_encryption_fields_info;
+  schema->fill_table = i_s_tablespaces_encryption_fill_table;
+
+  DBUG_RETURN(0);
+}
+
+struct st_mysql_plugin i_s_innodb_tablespaces_encryption = {
+    /* the plugin type (a MYSQL_XXX_PLUGIN value) */
+    /* int */
+    STRUCT_FLD(type, MYSQL_INFORMATION_SCHEMA_PLUGIN),
+
+    /* pointer to type-specific plugin descriptor */
+    /* void* */
+    STRUCT_FLD(info, &i_s_info),
+
+    /* plugin name */
+    /* const char* */
+    STRUCT_FLD(name, "INNODB_TABLESPACES_ENCRYPTION"),
+
+    /* plugin author (for SHOW PLUGINS) */
+    /* const char* */
+    STRUCT_FLD(author, "Google Inc"),
+
+    /* general descriptive text (for SHOW PLUGINS) */
+    /* const char* */
+    STRUCT_FLD(descr, "InnoDB TABLESPACES_ENCRYPTION"),
+
+    /* the plugin license (PLUGIN_LICENSE_XXX) */
+    /* int */
+    STRUCT_FLD(license, PLUGIN_LICENSE_BSD),
+
+    /* the function to invoke when plugin is loaded */
+    /* int (*)(void*); */
+    STRUCT_FLD(init, innodb_tablespaces_encryption_init),
+
+    /* the function to invoke when plugin is un installed */
+    /* int (*)(void*); */
+    NULL,
+
+    /* the function to invoke when plugin is unloaded */
+    /* int (*)(void*); */
+    STRUCT_FLD(deinit, i_s_common_deinit),
+
+    /* plugin version (for SHOW PLUGINS) */
+    /* unsigned int */
+    STRUCT_FLD(version, i_s_innodb_plugin_version),
+
+    /* struct st_mysql_show_var* */
+    STRUCT_FLD(status_vars, NULL),
+
+    /* struct st_mysql_sys_var** */
+    STRUCT_FLD(system_vars, NULL),
+
+    /* reserved for dependency checking */
+    /* void* */
+    STRUCT_FLD(__reserved1, NULL),
+
+    /* Plugin flags */
+    /* unsigned long */
+    STRUCT_FLD(flags, 0UL)};

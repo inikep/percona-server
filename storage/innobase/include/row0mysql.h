@@ -87,6 +87,8 @@ struct trx_t;
 struct upd_node_t;
 struct upd_t;
 
+#include "keyring_encryption_key_info.h"
+
 #ifndef UNIV_HOTBACKUP
 extern bool row_rollback_on_timeout;
 
@@ -368,10 +370,15 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in]      create_info     HA_CREATE_INFO object
 @param[in,out]  trx             transaction
 @param[in]      heap            temp memory heap or nullptr
+@param[in]      mode            keyring encryption mode
+@param[in]      keyring_encryption_key_id       keyring encryption info
 @return error code or DB_SUCCESS */
 [[nodiscard]] dberr_t row_create_table_for_mysql(
     dict_table_t *&table, const char *compression,
-    const HA_CREATE_INFO *create_info, trx_t *trx, mem_heap_t *heap);
+    const HA_CREATE_INFO *create_info, trx_t *trx, mem_heap_t *heap,
+    const fil_encryption_t mode, /*!< in: encryption mode */
+    const KeyringEncryptionKeyIdInfo
+        &keyring_encryption_key_id); /*!< in: encryption key_id */
 
 /** Does an index creation operation for MySQL. TODO: currently failure
  to create an index results in dropping the whole table! This is no problem
@@ -1020,7 +1027,6 @@ dfield_t *innobase_get_computed_value(
     mem_heap_t **local_heap, mem_heap_t *heap, const dict_field_t *ifield,
     THD *thd, TABLE *mysql_table, const dict_table_t *old_table,
     upd_t *parent_update, dict_foreign_t *foreign, mem_heap_t **compress_heap);
-
 /** Parse out multi-values from a MySQL record
 @param[in]      mysql_table     MySQL table structure
 @param[in]      f_idx           field index of the multi-value column
