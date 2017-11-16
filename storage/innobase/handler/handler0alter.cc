@@ -101,6 +101,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_innopart.h"
 #include "partition_info.h"
 
+extern char server_uuid[UUID_LENGTH + 1];
+
 /** Flags indicating if current operation can be done instantly */
 enum class Instant_Type : uint16_t {
   /** Impossible to alter instantly */
@@ -645,13 +647,23 @@ static inline bool is_instant(const Alter_inplace_info *ha_alter_info) {
 @param[in]	ha_alter_info	The DDL operation
 @return whether it is necessary to rebuild the table */
 static MY_ATTRIBUTE((warn_unused_result)) bool innobase_need_rebuild(
-    const Alter_inplace_info *ha_alter_info) {
+    const Alter_inplace_info *ha_alter_info, const TABLE *old_table) {
   if (is_instant(ha_alter_info)) {
     return (false);
   }
 
   Alter_inplace_info::HA_ALTER_FLAGS alter_inplace_flags =
       ha_alter_info->handler_flags & ~(INNOBASE_INPLACE_IGNORE);
+
+  if ((Encryption::none_explicitly_specified(
+           ha_alter_info->create_info->encrypt_type.str) &&
+       (Encryption::is_keyring(old_table->s->encrypt_type.str) ||
+        Encryption::is_empty(old_table->s->encrypt_type.str))) ||
+      (Encryption::is_keyring(ha_alter_info->create_info->encrypt_type.str) &&
+       !Encryption::is_keyring(old_table->s->encrypt_type.str)) ||
+      ha_alter_info->create_info->encryption_key_id !=
+          old_table->s->encryption_key_id)
+    return true;
 
   if (alter_inplace_flags == Alter_inplace_info::CHANGE_CREATE_OPTION &&
       !(ha_alter_info->create_info->used_fields &
@@ -707,13 +719,13 @@ enum_alter_inplace_result ha_innobase::check_if_supported_inplace_alter(
     return HA_ALTER_INPLACE_NOT_SUPPORTED;
   }
 
-  /* We don't support change encryption attribute with
+  /* We don't support change Master key encryption attribute with
   inplace algorithm. */
-  const bool currently_encrypted =
-      m_prebuilt->table->flags2 & DICT_TF2_ENCRYPTION_FILE_PER_TABLE;
+  char *old_encryption = this->table->s->encrypt_type.str;
   char *new_encryption = altered_table->s->encrypt_type.str;
 
-  if (currently_encrypted == Encryption::is_none(new_encryption)) {
+  if (Encryption::is_master_key_encryption(old_encryption) !=
+      Encryption::is_master_key_encryption(new_encryption)) {
     ha_alter_info->unsupported_reason =
         innobase_get_err_msg(ER_UNSUPPORTED_ALTER_ENCRYPTION_INPLACE);
     return HA_ALTER_INPLACE_NOT_SUPPORTED;
@@ -995,7 +1007,7 @@ enum_alter_inplace_result ha_innobase::check_if_supported_inplace_alter(
     operation is possible. */
   } else if (((ha_alter_info->handler_flags &
                Alter_inplace_info::ADD_PK_INDEX) ||
-              innobase_need_rebuild(ha_alter_info)) &&
+              innobase_need_rebuild(ha_alter_info, altered_table)) &&
              (innobase_fulltext_exist(altered_table) ||
               innobase_spatial_exist(altered_table))) {
     /* Refuse to rebuild the table online, if
@@ -1143,7 +1155,7 @@ bool ha_innobase::prepare_inplace_alter_table(TABLE *altered_table,
   ut_ad(new_dd_tab != nullptr);
 
   if (dict_sys_t::is_dd_table_id(m_prebuilt->table->id) &&
-      innobase_need_rebuild(ha_alter_info)) {
+      innobase_need_rebuild(ha_alter_info, table)) {
     ut_ad(!m_prebuilt->table->is_temporary());
     my_error(ER_NOT_ALLOWED_COMMAND, MYF(0));
     return true;
@@ -2705,9 +2717,11 @@ static MY_ATTRIBUTE((warn_unused_result, malloc)) index_def_t
                               bool &add_fts_doc_id,
                               /*!< in: whether we need to add new DOC ID
                               column for FTS index */
-                              bool &add_fts_doc_idx)
-/*!< in: whether we need to add new DOC ID
-index for FTS index */
+                              bool &add_fts_doc_idx,
+                              /*!< in: whether we need to add new DOC ID
+                              index for FTS index */
+                              const TABLE *table)
+/*!<in: old_table MySQL table as it is before the ALTER operation */
 {
   index_def_t *indexdef;
   index_def_t *indexdefs;
@@ -2738,8 +2752,8 @@ index for FTS index */
     new_primary = (altered_table->s->primary_key != MAX_KEY);
   }
 
-  const bool rebuild =
-      new_primary || add_fts_doc_id || innobase_need_rebuild(ha_alter_info);
+  const bool rebuild = new_primary || add_fts_doc_id ||
+                       innobase_need_rebuild(ha_alter_info, table);
 
   /* Reserve one more space if new_primary is true, and we might
   need to add the FTS_DOC_ID_INDEX */
@@ -4280,6 +4294,7 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
   bool build_fts_common = false;
 
   ha_innobase_inplace_ctx *ctx;
+  KeyringEncryptionKeyIdInfo keyring_encryption_key_id;
 
   DBUG_TRACE;
 
@@ -4364,7 +4379,7 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
       ctx->heap, ha_alter_info, altered_table, new_dd_tab,
       ctx->num_to_add_index, num_fts_index,
       row_table_got_default_clust_index(ctx->new_table), fts_doc_id_col,
-      add_fts_doc_id, add_fts_doc_id_idx);
+      add_fts_doc_id, add_fts_doc_id_idx, old_table);
 
   new_clustered = DICT_CLUSTERED & index_defs[0].ind_type;
 
@@ -4389,7 +4404,7 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
   if (!ctx->online) {
     /* This is not an online operation (LOCK=NONE). */
   } else if (ctx->add_autoinc == ULINT_UNDEFINED && num_fts_index == 0 &&
-             (!innobase_need_rebuild(ha_alter_info) ||
+             (!innobase_need_rebuild(ha_alter_info, old_table) ||
               !innobase_fulltext_exist(altered_table))) {
     /* InnoDB can perform an online operation (LOCK=NONE). */
   } else {
@@ -4405,8 +4420,10 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
   column is to be added, and the primary index definition
   is just copied from old table and stored in indexdefs[0] */
   assert(!add_fts_doc_id || new_clustered);
-  assert(!!new_clustered ==
-         (innobase_need_rebuild(ha_alter_info) || add_fts_doc_id));
+  assert(
+      !!new_clustered ==
+      (innobase_need_rebuild(ha_alter_info, old_table) ||
+       add_fts_doc_id));
 
   /* Allocate memory for dictionary index definitions */
 
@@ -4457,6 +4474,8 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
     dtuple_t *add_cols;
     space_id_t space_id = 0;
     ulint z = 0;
+    ulint key_id = FIL_DEFAULT_ENCRYPTION_KEY;
+    fil_encryption_t mode = FIL_ENCRYPTION_DEFAULT;
 
     /* SQL-layer already has checked that we are not dropping any
     columns in foreign keys to be kept or making referencing column
@@ -4652,7 +4671,89 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
       compression = nullptr;
     }
 
-    if (!Encryption::is_none(ha_alter_info->create_info->encrypt_type.str)) {
+    const char *encrypt;
+    encrypt = ha_alter_info->create_info->encrypt_type.str;
+    /* If encryption option is specified, then it must be
+    innodb-file-per-table tablespace. Otherwise case would
+    have already been blocked at
+    create_option_tablespace_is_valid(). */
+    if (encrypt) {
+      ut_ad(flags2 & DICT_TF2_USE_FILE_PER_TABLE);
+      ut_ad(!DICT_TF_HAS_SHARED_SPACE(flags));
+    }
+
+    key_id = ha_alter_info->create_info->encryption_key_id;
+
+    // re-encrypting, check that key used to encrypt table is present
+    if (DICT_TF2_FLAG_SET(ctx->old_table, DICT_TF2_ENCRYPTION_FILE_PER_TABLE)) {
+      if (Encryption::is_master_key_encryption(
+              old_table->s->encrypt_type.str)) {
+        // re-encrypting from master key encryption
+        /* Check if keyring is ready. */
+        byte *master_key = NULL;
+        uint32_t master_key_id;
+
+        Encryption::get_master_key(&master_key_id, &master_key);
+
+        if (master_key == NULL) {
+          dict_mem_table_free(ctx->new_table);
+          my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
+          goto new_clustered_failed;
+        } else {
+          my_free(master_key);
+        }
+      }
+    }
+
+    if (Encryption::none_explicitly_specified(encrypt))
+      mode = FIL_ENCRYPTION_OFF;
+    else if (Encryption::is_keyring(encrypt) ||
+             ((srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING ||
+               srv_encrypt_tables ==
+                   SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE) &&
+              !Encryption::none_explicitly_specified(
+                  ha_alter_info->create_info->encrypt_type.str) &&
+              !Encryption::is_master_key_encryption(encrypt)) ||
+             ha_alter_info->create_info->was_encryption_key_id_set) {
+      mode = Encryption::is_keyring(encrypt) ? FIL_ENCRYPTION_ON
+                                             : FIL_ENCRYPTION_DEFAULT;
+      uint tablespace_key_version;
+      byte *tablespace_key;
+
+      // TODO: Add checking for error returned from keyring function, not only
+      // checking if tablespace is null
+      Encryption::get_latest_key_or_create(
+          key_id, server_uuid, &tablespace_key_version, &tablespace_key);
+      if (tablespace_key == NULL) {
+        dict_mem_table_free(ctx->new_table);
+        my_printf_error(
+            ER_ILLEGAL_HA_CREATE_OPTION,
+            "Seems that keyring is down. It is not possible to encrypt table"
+            " without keyring. Please install a keyring and try again.",
+            MYF(0));
+        goto new_clustered_failed;
+      } else {
+        my_free(tablespace_key);
+      }
+
+      if (mode == FIL_ENCRYPTION_ON ||
+          (mode == FIL_ENCRYPTION_DEFAULT &&
+           (srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING ||
+            srv_encrypt_tables ==
+                SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE))) {
+        DICT_TF2_FLAG_SET(ctx->new_table, DICT_TF2_ENCRYPTION_FILE_PER_TABLE);
+      }
+    } else if (!(ctx->new_table->flags2 & DICT_TF2_USE_FILE_PER_TABLE) &&
+               ha_alter_info->create_info->encrypt_type.length > 0 &&
+               Encryption::is_master_key_encryption(encrypt) &&
+               !DICT_TF2_FLAG_SET(ctx->old_table,
+                                  DICT_TF2_ENCRYPTION_FILE_PER_TABLE)) {
+      dict_mem_table_free(ctx->new_table);
+      my_error(ER_TABLESPACE_CANNOT_ENCRYPT, MYF(0));
+      goto new_clustered_failed;
+    } else if (Encryption::is_master_key_encryption(encrypt)) {
+      /* Set the encryption flag. */
+
       /* Check if keyring is ready. */
       if (!Encryption::check_keyring()) {
         dict_mem_table_free(ctx->new_table);
@@ -4667,8 +4768,13 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
 
     dict_sys_mutex_exit();
 
+    keyring_encryption_key_id.was_encryption_key_id_set =
+        ha_alter_info->create_info->was_encryption_key_id_set;
+    keyring_encryption_key_id.id = key_id;
+
     error = row_create_table_for_mysql(ctx->new_table, compression,
-                                       ha_alter_info->create_info, ctx->trx);
+                                       ha_alter_info->create_info, ctx->trx,
+                                       mode, keyring_encryption_key_id);
 
     dict_sys_mutex_enter();
 
@@ -4736,7 +4842,7 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
                                           add_cols, ctx->heap, prebuilt);
     ctx->add_cols = add_cols;
   } else {
-    assert(!innobase_need_rebuild(ha_alter_info));
+    assert(!innobase_need_rebuild(ha_alter_info, old_table));
     assert(old_table->s->primary_key == altered_table->s->primary_key);
 
     for (dict_index_t *index = user_table->first_index(); index != nullptr;
@@ -5352,7 +5458,7 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
         ha_alter_info, m_prebuilt->table, this->table, altered_table);
     /* Even if some operations can be done instantly without rebuilding, they
     are still disallowed to behave like before. */
-    if (innobase_need_rebuild(ha_alter_info) ||
+    if (innobase_need_rebuild(ha_alter_info, table) ||
         (type == Instant_Type::INSTANT_VIRTUAL_ONLY ||
          type == Instant_Type::INSTANT_ADD_COLUMN)) {
       my_error(ER_TABLESPACE_DISCARDED, MYF(0), indexed_table->name.m_name);
@@ -5397,7 +5503,7 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
   is an implicit change to the previously selected default row format. We want
   to keep the table using the original default row_format. */
   if (old_dd_tab->table().row_format() != new_dd_tab->table().row_format() &&
-      !innobase_need_rebuild(ha_alter_info)) {
+      !innobase_need_rebuild(ha_alter_info, altered_table)) {
     adjust_row_format(this->table, altered_table, ha_alter_info, old_dd_tab,
                       new_dd_tab);
   }
@@ -5507,7 +5613,8 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
   flags. There are places where it is done afterwards, there are places
   where it isn't done. We need to inspect all code paths and check if
   encryption flag can be set in one place. */
-  if (!Encryption::is_none(ha_alter_info->create_info->encrypt_type.str)) {
+  if (Encryption::is_master_key_encryption(
+          ha_alter_info->create_info->encrypt_type.str)) {
     /* Set the encryption flag. */
     byte *master_key = nullptr;
     uint32_t master_key_id;
@@ -5831,7 +5938,7 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
   if (!(ha_alter_info->handler_flags & INNOBASE_ALTER_DATA) ||
       ((ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE) ==
            Alter_inplace_info::CHANGE_CREATE_OPTION &&
-       !innobase_need_rebuild(ha_alter_info))) {
+       !innobase_need_rebuild(ha_alter_info, table))) {
     if (heap) {
       ha_alter_info->handler_ctx = new (m_user_thd->mem_root)
           ha_innobase_inplace_ctx(m_prebuilt, drop_index, n_drop_index,
@@ -6092,7 +6199,7 @@ bool ha_innobase::inplace_alter_table_impl(TABLE *altered_table,
 
   if (((ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE) ==
            Alter_inplace_info::CHANGE_CREATE_OPTION &&
-       !innobase_need_rebuild(ha_alter_info))) {
+       !innobase_need_rebuild(ha_alter_info, table))) {
     goto ok_exit;
   }
 
@@ -7301,7 +7408,7 @@ static void alter_stats_rebuild(dict_table_t *table, const char *table_name,
 
   DBUG_EXECUTE_IF("ib_rename_index_fail2",
                   ibd_file_missing_orig = table->ibd_file_missing;
-                  table->ibd_file_missing = TRUE;);
+                  table->ibd_file_missing = true;);
 
   dberr_t ret = dict_stats_update(table, DICT_STATS_RECALC_PERSISTENT);
 

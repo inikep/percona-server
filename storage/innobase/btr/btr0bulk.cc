@@ -639,6 +639,7 @@ void PageBulk::latch() {
     m_block =
         buf_page_get_gen(page_id, page_size, RW_X_LATCH, m_block,
                          Page_fetch::IF_IN_POOL, __FILE__, __LINE__, m_mtr);
+
     ut_ad(m_block != nullptr);
   }
 
