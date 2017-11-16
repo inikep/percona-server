@@ -3838,7 +3838,8 @@ FlushObserver::FlushObserver(space_id_t space_id, trx_t *trx,
       m_stage(stage),
       m_interrupted(false),
       m_estimate(),
-      m_lsn(log_get_lsn(*log_sys)) {
+      m_lsn(log_get_lsn(*log_sys)),
+      m_number_of_pages_flushed(0) {
   m_flushed = UT_NEW_NOKEY(std::vector<ulint>(srv_buf_pool_instances));
   m_removed = UT_NEW_NOKEY(std::vector<ulint>(srv_buf_pool_instances));
 
@@ -3896,6 +3897,7 @@ void FlushObserver::notify_flush(buf_pool_t *buf_pool, buf_page_t *bpage) {
 @param[in]	bpage		buffer page flushed */
 void FlushObserver::notify_remove(buf_pool_t *buf_pool, buf_page_t *bpage) {
   os_atomic_increment_ulint(&m_removed->at(buf_pool->instance_no), 1);
+  os_atomic_increment_ulint(&m_number_of_pages_flushed, 1);
 }
 
 /** Flush dirty pages and wait. */

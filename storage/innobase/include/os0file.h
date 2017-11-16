@@ -337,7 +337,9 @@ class IORequest {
       : m_block_size(UNIV_SECTOR_SIZE),
         m_type(READ),
         m_compression(),
-        m_encryption() {
+        m_encryption(),
+        m_is_page_zip_compressed(false),
+        m_zip_page_physical_size(0) {
     /* No op */
   }
 
@@ -348,7 +350,9 @@ class IORequest {
       : m_block_size(UNIV_SECTOR_SIZE),
         m_type(static_cast<uint16_t>(type)),
         m_compression(),
-        m_encryption() {
+        m_encryption(),
+        m_is_page_zip_compressed(false),
+        m_zip_page_physical_size(0) {
     if (is_log()) {
       disable_compression();
     }
@@ -515,6 +519,25 @@ class IORequest {
   @param[in] key		The encryption key to use
   @param[in] key_len	length of the encryption key
   @param[in] iv		The encryption iv to use */
+  void encryption_key(byte *key, ulint key_len, bool key_allocated, byte *iv,
+                      uint key_version, uint key_id, byte *tablespace_key,
+                      const char *uuid) {
+    m_encryption.set_key(key, key_len, key_allocated);
+    m_encryption.set_initial_vector(iv);
+    m_encryption.set_key_version(key_version);
+    m_encryption.set_key_id(key_id);
+    m_encryption.set_tablespace_key(tablespace_key);
+    m_encryption.set_key_id_uuid(uuid);
+  }
+
+  void encryption_rotation(Encryption_rotation encryption_rotation) {
+    m_encryption.set_encryption_rotation(encryption_rotation);
+  }
+
+  /** Set encryption key and iv
+  @param[in] key		The encryption key to use
+  @param[in] key_len	length of the encryption key
+  @param[in] iv		The encryption iv to use */
   void encryption_key(byte *key, ulint key_len, byte *iv) {
     m_encryption.set_key(key);
     m_encryption.set_key_length(key_len);
@@ -534,10 +557,24 @@ class IORequest {
 
   /** Clear all encryption related flags */
   void clear_encrypted() {
-    m_encryption.set_key(nullptr);
-    m_encryption.set_key_length(0);
+    m_encryption.set_key(nullptr, 0, false);
     m_encryption.set_initial_vector(nullptr);
     m_encryption.set_type(Encryption::NONE);
+    m_encryption.set_encryption_rotation(Encryption_rotation::NO_ROTATION);
+    m_encryption.set_key_id(0);
+    m_encryption.set_tablespace_key(nullptr);
+  }
+
+  void mark_page_zip_compressed() { m_is_page_zip_compressed = true; }
+
+  bool is_page_zip_compressed() const MY_ATTRIBUTE((warn_unused_result)) {
+    return m_is_page_zip_compressed;
+  }
+
+  ulint get_zip_page_physical_size() const { return m_zip_page_physical_size; }
+
+  void set_zip_page_physical_size(ulint zip_page_physical_size) {
+    m_zip_page_physical_size = zip_page_physical_size;
   }
 
   /** Note that the IO is for double write buffer page write. */
@@ -621,6 +658,10 @@ class IORequest {
 
   /** Encryption algorithm */
   Encryption m_encryption;
+
+  bool m_is_page_zip_compressed;
+
+  ulint m_zip_page_physical_size;
 };
 
 /** @} */
@@ -1932,8 +1973,8 @@ dberr_t os_file_decompress_page(bool dblwr_read, byte *src, byte *dst,
 @param[out]	dst_len		Length in bytes of dst contents
 @return buffer data, dst_len will have the length of the data */
 byte *os_file_compress_page(Compression compression, ulint block_size,
-                            byte *src, ulint src_len, byte *dst,
-                            ulint *dst_len);
+                            byte *src, ulint src_len, byte *dst, ulint *dst_len,
+                            bool will_be_encrypted_with_keyring);
 
 /** Determine if O_DIRECT is supported.
 @retval	true	if O_DIRECT is supported.

@@ -330,6 +330,10 @@ class FlushObserver {
     return (m_estimate.load(std::memory_order_relaxed));
   }
 
+  ulint get_number_of_pages_flushed() const {
+    return m_number_of_pages_flushed;
+  }
+
  private:
   /** Table space id */
   space_id_t m_space_id;
@@ -359,6 +363,8 @@ class FlushObserver {
   /** LSN at which observer started observing. This is
   used to find the dirty blocks that are dirtied before Observer */
   const lsn_t m_lsn;
+
+  ulint m_number_of_pages_flushed;
 };
 
 #endif /* !UNIV_HOTBACKUP */
