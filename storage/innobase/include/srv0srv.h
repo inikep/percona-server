@@ -177,6 +177,21 @@ struct srv_stats_t {
 
   /** Number of log scrub operations */
   ulint_ctr_64_t n_log_scrubs;
+
+  /** Number of times page 0 is read from tablespace */
+  ulint_ctr_64_t page0_read;
+
+  /** Number of encryption_get_latest_key_version calls */
+  ulint_ctr_64_t n_key_requests;
+
+  /** Number of spaces in keyrotation list */
+  ulint_ctr_64_t key_rotation_list_length;
+
+  /* Number of pages encrypted */
+  ulint_ctr_64_t pages_encrypted;
+
+  /* Number of pages decrypted */
+  ulint_ctr_64_t pages_decrypted;
 };
 
 /** Structure which keeps shared future objects for InnoDB background
@@ -435,6 +450,9 @@ extern ulong srv_rollback_segments;
 
 /** Maximum size of undo tablespace. */
 extern unsigned long long srv_max_undo_tablespace_size;
+
+extern uint srv_n_fil_crypt_threads;
+extern uint srv_n_fil_crypt_threads_started;
 
 /** Rate at which UNDO records should be purged. */
 extern ulong srv_purge_rseg_truncate_frequency;
@@ -1379,6 +1397,17 @@ struct export_var_t {
                                            statistics */
 
   int64_t innodb_scrub_log;
+  int64_t innodb_pages_encrypted; /*!< Number of pages
+                                  encrypted */
+  int64_t innodb_pages_decrypted; /*!< Number of pages
+                                  decrypted */
+  ulint innodb_encryption_rotation_pages_read_from_cache;
+  ulint innodb_encryption_rotation_pages_read_from_disk;
+  ulint innodb_encryption_rotation_pages_modified;
+  ulint innodb_encryption_rotation_pages_flushed;
+  ulint innodb_encryption_rotation_estimated_iops;
+  int64_t innodb_encryption_key_requests;
+  int64_t innodb_key_rotation_list_length;
 };
 
 #ifndef UNIV_HOTBACKUP
