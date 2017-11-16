@@ -34,6 +34,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <my_aes.h>
 
 #include "dict0dd.h"
+#include "fil0crypt.h"
 #include "fsp0sysspace.h"
 #include "ha_prototypes.h"
 #include "ibuf0ibuf.h"
@@ -362,12 +363,19 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t
 {
   byte value[sizeof(ib_uint32_t)];
 
+  fil_space_t *space = fil_space_get(table->space);
+  // The table is read locked so it will not be dropped
+  ut_ad(space != NULL);
   /* Write the current meta-data version number. */
   uint32_t cfg_version = IB_EXPORT_CFG_VERSION_V5;
   DBUG_EXECUTE_IF("ib_export_use_cfg_version_3",
                   cfg_version = IB_EXPORT_CFG_VERSION_V3;);
   DBUG_EXECUTE_IF("ib_export_use_cfg_version_99",
                   cfg_version = IB_EXPORT_CFG_VERSION_V99;);
+  if (space->crypt_data != NULL &&
+      space->crypt_data->type != CRYPT_SCHEME_UNENCRYPTED) {
+    cfg_version = IB_EXPORT_CFG_VERSION_V1_WITH_RK;
+  }
   mach_write_to_4(value, cfg_version);
 
   DBUG_EXECUTE_IF("ib_export_io_write_failure_4", close(fileno(file)););
@@ -631,8 +639,12 @@ static MY_ATTRIBUTE((nonnull, warn_unused_result)) dberr_t
   dberr_t err;
   char name[OS_FILE_MAX_PATH];
 
-  /* If table is not encrypted, return. */
-  if (!dd_is_table_in_encrypted_tablespace(table)) {
+  fil_space_t *space = fil_space_get(table->space);
+  // The table is read locked so it will not be dropped
+  ut_ad(space != nullptr);
+  /* If table is not encrypted or encrypted with keyring encryption, return. */
+  if (!dd_is_table_in_encrypted_tablespace(table) ||
+      space->crypt_data != NULL) {
     return (DB_SUCCESS);
   }
 
@@ -653,7 +665,6 @@ static MY_ATTRIBUTE((nonnull, warn_unused_result)) dberr_t
     lint new_size = mem_heap_get_size(table->heap);
     dict_sys->size += new_size - old_size;
 
-    fil_space_t *space = fil_space_get(table->space);
     ut_ad(space != nullptr && FSP_FLAGS_GET_ENCRYPTION(space->flags));
 
     memcpy(table->encryption_key, space->encryption_key, Encryption::KEY_LEN);
@@ -756,15 +767,20 @@ void row_quiesce_table_start(dict_table_t *table, /*!< in: quiesce this table */
   if (!trx_is_interrupted(trx)) {
     extern ib_mutex_t master_key_id_mutex;
 
-    if (dd_is_table_in_encrypted_tablespace(table)) {
+    bool was_master_key_id_mutex_locked = false;
+    fil_space_t *space = fil_space_get(table->space);
+    ut_ad(space != nullptr);
+    if (dd_is_table_in_encrypted_tablespace(table) &&
+        space->crypt_data != NULL) {
       /* Take the mutex to make sure master_key_id doesn't change (eg: key
       rotation). */
+      was_master_key_id_mutex_locked = true;
       mutex_enter(&master_key_id_mutex);
     }
 
     buf_LRU_flush_or_remove_pages(table->space, BUF_REMOVE_FLUSH_WRITE, trx);
 
-    if (dd_is_table_in_encrypted_tablespace(table)) {
+    if (was_master_key_id_mutex_locked) {
       mutex_exit(&master_key_id_mutex);
     }
 

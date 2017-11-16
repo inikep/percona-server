@@ -451,7 +451,8 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
                               const page_size_t &page_size, ulint rw_latch,
                               buf_block_t *guess, Page_fetch mode,
                               const char *file, ulint line, mtr_t *mtr,
-                              bool dirty_with_no_latch = false);
+                              bool dirty_with_no_latch = false,
+                              dberr_t *err = nullptr);
 
 /** Initializes a page to the buffer buf_pool. The page is usually not read
 from a file even if it cannot be found in the buffer buf_pool. This is one
@@ -628,6 +629,27 @@ void buf_read_page_handle_error(buf_page_t *bpage);
 #else  /* !UNIV_HOTBACKUP */
 #define buf_block_modify_clock_inc(block) ((void)0)
 #endif /* !UNIV_HOTBACKUP */
+
+bool buf_page_is_checksum_valid_crc32(const byte *read_buf,
+                                      ulint checksum_field1,
+                                      ulint checksum_field2,
+#ifdef UNIV_INNOCHECKSUM
+                                      uintmax_t page_no, bool is_log_enabled,
+                                      FILE *log_file,
+                                      const srv_checksum_algorithm_t curr_algo,
+#endif /* UNIV_INNOCHECKSUM */
+                                      bool use_legacy_big_endian);
+
+bool buf_page_is_checksum_valid_innodb(const byte *read_buf,
+                                       ulint checksum_field1,
+                                       ulint checksum_field2
+#ifdef UNIV_INNOCHECKSUM
+                                       ,
+                                       uintmax_t page_no, bool is_log_enabled,
+                                       FILE *log_file,
+                                       const srv_checksum_algorithm_t curr_algo
+#endif /* UNIV_INNOCHECKSUM */
+);
 
 #ifndef UNIV_HOTBACKUP
 
@@ -952,8 +974,13 @@ buf_page_t *buf_page_init_for_read(dberr_t *err, ulint mode,
 the buffer pool.
 @param[in]	bpage	pointer to the block in question
 @param[in]	evict	whether or not to evict the page from LRU list
-@return true if successful */
-bool buf_page_io_complete(buf_page_t *bpage, bool evict = false);
+@return whether the operation succeeded
+@retval DB_SUCCESS              always when writing, or if a read page was OK
+@retval	DB_PAGE_CORRUPTED       if the checksum fails on a page read
+@retval	DB_DECRYPTION_FAILED    if page post encryption checksum matches but
+                                after decryption normal page checksum does
+                                not match */
+dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict = false);
 
 /** Calculates the index of a buffer pool to the buf_pool[] array.
  @return the position of the buffer pool in buf_pool[] */
@@ -1303,6 +1330,7 @@ class buf_page_t {
   unsigned access_time;
 
   bool is_corrupt;
+  bool encrypted; /*!< page is still encrypted */
 #ifdef UNIV_DEBUG
   /** This is set to TRUE when fsp frees a page in buffer pool;
   protected by buf_pool->zip_mutex or buf_block_t::mutex. */
