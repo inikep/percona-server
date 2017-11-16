@@ -69,9 +69,7 @@ static inline buf_block_t *btr_block_get_func(const page_id_t &page_id,
                                               const page_size_t &page_size,
                                               ulint mode, const char *file,
                                               ulint line,
-#ifdef UNIV_DEBUG
                                               const dict_index_t *index,
-#endif /* UNIV_DEBUG */
                                               mtr_t *mtr) {
   buf_block_t *block;
 
@@ -79,6 +77,7 @@ static inline buf_block_t *btr_block_get_func(const page_id_t &page_id,
                            Page_fetch::NORMAL, file, line, mtr);
 
   SRV_CORRUPT_TABLE_CHECK(block, ; /* do nothing */);
+
   if (block && mode != RW_NO_LATCH) {
     buf_block_dbg_add_level(block, index != nullptr && dict_index_is_ibuf(index)
                                        ? SYNC_IBUF_TREE_NODE
