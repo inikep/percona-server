@@ -86,6 +86,8 @@ struct trx_t;
 struct upd_node_t;
 struct upd_t;
 
+#include "create_info_encryption_key.h"
+
 #ifndef UNIV_HOTBACKUP
 extern ibool row_rollback_on_timeout;
 
@@ -105,11 +107,11 @@ void row_mysql_prebuilt_free_blob_heap(
 void row_mysql_prebuilt_free_compress_heap(row_prebuilt_t *prebuilt) noexcept;
 
 /** Uncompress blob/text/varchar column using zlib
-@param[in]  data    data in InnoDB (compressed) format
-@param[in,out]  len in: data length, out: length of decomprssed data
-@param[in]  dict_data   optional dictionary data used for decompression
-@param[in]  dict_data_len   optional dictionary data length
-@param[in]  prebuilt    use prebuilt->compress_heap only here
+@param[in]	data	data in InnoDB (compressed) format
+@param[in,out]	len	in: data length, out: length of decomprssed data
+@param[in]	dict_data	optional dictionary data used for decompression
+@param[in]	dict_data_len	optional dictionary data length
+@param[in]	prebuilt	use prebuilt->compress_heap only here
 @return pointer to the uncompressed data */
 MY_NODISCARD
 const byte *row_decompress_column(const byte *data, ulint *len,
@@ -117,12 +119,12 @@ const byte *row_decompress_column(const byte *data, ulint *len,
                                   row_prebuilt_t *prebuilt);
 
 /** Compress blob/text/varchar column using zlib
-@param[in]  data    data in MySQL (uncompressed) format
-@param[in,out]  len in: data length: out: length of compressed data
-@param[in]  lenlen  bytes used to store the length of data
-@param[in]  dict_data   optional dictionary data used for compression
-@param[in]  dict_data_len   optional dictionary data length
-@param[in]  prebuilt    use prebuilt->compress_heap only
+@param[in]	data	data in MySQL (uncompressed) format
+@param[in,out]	len	in: data length: out: length of compressed data
+@param[in]	lenlen	bytes used to store the length of data
+@param[in]	dict_data	optional dictionary data used for compression
+@param[in]	dict_data_len	optional dictionary data length
+@param[in]	prebuilt	use prebuilt->compress_heap only
 @return pointer to the compressed data */
 MY_NODISCARD
 byte *row_compress_column(const byte *data, ulint *len, ulint lenlen,
@@ -385,8 +387,11 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in]	compression	compression algorithm to use, can be nullptr
 @param[in,out]	trx		transasction
 @return error code or DB_SUCCESS */
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   trx_t *trx)
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression, trx_t *trx,
+    fil_encryption_t mode, /*!< in: encryption mode */
+    const CreateInfoEncryptionKeyId
+        &create_info_encryption_key_id) /*!< in: encryption key_id */
     MY_ATTRIBUTE((warn_unused_result));
 /** Does an index creation operation for MySQL. TODO: currently failure
  to create an index results in dropping the whole table! This is no problem
@@ -468,7 +473,7 @@ inline dberr_t row_drop_table_for_mysql(const char *name, trx_t *trx) {
 
 /** Discards the tablespace of a table which stored in an .ibd file. Discarding
  means that this function deletes the .ibd file and assigns a new table id for
- the table. Also the flag table->ibd_file_missing is set TRUE.
+ the table. Also the flag table->file_unreadable is set TRUE.
  @return error code or DB_SUCCESS */
 dberr_t row_discard_tablespace_for_mysql(
     const char *name, /*!< in: table name */

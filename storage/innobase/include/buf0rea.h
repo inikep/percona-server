@@ -67,8 +67,8 @@ ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
 buffer buf_pool if it is not already there. Sets the io_fix flag and sets
 an exclusive lock on the buffer frame. The flag is cleared and the x-lock
 released by the i/o-handler thread.
-@param[in]  page_id     page id
-@param[in]  page_size   page size
+@param[in]	page_id		page id
+@param[in]	page_size	page size
 @retval DB_SUCCESS if the page was read and is not corrupted,
 @retval DB_PAGE_CORRUPTED if page based on checksum check is corrupted,
 @retval DB_IO_DECRYPT_FAIL if page post encryption checksum matches but
