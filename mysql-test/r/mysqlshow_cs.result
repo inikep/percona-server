@@ -121,6 +121,7 @@ Database: information_schema
 | INNODB_TABLES                         |
 | INNODB_TABLESPACES                    |
 | INNODB_TABLESPACES_BRIEF              |
+| INNODB_TABLESPACES_ENCRYPTION         |
 | INNODB_TABLESTATS                     |
 | INNODB_TEMP_TABLE_INFO                |
 | INNODB_TRX                            |
@@ -225,6 +226,7 @@ Database: INFORMATION_SCHEMA
 | INNODB_TABLES                         |
 | INNODB_TABLESPACES                    |
 | INNODB_TABLESPACES_BRIEF              |
+| INNODB_TABLESPACES_ENCRYPTION         |
 | INNODB_TABLESTATS                     |
 | INNODB_TEMP_TABLE_INFO                |
 | INNODB_TRX                            |
