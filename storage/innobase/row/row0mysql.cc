@@ -51,6 +51,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0priv.h"
 #include "dict0stats.h"
 #include "dict0stats_bg.h"
+#include "fil0crypt.h"
 #include "fil0fil.h"
 #include "fsp0file.h"
 #include "fsp0sysspace.h"
@@ -251,7 +252,6 @@ const byte *row_mysql_read_true_varchar(
 
   return (field + 1);
 }
-
 
 /**
    Compressed BLOB header format:
@@ -960,7 +960,7 @@ byte *row_mysql_store_col_in_innobase_format(
     Consider a CHAR(n) field, a field of n characters.
     It will contain between n * mbminlen and n * mbmaxlen bytes.
     We will try to truncate it to n bytes by stripping
-    space padding.  If the field contains single-byte
+    space padding.	If the field contains single-byte
     characters only, it will be truncated to n characters.
     Consider a CHAR(5) field containing the string
     ".a   " where "." denotes a 3-byte character represented
@@ -1102,7 +1102,6 @@ static void row_mysql_convert_row_to_innobase(
     fts_create_doc_id(prebuilt->table, row, prebuilt->heap);
   }
 }
-
 
 /** Handles user errors and lock waits detected by the database engine.
  @return true if it was a lock wait and we should continue running the
@@ -1778,9 +1777,9 @@ static dberr_t row_explicit_rollback(dict_index_t *index, const dtuple_t *entry,
 
 /** Convert a row in the MySQL format to a row in the Innobase format.
 This is specialized function used for intrinsic table with reduce branching.
-@param[in,out]  row   row where field values are copied.
-@param[in]  prebuilt  prebuilt handler
-@param[in]  mysql_rec row in mysql format. */
+@param[in,out]	row		row where field values are copied.
+@param[in]	prebuilt	prebuilt handler
+@param[in]	mysql_rec	row in mysql format. */
 static void row_mysql_to_innobase(dtuple_t *row, row_prebuilt_t *prebuilt,
                                   const byte *mysql_rec) {
   ut_ad(prebuilt->table->is_intrinsic());
@@ -3233,9 +3232,10 @@ void row_mysql_unlock_data_dictionary(trx_t *trx) /*!< in/out: transaction */
   trx->dict_operation_lock_mode = 0;
 }
 
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   const HA_CREATE_INFO *create_info,
-                                   trx_t *trx) {
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression,
+    const HA_CREATE_INFO *create_info, trx_t *trx, const fil_encryption_t mode,
+    const KeyringEncryptionKeyIdInfo &keyring_encryption_key_id) {
   mem_heap_t *heap;
   dberr_t err;
 
@@ -3264,7 +3264,8 @@ dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
   }
 
   /* Assign table id and build table space. */
-  err = dict_build_table_def(table, create_info, trx);
+  err = dict_build_table_def(table, create_info, trx, mode,
+                             keyring_encryption_key_id);
   if (err != DB_SUCCESS) {
     trx->error_state = err;
     goto error_handling;
@@ -3981,7 +3982,7 @@ static dberr_t row_discard_tablespace(trx_t *trx, dict_table_t *table,
       /* All persistent operations successful, update the
       data dictionary memory cache. */
 
-      table->ibd_file_missing = TRUE;
+      table->ibd_file_missing = true;
 
       table->flags2 |= DICT_TF2_DISCARDED;
 
