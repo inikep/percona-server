@@ -90,6 +90,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "usr0sess.h"
 #include "ut0crc32.h"
 #endif /* !UNIV_HOTBACKUP */
+#include "fil0crypt.h"
 #include "ha_innodb.h"
 #include "sql/handler.h"
 #include "ut0mem.h"
@@ -1550,12 +1551,17 @@ void srv_export_innodb_status(void) {
   ulint LRU_len;
   ulint free_len;
   ulint flush_list_len;
+  fil_crypt_stat_t crypt_stat;
   ReadView *oldest_view;
   ulint i;
 
   buf_get_total_stat(&stat);
   buf_get_total_list_len(&LRU_len, &free_len, &flush_list_len);
   buf_get_total_list_size_in_bytes(&buf_pools_list_size);
+
+  if (!srv_read_only_mode) {
+    fil_crypt_total_stat(&crypt_stat);
+  }
 
   mutex_enter(&srv_innodb_monitor_mutex);
 
@@ -1671,6 +1677,8 @@ void srv_export_innodb_status(void) {
 
   export_vars.innodb_pages_read = stat.n_pages_read;
 
+  export_vars.innodb_page0_read = srv_stats.page0_read;
+
   export_vars.innodb_pages_written = stat.n_pages_written;
 
   export_vars.innodb_row_lock_waits = srv_stats.n_lock_wait_count;
@@ -1719,6 +1727,9 @@ void srv_export_innodb_status(void) {
     }
   }
   undo::spaces->s_unlock();
+
+  export_vars.innodb_pages_decrypted = srv_stats.pages_decrypted;
+  export_vars.innodb_pages_encrypted = srv_stats.pages_encrypted;
 
   export_vars.innodb_n_merge_blocks_encrypted =
       srv_stats.n_merge_blocks_encrypted;
@@ -1770,6 +1781,22 @@ void srv_export_innodb_status(void) {
                               &export_vars.innodb_fragmentation_stats);
 
   export_vars.innodb_scrub_log = srv_stats.n_log_scrubs;
+
+  if (!srv_read_only_mode) {
+    export_vars.innodb_encryption_rotation_pages_read_from_cache =
+        crypt_stat.pages_read_from_cache;
+    export_vars.innodb_encryption_rotation_pages_read_from_disk =
+        crypt_stat.pages_read_from_disk;
+    export_vars.innodb_encryption_rotation_pages_modified =
+        crypt_stat.pages_modified;
+    export_vars.innodb_encryption_rotation_pages_flushed =
+        crypt_stat.pages_flushed;
+    export_vars.innodb_encryption_rotation_estimated_iops =
+        crypt_stat.estimated_iops;
+    export_vars.innodb_encryption_key_requests = srv_stats.n_key_requests;
+    export_vars.innodb_key_rotation_list_length =
+        srv_stats.key_rotation_list_length;
+  }
 
   mutex_exit(&srv_innodb_monitor_mutex);
 }
@@ -1974,6 +2001,8 @@ const char *srv_any_background_threads_are_active() {
     thread_active = "buf_dump_thread";
   } else if (srv_threads.m_buf_resize_thread_active) {
     thread_active = "buf_resize_thread";
+  } else if (srv_n_fil_crypt_threads_started) {
+    thread_active = "fil_crypt_thread";
   }
 
   os_event_set(srv_error_event);
@@ -2780,7 +2809,7 @@ void srv_enable_undo_encryption_if_set() {
 
     space = fil_space_get(undo_space->id());
 
-    if (space == nullptr || space->encryption_type == Encryption::NONE) {
+    if (space == nullptr || space->encryption_type != Encryption::AES) {
       continue;
     }
 
