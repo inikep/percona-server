@@ -52,6 +52,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0priv.h"
 #include "dict0stats.h"
 #include "dict0stats_bg.h"
+#include "fil0crypt.h"
 #include "fil0fil.h"
 #include "fsp0file.h"
 #include "fsp0sysspace.h"
@@ -252,7 +253,6 @@ const byte *row_mysql_read_true_varchar(
   return (field + 1);
 }
 
-
 /**
    Compressed BLOB header format:
    ---------------------------------------------------------------
@@ -384,11 +384,11 @@ static void column_zip_set_alloc(void *stream, mem_heap_t *heap) noexcept {
 @param[in]      lenlen          bytes used to store the length of data
 @param[in]      dict_data       optional dictionary data used for compression
 @param[in]      dict_data_len   optional dictionary data length
-@param[in]      prebuilt        use prebuilt->compress only here
+@param[in]      compress_heap
 @return pointer to the compressed data */
 byte *row_compress_column(const byte *data, ulint *len, ulint lenlen,
                           const byte *dict_data, ulint dict_data_len,
-                          row_prebuilt_t *prebuilt) {
+                          mem_heap_t **compress_heap) {
   int err = 0;
   ulint comp_len = *len;
   ulint buf_len = *len + zip_column_prefix_max_length;
@@ -399,10 +399,10 @@ byte *row_compress_column(const byte *data, ulint *len, ulint lenlen,
 
   int window_bits = wrap ? MAX_WBITS : -MAX_WBITS;
 
-  if (!prebuilt->compress_heap)
-    prebuilt->compress_heap = mem_heap_create(ut_max(UNIV_PAGE_SIZE, buf_len));
+  if (!*compress_heap)
+    *compress_heap = mem_heap_create(ut_max(UNIV_PAGE_SIZE, buf_len));
 
-  buf = static_cast<byte *>(mem_heap_zalloc(prebuilt->compress_heap, buf_len));
+  buf = static_cast<byte *>(mem_heap_zalloc(*compress_heap, buf_len));
 
   if (*len < srv_compressed_columns_threshold ||
       srv_compressed_columns_zip_level == Z_NO_COMPRESSION)
@@ -416,7 +416,7 @@ byte *row_compress_column(const byte *data, ulint *len, ulint lenlen,
   c_stream.next_out = ptr;
   c_stream.avail_out = comp_len;
 
-  column_zip_set_alloc(&c_stream, prebuilt->compress_heap);
+  column_zip_set_alloc(&c_stream, *compress_heap);
 
   err = deflateInit2(&c_stream, srv_compressed_columns_zip_level, Z_DEFLATED,
                      window_bits, MAX_MEM_LEVEL,
@@ -624,7 +624,7 @@ remember also to set the null bit in the mysql record header!
 @param[in] need_decompression If the data need to be compressed
 @param[in] dict_data Optional compression dictionary
 @param[in] dict_data_len Optional compression dictionary data
-@param[in] prebuilt Use prebuilt->compress_heap only here */
+@param[in] compress_heap */
 void row_mysql_store_blob_ref(byte *dest, ulint col_len, const void *data,
                               ulint len, bool need_decompression,
                               const byte *dict_data, ulint dict_data_len,
@@ -664,7 +664,7 @@ void row_mysql_store_blob_ref(byte *dest, ulint col_len, const void *data,
 const byte *row_mysql_read_blob_ref(ulint *len, const byte *ref, ulint col_len,
                                     bool need_compression,
                                     const byte *dict_data, ulint dict_data_len,
-                                    row_prebuilt_t *prebuilt) {
+                                    mem_heap_t **compress_heap) {
   byte *data = nullptr;
   byte *ptr = nullptr;
 
@@ -674,7 +674,7 @@ const byte *row_mysql_read_blob_ref(ulint *len, const byte *ref, ulint col_len,
 
   if (need_compression) {
     ptr = row_compress_column(data, len, col_len - 8, dict_data, dict_data_len,
-                              prebuilt);
+                              compress_heap);
     if (ptr) data = ptr;
   }
 
@@ -848,8 +848,7 @@ byte *row_mysql_store_col_in_innobase_format(
                               dictionary data */
     ulint dict_data_len,      /*!< in: optional compression
                               dictionary data length */
-    row_prebuilt_t *prebuilt) /*!< in: use prebuilt->compress_heap
-                              only here */
+    mem_heap_t **compress_heap) /*!< in: compress_heap */
 {
   const byte *ptr = mysql_data;
   const dtype_t *dtype;
@@ -903,7 +902,7 @@ byte *row_mysql_store_col_in_innobase_format(
           row_mysql_read_true_varchar(&col_len, mysql_data, lenlen);
       if (need_compression)
         ptr = row_compress_column(tmp_ptr, &col_len, lenlen, dict_data,
-                                  dict_data_len, prebuilt);
+                                  dict_data_len, compress_heap);
       else
         ptr = tmp_ptr;
     } else {
@@ -960,7 +959,7 @@ byte *row_mysql_store_col_in_innobase_format(
     Consider a CHAR(n) field, a field of n characters.
     It will contain between n * mbminlen and n * mbmaxlen bytes.
     We will try to truncate it to n bytes by stripping
-    space padding.  If the field contains single-byte
+    space padding.	If the field contains single-byte
     characters only, it will be truncated to n characters.
     Consider a CHAR(5) field containing the string
     ".a   " where "." denotes a 3-byte character represented
@@ -988,7 +987,7 @@ byte *row_mysql_store_col_in_innobase_format(
   } else if (type == DATA_BLOB) {
     ptr =
         row_mysql_read_blob_ref(&col_len, mysql_data, col_len, need_compression,
-                                dict_data, dict_data_len, prebuilt);
+                                dict_data, dict_data_len, compress_heap);
   } else if (DATA_GEOMETRY_MTYPE(type)) {
     /* We use blob to store geometry data except DATA_POINT
     internally, but in MySQL Layer the datatype is always blob. */
@@ -1080,7 +1079,7 @@ static void row_mysql_convert_row_to_innobase(
           mysql_rec + templ->mysql_col_offset, templ->mysql_col_len,
           dict_table_is_comp(prebuilt->table), templ->compressed,
           reinterpret_cast<const byte *>(templ->zip_dict_data.str),
-          templ->zip_dict_data.length, prebuilt);
+          templ->zip_dict_data.length, &prebuilt->compress_heap);
 
       /* server has issue regarding handling BLOB virtual fields,
       and we need to duplicate it with our own memory here */
@@ -1102,7 +1101,6 @@ static void row_mysql_convert_row_to_innobase(
     fts_create_doc_id(prebuilt->table, row, prebuilt->heap);
   }
 }
-
 
 /** Handles user errors and lock waits detected by the database engine.
  @return true if it was a lock wait and we should continue running the
@@ -1778,9 +1776,9 @@ static dberr_t row_explicit_rollback(dict_index_t *index, const dtuple_t *entry,
 
 /** Convert a row in the MySQL format to a row in the Innobase format.
 This is specialized function used for intrinsic table with reduce branching.
-@param[in,out]  row   row where field values are copied.
-@param[in]  prebuilt  prebuilt handler
-@param[in]  mysql_rec row in mysql format. */
+@param[in,out]	row		row where field values are copied.
+@param[in]	prebuilt	prebuilt handler
+@param[in]	mysql_rec	row in mysql format. */
 static void row_mysql_to_innobase(dtuple_t *row, row_prebuilt_t *prebuilt,
                                   const byte *mysql_rec) {
   ut_ad(prebuilt->table->is_intrinsic());
@@ -3202,9 +3200,10 @@ void row_mysql_unlock_data_dictionary(trx_t *trx) /*!< in/out: transaction */
   trx->dict_operation_lock_mode = 0;
 }
 
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   const HA_CREATE_INFO *create_info,
-                                   trx_t *trx) {
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression,
+    const HA_CREATE_INFO *create_info, trx_t *trx, const fil_encryption_t mode,
+    const KeyringEncryptionKeyIdInfo &keyring_encryption_key_id) {
   mem_heap_t *heap;
   dberr_t err;
 
@@ -3233,7 +3232,8 @@ dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
   }
 
   /* Assign table id and build table space. */
-  err = dict_build_table_def(table, create_info, trx);
+  err = dict_build_table_def(table, create_info, trx, mode,
+                             keyring_encryption_key_id);
   if (err != DB_SUCCESS) {
     trx->error_state = err;
     goto error_handling;
@@ -3951,7 +3951,7 @@ static dberr_t row_discard_tablespace(trx_t *trx, dict_table_t *table,
       /* All persistent operations successful, update the
       data dictionary memory cache. */
 
-      table->ibd_file_missing = TRUE;
+      table->ibd_file_missing = true;
 
       table->flags2 |= DICT_TF2_DISCARDED;
 

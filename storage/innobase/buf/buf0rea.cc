@@ -133,11 +133,13 @@ ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
       return (0);
     }
 
-    SRV_CORRUPT_TABLE_CHECK(*err == DB_SUCCESS, bpage->is_corrupt = true;);
+    SRV_CORRUPT_TABLE_CHECK(*err == DB_SUCCESS || *err == DB_IO_DECRYPT_FAIL,
+                            bpage->is_corrupt = true;);
   }
 
   if (sync) {
-    /* The i/o is already completed when we arrive from fil_read */
+    /* The i/o is already completed when we arrive from
+    fil_read */
     if (!buf_page_io_complete(bpage, false)) {
       return (0);
     }
@@ -282,10 +284,10 @@ read_ahead:
   return (count);
 }
 
-dberr_t buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
-                      trx_t *trx) {
+bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
+                   trx_t *trx) {
   ulint count;
-  dberr_t err = DB_SUCCESS;
+  dberr_t err;
 
   count = buf_read_page_low(&err, true, 0, BUF_READ_ANY_PAGE, page_id,
                             page_size, false, trx, false);
@@ -300,7 +302,7 @@ dberr_t buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
   /* Increment number of I/O operations used for LRU policy. */
   buf_LRU_stat_inc_io();
 
-  return (err);
+  return (count > 0);
 }
 
 bool buf_read_page_background(const page_id_t &page_id,
@@ -556,11 +558,12 @@ ulint buf_read_ahead_linear(const page_id_t &page_id,
                                  cur_page_id, page_size, false, trx, true);
 
       if (err == DB_TABLESPACE_DELETED) {
-        ib::warn(ER_IB_MSG_142) << "linear readahead trying to"
+        ib::warn(ER_IB_MSG_140) << "Random readahead trying to"
                                    " access page "
-                                << page_id_t(page_id.space(), i)
-                                << " in nonexisting or being-dropped"
-                                   " tablespace";
+                                << cur_page_id
+                                << " in nonexisting or"
+                                   " being-dropped tablespace";
+        break;
       }
     }
   }

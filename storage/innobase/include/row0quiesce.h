@@ -44,7 +44,7 @@ struct trx_t;
 /** The v2 .cfg has space flags written */
 #define IB_EXPORT_CFG_VERSION_V2 2
 /** The v3 .cfg writes instant column default values in metadata section. */
-#define IB_EXPORT_CFG_VERSION_V3 3
+#define IB_EXPORT_CFG_VERSION_V3 0x3UL
 /** The v4 .cfg has the is_ascending boolean written for each index column. */
 #define IB_EXPORT_CFG_VERSION_V4 4
 /** The v5 .cfg writes number of nullable column in table before first instant
@@ -54,6 +54,7 @@ struct trx_t;
 #define IB_EXPORT_CFG_VERSION_V6 6
 /** Future version used to test that the correct error message is returned. */
 #define IB_EXPORT_CFG_VERSION_V99 99
+#define IB_EXPORT_CFG_VERSION_V1_WITH_RK 0xFFFFFFFF
 
 /** Quiesce the tablespace that the table resides in.
 @param[in] table Quiesce this table
