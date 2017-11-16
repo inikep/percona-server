@@ -97,7 +97,8 @@ class PageBulk : private ut::Non_copyable {
         m_flush_observer(observer),
         m_last_slotted_rec(nullptr),
         m_slotted_rec_no(0),
-        m_modified(false) {
+        m_modified(false),
+        m_err(DB_SUCCESS) {
     ut_ad(!dict_index_is_spatial(m_index));
   }
 
@@ -171,7 +172,7 @@ class PageBulk : private ut::Non_copyable {
   inline void release();
 
   /** Start mtr and latch block */
-  inline void latch();
+  inline dberr_t latch();
 
   /** Check if required space is available in the page for the rec
   to be inserted.	We check fill factor & padding here.
@@ -228,6 +229,8 @@ class PageBulk : private ut::Non_copyable {
   @return error code */
   dberr_t storeExt(const big_rec_t *big_rec, ulint *offsets)
       MY_ATTRIBUTE((warn_unused_result));
+
+  dberr_t getError() { return (m_err); }
 
   /** Memory heap for internal allocation */
   mem_heap_t *m_heap;
@@ -297,6 +300,9 @@ class PageBulk : private ut::Non_copyable {
 
   /** Page modified flag. */
   bool m_modified;
+
+  /** Operation result DB_SUCCESS or error code */
+  dberr_t m_err;
 };
 
 class BtrBulk {
