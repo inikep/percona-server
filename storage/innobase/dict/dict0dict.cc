@@ -4073,6 +4073,37 @@ void dict_set_corrupted(dict_index_t *index) {
   }
 }
 
+/** Flags a table with specified space_id encrypted in the data dictionary
+cache
+@param[in] space_id Tablespace id */
+void dict_table_set_encrypted_by_space(space_id_t space_id,
+                                       bool need_mutex) noexcept {
+  ut_a(space_id != 0);
+  ut_a(space_id < dict_sys_t::s_log_space_first_id);
+
+  if (need_mutex) mutex_enter(&(dict_sys->mutex));
+
+  dict_table_t *table = UT_LIST_GET_FIRST(dict_sys->table_LRU);
+  bool found = false;
+
+  while (table) {
+    if (table->space == space_id) {
+      table->set_file_unreadable();
+      found = true;
+    }
+
+    table = UT_LIST_GET_NEXT(table_LRU, table);
+  }
+
+  if (need_mutex) mutex_exit(&(dict_sys->mutex));
+
+  if (!found) {
+    ib::warn() << "Space to be marked as encrypted was not found "
+                  "for id "
+               << space_id << ".";
+  }
+}
+
 #ifndef UNIV_HOTBACKUP
 /** Write the dirty persistent dynamic metadata for a table to
 DD TABLE BUFFER table. This is the low level function to write back.
@@ -4289,6 +4320,7 @@ void dict_table_set_corrupt_by_space(space_id_t space_id,
   while (table) {
     if (table->space == space_id) {
       table->is_corrupt = true;
+      table->file_unreadable = true;
       found = true;
     }
 
@@ -6068,7 +6100,7 @@ dberr_t dict_set_compression(dict_table_t *table, const char *algorithm,
   Also, do not use it for missing tables, unless it's an import operation as in
   the case of import we would still be importing the tablespace at this stage
   and would need to set the compression option for further processing. */
-  if ((table->ibd_file_missing && !is_import_op) ||
+  if ((table->file_unreadable && !is_import_op) ||
       !DICT_TF2_FLAG_IS_SET(table, DICT_TF2_USE_FILE_PER_TABLE) ||
       DICT_TF2_FLAG_IS_SET(table, DICT_TF2_TEMPORARY) ||
       page_size_t(table->flags).is_compressed()) {

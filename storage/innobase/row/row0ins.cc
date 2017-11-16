@@ -1477,7 +1477,7 @@ dberr_t row_ins_check_foreign_constraint(
     check_index = foreign->foreign_index;
   }
 
-  if (check_table == nullptr || check_table->ibd_file_missing ||
+  if (check_table == nullptr || !check_table->is_readable() ||
       check_index == nullptr) {
     if (!srv_read_only_mode && check_ref) {
       FILE *ef = dict_foreign_err_file;
@@ -2413,7 +2413,14 @@ and return. don't execute actual insert. */
   /* Note that we use PAGE_CUR_LE as the search mode, because then
   the function will return in both low_match and up_match of the
   cursor sensible values */
-  btr_pcur_open(index, entry, PAGE_CUR_LE, mode, &pcur, &mtr);
+  err = btr_pcur_open(index, entry, PAGE_CUR_LE, mode, &pcur, &mtr);
+
+  if (err != DB_SUCCESS) {
+    index->table->set_file_unreadable();
+    mtr.commit();
+    goto func_exit;
+  }
+
   cursor = btr_pcur_get_btr_cur(&pcur);
   cursor->thr = thr;
 
@@ -2857,9 +2864,9 @@ dberr_t row_ins_sec_index_entry_low(uint32_t flags, ulint mode,
     rtr_init_rtr_info(&rtr_info, false, &cursor, index, false);
     rtr_info_update_btr(&cursor, &rtr_info);
 
-    btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_RTREE_INSERT,
-                                search_mode, &cursor, 0, __FILE__, __LINE__,
-                                &mtr);
+    err = btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_RTREE_INSERT,
+                                      search_mode, &cursor, 0, __FILE__,
+                                      __LINE__, &mtr);
 
     if (mode == BTR_MODIFY_LEAF && rtr_info.mbr_adj) {
       mtr_commit(&mtr);
@@ -2873,9 +2880,9 @@ dberr_t row_ins_sec_index_entry_low(uint32_t flags, ulint mode,
 
       search_mode |= BTR_MODIFY_TREE;
 
-      btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_RTREE_INSERT,
-                                  search_mode, &cursor, 0, __FILE__, __LINE__,
-                                  &mtr);
+      err = btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_RTREE_INSERT,
+                                        search_mode, &cursor, 0, __FILE__,
+                                        __LINE__, &mtr);
       mode = BTR_MODIFY_TREE;
     }
 
@@ -2888,9 +2895,20 @@ dberr_t row_ins_sec_index_entry_low(uint32_t flags, ulint mode,
       ut_ad(cursor.page_cur.block != nullptr);
       ut_ad(cursor.page_cur.block->made_dirty_with_no_latch);
     } else {
-      btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_LE, search_mode,
-                                  &cursor, 0, __FILE__, __LINE__, &mtr);
+      err =
+          btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_LE, search_mode,
+                                      &cursor, 0, __FILE__, __LINE__, &mtr);
     }
+  }
+
+  if (err != DB_SUCCESS) {
+    if (err == DB_DECRYPTION_FAILED) {
+      ib::warn() << "Table is encrypted but encryption service or"
+                    " used key_id is not available. "
+                    " Can't continue reading table.";
+      index->table->set_file_unreadable();
+    }
+    goto func_exit;
   }
 
   if (cursor.flag == BTR_CUR_INSERT_TO_IBUF) {

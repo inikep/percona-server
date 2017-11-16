@@ -51,6 +51,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0priv.h"
 #include "dict0stats.h"
 #include "dict0stats_bg.h"
+#include "fil0crypt.h"
 #include "fil0fil.h"
 #include "fsp0file.h"
 #include "fsp0sysspace.h"
@@ -249,7 +250,6 @@ const byte *row_mysql_read_true_varchar(
 
   return (field + 1);
 }
-
 
 /**
    Compressed BLOB header format:
@@ -958,7 +958,7 @@ byte *row_mysql_store_col_in_innobase_format(
     Consider a CHAR(n) field, a field of n characters.
     It will contain between n * mbminlen and n * mbmaxlen bytes.
     We will try to truncate it to n bytes by stripping
-    space padding.  If the field contains single-byte
+    space padding.	If the field contains single-byte
     characters only, it will be truncated to n characters.
     Consider a CHAR(5) field containing the string
     ".a   " where "." denotes a 3-byte character represented
@@ -1101,7 +1101,6 @@ static void row_mysql_convert_row_to_innobase(
   }
 }
 
-
 /** Handles user errors and lock waits detected by the database engine.
  @return true if it was a lock wait and we should continue running the
  query thread and in that case the thr is ALREADY in the running state. */
@@ -1143,6 +1142,7 @@ handle_new_error:
     case DB_FTS_INVALID_DOCID:
     case DB_INTERRUPTED:
     case DB_CANT_CREATE_GEOMETRY_OBJECT:
+    case DB_DECRYPTION_FAILED:
     case DB_COMPUTE_VALUE_FAILED:
     case DB_LOCK_NOWAIT:
     case DB_BTREE_LEVEL_LIMIT_EXCEEDED:
@@ -1776,9 +1776,9 @@ static dberr_t row_explicit_rollback(dict_index_t *index, const dtuple_t *entry,
 
 /** Convert a row in the MySQL format to a row in the Innobase format.
 This is specialized function used for intrinsic table with reduce branching.
-@param[in,out]  row   row where field values are copied.
-@param[in]  prebuilt  prebuilt handler
-@param[in]  mysql_rec row in mysql format. */
+@param[in,out]	row		row where field values are copied.
+@param[in]	prebuilt	prebuilt handler
+@param[in]	mysql_rec	row in mysql format. */
 static void row_mysql_to_innobase(dtuple_t *row, row_prebuilt_t *prebuilt,
                                   const byte *mysql_rec) {
   ut_ad(prebuilt->table->is_intrinsic());
@@ -1956,6 +1956,47 @@ static dberr_t row_insert_for_mysql_using_cursor(const byte *mysql_rec,
   return (err);
 }
 
+/** Determine is tablespace encrypted but decryption failed, is table corrupted
+or is tablespace .ibd file missing.
+@param[in] table                Table
+@param[in] trx                  Transaction
+@param[in] push_warning         true if we should push warning to user
+@retval DB_DECRYPTION_FAILED    table is encrypted but decryption failed
+@retval DB_CORRUPTION           table is corrupted
+@retval DB_TABLESPACE_NOT_FOUND tablespace .ibd file not found */
+static dberr_t row_mysql_get_table_status(const dict_table_t *table, trx_t *trx,
+                                          bool push_warning = true) {
+  dberr_t err;
+  if (fil_space_t *space = fil_space_acquire_silent(table->space)) {
+    if (space->is_space_encrypted) {
+      if (push_warning) {
+        push_warning_printf(
+            trx->mysql_thd, Sql_condition::SL_WARNING, HA_ERR_DECRYPTION_FAILED,
+            "Table %s in tablespace %u encrypted."
+            "However key management plugin or used key_id is not found or"
+            " used encryption algorithm or method does not match.",
+            table->name.m_name, table->space);
+      }
+      err = DB_DECRYPTION_FAILED;
+    } else {
+      if (push_warning) {
+        push_warning_printf(trx->mysql_thd, Sql_condition::SL_WARNING,
+                            HA_ERR_CRASHED,
+                            "Table %s in tablespace %u corrupted.",
+                            table->name.m_name, table->space);
+      }
+      err = DB_CORRUPTION;
+    }
+    fil_space_release(space);
+  } else {
+    ib::error(ER_IB_MSG_977)
+        << ".ibd file is missing for table " << table->name;
+    err = DB_TABLESPACE_NOT_FOUND;
+  }
+
+  return (err);
+}
+
 /** Does an insert for MySQL using INSERT graph. This function will run/execute
 INSERT graph.
 @param[in]	mysql_rec	row in the MySQL format
@@ -1986,12 +2027,8 @@ static dberr_t row_insert_for_mysql_using_ins_graph(const byte *mysql_rec,
 
     return (DB_TABLESPACE_DELETED);
 
-  } else if (prebuilt->table->ibd_file_missing) {
-    ib::error(ER_IB_MSG_977)
-        << ".ibd file is missing for table " << prebuilt->table->name;
-
-    return (DB_TABLESPACE_NOT_FOUND);
-
+  } else if (!prebuilt->table->is_readable()) {
+    return (row_mysql_get_table_status(prebuilt->table, trx, true));
   } else if (srv_force_recovery &&
              !(srv_force_recovery < SRV_FORCE_NO_UNDO_LOG_SCAN &&
                (dict_sys_t::is_dd_table_id(prebuilt->table->id) ||
@@ -2739,7 +2776,7 @@ static dberr_t row_update_for_mysql_using_upd_graph(const byte *mysql_rec,
   ut_a(prebuilt->magic_n2 == ROW_PREBUILT_ALLOCATED);
   UT_NOT_USED(mysql_rec);
 
-  if (prebuilt->table->ibd_file_missing) {
+  if (prebuilt->table->file_unreadable) {
     ib::error(ER_IB_MSG_984)
         << "MySQL is trying to use a table handle but the"
            " .ibd file for table "
@@ -3240,10 +3277,13 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in]	compression	compression algorithm to use, can be nullptr
 @param[in]	create_info     HA_CREATE_INFO object
 @param[in,out]	trx		transaction
+@param[in]	fil_encryption_t mode	encryption mode
+@param[in]	keyring_encryption_key_id	encryption key_id
 @return error code or DB_SUCCESS */
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   const HA_CREATE_INFO *create_info,
-                                   trx_t *trx) {
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression,
+    const HA_CREATE_INFO *create_info, trx_t *trx, const fil_encryption_t mode,
+    const KeyringEncryptionKeyIdInfo &keyring_encryption_key_id) {
   mem_heap_t *heap;
   dberr_t err;
 
@@ -3272,7 +3312,8 @@ dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
   }
 
   /* Assign table id and build table space. */
-  err = dict_build_table_def(table, create_info, trx);
+  err = dict_build_table_def(table, create_info, trx, mode,
+                             keyring_encryption_key_id);
   if (err != DB_SUCCESS) {
     trx->error_state = err;
     goto error_handling;
@@ -3963,7 +4004,7 @@ static dberr_t row_discard_tablespace(trx_t *trx, dict_table_t *table,
   4) FOREIGN KEY operations: if table->n_foreign_key_checks_running > 0,
   we do not allow the discard. */
 
-  /* For SDI tables, acquire exclusive MDL and set sdi_table->ibd_file_missing
+  /* For SDI tables, acquire exclusive MDL and set sdi_table->file_unreadable
   to true. Purge on SDI table acquire shared MDL & also check for missing
   flag. */
   mutex_exit(&dict_sys->mutex);
@@ -4006,7 +4047,7 @@ static dberr_t row_discard_tablespace(trx_t *trx, dict_table_t *table,
       /* All persistent operations successful, update the
       data dictionary memory cache. */
 
-      table->ibd_file_missing = TRUE;
+      table->set_file_unreadable();
 
       table->flags2 |= DICT_TF2_DISCARDED;
 
@@ -4024,7 +4065,7 @@ static dberr_t row_discard_tablespace(trx_t *trx, dict_table_t *table,
       {
         dict_table_t *sdi_table = dict_sdi_get_table(table->space, true, false);
         if (sdi_table) {
-          sdi_table->ibd_file_missing = true;
+          sdi_table->set_file_unreadable();
           dict_sdi_close_table(sdi_table);
         }
       }
@@ -4051,7 +4092,7 @@ static dberr_t row_discard_tablespace(trx_t *trx, dict_table_t *table,
 
 /** Discards the tablespace of a table which stored in an .ibd file. Discarding
  means that this function renames the .ibd file and assigns a new table id for
- the table. Also the flag table->ibd_file_missing is set to TRUE.
+ the table. Also the flag table->file_unreadable is set to TRUE.
  @return error code or DB_SUCCESS */
 dberr_t row_discard_tablespace_for_mysql(
     const char *name, /*!< in: table name */
@@ -4706,7 +4747,7 @@ dberr_t row_rename_table_for_mysql(const char *old_name, const char *new_name,
     err = DB_TABLE_NOT_FOUND;
     goto funct_exit;
 
-  } else if (table->ibd_file_missing && !dict_table_is_discarded(table)) {
+  } else if (table->file_unreadable && !dict_table_is_discarded(table)) {
     err = DB_TABLE_NOT_FOUND;
 
     ib::error(ER_IB_MSG_996) << "Table " << old_name

@@ -190,12 +190,8 @@ UNIV_INLINE
 buf_block_t *btr_block_get_func(const page_id_t &page_id,
                                 const page_size_t &page_size, ulint mode,
                                 const char *file, ulint line,
-#ifdef UNIV_DEBUG
-                                const dict_index_t *index,
-#endif /* UNIV_DEBUG */
-                                mtr_t *mtr);
+                                const dict_index_t *index, mtr_t *mtr);
 
-#ifdef UNIV_DEBUG
 /** Gets a buffer page and declares its latching order level.
 @param page_id Tablespace/page identifier
 @param page_size Page size
@@ -205,24 +201,13 @@ buf_block_t *btr_block_get_func(const page_id_t &page_id,
 @return the block descriptor */
 #define btr_block_get(page_id, page_size, mode, index, mtr) \
   btr_block_get_func(page_id, page_size, mode, __FILE__, __LINE__, index, mtr)
-#else /* UNIV_DEBUG */
 
 /** Gets a buffer page and declares its latching order level.
 @param page_id Tablespace/page identifier
 @param page_size Page size
 @param mode Latch mode
 @param index Index tree, may be NULL if not the insert buffer tree
-@param mtr Mini-transaction handle
-@return the block descriptor */
-#define btr_block_get(page_id, page_size, mode, index, mtr) \
-  btr_block_get_func(page_id, page_size, mode, __FILE__, __LINE__, mtr)
-#endif /* UNIV_DEBUG */
-/** Gets a buffer page and declares its latching order level.
-@param page_id Tablespace/page identifier
-@param page_size Page size
-@param mode Latch mode
-@param index Index tree, may be NULL if not the insert buffer tree
-@param mtr Mini-transaction handle
+@param mtr Mini-transaction handl
 @return the uncompressed page frame */
 #define btr_page_get(page_id, page_size, mode, index, mtr) \
   buf_block_get_frame(btr_block_get(page_id, page_size, mode, index, mtr))
@@ -561,8 +546,8 @@ ibool btr_index_rec_validate(const rec_t *rec,          /*!< in: index record */
                                                   record and page on error */
     MY_ATTRIBUTE((warn_unused_result));
 /** Checks the consistency of an index tree.
- @return true if ok */
-bool btr_validate_index(
+@return	DB_SUCCESS if ok, error code if not */
+dberr_t btr_validate_index(
     dict_index_t *index, /*!< in: index */
     const trx_t *trx,    /*!< in: transaction or 0 */
     bool lockout)        /*!< in: true if X-latch index is intended */
