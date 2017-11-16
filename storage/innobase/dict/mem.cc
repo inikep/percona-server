@@ -277,6 +277,7 @@ dict_table_t *dict_mem_table_create(
   table->is_dd_table = false;
   table->explicitly_non_lru = false;
   table->is_corrupt = false;
+  table->ibd_file_missing = false;
 
   return (table);
 }

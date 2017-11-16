@@ -2520,7 +2520,7 @@ mysql_col_len, mbminlen, mbmaxlen
 /**
 @param[in]	data		data to store
 @param[in]	len		length of the data
-@param[in]	prebuilt	use prebuilt->compress_heap only here */
+@param[in]	compress_heap */
 #ifdef UNIV_DEBUG
 /**
 @param[in]	sec_field	secondary index field no if the secondary index
@@ -2919,7 +2919,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
 
     row_sel_field_store_in_mysql_format(mysql_rec + templ->mysql_col_offset,
                                         templ, rec_index, field_no, data, len,
-                                        &prebuilt->compress_heap, ULINT_UNDEFINED);
+                                        &prebuilt->compress_heap, sec_field_no);
   }
 
   ut_ad(rec_field_not_null_not_add_col_def(len));

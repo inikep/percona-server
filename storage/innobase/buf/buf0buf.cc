@@ -71,6 +71,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "buf0checksum.h"
 #include "buf0dump.h"
 #include "dict0dict.h"
+#include "fil0crypt.h"
 #include "log0recv.h"
 #include "os0thread-create.h"
 #include "page0zip.h"
@@ -3951,14 +3952,14 @@ dberr_t Buf_fetch<T>::check_state(buf_block_t *&block) {
 template <typename T>
 void Buf_fetch<T>::read_page() {
   bool success{};
-  dberr_t err;
 
   auto sync = m_mode != Page_fetch::SCAN;
 
   if (sync) {
-    err = buf_read_page(m_page_id, m_page_size, m_trx);
-    success = (err == DB_SUCCESS);
+    success = buf_read_page(m_page_id, m_page_size, m_trx);
   } else {
+    dberr_t err;
+
     auto ret = buf_read_page_low(&err, false, 0, BUF_READ_ANY_PAGE, m_page_id,
                                  m_page_size, false, m_trx, false);
     success = ret > 0;
@@ -4300,7 +4301,7 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
                               const page_size_t &page_size, ulint rw_latch,
                               buf_block_t *guess, Page_fetch mode,
                               const char *file, ulint line, mtr_t *mtr,
-                              bool dirty_with_no_latch) {
+                              bool dirty_with_no_latch, dberr_t *err) {
 #ifdef UNIV_DEBUG
   ut_ad(mtr->is_active());
 
@@ -5593,6 +5594,11 @@ bool buf_page_io_complete(buf_page_t *bpage, bool evict) {
     space_id_t read_space_id;
     bool is_wrong_page_id [[maybe_unused]] = false;
 
+    fil_space_t *space = fil_space_acquire_for_io(bpage->id.space());
+    if (!space) {
+      return false;
+    }
+
     if (bpage->size.is_compressed()) {
       frame = bpage->zip.data;
       buf_pool->n_pend_unzip.fetch_add(1);
@@ -5728,6 +5734,7 @@ bool buf_page_io_complete(buf_page_t *bpage, bool evict) {
           so we will mark it later in upper layer */
 
           buf_read_page_handle_error(bpage);
+          fil_space_release_for_io(space);
           return (false);
         }
       }
@@ -5760,6 +5767,7 @@ bool buf_page_io_complete(buf_page_t *bpage, bool evict) {
       ibuf_merge_or_delete_for_page(block, bpage->id, &bpage->size,
                                     update_ibuf_bitmap);
     }
+    fil_space_release_for_io(space);
   }
 
   bool has_LRU_mutex = false;
