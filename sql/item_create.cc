@@ -56,6 +56,7 @@
 #include "sql/item_geofunc.h"       // Item_func_area
 #include "sql/item_inetfunc.h"      // Item_func_inet_ntoa
 #include "sql/item_json_func.h"     // Item_func_json
+#include "sql/item_keyring_func.h"  // Item_func_rotate_system_key
 #include "sql/item_regexp_func.h"   // Item_func_regexp_xxx
 #include "sql/item_strfunc.h"       // Item_func_aes_encrypt
 #include "sql/item_sum.h"           // Item_sum_udf_str
@@ -1485,6 +1486,7 @@ static const std::pair<const char *, Create_func *> func_array[] = {
     {"RELEASE_LOCK", SQL_FN(Item_func_release_lock, 1)},
     {"REVERSE", SQL_FN(Item_func_reverse, 1)},
     {"ROLES_GRAPHML", SQL_FN(Item_func_roles_graphml, 0)},
+    {"ROTATE_SYSTEM_KEY", SQL_FN(Item_func_rotate_system_key, 1)},
     {"ROUND", SQL_FACTORY(Round_instantiator)},
     {"RPAD", SQL_FN(Item_func_rpad, 3)},
     {"RTRIM", SQL_FN(Item_func_rtrim, 1)},

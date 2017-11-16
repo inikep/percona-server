@@ -84,6 +84,8 @@ struct trx_t;
 struct upd_node_t;
 struct upd_t;
 
+#include "create_info_encryption_key.h"
+
 #ifndef UNIV_HOTBACKUP
 extern ibool row_rollback_on_timeout;
 
@@ -387,7 +389,8 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in,out]	trx		transasction
 @return error code or DB_SUCCESS */
 dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   trx_t *trx)
+                                   trx_t *trx, fil_encryption_t mode, /*!< in: encryption mode */
+                                   const CreateInfoEncryptionKeyId &create_info_encryption_key_id) /*!< in: encryption key_id */
     MY_ATTRIBUTE((warn_unused_result));
 /** Does an index creation operation for MySQL. TODO: currently failure
  to create an index results in dropping the whole table! This is no problem
@@ -481,7 +484,7 @@ inline dberr_t row_drop_table_for_mysql(const char *name, trx_t *trx) {
 
 /** Discards the tablespace of a table which stored in an .ibd file. Discarding
  means that this function deletes the .ibd file and assigns a new table id for
- the table. Also the flag table->ibd_file_missing is set TRUE.
+ the table. Also the flag table->file_unreadable is set TRUE.
  @return error code or DB_SUCCESS */
 dberr_t row_discard_tablespace_for_mysql(
     const char *name, /*!< in: table name */

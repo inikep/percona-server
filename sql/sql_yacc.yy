@@ -1246,6 +1246,7 @@ void warn_about_deprecated_national(THD *thd)
 %token<keyword> TABLE_STATS_SYM
 %token<keyword> THREAD_STATS_SYM
 %token<keyword> USER_STATS_SYM
+%token<keyword> ENCRYPTION_KEY_ID_SYM
 
 /*
    Tokens from Percona Server 8.0
@@ -6030,6 +6031,10 @@ create_table_option:
 	  {
             $$= NEW_PTN PT_create_encryption_option($3);
 	  }
+        | ENCRYPTION_KEY_ID_SYM opt_equal real_ulong_num
+          {
+            $$= NEW_PTN PT_create_encryption_key_id_option($3);
+          }
         | AUTO_INC opt_equal ulonglong_num
           {
             $$= NEW_PTN PT_create_auto_increment_option($3);
@@ -14246,6 +14251,7 @@ role_or_label_keyword:
         | DYNAMIC_SYM
         | EFFECTIVE_SYM
         | ENABLE_SYM
+        | ENCRYPTION_KEY_ID_SYM
         | ENCRYPTION_SYM
         | ENDS_SYM
         | ENGINES_SYM
