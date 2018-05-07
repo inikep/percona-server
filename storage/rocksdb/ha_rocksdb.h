@@ -1118,8 +1118,8 @@ private:
       MY_ATTRIBUTE((__nonnull__));
 
   int compare_key_parts(const KEY *const old_key,
-                        const KEY *const new_key) const;
-  MY_ATTRIBUTE((__nonnull__, __warn_unused_result__));
+                        const KEY *const new_key) const
+      MY_ATTRIBUTE((__nonnull__, __warn_unused_result__));
 
   int compare_keys(const KEY *const old_key, const KEY *const new_key) const
       MY_ATTRIBUTE((__nonnull__, __warn_unused_result__));
