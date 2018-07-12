@@ -20,7 +20,7 @@ ERROR HY000: InnoDB: Tablespace `innodb_system` cannot contain an ENCRYPTED tabl
 CREATE TABLE t1(c int) ENCRYPTION="N" tablespace innodb_system;
 DROP TABLE t1;
 CREATE TEMPORARY TABLE t1(c int) ENCRYPTION="Y";
-ERROR HY000: InnoDB: Unsupported encryption option for temporary tables.
+ERROR HY000: InnoDB: Tablespace `innodb_temporary` cannot contain an ENCRYPTED table.
 CREATE TEMPORARY TABLE t1(c int) ENCRYPTION="N";
 DROP TABLE t1;
 CREATE TABLE t1(c int) ENCRYPTION="R" ENGINE = InnoDB;
@@ -88,7 +88,7 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
-# restart:<hidden args>
+# Kill and restart:<hidden args>
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
 c1	c2
 0	aaaaa
@@ -263,7 +263,7 @@ t1	CREATE TABLE `t1` (
   `val` varchar(20) NOT NULL,
   `is_capital` char(1) NOT NULL DEFAULT 'N',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=latin1 ENCRYPTION='Y'
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ENCRYPTION='Y'
 Pattern "Sydney" not found
 SET GLOBAL innodb_file_per_table=1;
 DROP TABLE t1;
