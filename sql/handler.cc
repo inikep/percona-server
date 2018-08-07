@@ -7783,12 +7783,6 @@ int handler::compare_key_in_buffer(const uchar *buf) const {
   assert(end_range != nullptr &&
          (m_record_buffer == nullptr || !m_record_buffer->is_out_of_range()));
 
-  /*
-    End range on descending scans is only checked with ICP for now, and then we
-    check it with compare_key_icp() instead of this function.
-  */
-  assert(range_scan_direction == RANGE_SCAN_ASC);
-
   // Make the fields in the key point into the buffer instead of record[0].
   const ptrdiff_t diff = buf - table->record[0];
   if (diff != 0) move_key_field_offsets(end_range, range_key_part, diff);
@@ -7799,6 +7793,9 @@ int handler::compare_key_in_buffer(const uchar *buf) const {
 
   // Reset the field offsets.
   if (diff != 0) move_key_field_offsets(end_range, range_key_part, -diff);
+
+  // This change is necessary for MyRocks PS-7116.
+  if (range_scan_direction == RANGE_SCAN_DESC) cmp = -cmp;
 
   return cmp;
 }
@@ -7815,9 +7812,11 @@ int handler::index_read_idx_map(uchar *buf, uint index, const uchar *key,
   return error ? error : error1;
 }
 
-uint calculate_key_len(TABLE *table, uint key, key_part_map keypart_map) {
+uint calculate_key_len(TABLE *table, uint key, key_part_map keypart_map,
+                       uint *count) {
   /* works only with key prefixes */
   assert(((keypart_map + 1) & keypart_map) == 0);
+  if (count) *count = 0;
 
   KEY *key_info = table->key_info + key;
   KEY_PART_INFO *key_part = key_info->key_part;
@@ -7829,6 +7828,8 @@ uint calculate_key_len(TABLE *table, uint key, key_part_map keypart_map) {
     keypart_map >>= 1;
     key_part++;
   }
+  if (count) *count = key_part - key_info->key_part;
+
   return length;
 }
 
@@ -8558,6 +8559,7 @@ bool handler::is_using_prohibited_gap_locks(TABLE *table,
        lock_type == TL_READ_NO_INSERT ||
        (lock_type != TL_IGNORE && thd->lex->sql_command != SQLCOM_SELECT)) &&
       thd->lex->sql_command != SQLCOM_ALTER_TABLE &&
+      thd->lex->sql_command != SQLCOM_CREATE_INDEX &&
       thd->lex->sql_command != SQLCOM_CHECK &&
       thd->lex->sql_command != SQLCOM_OPTIMIZE) {
     my_printf_error(ER_UNKNOWN_ERROR,

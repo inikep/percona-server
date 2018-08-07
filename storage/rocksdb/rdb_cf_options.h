@@ -26,6 +26,7 @@
 
 /* MyRocks header files */
 #include "./rdb_comparator.h"
+#include "./rdb_global.h"
 
 namespace myrocks {
 
@@ -46,8 +47,9 @@ class Rdb_cf_options {
   Rdb_cf_options &operator=(const Rdb_cf_options &) = delete;
   Rdb_cf_options() = default;
 
-  void get(const std::string &cf_name,
-           rocksdb::ColumnFamilyOptions *const opts);
+  /* bool true return indicates cf_name was found */
+  MY_NODISCARD bool get(const std::string &cf_name,
+                        rocksdb::ColumnFamilyOptions *const opts);
 
   void update(const std::string &cf_name, const std::string &cf_options);
 
@@ -61,17 +63,19 @@ class Rdb_cf_options {
     return m_default_cf_opts;
   }
 
-  static const rocksdb::Comparator *
-  get_cf_comparator(const std::string &cf_name);
+  static const rocksdb::Comparator *get_cf_comparator(
+      const std::string &cf_name);
 
-  std::shared_ptr<rocksdb::MergeOperator>
-  get_cf_merge_operator(const std::string &cf_name);
+  std::shared_ptr<rocksdb::MergeOperator> get_cf_merge_operator(
+      const std::string &cf_name);
 
-  void get_cf_options(const std::string &cf_name,
+  /* bool true return indicates cf_name was found, otherwise default */
+  bool get_cf_options(const std::string &cf_name,
                       rocksdb::ColumnFamilyOptions *const opts);
 
   static bool parse_cf_options(const std::string &cf_options,
-                               Name_to_config_t *option_map);
+                               Name_to_config_t *option_map,
+                               std::stringstream *output = nullptr);
 
  private:
   bool set_default(const std::string &default_config);

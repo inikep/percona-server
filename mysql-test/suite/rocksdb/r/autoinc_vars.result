@@ -149,9 +149,40 @@ DROP TABLE t1;
 # Issue #792 Crash in autoincrement
 #----------------------------------
 CREATE TABLE t1(C1 DOUBLE AUTO_INCREMENT KEY,C2 CHAR) ENGINE=ROCKSDB;
+Warnings:
+Warning	3856	AUTO_INCREMENT support for FLOAT/DOUBLE columns is deprecated and will be removed in a future release. Consider removing AUTO_INCREMENT from column 'C1'.
 INSERT INTO t1 VALUES(2177,0);
 DROP TABLE t1;
 CREATE TABLE t0(c0 BLOB) ENGINE=ROCKSDB;
 INSERT INTO t0 VALUES(0);
 ALTER TABLE t0 AUTO_INCREMENT=0;
 DROP TABLE t0;
+#----------------------------------
+# Issue #869 Crash in autoincrement
+#----------------------------------
+CREATE TABLE t1 (pk INT AUTO_INCREMENT, a INT, PRIMARY KEY(pk)) ENGINE=RocksDB;
+INSERT INTO t1 (a) VALUES (1);
+UPDATE t1 SET pk = 3;
+ALTER TABLE t1 AUTO_INCREMENT 2;
+DROP TABLE t1;
+#----------------------------------
+# Issue #902 Debug assert in autoincrement with small field type
+#----------------------------------
+SET auto_increment_increment=100, auto_increment_offset=10;
+CREATE TABLE t1(i INT AUTO_INCREMENT PRIMARY KEY) ENGINE=ROCKSDB AUTO_INCREMENT=18446744073709551615;
+INSERT INTO t1 VALUES (NULL);
+ERROR HY000: Failed to read auto-increment value from storage engine
+SELECT * FROM t1;
+i
+ALTER TABLE t1 AUTO_INCREMENT=1;
+INSERT INTO t1 VALUES (NULL);
+SELECT * FROM t1;
+i
+10
+ALTER TABLE t1 AUTO_INCREMENT=18446744073709551615;
+INSERT INTO t1 VALUES (NULL);
+ERROR HY000: Failed to read auto-increment value from storage engine
+SELECT * FROM t1;
+i
+10
+DROP TABLE t1;

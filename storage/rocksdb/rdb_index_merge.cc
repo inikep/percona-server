@@ -20,6 +20,7 @@
 /* MySQL header files */
 #include "mysql/plugin.h"
 #include "mysql/psi/mysql_file.h"
+#include "sql/table.h"
 
 /* MyRocks header files */
 #include "./ha_rocksdb.h"
@@ -28,14 +29,17 @@
 namespace myrocks {
 
 Rdb_index_merge::Rdb_index_merge(const char *const tmpfile_path,
-                                 const ulonglong &merge_buf_size,
-                                 const ulonglong &merge_combine_read_size,
-                                 const ulonglong &merge_tmp_file_removal_delay,
+                                 const ulonglong merge_buf_size,
+                                 const ulonglong merge_combine_read_size,
+                                 const ulonglong merge_tmp_file_removal_delay,
                                  rocksdb::ColumnFamilyHandle *cf)
-    : m_tmpfile_path(tmpfile_path), m_merge_buf_size(merge_buf_size),
+    : m_tmpfile_path(tmpfile_path),
+      m_merge_buf_size(merge_buf_size),
       m_merge_combine_read_size(merge_combine_read_size),
       m_merge_tmp_file_removal_delay(merge_tmp_file_removal_delay),
-      m_cf_handle(cf), m_rec_buf_unsorted(nullptr), m_output_buf(nullptr) {}
+      m_cf_handle(cf),
+      m_rec_buf_unsorted(nullptr),
+      m_output_buf(nullptr) {}
 
 Rdb_index_merge::~Rdb_index_merge() {
   /*
@@ -109,7 +113,7 @@ int Rdb_index_merge::merge_file_create() {
   } else {
     char filename[FN_REFLEN];
     fd = create_temp_file(filename, m_tmpfile_path, "myrocks",
-                          O_CREAT | O_EXCL | O_RDWR, MYF(MY_WME));
+                          O_CREAT | O_EXCL | O_RDWR, UNLINK_FILE, MYF(MY_WME));
     if (fd >= 0) {
 #ifndef __WIN__
       /*
@@ -160,13 +164,27 @@ int Rdb_index_merge::add(const rocksdb::Slice &key, const rocksdb::Slice &val) {
     */
     if (m_offset_tree.empty()) {
       LogPluginErrMsg(ERROR_LEVEL, 0,
-                      "Sort buffer size is too small to process merge. Please "
-                      "set merge buffer size to a higher value.");
+                      "Current value of rocksdb_merge_buf_size=%llu is too "
+                      "small. At least %u bytes required.",
+                      m_rec_buf_unsorted->m_total_size, total_offset);
       return HA_ERR_ROCKSDB_MERGE_FILE_ERR;
     }
 
     if (merge_buf_write()) {
       LogPluginErrMsg(ERROR_LEVEL, 0, "Error writing sort buffer to disk.");
+      return HA_ERR_ROCKSDB_MERGE_FILE_ERR;
+    }
+
+    /*
+      The unsorted buffer may be too small for the key-value pair.
+    */
+    const uint data_size = RDB_MERGE_CHUNK_LEN + RDB_MERGE_KEY_DELIMITER +
+                           RDB_MERGE_VAL_DELIMITER + key.size() + val.size();
+    if (data_size > m_rec_buf_unsorted->m_total_size) {
+      LogPluginErrMsg(ERROR_LEVEL, 0,
+                      "Current value of rocksdb_merge_buf_size=%llu is too "
+                      "small. At least %u bytes required.",
+                      m_rec_buf_unsorted->m_total_size, data_size);
       return HA_ERR_ROCKSDB_MERGE_FILE_ERR;
     }
   }
@@ -586,7 +604,7 @@ size_t Rdb_index_merge::merge_buf_info::prepare(File fd, ulonglong f_offset) {
     size of each chunk.
   */
   const uchar *block_ptr = m_block.get();
-  merge_read_uint64(&block_ptr, &m_total_size);
+  merge_read_uint64(&block_ptr, (__uint64_t *)(&m_total_size));
   m_curr_offset += RDB_MERGE_CHUNK_LEN;
   return m_total_size;
 }

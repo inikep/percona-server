@@ -22,15 +22,23 @@
 /* The C++ file's header */
 #include "./rdb_threads.h"
 
+/* MySQL header files */
+#include "sql/sql_class.h"
+
 namespace myrocks {
 
 void *Rdb_thread::thread_func(void *const thread_ptr) {
   assert(thread_ptr != nullptr);
-  Rdb_thread *const thread = static_cast<Rdb_thread *const>(thread_ptr);
+  my_thread_init();
+  Rdb_thread *const thread = static_cast<Rdb_thread *>(thread_ptr);
+
   if (!thread->m_run_once.exchange(true)) {
     thread->run();
+
     thread->uninit();
   }
+
+  my_thread_end();
   return nullptr;
 }
 
@@ -43,6 +51,7 @@ void Rdb_thread::init(
   assert(!m_run_once);
   mysql_mutex_init(stop_bg_psi_mutex_key, &m_signal_mutex, MY_MUTEX_INIT_FAST);
   mysql_cond_init(stop_bg_psi_cond_key, &m_signal_cond);
+  initialized = true;
 }
 
 void Rdb_thread::uninit() {
@@ -60,15 +69,16 @@ int Rdb_thread::create_thread(const std::string &thread_name
 
   int err = mysql_thread_create(background_psi_thread_key, &m_handle, nullptr,
                                 thread_func, this);
-
   return err;
 }
 
-void Rdb_thread::signal(const bool &stop_thread) {
+void Rdb_thread::signal(const bool stop_thread) {
+  if (!initialized) return;
+
   RDB_MUTEX_LOCK_CHECK(m_signal_mutex);
 
   if (stop_thread) {
-    m_stop = true;
+    m_killed = THD::KILL_CONNECTION;
   }
 
   mysql_cond_signal(&m_signal_cond);

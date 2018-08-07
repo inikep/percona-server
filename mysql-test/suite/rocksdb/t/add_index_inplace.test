@@ -164,10 +164,9 @@ SELECT COUNT(*) FROM t1;
 DROP TABLE t1;
 
 # test failure in prepare phase (due to collation)
-CREATE TABLE t1 (a INT, b TEXT);
+CREATE TABLE t1 (a INT, b TEXT CHARSET utf8mb4 COLLATE utf8mb4_general_ci);
 
 ALTER TABLE t1 ADD KEY kb(b(10));
-ALTER TABLE t1 ADD PRIMARY KEY(a);
 DROP TABLE t1;
 
 # make sure race condition between connection close and alter on another
@@ -398,4 +397,43 @@ ALTER TABLE t1 ADD INDEX kb(b), ALGORITHM=INPLACE;
 SHOW INDEX in t1;
 
 DROP TABLE t1;
+
+# Verify 8.0 index visibility doesn't rebuild table
+CREATE TABLE t1 (
+a INT PRIMARY KEY,
+b varchar(10),
+index kb(b(5))
+) ENGINE = ROCKSDB charset utf8 collate utf8_bin;
+
+INSERT INTO t1 (a,b) VALUES (1,'1111122222');
+INSERT INTO t1 (a,b) VALUES (2,'2222233333');
+INSERT INTO t1 (a,b) VALUES (3,'3333344444');
+
+--let $start_max_index_id = query_get_value(SELECT * from INFORMATION_SCHEMA.ROCKSDB_GLOBAL_INFO where type = 'MAX_INDEX_ID', VALUE, 1)
+
+ALTER TABLE t1 ALTER INDEX kb INVISIBLE;
+SHOW CREATE TABLE t1;
+
+ALTER TABLE t1 ALTER INDEX kb VISIBLE;
+SHOW CREATE TABLE t1;
+
+--let $end_max_index_id = query_get_value(SELECT * from INFORMATION_SCHEMA.ROCKSDB_GLOBAL_INFO where type = 'MAX_INDEX_ID', VALUE, 1)
+
+--let $assert_text= No new index ids allocated
+--let $assert_cond= "$start_max_index_id" = "$end_max_index_id"
+--source include/assert.inc
+
+DROP TABLE t1;
+
+# Cleanup
 SET global rocksdb_table_stats_sampling_pct = @prior_rocksdb_table_stats_sampling_pct;
+
+CREATE TABLE t1 (i int primary key, j int, v text) ENGINE=RocksDB CHARSET=latin1;
+INSERT INTO t1 VALUES (1, 1, "1"), (2, 1, "2");
+ALTER TABLE t1 ADD INDEX idx (v(10));
+--disable_result_log
+--error ER_DUP_ENTRY
+ALTER TABLE t1 DROP INDEX idx, ADD UNIQUE KEY idx (j);
+--enable_result_log
+CHECK TABLE t1;
+DROP TABLE t1;

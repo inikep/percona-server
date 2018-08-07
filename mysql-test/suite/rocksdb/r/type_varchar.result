@@ -21,8 +21,8 @@ v16300 VARCHAR(16300) ,
 PRIMARY KEY (v64)
 ) ENGINE=rocksdb;
 CREATE TABLE t2 (
-v VARCHAR(191) ,
-PRIMARY KEY (v(191))
+v VARCHAR(255) ,
+PRIMARY KEY (v(255))
 ) ENGINE=rocksdb;
 SHOW COLUMNS IN t1;
 Field	Type	Null	Key	Default	Extra
@@ -32,7 +32,7 @@ v64	varchar(64)	NO	PRI	NULL
 v16300	varchar(16300)	YES		NULL	
 SHOW COLUMNS IN t2;
 Field	Type	Null	Key	Default	Extra
-v	varchar(191)	NO	PRI	NULL	
+v	varchar(255)	NO	PRI	NULL	
 INSERT INTO t1 (v0,v1,v64,v16300) VALUES ('','','','');
 INSERT INTO t1 (v0,v1,v64,v16300) VALUES ('','y','Once there, double check that an article doesn\'t already exist','Here is a list of recommended books on MariaDB and MySQL. We\'ve provided links to Amazon.com here for convenience, but they can be found at many other bookstores, both online and off.
 
@@ -123,18 +123,18 @@ set session sql_mode=@orig_sql_mode;
 set @orig_tx_iso=@@session.transaction_isolation;
 set session transaction_isolation='READ-COMMITTED';
 INSERT INTO t1 (v0,v1,v64,v16300) SELECT v16300, v16300, CONCAT('a',v16300), CONCAT(v16300,v1) FROM t1;
-ERROR 22001: Data too long for column 'v0' at row 5
+ERROR 22001: Data too long for column 'v0' at row 2
 set @orig_sql_mode=@@session.sql_mode;
 set session sql_mode="";
 INSERT INTO t1 (v0,v1,v64,v16300) SELECT v16300, v16300, CONCAT('a',v16300), CONCAT(v16300,v1) FROM t1;
 Warnings:
-Warning	1265	Data truncated for column 'v0' at row 5
-Warning	1265	Data truncated for column 'v1' at row 5
-Warning	1265	Data truncated for column 'v64' at row 5
-Warning	1265	Data truncated for column 'v16300' at row 5
-Warning	1265	Data truncated for column 'v0' at row 6
-Warning	1265	Data truncated for column 'v1' at row 6
-Warning	1265	Data truncated for column 'v64' at row 6
+Warning	1265	Data truncated for column 'v0' at row 2
+Warning	1265	Data truncated for column 'v1' at row 2
+Warning	1265	Data truncated for column 'v64' at row 2
+Warning	1265	Data truncated for column 'v16300' at row 2
+Warning	1265	Data truncated for column 'v0' at row 3
+Warning	1265	Data truncated for column 'v1' at row 3
+Warning	1265	Data truncated for column 'v64' at row 3
 set session sql_mode=@orig_sql_mode;
 set session transaction_isolation=@orig_tx_iso;
 SELECT v0, v1, v64, LENGTH(v16300) FROM t1;
@@ -279,6 +279,9 @@ pk varchar(64) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin,
 col1 varchar(64),
 primary key (pk)
 ) engine=rocksdb;
+Warnings:
+Warning	1287	'utf8mb3' is deprecated and will be removed in a future release. Please use utf8mb4 instead
+Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 insert into t1 values ('a','a');
 insert into t1 values ('a ', 'a-space');
 ERROR 23000: Duplicate entry 'a ' for key 't1.PRIMARY'
@@ -316,6 +319,9 @@ col1 varchar(64) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin,
 col2 varchar(64),
 key (col1)
 ) engine=rocksdb;
+Warnings:
+Warning	1287	'utf8mb3' is deprecated and will be removed in a future release. Please use utf8mb4 instead
+Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 insert into t1 values (0, 'ab', 'a-b');
 insert into t1 values (1, 'a ', 'a-space');
 insert into t1 values (2, 'a',  'a');
@@ -448,7 +454,7 @@ test.t1	analyze	status	OK
 explain
 select col1, hex(col1) from t1 order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	ALL	NULL	NULL	NULL	NULL	#	#	Using filesort
+1	SIMPLE	t1	NULL	index	NULL	col1	131	NULL	#	#	Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)` from `test`.`t1` order by `test`.`t1`.`col1`
 select col1, hex(col1) from t1 order by col1;
@@ -461,7 +467,7 @@ ab	00610062
 explain
 select col1, hex(col1) from t1 where col1 < 'b' order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	#	col1	#	#	NULL	#	#	Using where
+1	SIMPLE	t1	NULL	#	col1	#	#	NULL	#	#	Using where; Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)` from `test`.`t1` where (`test`.`t1`.`col1` < 'b') order by `test`.`t1`.`col1`
 select col1, hex(col1) from t1 where col1 < 'b' order by col1;
@@ -482,7 +488,7 @@ insert into t1 values(23, repeat(' ',18), '18x-space');
 explain
 select pk, col1, hex(col1), length(col1) from t1 order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	#	NULL	#	#	NULL	#	#	Using filesort
+1	SIMPLE	t1	NULL	#	NULL	#	#	NULL	#	#	Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)`,length(`test`.`t1`.`col1`) AS `length(col1)` from `test`.`t1` order by `test`.`t1`.`col1`
 select pk, col1, hex(col1), length(col1) from t1 order by col1;
@@ -569,7 +575,7 @@ test.t1	analyze	status	OK
 explain
 select col1, hex(col1) from t1 order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	ALL	NULL	NULL	NULL	NULL	#	#	Using filesort
+1	SIMPLE	t1	NULL	index	NULL	col1	259	NULL	#	#	Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)` from `test`.`t1` order by `test`.`t1`.`col1`
 select col1, hex(col1) from t1 order by col1;
@@ -582,7 +588,7 @@ ab	6162
 explain
 select col1, hex(col1) from t1 where col1 < 'b' order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	#	col1	#	#	NULL	#	#	Using where
+1	SIMPLE	t1	NULL	#	col1	#	#	NULL	#	#	Using where; Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)` from `test`.`t1` where (`test`.`t1`.`col1` < 'b') order by `test`.`t1`.`col1`
 select col1, hex(col1) from t1 where col1 < 'b' order by col1;
@@ -603,7 +609,7 @@ insert into t1 values(23, repeat(' ',18), '18x-space');
 explain
 select pk, col1, hex(col1), length(col1) from t1 order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	#	NULL	#	#	NULL	#	#	Using filesort
+1	SIMPLE	t1	NULL	#	NULL	#	#	NULL	#	#	Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)`,length(`test`.`t1`.`col1`) AS `length(col1)` from `test`.`t1` order by `test`.`t1`.`col1`
 select pk, col1, hex(col1), length(col1) from t1 order by col1;
@@ -690,7 +696,7 @@ test.t1	analyze	status	OK
 explain
 select col1, hex(col1) from t1 order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	ALL	NULL	NULL	NULL	NULL	#	#	Using filesort
+1	SIMPLE	t1	NULL	index	NULL	col1	259	NULL	#	#	Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)` from `test`.`t1` order by `test`.`t1`.`col1`
 select col1, hex(col1) from t1 order by col1;
@@ -703,7 +709,7 @@ ab	00610062
 explain
 select col1, hex(col1) from t1 where col1 < 'b' order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	#	col1	#	#	NULL	#	#	Using where
+1	SIMPLE	t1	NULL	#	col1	#	#	NULL	#	#	Using where; Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)` from `test`.`t1` where (`test`.`t1`.`col1` < 'b') order by `test`.`t1`.`col1`
 select col1, hex(col1) from t1 where col1 < 'b' order by col1;
@@ -724,7 +730,7 @@ insert into t1 values(23, repeat(' ',18), '18x-space');
 explain
 select pk, col1, hex(col1), length(col1) from t1 order by col1;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	#	NULL	#	#	NULL	#	#	Using filesort
+1	SIMPLE	t1	NULL	#	NULL	#	#	NULL	#	#	Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`col1` AS `col1`,hex(`test`.`t1`.`col1`) AS `hex(col1)`,length(`test`.`t1`.`col1`) AS `length(col1)` from `test`.`t1` order by `test`.`t1`.`col1`
 select pk, col1, hex(col1), length(col1) from t1 order by col1;
@@ -800,6 +806,9 @@ drop table t;
 set global rocksdb_checksums_pct = @save_rocksdb_checksums_pct;
 set session rocksdb_verify_row_debug_checksums = @save_rocksdb_verify_row_debug_checksums;
 create table t (h varchar(31) character set utf8mb3 collate utf8mb3_bin not null, i varchar(19) collate latin1_bin not null, primary key(i), key(h)) engine=rocksdb;
+Warnings:
+Warning	1287	'utf8mb3' is deprecated and will be removed in a future release. Please use utf8mb4 instead
+Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 insert into t(i,h) values('a','b');
 check table t;
 Table	Op	Msg_type	Msg_text
@@ -809,3 +818,27 @@ check table t;
 Table	Op	Msg_type	Msg_text
 test.t	check	status	OK
 drop table t;
+# PS-4971 : Setting utf8mb4 as a key in MyRocks table could lead to a server crash
+create table t1 (
+str varchar(255) character set utf8mb4,
+key str (str(2))) default character set utf8mb4 engine=rocksdb;
+insert INTO t1 values("1111111111111111111111111111111111111111111111111111");
+drop table t1;
+create table t1(
+t_vers varchar(4) not null,
+key ix_5 (t_vers)
+) charset latin1 engine=rocksdb;
+insert into t1 values ('7.6 ');
+select t_vers from t1 where t_vers = '7.6';
+t_vers
+7.6 
+drop table t1;
+# PS-7722: Multiple-Column Index using Column Prefix Key Parts fails with Index Condition Pushdown in MyRocks
+CREATE TABLE t1 (
+f1 varchar(255) CHARSET utf8mb4 COLLATE utf8mb4_general_ci,
+f2 date,
+KEY idx (f2, f1(200))
+) ENGINE=ROCKSDB;
+INSERT INTO t1 VALUES ('63bab075', '2021-05-20');
+include/assert.inc [query should return an empty set]
+DROP TABLE t1;

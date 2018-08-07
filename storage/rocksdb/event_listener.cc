@@ -26,16 +26,17 @@
 
 /* MyRocks includes */
 #include "./ha_rocksdb.h"
+#include "./ha_rocksdb_proto.h"
 #include "./properties_collector.h"
 #include "./rdb_datadic.h"
 
 namespace myrocks {
 
-static std::vector<Rdb_index_stats>
-extract_index_stats(const std::vector<std::string> &files,
-                    const rocksdb::TablePropertiesCollection &props) {
+static std::vector<Rdb_index_stats> extract_index_stats(
+    const std::vector<std::string> &files,
+    const rocksdb::TablePropertiesCollection &props) {
   std::vector<Rdb_index_stats> ret;
-  for (auto fn : files) {
+  for (const auto &fn : files) {
     const auto it = props.find(fn);
     assert(it != props.end());
     std::vector<Rdb_index_stats> stats;
@@ -54,7 +55,29 @@ void Rdb_event_listener::update_index_stats(
   std::vector<Rdb_index_stats> stats;
   Rdb_tbl_prop_coll::read_stats_from_tbl_props(tbl_props, &stats);
 
+  // In the new approach cardinality and non-cardinality stats
+  // for a table are calculated at the same time. That is,
+  // when the table has been modified significantly. This way,
+  // cardinality and non-cardinality stats are consistent.
+  //
+  // It can happen that some non-cardinality stats may change after
+  // a compaction without significant updates to the table.
+  // So the cached values are not up-to-date.
+  //
+  // This lag is acceptable now and we will change when it becomes
+  // an issue.
+  if (rdb_is_table_scan_index_stats_calculation_enabled()) {
+    return;
+  }
+
   m_ddl_manager->adjust_stats(stats);
+}
+
+void Rdb_event_listener::OnCompactionBegin(
+    rocksdb::DB *db MY_ATTRIBUTE((__unused__)),
+    const rocksdb::CompactionJobInfo &ci) {
+  // pull the compaction stats of ongoing compaction job
+  compaction_stats.record_start(ci);
 }
 
 void Rdb_event_listener::OnCompactionCompleted(
@@ -62,11 +85,17 @@ void Rdb_event_listener::OnCompactionCompleted(
   assert(db != nullptr);
   assert(m_ddl_manager != nullptr);
 
+  if (rdb_is_table_scan_index_stats_calculation_enabled()) {
+    return;
+  }
+
   if (ci.status.ok()) {
     m_ddl_manager->adjust_stats(
         extract_index_stats(ci.output_files, ci.table_properties),
         extract_index_stats(ci.input_files, ci.table_properties));
   }
+  // pull the compaction stats of a completed compaction job
+  compaction_stats.record_end(ci);
 }
 
 void Rdb_event_listener::OnFlushCompleted(

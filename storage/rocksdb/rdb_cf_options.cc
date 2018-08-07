@@ -65,7 +65,7 @@ bool Rdb_cf_options::init(
   return true;
 }
 
-void Rdb_cf_options::get(const std::string &cf_name,
+bool Rdb_cf_options::get(const std::string &cf_name,
                          rocksdb::ColumnFamilyOptions *const opts) {
   assert(opts != nullptr);
 
@@ -77,7 +77,9 @@ void Rdb_cf_options::get(const std::string &cf_name,
 
   if (it != m_name_map.end()) {
     rocksdb::GetColumnFamilyOptionsFromString(*opts, it->second, opts);
+    return true;
   }
+  return false;
 }
 
 void Rdb_cf_options::update(const std::string &cf_name,
@@ -94,12 +96,16 @@ void Rdb_cf_options::update(const std::string &cf_name,
 bool Rdb_cf_options::set_default(const std::string &default_config) {
   rocksdb::ColumnFamilyOptions options;
 
-  if (!default_config.empty() && !rocksdb::GetColumnFamilyOptionsFromString(
-                                      options, default_config, &options)
-                                      .ok()) {
-    fprintf(stderr, "Invalid default column family config: %s\n",
-            default_config.c_str());
-    return false;
+  if (!default_config.empty()) {
+    rocksdb::Status s = rocksdb::GetColumnFamilyOptionsFromString(
+        options, default_config, &options);
+    if (!s.ok()) {
+      // NO_LINT_DEBUG
+      fprintf(stderr,
+              "Invalid default column family config: %s (options: %s)\n",
+              s.getState(), default_config.c_str());
+      return false;
+    }
   }
 
   m_default_config = default_config;
@@ -110,8 +116,7 @@ bool Rdb_cf_options::set_default(const std::string &default_config) {
 void Rdb_cf_options::skip_spaces(const std::string &input, size_t *const pos) {
   assert(pos != nullptr);
 
-  while (*pos < input.size() && isspace(input[*pos]))
-    ++(*pos);
+  while (*pos < input.size() && isspace(input[*pos])) ++(*pos);
 }
 
 // Find a valid column family name.  Note that all characters except a
@@ -129,8 +134,7 @@ bool Rdb_cf_options::find_column_family(const std::string &input,
   // Loop through the characters in the string until we see a '='.
   for (; *pos < input.size() && input[*pos] != '='; ++(*pos)) {
     // If this is not a space, move the end position to the current position.
-    if (input[*pos] != ' ')
-      end_pos = *pos;
+    if (input[*pos] != ' ') end_pos = *pos;
   }
 
   if (end_pos == beg_pos - 1) {
@@ -171,24 +175,24 @@ bool Rdb_cf_options::find_options(const std::string &input, size_t *const pos,
   // number of closing curly braces.
   while (*pos < input.size()) {
     switch (input[*pos]) {
-    case '}':
-      // If this is a closing curly brace and we bring the count down to zero
-      // we can exit the loop with a valid options string.
-      if (--brace_count == 0) {
-        *options = input.substr(beg_pos, *pos - beg_pos);
-        ++(*pos);  // Move past the last closing curly brace
-        return true;
-      }
+      case '}':
+        // If this is a closing curly brace and we bring the count down to zero
+        // we can exit the loop with a valid options string.
+        if (--brace_count == 0) {
+          *options = input.substr(beg_pos, *pos - beg_pos);
+          ++(*pos);  // Move past the last closing curly brace
+          return true;
+        }
 
-      break;
+        break;
 
-    case '{':
-      // If this is an open curly brace increment the count.
-      ++brace_count;
-      break;
+      case '{':
+        // If this is an open curly brace increment the count.
+        ++brace_count;
+        break;
 
-    default:
-      break;
+      default:
+        break;
     }
 
     // Move to the next character.
@@ -215,8 +219,7 @@ bool Rdb_cf_options::find_cf_options_pair(const std::string &input,
   skip_spaces(input, pos);
 
   // We should now have a column family name.
-  if (!find_column_family(input, pos, cf))
-    return false;
+  if (!find_column_family(input, pos, cf)) return false;
 
   // If we are at the end of the input then we generate an error.
   if (*pos == input.size()) {
@@ -232,8 +235,7 @@ bool Rdb_cf_options::find_cf_options_pair(const std::string &input,
 
   // Find the options for this column family.  This should be in the format
   // {<options>} where <options> may contain embedded pairs of curly braces.
-  if (!find_options(input, pos, opt_str))
-    return false;
+  if (!find_options(input, pos, opt_str)) return false;
 
   // Skip any trailing spaces after the option string.
   skip_spaces(input, pos);
@@ -254,10 +256,18 @@ bool Rdb_cf_options::find_cf_options_pair(const std::string &input,
 }
 
 bool Rdb_cf_options::parse_cf_options(const std::string &cf_options,
-                                      Name_to_config_t *option_map) {
+                                      Name_to_config_t *option_map,
+                                      std::stringstream *output) {
   std::string cf;
   std::string opt_str;
+  std::stringstream ss;
   rocksdb::ColumnFamilyOptions options;
+
+  // Only print warnings if the caller didn't pass an output stream
+  bool print_warnings = (output == nullptr);
+  if (output == nullptr) {
+    output = &ss;
+  }
 
   assert(option_map != nullptr);
   assert(option_map->empty());
@@ -268,25 +278,36 @@ bool Rdb_cf_options::parse_cf_options(const std::string &cf_options,
   while (pos < cf_options.size()) {
     // Attempt to find <cf>={<opt_str>}.
     if (!find_cf_options_pair(cf_options, &pos, &cf, &opt_str)) {
+      (*output) << "Failed to find options pair in override options (options: "
+                << cf_options.c_str() << ")";
+      if (print_warnings) {
+        // NO_LINT_DEBUG
+        LogPluginErrMsg(WARNING_LEVEL, 0, "%s", output->str().c_str());
+      }
       return false;
     }
 
     // Generate an error if we have already seen this column family.
     if (option_map->find(cf) != option_map->end()) {
-      LogPluginErrMsg(
-          WARNING_LEVEL, 0,
-          "Duplicate entry for %s in override options (options: %s)",
-          cf.c_str(), cf_options.c_str());
+      (*output) << "Duplicate entry for '" << cf.c_str()
+                << "' in override options (options: " << cf_options.c_str()
+                << ")";
+      if (print_warnings) {
+        LogPluginErrMsg(WARNING_LEVEL, 0, "%s", output->str().c_str());
+      }
       return false;
     }
 
     // Generate an error if the <opt_str> is not valid according to RocksDB.
-    if (!rocksdb::GetColumnFamilyOptionsFromString(options, opt_str, &options)
-             .ok()) {
-      LogPluginErrMsg(
-          WARNING_LEVEL, 0,
-          "Invalid cf config for %s in override options (options: %s)",
-          cf.c_str(), cf_options.c_str());
+    rocksdb::Status s =
+        rocksdb::GetColumnFamilyOptionsFromString(options, opt_str, &options);
+    if (!s.ok()) {
+      (*output) << "Invalid cf config for '" << cf.c_str()
+                << "' in override options: " << s.getState()
+                << " (options: " << cf_options.c_str() << ")";
+      if (print_warnings) {
+        LogPluginErrMsg(WARNING_LEVEL, 0, "%s", output->str().c_str());
+      }
       return false;
     }
 
@@ -310,8 +331,8 @@ bool Rdb_cf_options::set_override(const std::string &override_config) {
   return true;
 }
 
-const rocksdb::Comparator *
-Rdb_cf_options::get_cf_comparator(const std::string &cf_name) {
+const rocksdb::Comparator *Rdb_cf_options::get_cf_comparator(
+    const std::string &cf_name) {
   if (Rdb_cf_manager::is_cf_name_reverse(cf_name.c_str())) {
     return &s_rev_pk_comparator;
   } else {
@@ -319,23 +340,24 @@ Rdb_cf_options::get_cf_comparator(const std::string &cf_name) {
   }
 }
 
-std::shared_ptr<rocksdb::MergeOperator>
-Rdb_cf_options::get_cf_merge_operator(const std::string &cf_name) {
+std::shared_ptr<rocksdb::MergeOperator> Rdb_cf_options::get_cf_merge_operator(
+    const std::string &cf_name) {
   return (cf_name == DEFAULT_SYSTEM_CF_NAME)
              ? std::make_shared<Rdb_system_merge_op>()
              : nullptr;
 }
 
-void Rdb_cf_options::get_cf_options(const std::string &cf_name,
+bool Rdb_cf_options::get_cf_options(const std::string &cf_name,
                                     rocksdb::ColumnFamilyOptions *const opts) {
   assert(opts != nullptr);
 
   *opts = m_default_cf_opts;
-  get(cf_name, opts);
+  bool ret = get(cf_name, opts);
 
   // Set the comparator according to 'rev:'
   opts->comparator = get_cf_comparator(cf_name);
   opts->merge_operator = get_cf_merge_operator(cf_name);
+  return ret;
 }
 
 }  // namespace myrocks
