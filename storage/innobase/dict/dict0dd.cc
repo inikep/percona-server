@@ -1696,7 +1696,7 @@ void dd_add_instant_columns(const TABLE *old_table, const TABLE *altered_table,
 
     row_mysql_store_col_in_innobase_format(
         &dfield, reinterpret_cast<byte *>(&buf), true, mysql_data, size,
-        dict_table_is_comp(new_table));
+        dict_table_is_comp(new_table), false, nullptr, 0, nullptr);
 
     size_t length = 0;
     const char *value = coder.encode(reinterpret_cast<byte *>(dfield.data),

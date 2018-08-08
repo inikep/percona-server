@@ -2194,7 +2194,6 @@ bool Dictionary_client::fetch_fk_children_uncached(
     return true;
   }
 
-  const auto allow_any_se = (parent_engine == "");
   Raw_record *r = rs->current_record();
   while (r) {
     /* READ TABLE ID */
@@ -2218,10 +2217,9 @@ bool Dictionary_client::fetch_fk_children_uncached(
     }
 
     if (table) {
-      // Filter out children in different SEs, unless parent_engine is an empty
+      // Filter out children in different SEs. This is not supported.
       // string
-      if (allow_any_se ||
-          my_strcasecmp(system_charset_info, table->engine().c_str(),
+      if (my_strcasecmp(system_charset_info, table->engine().c_str(),
                         parent_engine.c_str()) == 0) {
         if (uncommitted) {
           if (acquire_uncached_uncommitted(table->schema_id(), &schema)) {
