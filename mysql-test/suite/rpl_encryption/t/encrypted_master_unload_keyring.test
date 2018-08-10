@@ -2,7 +2,6 @@
 # with encrypted binary log/relaylog. In both cases server will look for previous gtids in previous
 # binary logs/relaylogs - even when server cannot decrypt previous binary logs/relaylogs.
 
---source include/not_gtid_enabled.inc
 # Different binlog formats can generate different number of binlog files. When we try to decrypt an encrypted binlog file
 # with invalid key we check if we got expected warning, expected number of times. For each binlog file we get a warning,
 # so the number of binlog files must be constant and thus we limit the test to mix format only.
@@ -48,10 +47,10 @@ INSERT INTO table1_encryption SELECT NULL,NOW(),b FROM table1_encryption;
 
 # Make sure that binary logs are encrypted
 
---let PRINT_SEARCH_RESULT=1
+--let SEARCH_ECHO=ALL
 --let SEARCH_FILE= $master_datadir/master-bin.0*
 --let SEARCH_PATTERN= table1_encryption
---source include/search_pattern_in_file.inc
+--source include/search_pattern.inc
 
 --echo #################################################################################
 --echo # Part 2: restart master, without binlog encryption and without keyring plugin
@@ -90,7 +89,7 @@ INSERT INTO table2_no_encryption SELECT NULL,NOW(),b FROM table2_no_encryption;
 
 --let SEARCH_FILE= $master_datadir/master-bin.0*
 --let SEARCH_PATTERN= table2_no_encryption
---source include/search_pattern_in_file.inc
+--source include/search_pattern.inc
 
 # Makes sure we got the expected warnings
 

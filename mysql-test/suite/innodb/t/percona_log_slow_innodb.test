@@ -12,8 +12,6 @@ INSERT INTO t2 VALUE(1);
 --let $restart_parameters=restart:--innodb_buffer_pool_load_at_startup=OFF
 --source include/restart_mysqld.inc
 
---source include/count_sessions.inc
-
 SET SESSION long_query_time=0;
 SET SESSION log_slow_verbosity='microtime,innodb';
 
@@ -110,5 +108,3 @@ SET GLOBAL slow_query_log = @saved_slow_query_log;
 
 DROP TABLE t1, t2;
 --source include/log_cleanup.inc
-
---source include/wait_until_count_sessions.inc
