@@ -74,7 +74,7 @@ if (!$CURL_TIMEOUT)
     }
     close $file;
   }
-
+  unlink "$vardir/tmp/curl_result";
   my $file_name = "$vardir/tmp/mount_list_result.inc";
   my $F = IO::File->new($file_name, 'w') or die "Could not open '$file_name' for writing";
   if (!$curl_conn_successful)
@@ -93,6 +93,7 @@ EOF
 
 --let VAULT_ERROR= 
 --source $MYSQLTEST_VARDIR/tmp/mount_list_result.inc
+--remove_file $MYSQLTEST_VARDIR/tmp/mount_list_result.inc
 
 if ($VAULT_ERROR)
 {
