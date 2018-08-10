@@ -26,7 +26,6 @@ call mtr.add_suppression("Error reading GTIDs from binary log");
 call mtr.add_suppression('Found invalid event in binary log');
 
 --source include/have_binlog_format_mixed.inc
---source include/not_gtid_enabled.inc
 
 --echo #################
 --echo # Initialization
@@ -59,10 +58,10 @@ INSERT INTO table1_to_encrypt SELECT NULL,NOW(),b FROM table1_to_encrypt;
 # table name is not present in the binary log
 
 --let $master_datadir= `SELECT @@datadir`
---let PRINT_SEARCH_RESULT=1
+--let SEARCH_ECHO=ALL
 --let SEARCH_FILE= $master_datadir/master-bin.0*
 --let SEARCH_PATTERN= table1_to_encrypt
---source include/search_pattern_in_file.inc
+--source include/search_pattern.inc
 
 --echo ################################################################
 --echo # Pre-test 2: restart master with a different keys' storage file
@@ -91,10 +90,10 @@ INSERT INTO table2_to_encrypt SELECT NULL,NOW(),b FROM table2_to_encrypt;
 --echo # Make sure that binary logs are encrypted by making sure that plain text
 --echo # table name is not present in the binary log
 
---let PRINT_SEARCH_RESULT=1
+--let SEARCH_ECHO=ALL
 --let SEARCH_FILE= $master_datadir/master-bin.0*
 --let SEARCH_PATTERN= table2_to_encrypt
---source include/search_pattern_in_file.inc
+--source include/search_pattern.inc
 
 UNINSTALL PLUGIN keyring_file;
 
@@ -105,6 +104,7 @@ UNINSTALL PLUGIN keyring_file;
 --let $rpl_server_parameters=
 --let $rpl_server_number= 1
 --source include/rpl_restart_server.inc
+--remove_file $MYSQL_TMP_DIR/master_lose_key
 
 --let $good_master_binlog= query_get_value(SHOW MASTER STATUS,File,1)
 
@@ -135,10 +135,11 @@ INSERT INTO table3_to_encrypt SELECT NULL,NOW(),b FROM table3_to_encrypt;
 --disable_connect_log
 START SLAVE SQL_THREAD;
 START SLAVE IO_THREAD;
---let $slave_io_errno= 1236
+--let $slave_io_errno= 13114 # ER_SERVER_MASTER_FATAL_ERROR_READING_BINLOG
 --source include/wait_for_slave_io_error.inc
 --enable_connect_log
 
+--source include/sync_slave_sql_with_io.inc
 # Here we should see only table1_to_encrypt and its contents,
 # because it was logged with the initial key
 --sorted_result
@@ -155,7 +156,7 @@ SHOW TABLES;
 --connection server_2
 
 --disable_connect_log
---source include/stop_slave.inc
+--source include/stop_slave_sql.inc
 RESET SLAVE ALL;
 DROP DATABASE test;
 CREATE DATABASE test;
