@@ -742,6 +742,7 @@ static PSI_file_info all_innodb_files[] = {
     PSI_KEY(innodb_tablespace_open_file, 0, 0, PSI_DOCUMENT_ME),
     PSI_KEY(innodb_data_file, 0, 0, PSI_DOCUMENT_ME),
     PSI_KEY(innodb_log_file, 0, 0, PSI_DOCUMENT_ME),
+    PSI_KEY(innodb_bmp_file, 0, 0, PSI_DOCUMENT_ME),
     PSI_KEY(innodb_parallel_dblwrite_file, 0, 0, PSI_DOCUMENT_ME),
     PSI_KEY(innodb_temp_file, 0, 0, PSI_DOCUMENT_ME),
     PSI_KEY(innodb_arch_file, 0, 0, PSI_DOCUMENT_ME),
@@ -12392,10 +12393,7 @@ int create_table_info_t::create_table(const dd::Table *dd_table) {
 #if 0
   error = innobase_check_zip_dicts(m_form, zip_dict_ids,
 				   m_trx, &err_zip_dict_name) ? 0 : -1;
-#endif
   if (trx_is_started(m_trx)) trx_commit(m_trx);
-    // Percona commented out until zip dict reimplementation in the new DD
-#if 0
   if (error) {
     my_error(ER_COMPRESSION_DICTIONARY_DOES_NOT_EXIST,
 	     MYF(0), err_zip_dict_name);
@@ -13880,9 +13878,6 @@ int ha_innobase::truncate_impl(const char *name, TABLE *form,
     DBUG_RETURN(HA_ERR_TABLE_READONLY);
   }
 
-  if (UNIV_UNLIKELY(m_share->ib_table && m_share->ib_table->is_corrupt))
-    DBUG_RETURN(HA_ERR_CRASHED);
-
   char norm_name[FN_REFLEN];
   THD *thd = ha_thd();
   dict_table_t *innodb_table = nullptr;
@@ -13909,13 +13904,12 @@ int ha_innobase::truncate_impl(const char *name, TABLE *form,
     DBUG_RETURN(HA_ERR_TABLESPACE_MISSING);
   }
 
+  if (UNIV_UNLIKELY(innodb_table->is_corrupt)) DBUG_RETURN(HA_ERR_CRASHED);
+
   trx_t *trx = check_trx_exists(thd);
   innobase_register_trx(ht, thd, trx);
 
   error = truncator.exec();
-
-  if (UNIV_UNLIKELY(m_share->ib_table && m_share->ib_table->is_corrupt))
-    DBUG_RETURN(HA_ERR_CRASHED);
 
   if (error == 0) {
     if (has_autoinc) {
