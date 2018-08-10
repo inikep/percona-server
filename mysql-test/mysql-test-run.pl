@@ -163,8 +163,8 @@ my $path_vardir_trace;      # Unix formatted opt_vardir for trace files
 my $DEFAULT_SUITES =
 "main,sys_vars,binlog,binlog_gtid,binlog_nogtid,federated,gis,rpl,rpl_gtid,rpl_nogtid,innodb,innodb_gis,innodb_fts,innodb_zip,innodb_undo,perfschema,funcs_1,opt_trace,parts,auth_sec,query_rewrite_plugins,gcol,sysschema,test_service_sql_api,json,connection_control,test_services,collations,service_udf_registration,service_sys_var_registration,service_status_var_registration,x,"
   ."funcs_2,jp,stress,engines/iuds,engines/funcs,group_replication,audit_null,"
-  ."interactive_utilities,innodb_stress"
-  ."binlog_encryption,rpl_encryption,audit_log,keyring_vault"
+  ."interactive_utilities,innodb_stress,"
+  ."binlog_encryption,rpl_encryption,audit_log,keyring_vault,"
   ."tokudb.add_index,tokudb.alter_table,tokudb,tokudb.bugs,tokudb.parts,"
   ."tokudb.rpl,tokudb.perfschema,"
   ."rocksdb,rocksdb.rpl,rocksdb.sys_vars,"
@@ -2520,24 +2520,18 @@ sub read_plugin_defs($) {
         my $load_var     = "--plugin_load=";
 	my $early_load_var = "--early-plugin_load=";
         my $load_add_var = "--plugin_load_add=";
-	my $load_var_with_path = "--plugin_load=";
-	my $load_add_var_with_path = "--plugin_load_add=";
         my $semi         = '';
 
         foreach my $plug_name (split(',', $plug_names)) {
           $load_var     .= $semi . "$plug_name=$lib_name";
 	  $early_load_var .= $semi . "$plug_name=$lib_name";
           $load_add_var .= $semi . "$plug_name=$lib_name";
-	  $load_var_with_path .= $semi . "$plug_name=$plug_dir/$lib_name";
-	  $load_add_var_with_path .= $semi . "$plug_name=$plug_dir/$lib_name";
           $semi = ';';
         }
 
 	$ENV{ $plug_var . '_EARLY_LOAD'} = $early_load_var;
         $ENV{ $plug_var . '_LOAD' }     = $load_var;
         $ENV{ $plug_var . '_LOAD_ADD' } = $load_add_var;
-        $ENV{ $plug_var . '_LOAD_PATH'} = $load_var_with_path;
-        $ENV{ $plug_var . '_LOAD_ADD_PATH'} = $load_add_var_with_path;
       }
     } else {
       $ENV{$plug_var}            = "";
@@ -2545,8 +2539,6 @@ sub read_plugin_defs($) {
       $ENV{ $plug_var . '_OPT' } = "";
       $ENV{ $plug_var . '_LOAD' }     = "" if $plug_names;
       $ENV{ $plug_var . '_LOAD_ADD' } = "" if $plug_names;
-      $ENV{ $plug_var . '_LOAD_PATH'}= "" if $plug_names;
-      $ENV{ $plug_var . '_LOAD_ADD_PATH'}= "" if $plug_names;
     }
   }
   close PLUGDEF;
