@@ -151,7 +151,6 @@ Database: information_schema
 | VIEWS                                 |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
-| XTRADB_INTERNAL_HASH_TABLES           |
 | XTRADB_READ_VIEW                      |
 | INNODB_SYS_DATAFILES                  |
 | INNODB_TRX                            |
@@ -263,7 +262,6 @@ Database: INFORMATION_SCHEMA
 | VIEWS                                 |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
-| XTRADB_INTERNAL_HASH_TABLES           |
 | XTRADB_READ_VIEW                      |
 | INNODB_SYS_DATAFILES                  |
 | INNODB_TRX                            |
