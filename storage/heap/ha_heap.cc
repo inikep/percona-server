@@ -377,8 +377,9 @@ int ha_heap::info(uint flag) {
   return 0;
 }
 
-enum row_type ha_heap::get_real_row_type(const HA_CREATE_INFO *) const {
-  if (file->s->recordspace.is_variable_size) return ROW_TYPE_DYNAMIC;
+enum row_type ha_heap::get_real_row_type(
+    const HA_CREATE_INFO *create_info) const {
+  if (create_info->key_block_size) return ROW_TYPE_DYNAMIC;
   return ROW_TYPE_FIXED;
 }
 
