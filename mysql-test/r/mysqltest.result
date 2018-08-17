@@ -1007,6 +1007,17 @@ mysqltest: query 'KILL QUERY 276447231 returned ER_NO_SUCH_THREAD, dumping proce
 === SHOW PROCESSLIST ===
 ---- 1. ----
 Id MASKED
+User	event_scheduler
+Host	localhost
+db	
+Command	Daemon
+Time MASKED
+State	Waiting on empty queue
+Info	
+Rows_sent	0
+Rows_examined	0
+---- 2. ----
+Id MASKED
 User	root
 Host	localhost
 db	test
@@ -1016,7 +1027,7 @@ State
 Info	
 Rows_sent	1
 Rows_examined	0
----- 2. ----
+---- 3. ----
 Id MASKED
 User	root
 Host	localhost
@@ -1038,6 +1049,17 @@ mysqltest: query 'KILL QUERY 276447231 returned ER_NO_SUCH_THREAD, dumping proce
 === SHOW PROCESSLIST ===
 ---- 1. ----
 Id MASKED
+User	event_scheduler
+Host	localhost
+db	
+Command	Daemon
+Time MASKED
+State	Waiting on empty queue
+Info	
+Rows_sent	0
+Rows_examined	0
+---- 2. ----
+Id MASKED
 User	root
 Host	localhost
 db	test
@@ -1047,7 +1069,7 @@ State
 Info	
 Rows_sent	1
 Rows_examined	0
----- 2. ----
+---- 3. ----
 Id MASKED
 User	root
 Host	localhost
