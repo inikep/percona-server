@@ -490,25 +490,26 @@ int vio_shutdown(Vio *vio, int how) {
 
   int r = vio_cancel(vio, how);
 
+  if (!vio->inactive) {
 #ifdef USE_PPOLL_IN_VIO
-  if (vio->thread_id != 0 && vio->poll_shutdown_flag.test_and_set()) {
-    // Send signal to wake up from poll.
-    if (pthread_kill(vio->thread_id, SIGUSR1) == 0)
-      vio_wait_until_woken(vio);
-    else
-      perror("Error in pthread_kill");
-  }
+    if (vio->thread_id != 0 && vio->poll_shutdown_flag.test_and_set()) {
+      // Send signal to wake up from poll.
+      if (pthread_kill(vio->thread_id, SIGUSR1) == 0)
+        vio_wait_until_woken(vio);
+      else
+        perror("Error in pthread_kill");
+    }
 #elif defined HAVE_KQUEUE
-  if (vio->kq_fd != -1 && vio->kevent_wakeup_flag.test_and_set())
-    vio_wait_until_woken(vio);
+    if (vio->kq_fd != -1 && vio->kevent_wakeup_flag.test_and_set())
+      vio_wait_until_woken(vio);
 #endif
 
-  if (!vio->inactive)
     if (mysql_socket_close(vio->mysql_socket)) r = -1;
 #ifdef HAVE_KQUEUE
-  if (vio->kq_fd == -1 || close(vio->kq_fd)) r = -1;
-  vio->kq_fd = -1;
+    if (vio->kq_fd == -1 || close(vio->kq_fd)) r = -1;
+    vio->kq_fd = -1;
 #endif
+  }
 
   if (r) {
     DBUG_PRINT("vio_error", ("close() failed, error: %d", socket_errno));
@@ -697,9 +698,7 @@ static bool vio_client_must_be_proxied(const struct sockaddr *addr) noexcept {
         struct in_addr *addr = &vio_pp_networks[i].addr.in;
         struct in_addr *mask = &vio_pp_networks[i].mask.in;
         if ((check->s_addr & mask->s_addr) == addr->s_addr) return true;
-      }
-#ifdef HAVE_IPV6
-      else {
+      } else {
         struct in6_addr *check = &((struct sockaddr_in6 *)addr)->sin6_addr;
         struct in6_addr *addr = &vio_pp_networks[i].addr.in6;
         struct in6_addr *mask = &vio_pp_networks[i].mask.in6;
@@ -712,7 +711,6 @@ static bool vio_client_must_be_proxied(const struct sockaddr *addr) noexcept {
             ((check->s6_addr32[3] & mask->s6_addr32[3]) == addr->s6_addr32[3]))
           return true;
       }
-#endif
     }
   return false;
 }
@@ -739,14 +737,12 @@ static bool vio_process_proxy_header(int socket_fd, struct sockaddr *addr,
           uint16_t src_port;
           uint16_t dst_port;
         } MY_ATTRIBUTE((packed)) ip4;
-#ifdef HAVE_IPV6
         struct { /* for TCP/UDP over IPv6, len = 36 */
           uint8_t src_addr[16];
           uint8_t dst_addr[16];
           uint16_t src_port;
           uint16_t dst_port;
         } MY_ATTRIBUTE((packed)) ip6;
-#endif
       } addr;
     } MY_ATTRIBUTE((packed)) v2;
   } hdr;
@@ -784,7 +780,6 @@ static bool vio_process_proxy_header(int socket_fd, struct sockaddr *addr,
             ((struct sockaddr_in *)&from)->sin_port = hdr.v2.addr.ip4.src_port;
             from_len = sizeof(struct sockaddr_in);
             goto pp_done;
-#ifdef HAVE_IPV6
           case 0x21: /* TCPv6 */
             ((struct sockaddr_in6 *)&from)->sin6_family = AF_INET6;
             memcpy(&((struct sockaddr_in6 *)&from)->sin6_addr,
@@ -793,7 +788,6 @@ static bool vio_process_proxy_header(int socket_fd, struct sockaddr *addr,
                 hdr.v2.addr.ip6.src_port;
             from_len = sizeof(struct sockaddr_in6);
             goto pp_done;
-#endif
           case 0x00: /* Unspec */
             /* unknown protocol, keep local connection address */
             goto pp_flush;
@@ -836,9 +830,7 @@ static bool vio_process_proxy_header(int socket_fd, struct sockaddr *addr,
       if (!inet_pton(AF_INET, p, &((struct sockaddr_in *)&from)->sin_addr))
         return true; /* malformatted pp. Abort connection. */
       from_len = sizeof(struct sockaddr_in);
-    }
-#ifdef HAVE_IPV6
-    else if (memcmp(p, "TCP6 ", 5) == 0) {
+    } else if (memcmp(p, "TCP6 ", 5) == 0) {
       /* Parse IPv6. */
       p += strlen("TCP6 ");
       end = strchr(p, ' ');
@@ -849,9 +841,7 @@ static bool vio_process_proxy_header(int socket_fd, struct sockaddr *addr,
       if (!inet_pton(AF_INET6, p, &((struct sockaddr_in6 *)&from)->sin6_addr))
         return true; /* malformatted pp. Abort connection. */
       from_len = sizeof(struct sockaddr_in6);
-    }
-#endif
-    else if (memcmp(p, "UNKNOWN", 7) == 0)
+    } else if (memcmp(p, "UNKNOWN", 7) == 0)
       /* unknown protocol, keep local connection address */
       goto pp_flush;
 
@@ -879,10 +869,8 @@ static bool vio_process_proxy_header(int socket_fd, struct sockaddr *addr,
 
     if (from.ss_family == AF_INET)
       ((struct sockaddr_in *)&from)->sin_port = htons((uint16_t)port);
-#ifdef HAVE_IPV6
     if (from.ss_family == AF_INET6)
       ((struct sockaddr_in6 *)&from)->sin6_port = htons((uint16_t)port);
-#endif
   } else {
     /* Wrong protocol. Abort connection */
     return true;
@@ -894,12 +882,10 @@ pp_done:
       (((struct sockaddr_in *)&from)->sin_addr.s_addr ==
        htonl(INADDR_LOOPBACK)))
     return true;
-#ifdef HAVE_IPV6
   else if (from.ss_family == AF_INET6 &&
            !memcmp(&((struct sockaddr_in6 *)&from)->sin6_addr,
                    &in6addr_loopback, sizeof(struct in6_addr)))
     return true;
-#endif
 
   /* Copy the decoded address. */
   memcpy(addr, &from, from_len);
