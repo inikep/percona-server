@@ -51,6 +51,7 @@
 
 #include <stdarg.h>
 #include <sys/types.h>
+#include "my_compiler.h"
 #include "my_dir.h"
 
 struct LOGGER_HANDLE;
@@ -65,8 +66,14 @@ LOGGER_HANDLE *logger_open(const char *path, unsigned long long size_limit,
                            unsigned int rotations, bool thread_safe,
                            logger_prolog_func_t header) noexcept;
 int logger_close(LOGGER_HANDLE *log, logger_epilog_func_t footer) noexcept;
+#ifndef __clang__
+MY_ATTRIBUTE((format(gnu_printf, 2, 0)))
+#endif
 int logger_vprintf(LOGGER_HANDLE *log, const char *fmt,
                    va_list argptr) noexcept;
+#ifndef __clang__
+MY_ATTRIBUTE((format(gnu_printf, 2, 3)))
+#endif
 int logger_printf(LOGGER_HANDLE *log, const char *fmt, ...) noexcept;
 int logger_write(LOGGER_HANDLE *log, const char *buffer, size_t size,
                  log_record_state_t state) noexcept;
