@@ -59,8 +59,7 @@
 #include "my_thread_local.h"  // my_errno
 #include "mysql/components/services/psi_table_bits.h"
 #include "mysql_com.h"
-#include "sql/dd/object_id.h"   // dd::Object_id
-#include "sql/dd/properties.h"  // dd::Properties
+#include "sql/dd/object_id.h"  // dd::Object_id
 #include "sql/dd/string_type.h"
 #include "sql/dd/types/init_mode.h"
 #include "sql/dd/types/object_table.h"  // dd::Object_table
@@ -1432,6 +1431,7 @@ typedef int (*alter_tablespace_t)(handlerton *hton, THD *thd,
 using flush_changed_page_bitmaps_t = bool (*)(void);
 
 using purge_changed_page_bitmaps_t = bool (*)(ulonglong lsn);
+
 /**
   SE interface for getting tablespace extension.
   @return Extension of tablespace datafile name.
@@ -4909,6 +4909,10 @@ class handler {
   */
 
   virtual bool is_ignorable_error(int error);
+  MY_NODISCARD virtual bool continue_partition_copying_on_error(
+      int error MY_ATTRIBUTE((unused))) {
+    return false;
+  }
 
   /**
     @brief Determine whether an error is fatal or not.
