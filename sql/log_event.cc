@@ -4844,7 +4844,7 @@ int Query_log_event::do_apply_event(Relay_log_info const *rli,
           Prevent "hanging" of previous rewritten query in SHOW PROCESSLIST.
         */
         thd->reset_rewritten_query();
-        mysql_parse(thd, &parser_state);
+        mysql_parse(thd, &parser_state, true);
 
         enum_sql_command command = thd->lex->sql_command;
 
