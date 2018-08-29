@@ -565,6 +565,7 @@ SET(SQL_SHARED_SOURCES
   trigger_creation_ctx.cc
   trigger_chain.cc
   tztime.cc
+  userstat.cc
   uniques.cc
   xa.cc
   join_optimizer/hypergraph.cc
