@@ -4607,7 +4607,7 @@ int Query_log_event::do_apply_event(Relay_log_info const *rli,
         if (thd->m_digest != NULL)
           thd->m_digest->reset(thd->m_token_array, max_digest_length);
 
-        mysql_parse(thd, &parser_state, true);
+        mysql_parse(thd, &parser_state, true, true);
 
         enum_sql_command command = thd->lex->sql_command;
 
