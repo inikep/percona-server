@@ -1861,10 +1861,10 @@ static int handle_grant_data(THD *thd, TABLE_LIST *tables, bool drop,
   if (acl_utility_user.user) {
     if (user_from && acl_is_utility_user(user_from->user.str,
                                          user_from->host.str, nullptr)) {
-      return -1;
+	    return -1;
     } else if (user_to && acl_is_utility_user(user_to->user.str,
                                               user_to->host.str, nullptr)) {
-      return -1;
+	    return -1;
     }
   }
 
