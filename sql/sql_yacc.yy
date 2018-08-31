@@ -1779,6 +1779,7 @@ void warn_about_deprecated_binary(THD *thd)
 %type <column_row_value_list_pair> insert_from_constructor
 
 %type <lexer.optimizer_hints> SELECT_SYM INSERT_SYM REPLACE_SYM UPDATE_SYM DELETE_SYM
+          OPTIMIZE CALL_SYM ALTER ANALYZE_SYM CHECK_SYM LOAD CREATE
 
 %type <join_type> outer_join_type natural_join_type inner_join_type
 
@@ -2828,7 +2829,7 @@ create_table_stmt:
           CREATE opt_temporary TABLE_SYM opt_if_not_exists table_ident
           '(' table_element_list ')' opt_create_table_options_etc
           {
-            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $2, $4, $5,
+            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $1, $2, $4, $5,
                                              $7,
                                              $9.opt_create_table_options,
                                              $9.opt_partitioning,
@@ -2838,7 +2839,7 @@ create_table_stmt:
         | CREATE opt_temporary TABLE_SYM opt_if_not_exists table_ident
           opt_create_table_options_etc
           {
-            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $2, $4, $5,
+            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $1, $2, $4, $5,
                                              NULL,
                                              $6.opt_create_table_options,
                                              $6.opt_partitioning,
@@ -2848,12 +2849,12 @@ create_table_stmt:
         | CREATE opt_temporary TABLE_SYM opt_if_not_exists table_ident
           LIKE table_ident
           {
-            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $2, $4, $5, $7);
+            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $1, $2, $4, $5, $7);
           }
         | CREATE opt_temporary TABLE_SYM opt_if_not_exists table_ident
           '(' LIKE table_ident ')'
           {
-            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $2, $4, $5, $8);
+            $$= NEW_PTN PT_create_table_stmt(YYMEM_ROOT, $1, $2, $4, $5, $8);
           }
         ;
 
@@ -3413,7 +3414,7 @@ sp_suid:
 call_stmt:
           CALL_SYM sp_name opt_paren_expr_list
           {
-            $$= NEW_PTN PT_call($2, $3);
+            $$= NEW_PTN PT_call($1, $2, $3);
           }
         ;
 
@@ -7552,6 +7553,7 @@ alter_table_stmt:
           {
             $$= NEW_PTN PT_alter_table_stmt(
                   YYMEM_ROOT,
+                  $1,
                   $3,
                   $4.actions,
                   $4.flags.algo.get_or_default(),
@@ -7562,6 +7564,7 @@ alter_table_stmt:
           {
             $$= NEW_PTN PT_alter_table_standalone_stmt(
                   YYMEM_ROOT,
+                  $1,
                   $3,
                   $4.action,
                   $4.flags.algo.get_or_default(),
@@ -8984,7 +8987,7 @@ analyze_table_stmt:
           ANALYZE_SYM opt_no_write_to_binlog table_or_tables table_list
           opt_histogram
           {
-            $$= NEW_PTN PT_analyze_table_stmt(YYMEM_ROOT, $2, $4,
+            $$= NEW_PTN PT_analyze_table_stmt(YYMEM_ROOT, $1, $2, $4,
                                               $5.command, $5.num_buckets,
                                               $5.columns);
           }
@@ -9043,7 +9046,7 @@ binlog_base64_event:
 check_table_stmt:
           CHECK_SYM table_or_tables table_list opt_mi_check_types
           {
-            $$= NEW_PTN PT_check_table_stmt(YYMEM_ROOT, $3,
+            $$= NEW_PTN PT_check_table_stmt(YYMEM_ROOT, $1, $3,
                                             $4.flags, $4.sql_flags);
           }
         ;
@@ -9080,7 +9083,7 @@ mi_check_type:
 optimize_table_stmt:
           OPTIMIZE opt_no_write_to_binlog table_or_tables table_list
           {
-            $$= NEW_PTN PT_optimize_table_stmt(YYMEM_ROOT, $2, $4);
+            $$= NEW_PTN PT_optimize_table_stmt(YYMEM_ROOT, $1, $2, $4);
           }
         ;
 
@@ -9182,7 +9185,7 @@ preload_stmt:
           }
         | LOAD INDEX_SYM INTO CACHE_SYM preload_list
           {
-            $$= NEW_PTN PT_load_index_stmt(YYMEM_ROOT, $5);
+            $$= NEW_PTN PT_load_index_stmt(YYMEM_ROOT, $1, $5);
           }
         ;
 
