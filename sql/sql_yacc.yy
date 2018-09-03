@@ -1268,6 +1268,7 @@ void warn_about_deprecated_binary(THD *thd)
 /*
    Tokens from Percona Server 8.0
 */
+%token<lexer.keyword> EFFECTIVE_SYM 1350
 
 /*
   Precedence rules used to resolve the ambiguity when using keywords as idents
@@ -13085,17 +13086,32 @@ show_param:
           }
         | GRANTS
           {
-            auto *tmp= NEW_PTN PT_show_grants(0, 0);
+            auto *tmp= NEW_PTN PT_show_grants(0, 0, false);
             MAKE_CMD(tmp);
           }
         | GRANTS FOR_SYM user
           {
-            auto *tmp= NEW_PTN PT_show_grants($3, 0);
+            auto *tmp= NEW_PTN PT_show_grants($3, 0, false);
             MAKE_CMD(tmp);
           }
         | GRANTS FOR_SYM user USING user_list
           {
-            auto *tmp= NEW_PTN PT_show_grants($3, $5);
+            auto *tmp= NEW_PTN PT_show_grants($3, $5, false);
+            MAKE_CMD(tmp);
+          }
+        | EFFECTIVE_SYM GRANTS
+          {
+            auto *tmp= NEW_PTN PT_show_grants(0, 0, true);
+            MAKE_CMD(tmp);
+          }
+        | EFFECTIVE_SYM GRANTS FOR_SYM user
+          {
+            auto *tmp= NEW_PTN PT_show_grants($4, 0, true);
+            MAKE_CMD(tmp);
+          }
+        | EFFECTIVE_SYM GRANTS FOR_SYM user USING user_list
+          {
+            auto *tmp= NEW_PTN PT_show_grants($4, $6, true);
             MAKE_CMD(tmp);
           }
         | CREATE DATABASE opt_if_not_exists ident
@@ -14551,6 +14567,7 @@ ident_keywords_unambiguous:
         | DUMPFILE
         | DUPLICATE_SYM
         | DYNAMIC_SYM
+        | EFFECTIVE_SYM
         | ENABLE_SYM
         | ENCRYPTION_SYM
         | ENDS_SYM
