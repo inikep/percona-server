@@ -74,6 +74,8 @@ connection default;
 --enable_warnings
 --enable_query_log
 
+
+# Cleanup
 drop table t1,t2;
 
 # Decrypt all tables

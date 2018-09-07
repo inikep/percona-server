@@ -712,21 +712,35 @@ static dberr_t srv_undo_tablespace_read_encryption(pfs_os_file_t fh,
   offset = fsp_header_get_encryption_offset(space_page_size);
   ut_ad(offset);
 
+  fil_space_crypt_t *crypt_data = space->crypt_data;
+
+  if (crypt_data == nullptr) {
+    crypt_data = fil_space_read_crypt_data(space_page_size, first_page);
+    space->crypt_data = crypt_data;
+  }
+
   /* Return if the encryption metadata is empty. */
   if (memcmp(first_page + offset, Encryption::KEY_MAGIC_V3,
              Encryption::MAGIC_SIZE) != 0 &&
       /* PS 5.7 undo encryption upgrade */
       !(srv_is_upgrade_mode &&
         memcmp(first_page + offset, Encryption::KEY_MAGIC_V2,
-               Encryption::MAGIC_SIZE) == 0)) {
+               Encryption::MAGIC_SIZE) == 0) &&
+      (crypt_data == nullptr || crypt_data->min_key_version == 0)) {
     ut::aligned_free(first_page);
     return (DB_SUCCESS);
   }
 
   byte key[Encryption::KEY_LEN];
   byte iv[Encryption::KEY_LEN];
+
   Encryption_key e_key{key, iv};
-  if (fsp_header_get_encryption_key(space->flags, e_key, first_page)) {
+
+  if (crypt_data) {
+    fsp_flags_set_encryption(space->flags);
+    err = fil_set_encryption(space->id, Encryption::KEYRING, NULL,
+                             crypt_data->iv);
+  } else if (fsp_header_get_encryption_key(space->flags, e_key, first_page)) {
     fsp_flags_set_encryption(space->flags);
     err = fil_set_encryption(space->id, Encryption::AES, key, iv);
     ut_ad(err == DB_SUCCESS);
@@ -2064,6 +2078,10 @@ dberr_t srv_start(bool create_new_db) {
   ut_d(sync_check_enable());
 
   srv_boot();
+
+  extern ib_mutex_t master_key_id_mutex;
+  /* Create mutex to protect encryption master_key_id. */
+  mutex_create(LATCH_ID_MASTER_KEY_ID_MUTEX, &master_key_id_mutex);
 
   ib::info(ER_IB_MSG_1126)
       << "Using "
@@ -3424,6 +3442,18 @@ void srv_pre_dd_shutdown() {
 
   /* Since this point we do not expect accesses to DD coming from InnoDB. */
   ut_d(trx_sys_before_pre_dd_shutdown_validate());
+
+  for (;;) {
+    const auto threads_count = srv_threads.m_crypt_threads_n;
+    if (threads_count == 0) {
+      break;
+    }
+    ib::info(ER_XB_MSG_WAIT_FOR_KEYRING_ENCRYPT_THREAD)
+        << "Waiting for"
+           " keyring encryption threads"
+           " to exit";
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  }
 
   srv_shutdown_set_state(SRV_SHUTDOWN_PURGE);
 

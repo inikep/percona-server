@@ -1,4 +1,3 @@
---skip # Test unstable on jenkins
 --source include/have_debug.inc
 --source include/have_debug_sync.inc
 --source include/not_valgrind.inc
@@ -19,10 +18,10 @@ insert t3 values (repeat('dummysecret', 12));
 insert t4 values (repeat('verysecret', 12));
 
 --let $assert_text= Make sure all tables have encrypted flag disabled
---let $assert_cond= "[SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESPACES WHERE ((FLAG & 8192) = 8192)]" = 0
+--let $assert_cond= "[SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE ((FLAG & 8192) = 8192)]" = 0
 --source include/assert.inc
 
---echo # We should encrypt all tables apart from t3
+--echo # We should encrypt all tables apart from t3 and temporary tablespace
 SET GLOBAL debug="+d,fail_encryption_flag_update_on_t3";
 
 --echo # Enable encryption
@@ -31,15 +30,14 @@ SET GLOBAL innodb_encryption_threads = 4;
 SET GLOBAL default_table_encryption = ONLINE_TO_KEYRING;
 
 --echo # Wait for all tables to get encrypted
---let $tables_count= `select count(*) from information_schema.tables where engine = 'InnoDB' and table_schema <> 'information_schema'`
+--let $tables_count=`select count(*) from INFORMATION_SCHEMA.INNODB_TABLESPACES`
 --let $wait_timeout= 600
-# Encrypted tables count should be equal $tables_count - because INNODB_TABLESPACES_ENCRYPTION
-# contains an artificial table innodb_system and t3 should not be encrypted
---let $wait_condition=SELECT COUNT(*) = $tables_count FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION = 1
+# Encrypted tables count should be equal $tables_count - 2 because t3 and temporary tablespace should not be encrypted
+--let $wait_condition=SELECT COUNT(*) = $tables_count - 2 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION = 1
 --source include/wait_condition.inc
 
---let $assert_text= Make sure only t3's encryption flag is not set
---let $assert_cond= "[SELECT NAME FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESPACES WHERE ((FLAG & 8192) = 0)]" = "test/t3"
+--let $assert_text= Make sure only t3's encryption flag is not set (ignore temporary tablepsace, which is never encrypted with keyring)
+--let $assert_cond= "[SELECT NAME FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE ((FLAG & 8192) = 0) AND NAME <> \\'innodb_temporary\\']" = "test/t3"
 --source include/assert.inc
 
 --echo # Disable encryption
@@ -67,8 +65,8 @@ SELECT * FROM t2;
 SELECT * FROM t3;
 SELECT * FROM t4;
 
---let $assert_text= Make sure only t3's encryption flag is not set
---let $assert_cond= "[SELECT NAME FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESPACES WHERE ((FLAG & 8192) = 0)]" = "test/t3"
+--let $assert_text= Make sure only t3's encryption flag is not set (ignore temporary tablespace)
+--let $assert_cond= "[SELECT NAME FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE ((FLAG & 8192) = 0) AND NAME <> \\'innodb_temporary\\']" = "test/t3"
 --source include/assert.inc
 
 --source include/shutdown_mysqld.inc
@@ -83,42 +81,24 @@ SELECT * FROM t4;
 --source include/start_mysqld.inc
 
 --echo # Wait for all tables to get encrypted
---let $tables_count= `select count(*) from information_schema.tables where engine = 'InnoDB' and table_schema <> 'information_schema'`
+--let $tables_count=`select count(*) from INFORMATION_SCHEMA.INNODB_TABLESPACES`
 --let $wait_timeout= 600
-# Encrypted tables count should be equal $tables_count + 1 - because INNODB_TABLESPACES_ENCRYPTION
-# contains an artificial table innodb_system
---let $wait_condition=SELECT COUNT(*) = $tables_count + 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION = 1
+# Encrypted tables count should be equal $tables_count - 1 - because temporary tablespace will not be encrypted
+--let $wait_condition=SELECT COUNT(*) = $tables_count - 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION = 1
 --source include/wait_condition.inc
 
---let $assert_text= Make sure all tablespaces have encryption flag set
---let $assert_cond= "[SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESPACES WHERE ((FLAG & 8192) = 0)]" = 0
+--let $assert_text= Make sure all tablespaces have encryption flag set (ignore temporary tablespace)
+--let $assert_cond= "[SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE ((FLAG & 8192) = 0) AND NAME <> \\'innodb_temporary\\']" = 0
 --source include/assert.inc
 
-
---let $error_log2=$MYSQL_TMP_DIR/my_restart2.err
---let $restart_parameters=restart:--innodb-encryption-threads=0 --innodb-encrypt-tables=ONLINE_FROM_KEYRING_TO_UNENCRYPTED --log-error=$error_log2
---replace_result $MYSQL_TMP_DIR MYSQL_TMP_DIR
---source include/restart_mysqld.inc
-
+# Cleanup
 DROP TABLE t1,t2,t3,t4;
 
 # Decrypt all tables
 SET GLOBAL default_table_encryption=ONLINE_FROM_KEYRING_TO_UNENCRYPTED;
 
---echo # Since t3 flag's update will fail, the tablespace ts_1's flag should remain unencrypted
-SET GLOBAL debug="+d,fail_encryption_flag_update_on_t3";
-
---echo # Enable encryption
-SET GLOBAL innodb_encryption_rotate_key_age=15;
-SET GLOBAL innodb_encryption_threads = 1;
-SET GLOBAL innodb_encrypt_tables = ONLINE_TO_KEYRING;
-
---echo # Wait for all tables to get encrypted (apart from ts_1)
---let $tablespaces_count= `select count(*) from information_schema.innodb_sys_tablespaces`
 --let $wait_timeout= 600
-# Encrypted tablespaces count should be equal $tables_count - because INNODB_TABLESPACES_ENCRYPTION
-# contains an artificial tablespace innodb_system and ts_1 should not be encrypted
---let $wait_condition=SELECT COUNT(*) = $tablespaces_count FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION = 1
+--let $wait_condition=SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION <> 0
 --source include/wait_condition.inc
 
 SET GLOBAL innodb_encryption_threads=0;
