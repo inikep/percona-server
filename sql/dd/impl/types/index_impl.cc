@@ -63,7 +63,7 @@ class Sdi_wcontext;
 class Table;
 
 static const std::set<String_type> default_valid_option_keys = {
-    "block_size", "flags", "parser_name"};
+    "block_size", "flags", "parser_name", "clustering_key"};
 
 ///////////////////////////////////////////////////////////////////////////
 // Index_impl implementation.
