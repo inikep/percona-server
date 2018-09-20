@@ -9121,15 +9121,45 @@ dberr_t fil_temp_update_encryption(fil_space_t *space) {
   return (err);
 }
 
+/** Rotate the tablespace key by new master key.
+@param[in]	space	tablespace object
+@return true if the re-encrypt suceeds */
+static bool encryption_rotate_low(fil_space_t *space) {
+  bool success = true;
+  if (space->encryption_type != Encryption::NONE) {
+    mtr_t mtr;
+    mtr_start(&mtr);
+
+    if (fsp_is_system_temporary(space->id)) {
+      mtr_set_log_mode(&mtr, MTR_LOG_NO_REDO);
+    }
+
+    mtr_x_lock_space(space, &mtr);
+
+    byte encrypt_info[Encryption::INFO_SIZE];
+    memset(encrypt_info, 0, Encryption::INFO_SIZE);
+
+    if (!fsp_header_rotate_encryption(space, encrypt_info, &mtr)) {
+      success = false;
+    }
+    mtr_commit(&mtr);
+  }
+  return (success);
+}
+
 #ifndef UNIV_HOTBACKUP
 /** Rotate the tablespace keys by new master key.
-@param[in,out]	shard		Rotate the keys in this shard
+@param[in,out]  shard   Rotate the keys in this shard
 @return true if the re-encrypt succeeds */
 bool Fil_system::encryption_rotate_in_a_shard(Fil_shard *shard) {
-  byte encrypt_info[Encryption::INFO_SIZE];
-
   for (auto &elem : shard->m_spaces) {
     auto space = elem.second;
+
+    /* Skip if space is not master encrypted */
+
+    if (space->encryption_type != Encryption::AES) {
+      continue;
+    }
 
     /* Skip unencypted tablespaces. Encrypted redo log
     tablespaces is handled in function log_rotate_encryption. */
@@ -9154,39 +9184,33 @@ bool Fil_system::encryption_rotate_in_a_shard(Fil_shard *shard) {
         Encryption::get_master_key_id() == Encryption::DEFAULT_MASTER_KEY_ID)
       continue;
 
+    /* Take MDL on UNDO tablespace to make it mutually exclusive with
+    UNDO tablespace truncation. For other tablespaces MDL is not required
+    here. */
+    MDL_ticket *mdl_ticket = nullptr;
+    if (fsp_is_undo_tablespace(space->id)) {
+      THD *thd = current_thd;
+      while (
+          acquire_shared_backup_lock(thd, thd->variables.lock_wait_timeout)) {
+        os_thread_sleep(20);
+      }
+
+      while (dd::acquire_exclusive_tablespace_mdl(thd, space->name, false,
+                                                  &mdl_ticket, false)) {
+        os_thread_sleep(20);
+      }
+      ut_ad(mdl_ticket != nullptr);
+    }
+
     /* Rotate the encrypted tablespaces. */
-    if (space->encryption_type != Encryption::NONE) {
-      memset(encrypt_info, 0, Encryption::INFO_SIZE);
+    bool success = encryption_rotate_low(space);
 
-      /* Take MDL on UNDO tablespace to make it mutually exclusive with
-      UNDO tablespace truncation. For other tablespaces MDL is not required
-      here. */
-      MDL_ticket *mdl_ticket = nullptr;
-      if (fsp_is_undo_tablespace(space->id)) {
-        THD *thd = current_thd;
-        while (
-            acquire_shared_backup_lock(thd, thd->variables.lock_wait_timeout)) {
-          os_thread_sleep(20);
-        }
+    if (mdl_ticket != nullptr) {
+      dd_release_mdl(mdl_ticket);
+    }
 
-        while (dd::acquire_exclusive_tablespace_mdl(thd, space->name, false,
-                                                    &mdl_ticket, false)) {
-          os_thread_sleep(20);
-        }
-        ut_ad(mdl_ticket != nullptr);
-      }
-
-      mtr_t mtr;
-      mtr_start(&mtr);
-      bool ret = fsp_header_rotate_encryption(space, encrypt_info, &mtr);
-      mtr_commit(&mtr);
-
-      if (mdl_ticket != nullptr) {
-        dd_release_mdl(mdl_ticket);
-      }
-      if (!ret) {
-        return (false);
-      }
+    if (!success) {
+      return (false);
     }
 
     DBUG_EXECUTE_IF("ib_crash_during_rotation_for_encryption", DBUG_SUICIDE(););
@@ -9214,6 +9238,21 @@ bool Fil_system::encryption_rotate_all() {
 /** Rotate the tablespace keys by new master key.
 @return true if the re-encrypt succeeds */
 bool fil_encryption_rotate() { return (fil_system->encryption_rotate_all()); }
+
+bool fil_encryption_rotate_global(const space_id_vec &space_ids) {
+  for (space_id_t space_id : space_ids) {
+    fil_space_t *space = fil_space_acquire(space_id);
+
+    bool success = encryption_rotate_low(space);
+
+    fil_space_release(space);
+
+    if (!success) {
+      return (false);
+    }
+  }
+  return (true);
+}
 
 #endif /* !UNIV_HOTBACKUP */
 
