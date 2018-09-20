@@ -440,4 +440,5 @@ enum srv_encrypt_tables_values {
   SRV_ENCRYPT_TABLES_ONLINE_FROM_KEYRING_TO_UNENCRYPTED = 7
 };
 
+extern bool innodb_inited;
 #endif /* HA_INNODB_PROTOTYPES_H */
