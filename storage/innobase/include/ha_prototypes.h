@@ -476,4 +476,5 @@ ulong thd_parallel_read_threads(THD *thd);
 /** @return the number of DDL threads to use (global/session). */
 [[nodiscard]] size_t thd_ddl_threads(THD *thd) noexcept;
 
+extern bool innodb_inited;
 #endif /* HA_INNODB_PROTOTYPES_H */
