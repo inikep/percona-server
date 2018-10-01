@@ -57,6 +57,7 @@
 #include "sql/dd/impl/upgrade/dd.h"             // dd::upgrade::upgrade_tables
 #include "sql/dd/impl/upgrade/server.h"  // dd::upgrade::do_server_upgrade_checks
 #include "sql/dd/impl/utils.h"           // dd::execute_query
+#include "sql/dd/info_schema/metadata.h"
 #include "sql/dd/object_id.h"
 #include "sql/dd/types/abstract_table.h"
 #include "sql/dd/types/object_table.h"             // dd::Object_table
@@ -70,6 +71,7 @@
 #include "sql/mdl.h"
 #include "sql/mysqld.h"
 #include "sql/sd_notify.h"  // sysd::notify
+#include "sql/sql_zip_dict.h"
 #include "sql/thd_raii.h"
 
 using namespace dd;
@@ -860,6 +862,9 @@ bool initialize_dictionary(THD *thd, bool is_dd_upgrade_57,
       verify_contents(thd) || update_versions(thd, is_dd_upgrade_57))
     return true;
 
+  // Create compression dictionary tables
+  if (compression_dict::bootstrap(thd)) return true;
+
   DBUG_EXECUTE_IF(
       "schema_read_only",
       if (dd::execute_query(thd, "CREATE SCHEMA schema_read_only") ||
@@ -906,6 +911,102 @@ bool initialize(THD *thd) {
   return false;
 }
 
+/** On startup from mysql datadir to Percona Server, compression dictionary
+tables and I_S views on them will be missing. We check if they are missing
+and create the tables mysql.compression_dictionary,
+mysql.compression_dictionary_cols
+@param[in,out]  thd  Session context
+@return false on success, true on failure */
+static bool check_and_create_compression_dict_tables(THD *thd) {
+  const dd::Table *comp_table_def = nullptr;
+  if (thd->dd_client()->acquire("mysql", "compression_dictionary",
+                                &comp_table_def)) {
+    return true;
+  }
+
+  const dd::Table *comp_cols_table_def = nullptr;
+  if (thd->dd_client()->acquire("mysql", "compression_dictionary_cols",
+                                &comp_cols_table_def)) {
+    return true;
+  }
+
+  const dd::Table *view_table_def = nullptr;
+  if (thd->dd_client()->acquire("mysql", "view_table_usage", &view_table_def)) {
+    return true;
+  }
+
+  /*
+    If compression dictionary tables were created by upgrade from 5.7 to
+    PS-8.0.13-3, the table_ids would be wrong. Use the first available hardcoded
+    table_id
+  */
+  bool fix_table_ids = false;
+
+  if (comp_table_def != nullptr && comp_cols_table_def != nullptr) {
+    uint64 comp_table_id = comp_table_def->se_private_id();
+    uint64 comp_cols_table_id = comp_cols_table_def->se_private_id();
+    uint64 view_table_id = view_table_def->se_private_id();
+
+    if (comp_table_id == view_table_id + 1 &&
+        (comp_cols_table_id == view_table_id + 2)) {
+      return false;
+    } else {
+      fix_table_ids = true;
+    }
+  }
+
+  /*
+    We must also check if the DDSE is started in a way that makes the DD
+    read only. For now, we only support InnoDB as SE for the DD. The call
+    to retrieve the handlerton for the DDSE should be replaced by a more
+    generic mechanism.
+  */
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
+
+  if (ddse->is_dict_readonly && ddse->is_dict_readonly()) {
+    LogErr(WARNING_LEVEL, ER_COMPRESSION_DICTIONARY_NO_CREATE, "InnoDB", " ");
+    return false;
+  }
+
+  DBUG_EXECUTE_IF("skip_compression_dict_fix", fix_table_ids = false;);
+
+  if (fix_table_ids) {
+    dd::Table *comp_dict = nullptr;
+    if (thd->dd_client()->acquire_for_modification(
+            "mysql", "compression_dictionary", &comp_dict)) {
+    }
+
+    dd::Table *comp_cols_dict = nullptr;
+    if (thd->dd_client()->acquire_for_modification(
+            "mysql", "compression_dictionary_cols", &comp_cols_dict)) {
+    }
+
+    comp_dict->set_se_private_id(view_table_def->se_private_id() + 1);
+    comp_cols_dict->set_se_private_id(comp_dict->se_private_id() + 1);
+
+    if (thd->dd_client()->update<dd::Table>(comp_dict)) {
+      return true;
+    }
+
+    if (thd->dd_client()->update<dd::Table>(comp_cols_dict)) {
+      return true;
+    }
+
+    return (false);
+  }
+
+  // Create the compression dictionary tables
+  if (compression_dict::bootstrap(thd)) return true;
+
+  dd::info_schema::create_system_views(thd, true, true);
+
+  /*
+    We must commit the transaction before executing a new query, which
+    expects the transaction to be empty.
+  */
+  return (dd::end_transaction(thd, false));
+}
+
 // Normal server restart.
 bool restart(THD *thd) {
   bootstrap::DD_bootstrap_ctx::instance().set_stage(bootstrap::Stage::STARTED);
@@ -933,6 +1034,7 @@ bool restart(THD *thd) {
       DDSE_dict_recover(thd, DICT_RECOVERY_RESTART_SERVER,
                         d->get_actual_dd_version(thd)) ||
       upgrade::do_server_upgrade_checks(thd) || upgrade::upgrade_tables(thd) ||
+      check_and_create_compression_dict_tables(thd) ||
       repopulate_charsets_and_collations(thd) || verify_contents(thd) ||
       update_versions(thd, false)) {
     return true;
