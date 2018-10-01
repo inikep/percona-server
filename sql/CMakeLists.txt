@@ -157,6 +157,8 @@ SET(DD_SOURCES
   dd/impl/system_views/columns.cc
   dd/impl/system_views/column_statistics.cc
   dd/impl/system_views/enabled_roles.cc
+  dd/impl/system_views/compression_dictionary.cc
+  dd/impl/system_views/compression_dictionary_tables.cc
   dd/impl/system_views/events.cc
   dd/impl/system_views/files.cc
   dd/impl/system_views/innodb_datafiles.cc
@@ -539,6 +541,7 @@ SET(SQL_SHARED_SOURCES
   sql_union.cc
   sql_update.cc
   sql_view.cc
+  sql_zip_dict.cc
   stateless_allocator.cc
   strfunc.cc
   sys_vars.cc
