@@ -36,9 +36,9 @@
 #include "nullable.h"
 #include "sql/dd/types/column.h"
 #include "sql/gis/srid.h"
-#include "sql/mdl.h"                // MDL_request
 #include "sql/key.h"  // KEY
 #include "sql/key_spec.h"
+#include "sql/mdl.h"                // MDL_request
 #include "sql/mem_root_array.h"     // Mem_root_array
 #include "sql/sql_cmd.h"            // Sql_cmd
 #include "sql/sql_cmd_ddl_table.h"  // Sql_cmd_ddl_table
@@ -425,9 +425,19 @@ class Alter_info {
                  Item *on_update_value, LEX_STRING *comment, const char *change,
                  List<String> *interval_list, const CHARSET_INFO *cs,
                  bool has_explicit_collation, uint uint_geom_type,
-                 Value_generator *gcol_info, Value_generator *default_val_expr,
-                 const char *opt_after, Nullable<gis::srid_t> srid,
+                 const LEX_CSTRING *zip_dict, Value_generator *gcol_info,
+                 Value_generator *default_val_expr, const char *opt_after,
+                 Nullable<gis::srid_t> srid,
                  dd::Column::enum_hidden_type hidden);
+
+  /**
+     Checks if there are any columns with COLUMN_FORMAT COMRPESSED
+     attribute among field definitions in create_list.
+
+     @retval false there are no compressed columns
+     @retval true there is at least one compressed column
+  */
+  bool has_compressed_columns() const;
 
  private:
   Alter_info &operator=(const Alter_info &rhs);  // not implemented

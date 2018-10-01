@@ -59,6 +59,7 @@ class Mock_create_field : public Create_field {
          NULL,            // const CHARSET_INFO *fld_charset,
          false,           // bool has_explicit_collation,
          0,               // uint fld_geom_type
+         &null_lex_cstr,  // zip_dict_name
          nullptr,         // gcol info
          nullptr,         // gen default val
          {},              // Nullable<gis::srid_t> srid
