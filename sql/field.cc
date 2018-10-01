@@ -218,6 +218,9 @@ bool collation_prevents_inplace(const Field_str &from, const Create_field &to) {
 bool change_prevents_inplace(const Field_str &from, const Create_field &to) {
   return sql_type_prevents_inplace(from, to) ||
          length_prevents_inplace(from, to) ||
+         // Changing column format to/from compressed or changing associated
+         // compression dictionary must result in table rebuild
+         from.has_different_compression_attributes_with(to) ||
          charset_prevents_inplace(from, to) ||
          collation_prevents_inplace(from, to);
 }
@@ -1622,6 +1625,8 @@ Field::Field(uchar *ptr_arg, uint32 length_arg, uchar *null_ptr_arg,
       null_bit(null_bit_arg),
       auto_flags(auto_flags_arg),
       is_created_from_null_item(false),
+      zip_dict_name(null_lex_cstr),
+      zip_dict_data(null_lex_cstr),
       m_indexed(false),
       m_warnings_pushed(0),
       gcol_info(0),
@@ -1758,6 +1763,31 @@ bool Field::send_binary(Protocol *protocol) {
   if (is_null()) return protocol->store_null();
   String *res = val_str(&tmp);
   return res ? protocol->store(res) : protocol->store_null();
+}
+
+/**
+  Checks if the current field definition and provided create field
+  definition have different compression attributes.
+
+  @param   new_field   create field definition to compare with
+
+  @return
+    true  - if compression attributes are different
+    false - if compression attributes are identical.
+*/
+bool Field::has_different_compression_attributes_with(
+    const Create_field &new_field) const noexcept {
+  if (new_field.column_format() != COLUMN_FORMAT_TYPE_COMPRESSED &&
+      column_format() != COLUMN_FORMAT_TYPE_COMPRESSED)
+    return false;
+
+  if (new_field.column_format() != column_format()) return true;
+
+  if ((zip_dict_name.str == nullptr) &&
+      (new_field.zip_dict_name.str == nullptr))
+    return false;
+
+  return !::is_equal(&new_field.zip_dict_name, &zip_dict_name);
 }
 
 /**
@@ -2171,8 +2201,13 @@ Field *Field::new_field(MEM_ROOT *root, TABLE *new_table,
     sure which parts of the server will break.
   */
   tmp->auto_flags = Field::NONE;
+  /* COMPRESSED column format flag must not be cleared here */
+  const bool has_compressed_flag =
+      (tmp->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED);
   tmp->flags &= (NOT_NULL_FLAG | BLOB_FLAG | UNSIGNED_FLAG | ZEROFILL_FLAG |
                  BINARY_FLAG | ENUM_FLAG | SET_FLAG);
+  if (has_compressed_flag)
+    tmp->set_column_format(COLUMN_FORMAT_TYPE_COMPRESSED);
   tmp->reset_fields();
   return tmp;
 }
@@ -7489,6 +7524,7 @@ uint Field_blob::is_equal(const Create_field *new_field) {
   if (new_field->sql_type != get_blob_type_from_length(max_data_length()) ||
       new_field->pack_length() != pack_length() ||
       charset_prevents_inplace(*this, *new_field) ||
+      has_different_compression_attributes_with(*new_field) ||
       collation_prevents_inplace(*this, *new_field)) {
     return IS_EQUAL_NO;
   }

@@ -1293,6 +1293,7 @@ void warn_about_deprecated_national(THD *thd)
 
 %type <lex_cstr>
         opt_table_alias
+        opt_with_compression_dictionary
         opt_replace_password
 
 %type <lex_str_list> TEXT_STRING_sys_list
@@ -1375,6 +1376,7 @@ void warn_about_deprecated_national(THD *thd)
         signal_allowed_expr
         simple_target_specification
         condition_number
+        create_compression_dictionary_allowed_expr
         filter_db_ident
         filter_table_ident
         filter_string
@@ -2826,6 +2828,17 @@ create:
             Lex->m_sql_cmd=
               NEW_PTN Sql_cmd_create_server(&Lex->server_options);
           }
+        | CREATE COMPRESSION_DICTIONARY_SYM opt_if_not_exists ident
+          '(' create_compression_dictionary_allowed_expr ')'
+          {
+            Lex->sql_command= SQLCOM_CREATE_COMPRESSION_DICTIONARY;
+            Lex->create_info= YYTHD->alloc_typed<HA_CREATE_INFO>();
+            if (Lex->create_info == nullptr)
+              MYSQL_YYABORT; // OOM
+            Lex->create_info->options= $3 ? HA_LEX_CREATE_IF_NOT_EXISTS : 0;
+            Lex->ident= $4;
+            Lex->create_info->zip_dict_name = $6;
+          }
         ;
 
 create_srs_stmt:
@@ -2937,6 +2950,32 @@ create_index_stmt:
                                              NULL, $6, $8, $10,
                                              $11.algo.get_or_default(),
                                              $11.lock.get_or_default());
+          }
+        ;
+/*
+  Only a limited subset of <expr> are allowed in
+  CREATE COMPRESSION_DICTIONARY.
+*/
+create_compression_dictionary_allowed_expr:
+          text_literal
+          { ITEMIZE($1, &$$); }
+        | variable
+          {
+            ITEMIZE($1, &$1);
+            if ($1->type() == Item::FUNC_ITEM)
+            {
+              Item_func *item= (Item_func*) $1;
+              if (item->functype() == Item_func::SUSERVAR_FUNC)
+              {
+                /*
+                  Don't allow the following syntax:
+                    CREATE COMPRESSION_DICTIONARY <dict>(@foo := expr)
+                */
+                my_error(ER_SYNTAX_ERROR, MYF(0));
+                MYSQL_YYABORT;
+              }
+            }
+            $$= $1;
           }
         ;
 
@@ -3316,7 +3355,7 @@ sp_fdparam:
                                       NULL, NULL, &NULL_STR, 0,
                                       $2->get_interval_list(),
                                       cs ? cs : thd->variables.collation_database,
-                                      $3 != nullptr, $2->get_uint_geom_type(),
+                                      $3 != nullptr, $2->get_uint_geom_type(), nullptr,
                                       nullptr, nullptr, {},
                                       dd::Column::enum_hidden_type::HT_VISIBLE))
             {
@@ -3377,7 +3416,7 @@ sp_pdparam:
                                       NULL, NULL, &NULL_STR, 0,
                                       $3->get_interval_list(),
                                       cs ? cs : thd->variables.collation_database,
-                                      $4 != nullptr, $3->get_uint_geom_type(),
+                                      $4 != nullptr, $3->get_uint_geom_type(), nullptr,
                                       nullptr, nullptr, {},
                                       dd::Column::enum_hidden_type::HT_VISIBLE))
             {
@@ -3507,7 +3546,7 @@ sp_decl:
                                         NULL, NULL, &NULL_STR, 0,
                                         $3->get_interval_list(),
                                         cs ? cs : thd->variables.collation_database,
-                                        $4 != nullptr, $3->get_uint_geom_type(),
+                                        $4 != nullptr, $3->get_uint_geom_type(), nullptr,
                                         nullptr, nullptr, {},
                                         dd::Column::enum_hidden_type::HT_VISIBLE))
               {
@@ -6689,7 +6728,11 @@ column_attribute:
           }
         | COLUMN_FORMAT_SYM column_format
           {
-            $$= NEW_PTN PT_column_format_column_attr($2);
+            $$= NEW_PTN PT_column_format_column_attr($2, null_lex_cstr);
+          }
+        | COLUMN_FORMAT_SYM COMPRESSED_SYM opt_with_compression_dictionary
+          {
+            $$= NEW_PTN PT_column_format_column_attr(COLUMN_FORMAT_TYPE_COMPRESSED, $3);
           }
         | STORAGE_SYM storage_media
           {
@@ -6703,6 +6746,14 @@ column_attribute:
               MYSQL_YYABORT;
             }
             $$= NEW_PTN PT_srid_column_attr(static_cast<gis::srid_t>($2));
+          }
+        ;
+
+opt_with_compression_dictionary:
+          /* empty */ { $$= null_lex_cstr; }
+        | WITH COMPRESSION_DICTIONARY_SYM ident
+          {
+            $$= to_lex_cstring($3);
           }
         ;
 
@@ -11917,6 +11968,12 @@ drop_server_stmt:
             Lex->sql_command = SQLCOM_DROP_SERVER;
             Lex->m_sql_cmd= NEW_PTN Sql_cmd_drop_server($4, $3);
           }
+        | DROP COMPRESSION_DICTIONARY_SYM if_exists ident
+          {
+            Lex->sql_command= SQLCOM_DROP_COMPRESSION_DICTIONARY;
+            Lex->drop_if_exists= $3;
+            Lex->ident= $4;
+          }
         ;
 
 drop_srs_stmt:
@@ -16119,7 +16176,7 @@ sf_tail:
                                             $9->get_type_flags(), NULL, NULL, &NULL_STR, 0,
                                             $9->get_interval_list(),
                                             cs ? cs : YYTHD->variables.collation_database,
-                                            $10 != nullptr, $9->get_uint_geom_type(),
+                                            $10 != nullptr, $9->get_uint_geom_type(), nullptr,
                                             nullptr, nullptr, {},
                                             dd::Column::enum_hidden_type::HT_VISIBLE))
             {

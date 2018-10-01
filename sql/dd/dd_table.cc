@@ -691,6 +691,14 @@ bool fill_dd_columns_from_create_fields(THD *thd, dd::Abstract_table *tab_obj,
       col_options->set("column_format",
                        static_cast<uint32>(field->column_format()));
 
+    if (field->zip_dict_id != 0) {
+      DBUG_LOG("zip_dict", "Table: " << tab_obj->name()
+                                     << " setting field_name "
+                                     << field->field_name
+                                     << " to id: " << field->zip_dict_id);
+      col_options->set("zip_dict_id", field->zip_dict_id);
+    }
+
     //
     // Write intervals
     //
@@ -2509,8 +2517,8 @@ bool recreate_table(THD *thd, const char *schema_name, const char *table_name) {
   build_table_filename(path, sizeof(path) - 1, schema_name, table_name, "", 0);
 
   // Attempt to reconstruct the table
-  return ha_create_table(thd, path, schema_name, table_name, &create_info, true,
-                         false, table_def);
+  return ha_create_table(thd, path, schema_name, table_name, &create_info,
+                         nullptr, true, false, table_def);
 }
 
 /**
