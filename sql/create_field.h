@@ -32,6 +32,7 @@
 #include "sql/dd/types/column.h"
 #include "sql/field.h"
 #include "sql/gis/srid.h"
+#include "sql/sql_lex.h"
 #include "sql/sql_list.h"
 #include "typelib.h"
 
@@ -162,6 +163,8 @@ class Create_field {
   */
   uint pack_length_override{0};
 
+  LEX_CSTRING zip_dict_name;  // Compression dictionary name
+
   /* Generated column expression information */
   Value_generator *gcol_info{nullptr};
   /*
@@ -178,6 +181,13 @@ class Create_field {
   // Whether the field is actually an array of the field's type;
   bool is_array{false};
 
+  /*
+    Store dict_id after verifying zip_dict_name exists. The stored id
+    is filled in dd::Column::options and later used to fill TABLE_SHARE*
+    zip_dict_name and zip_dict_data
+  */
+  uint64_t zip_dict_id;
+
   Create_field()
       : after(nullptr),
         is_explicit_collation(false),
@@ -192,8 +202,10 @@ class Create_field {
         */
         treat_bit_as_char(false),
         pack_length_override(0),
+        zip_dict_name(null_lex_cstr),
         stored_in_db(false),
-        m_default_val_expr(nullptr) {}
+        m_default_val_expr(nullptr),
+        zip_dict_id(0) {}
   Create_field(Field *field, Field *orig_field);
 
   /* Used to make a clone of this object for ALTER/CREATE TABLE */
@@ -216,9 +228,10 @@ class Create_field {
             Item *default_value, Item *on_update_value, LEX_CSTRING *comment,
             const char *change, List<String> *interval_list,
             const CHARSET_INFO *cs, bool has_explicit_collation,
-            uint uint_geom_type, Value_generator *gcol_info,
-            Value_generator *default_val_expr, Nullable<gis::srid_t> srid,
-            dd::Column::enum_hidden_type hidden, bool is_array = false);
+            uint uint_geom_type, const LEX_CSTRING *zip_dict_name,
+            Value_generator *gcol_info, Value_generator *default_val_expr,
+            Nullable<gis::srid_t> srid, dd::Column::enum_hidden_type hidden,
+            bool is_array = false);
 
   ha_storage_media field_storage_type() const {
     return (ha_storage_media)((flags >> FIELD_FLAGS_STORAGE_MEDIA) & 3);
@@ -226,6 +239,11 @@ class Create_field {
 
   column_format_type column_format() const {
     return (column_format_type)((flags >> FIELD_FLAGS_COLUMN_FORMAT) & 3);
+  }
+
+  void set_column_format(column_format_type column_format_arg) noexcept {
+    flags &= ~(FIELD_FLAGS_COLUMN_FORMAT_MASK);
+    flags |= (column_format_arg << FIELD_FLAGS_COLUMN_FORMAT);
   }
 
  private:

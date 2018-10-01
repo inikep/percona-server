@@ -151,6 +151,9 @@ BEGIN
   SELECT name, status FROM INFORMATION_SCHEMA.INNODB_METRICS
     ORDER BY name;
 
+  -- Dump all created compression dictionaries
+  SELECT * FROM INFORMATION_SCHEMA.COMPRESSION_DICTIONARY ORDER BY DICT_NAME;
+
   SHOW GLOBAL STATUS LIKE 'slave_open_temp_tables';
 
   -- Check for number of active connections before & after the test run.
