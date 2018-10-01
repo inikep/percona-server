@@ -2177,7 +2177,7 @@ flag_ok:
                                               ROW_BUILD_FOR_INSERT);
   upd_t *update = row_upd_build_difference_binary(
       index, entry, btr_pcur_get_rec(&pcur), cur_offsets, false, nullptr, heap,
-      dup->m_table, &error);
+      dup->m_table, thr->prebuilt, &error);
   if (error != DB_SUCCESS) {
     goto func_exit;
   }

@@ -1870,7 +1870,7 @@ void dd_add_instant_columns(IF_DEBUG(const Alter_inplace_info *ha_alter_info, )
 
     row_mysql_store_col_in_innobase_format(
         &dfield, reinterpret_cast<byte *>(&buf), true, mysql_data, size,
-        dict_table_is_comp(new_table));
+        dict_table_is_comp(new_table), false, nullptr, 0, nullptr);
 
     size_t length = 0;
     const char *value = coder.encode(reinterpret_cast<byte *>(dfield.data),
@@ -3098,21 +3098,26 @@ static inline dict_table_t *dd_fill_dict_table(const Table *dd_tab,
 
     bool is_stored = innobase_is_s_fld(field);
 
+    const ulint is_compressed =
+        field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED
+            ? DATA_COMPRESSED
+            : 0;
+
     if (is_multi_val) {
       col_len = field->key_length();
     }
 
     if (!is_virtual) {
-      prtype =
-          dtype_form_prtype((ulint)field->type() | nulls_allowed |
-                                unsigned_type | binary_type | long_true_varchar,
-                            charset_no);
+      prtype = dtype_form_prtype((ulint)field->type() | nulls_allowed |
+                                     unsigned_type | binary_type |
+                                     long_true_varchar | is_compressed,
+                                 charset_no);
       dict_mem_table_add_col(m_table, heap, field->field_name, mtype, prtype,
                              col_len, !field->is_hidden_by_system());
     } else {
       prtype = dtype_form_prtype(
           (ulint)field->type() | nulls_allowed | unsigned_type | binary_type |
-              long_true_varchar | is_virtual | is_multi_val,
+              long_true_varchar | is_virtual | is_compressed | is_multi_val,
           charset_no);
       dict_mem_table_add_v_col(m_table, heap, field->field_name, mtype, prtype,
                                col_len, i,
