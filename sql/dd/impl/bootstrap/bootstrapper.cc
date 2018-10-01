@@ -57,6 +57,7 @@
 #include "sql/dd/impl/upgrade/dd.h"             // dd::upgrade::upgrade_tables
 #include "sql/dd/impl/upgrade/server.h"  // dd::upgrade::do_server_upgrade_checks
 #include "sql/dd/impl/utils.h"           // dd::execute_query
+#include "sql/dd/info_schema/metadata.h"
 #include "sql/dd/object_id.h"
 #include "sql/dd/types/abstract_table.h"
 #include "sql/dd/types/object_table.h"             // dd::Object_table
@@ -69,6 +70,7 @@
 #include "sql/handler.h"                   // dict_init_mode_t
 #include "sql/mdl.h"
 #include "sql/mysqld.h"
+#include "sql/sql_zip_dict.h"
 #include "sql/thd_raii.h"
 
 using namespace dd;
@@ -867,6 +869,9 @@ bool initialize_dictionary(THD *thd, bool is_dd_upgrade_57,
       verify_contents(thd) | update_versions(thd, is_dd_upgrade_57))
     return true;
 
+  // Create compression dictionary tables
+  if (compression_dict::bootstrap(thd)) return true;
+
   bootstrap::DD_bootstrap_ctx::instance().set_stage(bootstrap::Stage::FINISHED);
 
   return false;
@@ -1531,7 +1536,7 @@ bool sync_meta_data(THD *thd) {
                                                        "UPGRADE_TARGET_SCHEMA");
 
   if (actual_schema_exists || target_schema_exists)
-    return end_transaction(thd, false);
+    return dd::end_transaction(thd, false);
 
   return false;
 }
