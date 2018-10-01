@@ -1788,8 +1788,8 @@ bool PT_column_def::contextualize(Table_ddl_parse_context *pc) {
       field_def->on_update_value, &field_def->comment, nullptr,
       field_def->interval_list, field_def->charset,
       field_def->has_explicit_collation, field_def->uint_geom_type,
-      field_def->gcol_info, field_def->default_val_info, opt_place,
-      field_def->m_srid, field_def->check_const_spec_list,
+      &field_def->m_zip_dict, field_def->gcol_info, field_def->default_val_info,
+      opt_place, field_def->m_srid, field_def->check_const_spec_list,
       dd::Column::enum_hidden_type::HT_VISIBLE);
 }
 
@@ -2524,8 +2524,9 @@ bool PT_alter_table_change_column::contextualize(Table_ddl_parse_context *pc) {
       m_field_def->on_update_value, &m_field_def->comment, m_old_name.str,
       m_field_def->interval_list, m_field_def->charset,
       m_field_def->has_explicit_collation, m_field_def->uint_geom_type,
-      m_field_def->gcol_info, m_field_def->default_val_info, m_opt_place,
-      m_field_def->m_srid, nullptr, dd::Column::enum_hidden_type::HT_VISIBLE);
+      &m_field_def->m_zip_dict, m_field_def->gcol_info,
+      m_field_def->default_val_info, m_opt_place, m_field_def->m_srid, nullptr,
+      dd::Column::enum_hidden_type::HT_VISIBLE);
 }
 
 bool PT_alter_table_rename::contextualize(Table_ddl_parse_context *pc) {
@@ -3049,6 +3050,7 @@ bool PT_json_table_column_with_path::contextualize(Parse_context *pc) {
                  cs,                            // Charset & collation
                  m_collation != nullptr,        // Has "COLLATE" clause
                  m_type->get_uint_geom_type(),  // Geom type
+                 nullptr,                       // Compression dictionary name
                  nullptr,                       // Gcol_info
                  nullptr,                       // Default gen expression
                  {},                            // SRID
