@@ -1761,6 +1761,31 @@ bool Field::send_binary(Protocol *protocol) {
 }
 
 /**
+  Checks if the current field definition and provided create field
+  definition have different compression attributes.
+
+  @param   new_field   create field definition to compare with
+
+  @return
+    true  - if compression attributes are different
+    false - if compression attributes are identical.
+*/
+bool Field::has_different_compression_attributes_with(
+    const Create_field &new_field) const noexcept {
+  if (new_field.column_format() != COLUMN_FORMAT_TYPE_COMPRESSED &&
+      column_format() != COLUMN_FORMAT_TYPE_COMPRESSED)
+    return false;
+
+  if (new_field.column_format() != column_format()) return true;
+
+  if ((zip_dict_name.str == nullptr) &&
+      (new_field.zip_dict_name.str == nullptr))
+    return false;
+
+  return !::is_equal(&new_field.zip_dict_name, &zip_dict_name);
+}
+
+/**
    Check to see if field size is compatible with destination.
 
    This method is used in row-based replication to verify that the

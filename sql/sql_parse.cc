@@ -3682,7 +3682,32 @@ int mysql_execute_command(THD *thd, bool first_level) {
       if (!lock_tables_for_backup(thd)) my_ok(thd);
 
       break;
+    case SQLCOM_CREATE_COMPRESSION_DICTIONARY: {
+      if (lex->create_info->zip_dict_name->fixed == 0)
+        lex->create_info->zip_dict_name->fix_fields(thd, 0);
+      String dict_data;
+      String *dict_data_ptr =
+          lex->create_info->zip_dict_name->val_str_ascii(&dict_data);
+      if (dict_data_ptr == nullptr || dict_data_ptr->ptr() == nullptr) {
+        dict_data.set("", 0, &my_charset_bin);
+        dict_data_ptr = &dict_data;
+      }
 
+      if ((res = compression_dict::create_zip_dict(
+               thd, lex->ident.str, lex->ident.length, dict_data_ptr->ptr(),
+               dict_data_ptr->length(),
+               (lex->create_info->options & HA_LEX_CREATE_IF_NOT_EXISTS) != 0,
+               false)) == 0)
+        my_ok(thd);
+      break;
+    }
+    case SQLCOM_DROP_COMPRESSION_DICTIONARY: {
+      if ((res = compression_dict::drop_zip_dict(
+               thd, lex->ident.str, lex->ident.length, lex->drop_if_exists)) ==
+          0)
+        my_ok(thd);
+      break;
+    }
     case SQLCOM_CREATE_DB: {
       const char *alias;
       if (!(alias = thd->strmake(lex->name.str, lex->name.length)) ||

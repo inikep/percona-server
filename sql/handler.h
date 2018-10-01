@@ -1804,6 +1804,23 @@ typedef bool (*rotate_encryption_master_key_t)(void);
 
 /**
   @brief
+  Fix empty UUID of tablespaces of an engine. This is used when engine encrypts
+  tablespaces as part of initialization. These tablespaces will have empty UUID
+  because UUID is generated after all plugins are initialized. This API will be
+  called by server only after UUID is available.
+  @returns false on success,
+           true on failure
+*/
+using fix_tablespaces_empty_uuid_t = bool (*)(void);
+
+using compression_dict_data_vec_t =
+    std::vector<std::pair<std::string, std::string>>;
+
+using upgrade_get_compression_dict_data_t =
+    bool (*)(THD *thd, compression_dict_data_vec_t &names_vector);
+
+/**
+  @brief
   Retrieve ha_statistics from SE.
 
   @param db_name                  Name of schema
@@ -2183,6 +2200,7 @@ struct handlerton {
   notify_exclusive_mdl_t notify_exclusive_mdl;
   notify_alter_table_t notify_alter_table;
   rotate_encryption_master_key_t rotate_encryption_master_key;
+  upgrade_get_compression_dict_data_t upgrade_get_compression_dict_data;
 
   get_table_statistics_t get_table_statistics;
   get_index_column_cardinality_t get_index_column_cardinality;
@@ -6197,9 +6215,11 @@ class handler {
     return false;
   }
   int get_lock_type() const { return m_lock_type; }
+
   /**
     This method is supposed to fill field definition objects with
-    compression dictionary info (name and data).
+    compression dictionary info (name and data). This is used
+    only during upgrade from 5.7 to 8.0
     If the handler does not support compression dictionaries
     this method should be left empty (not overloaded).
 
@@ -6207,7 +6227,7 @@ class handler {
     @param    part_name    Full table name (including partition part).
                            Optional.
   */
-  virtual void update_field_defs_with_zip_dict_info(THD *, const char *) {}
+  virtual void upgrade_update_field_with_zip_dict_info(THD *, const char *) {}
 
  public:
   /* Read-free replication interface */

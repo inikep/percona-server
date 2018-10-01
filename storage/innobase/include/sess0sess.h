@@ -73,6 +73,7 @@ class innodb_session_t {
   innodb_session_t()
       : m_trx(),
         m_open_tables(),
+        m_dict_mutex_locked(0),
         m_usr_temp_tblsp(),
         m_intrinsic_temp_tblsp() {
     /* Do nothing. */
@@ -158,6 +159,15 @@ class innodb_session_t {
   table_cache_t m_open_tables;
 
  private:
+  /** This counter is used by
+  ha_innobase::upgrade_update_field_with_zip_dict_info() to determine
+  whether it needs to acquire dict_sys mutex or not. Non-zero value
+  means that this mutex has already been locked by one of the purge
+  threads just before calling handler::my_prepare_gcolumn_template() /
+  handler::my_eval_gcolumn_expr_with_open() and therefore it must not
+  be touched to avoid recursive locking. */
+  uint m_dict_mutex_locked;
+
   /** Current session's user temp tablespace */
   ibt::Tablespace *m_usr_temp_tblsp;
 
