@@ -1626,6 +1626,7 @@ INSERT INTO I_S_check_table(t) VALUES ("CREATE OR REPLACE DEFINER=`mysql.infosch
    AND c_to_user != ''
    AND c_enabled = TRUE
 ");
+
 CREATE OR REPLACE DEFINER=`mysql.infoschema`@`localhost` VIEW information_schema.COMPRESSION_DICTIONARY AS SELECT 
   dict.version AS DICT_VERSION,
   dict.name AS DICT_NAME,
