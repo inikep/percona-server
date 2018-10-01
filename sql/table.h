@@ -1142,6 +1142,12 @@ struct TABLE_SHARE {
     return is_primary() && secondary_engine.str != nullptr;
   }
 
+  /**
+     Checks if TABLE_SHARE has at least one field with
+     COLUMN_FORMAT_TYPE_COMPRESSED flag.
+  */
+  bool has_compressed_columns() const;
+
  private:
   /// How many TABLE objects use this TABLE_SHARE.
   unsigned int m_ref_count{0};
