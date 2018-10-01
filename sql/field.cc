@@ -9768,7 +9768,8 @@ Create_field::Create_field(Field *old_field, Field *orig_field)
       zip_dict_name(old_field->zip_dict_name),
       gcol_info(old_field->gcol_info),
       stored_in_db(old_field->stored_in_db),
-      m_default_val_expr(old_field->m_default_val_expr) {
+      m_default_val_expr(old_field->m_default_val_expr),
+      zip_dict_id(0) {
   switch (sql_type) {
     case MYSQL_TYPE_JSON:
       /*
