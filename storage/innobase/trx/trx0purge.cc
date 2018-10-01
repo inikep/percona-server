@@ -256,7 +256,16 @@ void trx_purge_sys_create(ulint n_purge_threads, purge_pq_t *purge_queue) {
   purge_sys->heap = mem_heap_create(8 * 1024);
 }
 
+/************************************************************************
+Frees the global purge system control structure. */
 void trx_purge_sys_close() {
+  for (que_thr_t *thr = UT_LIST_GET_FIRST(purge_sys->query->thrs);
+       thr != nullptr; thr = UT_LIST_GET_NEXT(thrs, thr)) {
+    if (thr->prebuilt != nullptr && thr->prebuilt->compress_heap != nullptr) {
+      row_mysql_prebuilt_free_compress_heap(thr->prebuilt);
+    }
+  }
+
   que_graph_free(purge_sys->query);
 
   ut_a(purge_sys->trx->id == 0);

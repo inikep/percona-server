@@ -9086,6 +9086,27 @@ dberr_t fil_reset_encryption(space_id_t space_id) {
   return (DB_SUCCESS);
 }
 
+/** Enable encryption of temporary tablespace
+@param[in,out]	space	tablespace object
+@return DB_SUCCESS on success, DB_ERROR on failure */
+dberr_t fil_temp_update_encryption(fil_space_t *space) {
+  /* Make sure the keyring is loaded. */
+  if (!Encryption::check_keyring()) {
+    ib::error() << "Can't set temporary tablespace"
+                << " to be encrypted because"
+                << " keyring plugin is not"
+                << " available.";
+    return (DB_ERROR);
+  }
+
+  const dberr_t err =
+      fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
+
+  ut_ad(err == DB_SUCCESS);
+
+  return (err);
+}
+
 #ifndef UNIV_HOTBACKUP
 /** Rotate the tablespace keys by new master key.
 @param[in,out]	shard		Rotate the keys in this shard
