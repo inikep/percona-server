@@ -4793,7 +4793,7 @@ static Sys_var_charptr Sys_version_suffix("version_suffix", "version_suffix",
 static char *server_version_comment_ptr;
 static Sys_var_charptr Sys_version_comment(
     "version_comment", "version_comment",
-    NON_PERSIST GLOBAL_VAR(server_version_comment_ptr), NO_CMD_LINE,
+    GLOBAL_VAR(server_version_comment_ptr), NO_CMD_LINE,
     IN_SYSTEM_CHARSET, DEFAULT(MYSQL_COMPILATION_COMMENT_SERVER));
 
 static char *server_version_compile_machine_ptr;
@@ -5467,7 +5467,7 @@ static Sys_var_have Sys_have_profiling(
 
 static Sys_var_have Sys_have_backup_locks(
     "have_backup_locks", "have_backup_locks",
-    READ_ONLY GLOBAL_VAR(have_backup_locks), NO_CMD_LINE);
+    READ_ONLY NON_PERSIST GLOBAL_VAR(have_backup_locks), NO_CMD_LINE);
 
 static Sys_var_have Sys_have_backup_safe_binlog_info(
     "have_backup_safe_binlog_info", "have_backup_safe_binlog_info",
@@ -5476,7 +5476,7 @@ static Sys_var_have Sys_have_backup_safe_binlog_info(
 
 static Sys_var_have Sys_have_snapshot_cloning(
     "have_snapshot_cloning", "have_snapshot_cloning",
-    READ_ONLY GLOBAL_VAR(have_snapshot_cloning), NO_CMD_LINE);
+    READ_ONLY NON_PERSIST GLOBAL_VAR(have_snapshot_cloning), NO_CMD_LINE);
 
 static Sys_var_have Sys_have_query_cache(
     "have_query_cache",
