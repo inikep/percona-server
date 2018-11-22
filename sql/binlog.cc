@@ -10219,8 +10219,8 @@ int THD::decide_logging_format(TABLE_LIST *tables) {
   @retval false Error was generated.
   @retval true No error was generated (possibly a warning was generated).
 */
-bool handle_gtid_consistency_violation(THD *thd, int error_code,
-                                       int log_error_code) {
+static bool handle_gtid_consistency_violation(THD *thd, int error_code,
+                                              int log_error_code) {
   DBUG_ENTER("handle_gtid_consistency_violation");
 
   enum_gtid_type gtid_next_type = thd->variables.gtid_next.type;
@@ -10332,7 +10332,8 @@ bool THD::is_ddl_gtid_compatible() {
         ER_RPL_GTID_UNSAFE_STMT_CREATE_SELECT);
     DBUG_RETURN(ret);
   } else if ((lex->sql_command == SQLCOM_CREATE_TABLE &&
-              (lex->create_info->options & HA_LEX_CREATE_TMP_TABLE) != 0)) {
+              (lex->create_info->options & HA_LEX_CREATE_TMP_TABLE) != 0) ||
+             (lex->sql_command == SQLCOM_DROP_TABLE && lex->drop_temporary)) {
     /*
       When @@session.binlog_format=statement, [CREATE|DROP] TEMPORARY TABLE
       is unsafe to execute inside a transaction or Procedure, because the
