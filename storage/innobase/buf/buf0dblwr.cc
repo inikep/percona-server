@@ -1059,6 +1059,9 @@ void Double_write::check_block(const buf_block_t *block) noexcept {
       return;
 
     case FIL_PAGE_TYPE_ALLOCATED:
+      if (srv_immediate_scrub_data_uncompressed) {
+        return;
+      }
       /* Empty pages should never be flushed. Unless we are creating the
       legacy doublewrite buffer.  */
       break;
