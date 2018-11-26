@@ -283,6 +283,8 @@ static bool innodb_optimize_fulltext_only = FALSE;
 
 static char *innodb_version_str = (char *)INNODB_VERSION_STR;
 
+extern bool srv_immediate_scrub_data_uncompressed;
+
 static Innodb_data_lock_inspector innodb_data_lock_inspector;
 
 /** Note we cannot use rec_format_enum because we do not allow
@@ -22662,6 +22664,10 @@ static MYSQL_SYSVAR_ULONG(undo_tablespaces, srv_undo_tablespaces,
                           FSP_MIN_UNDO_TABLESPACES,      /* Minimum value */
                           FSP_MAX_UNDO_TABLESPACES, 0);  /* Maximum value */
 
+static MYSQL_SYSVAR_BOOL(immediate_scrub_data_uncompressed,
+    srv_immediate_scrub_data_uncompressed, 0,
+    "Enable scrubbing of data", NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_ULONGLONG(
     max_undo_log_size, srv_max_undo_tablespace_size, PLUGIN_VAR_OPCMDARG,
     "Maximum size of an UNDO tablespace in MB (If an UNDO tablespace grows"
@@ -23253,6 +23259,8 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(parallel_read_threads),
     MYSQL_SYSVAR(corrupt_table_action),
     MYSQL_SYSVAR(ft_ignore_stopwords),
+    /* Scrubing feature */
+    MYSQL_SYSVAR(immediate_scrub_data_uncompressed),
     nullptr};
 
 mysql_declare_plugin(innobase){
