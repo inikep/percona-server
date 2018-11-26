@@ -1086,11 +1086,6 @@ void Double_write::check_block(const buf_block_t *block) noexcept {
 
       /* TODO: validate also non-index pages */
       return;
-
-    case FIL_PAGE_TYPE_ALLOCATED:
-      /* Empty pages should never be flushed. Unless we are creating the
-      legacy doublewrite buffer.  */
-      break;
   }
 
   croak(block);

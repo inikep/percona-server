@@ -174,6 +174,7 @@ struct srv_stats_t {
 
   /* Number of row log blocks decrypted */
   ulint_ctr_64_t n_rowlog_blocks_decrypted;
+
 };
 
 /** Structure which keeps shared future objects for InnoDB background
@@ -1361,6 +1362,7 @@ struct export_var_t {
 
   fragmentation_stats_t innodb_fragmentation_stats; /*!< Fragmentation
                                            statistics */
+
 };
 
 #ifndef UNIV_HOTBACKUP

@@ -2280,6 +2280,7 @@ dberr_t srv_start(bool create_new_db) {
 
   fsp_init();
   pars_init();
+
   log_online_init();
 
   recv_sys_create();
@@ -3536,8 +3537,6 @@ static void srv_shutdown_page_cleaners() {
 
   srv_shutdown_set_state(SRV_SHUTDOWN_FLUSH_PHASE);
 
-  std::atomic_thread_fence(std::memory_order_seq_cst);
-
   /* At this point only page_cleaner should be active. We wait
   here to let it complete the flushing of the buffer pools
   before proceeding further. */
@@ -3929,3 +3928,5 @@ void srv_fatal_error() {
 
   std::_Exit(3);
 }
+
+/* @} */

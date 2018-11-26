@@ -71,6 +71,7 @@ log_checksum_func_t log_checksum_algorithm_ptr;
 #include "log0meb.h"
 #include "mtr0mtr.h"
 #include "os0thread-create.h"
+#include "srv0start.h"
 #include "trx0sys.h"
 
 /**
