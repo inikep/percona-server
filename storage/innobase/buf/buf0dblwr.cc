@@ -1005,7 +1005,10 @@ static void buf_dblwr_check_block(
       /* TODO: validate also non-index pages */
       return;
     case FIL_PAGE_TYPE_ALLOCATED:
-      /* empty pages should never be flushed */
+      if (srv_immediate_scrub_data_uncompressed) {
+        return;
+      }
+      /* empty pages should never be flushed, unless scrubbing is on */
       break;
   }
 
