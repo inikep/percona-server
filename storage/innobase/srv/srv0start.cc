@@ -207,6 +207,7 @@ mysql_pfs_key_t srv_log_tracking_thread_key;
 mysql_pfs_key_t srv_worker_thread_key;
 mysql_pfs_key_t trx_recovery_rollback_thread_key;
 mysql_pfs_key_t srv_ts_alter_encrypt_thread_key;
+mysql_pfs_key_t log_scrub_thread_key;
 #endif /* UNIV_PFS_THREAD */
 
 #ifdef HAVE_PSI_STAGE_INTERFACE
@@ -500,6 +501,8 @@ static dberr_t create_log_files(char *logfilename, size_t dirnamelen, lsn_t lsn,
   we do the fsyncs now unconditionally and repeat the required
   flush just before the rename. */
   fil_flush_file_redo();
+
+  log_ensure_scrubbing_thread();
 
   return (DB_SUCCESS);
 }
@@ -1741,6 +1744,10 @@ void srv_shutdown_all_bg_threads() {
         srv_purge_wakeup();
       }
 
+      if (log_scrub_thread_active) {
+        os_event_set(log_scrub_event);
+      }
+
       /* Stop srv_redo_log_follow_thread thread */
       if (srv_thread_is_active(srv_threads.m_changed_page_tracker)) {
         os_event_reset(srv_redo_log_tracked_event);
@@ -2179,6 +2186,7 @@ dberr_t srv_start(bool create_new_db) {
 
   fsp_init();
   pars_init();
+
   log_online_init();
 
   recv_sys_create();
@@ -3406,8 +3414,6 @@ static void srv_shutdown_page_cleaners() {
   to modify pages according to the postponed modifications. */
   dict_persist_to_dd_table_buffer();
 
-  std::atomic_thread_fence(std::memory_order_seq_cst);
-
   /* At this point only page_cleaner should be active. We wait
   here to let it complete the flushing of the buffer pools
   before proceeding further. */
@@ -3459,6 +3465,11 @@ static lsn_t srv_shutdown_log() {
   ut_a(srv_shutdown_state.load() == SRV_SHUTDOWN_FLUSH_PHASE);
   ut_a(!buf_flush_page_cleaner_is_active());
   ut_a(buf_pool_check_no_pending_io() == 0);
+
+  if (log_scrub_thread_active) {
+    ut_ad(!srv_read_only_mode);
+    os_event_set(log_scrub_event);
+  }
 
   if (srv_fast_shutdown == 2) {
     if (!srv_read_only_mode) {
@@ -3688,6 +3699,9 @@ void srv_shutdown() {
   log_online_shutdown();
   ddl_log_close();
   log_sys_close();
+  if (!srv_read_only_mode && srv_scrub_log) {
+    os_event_destroy(log_scrub_event);
+  }
   recv_sys_close();
   trx_sys_close();
   lock_sys_close();
@@ -3756,4 +3770,15 @@ void srv_fatal_error() {
   flush_error_log_messages();
 
   exit(3);
+}
+
+/* @} */
+
+void log_ensure_scrubbing_thread(void) {
+  log_scrub_thread_active = srv_scrub_log;
+  if (log_scrub_thread_active) {
+    log_scrub_event = os_event_create("log_scrub_event");
+    auto thread = os_thread_create(log_scrub_thread_key, log_scrub_thread);
+    thread.start();
+  }
 }
