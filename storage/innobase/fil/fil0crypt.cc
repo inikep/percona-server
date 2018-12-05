@@ -1094,13 +1094,14 @@ static bool fil_crypt_space_needs_rotation(rotate_thread_t *state,
     key_state->key_version = crypt_data->encrypting_with_key_version;
   }
 
+  mutex_enter(&crypt_data->mutex);
+
   /* If used key_id is not found from encryption plugin we can't
   continue to rotate the tablespace */
   if (!crypt_data->is_key_found()) {
+    mutex_exit(&crypt_data->mutex);
     return false;
   }
-
-  mutex_enter(&crypt_data->mutex);
 
   do {
     /* prevent threads from starting to rotate space */
@@ -1139,8 +1140,6 @@ static bool fil_crypt_space_needs_rotation(rotate_thread_t *state,
       break;  // the space is already being processed and there are no more
               // pages to rotate
     }
-
-    crypt_data->rotate_state.scrubbing.is_active = false;
 
     if (need_key_rotation == false) {
       break;
@@ -2420,9 +2419,6 @@ static void fil_crypt_complete_rotate_space(const key_state_t *key_state,
         if (strcmp(state->space->name, "test/t1") == 0 &&
             number_of_t1_pages_rotated >= 100) should_flush = true;);
 
-    /* inform scrubbing */
-    crypt_data->rotate_state.scrubbing.is_active = false;
-
     mutex_exit(&crypt_data->mutex);
 
     if (should_flush) {
@@ -2507,6 +2503,7 @@ void fil_crypt_thread() {
          * a space*/
         break;
       }
+
     }
 
     recheck = false;
@@ -2711,9 +2708,6 @@ void fil_space_crypt_close_tablespace(const fil_space_t *space) {
 
   while (cnt > 0 || flushing) {
     mutex_exit(&crypt_data->mutex);
-    /* release dict mutex so that scrub threads can release their
-     * table references */
-    // dict_mutex_exit_for_mysql();
 
     /* wakeup throttle (all) sleepers */
     os_event_set(fil_crypt_throttle_sleep_event);

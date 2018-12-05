@@ -24727,11 +24727,10 @@ mysql_declare_plugin(innobase){
     i_s_innodb_buffer_page_lru, i_s_innodb_buffer_stats,
     i_s_innodb_temp_table_info, i_s_innodb_metrics,
     i_s_innodb_ft_default_stopword, i_s_innodb_ft_deleted,
-    i_s_innodb_ft_being_deleted, i_s_innodb_ft_config, i_s_innodb_ft_index_cache
-    ,
-    i_s_innodb_ft_index_table, i_s_innodb_tables, i_s_innodb_tablestats,
-    i_s_innodb_indexes, i_s_innodb_tablespaces, i_s_innodb_columns,
-    i_s_innodb_virtual, i_s_innodb_cached_indexes, i_s_innodb_changed_pages,
+    i_s_innodb_ft_being_deleted, i_s_innodb_ft_config,
+    i_s_innodb_ft_index_cache, i_s_innodb_ft_index_table, i_s_innodb_tables,
+    i_s_innodb_tablestats, i_s_innodb_indexes, i_s_innodb_tablespaces,
+    i_s_innodb_columns, i_s_innodb_virtual, i_s_innodb_cached_indexes,
     i_s_innodb_session_temp_tablespaces, i_s_innodb_tablespaces_encryption,
     i_s_innodb_changed_pages
 

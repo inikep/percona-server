@@ -7952,7 +7952,7 @@ static int i_s_tablespaces_encryption_fill_table(
   }
 
   heap = mem_heap_create(1000, UT_LOCATION_HERE);
-  mutex_enter(&dict_sys->mutex);
+  dict_sys_mutex_enter();
   mtr_start(&mtr);
 
   for (rec = dd_startscan_system(thd, &mdl, &pcur, &mtr,
@@ -7974,7 +7974,7 @@ static int i_s_tablespaces_encryption_fill_table(
         &is_encrypted, &autoextend_size, &state, dd_spaces);
 
     mtr_commit(&mtr);
-    mutex_exit(&dict_sys->mutex);
+    dict_sys_mutex_exit();
 
     fil_space_t *space = fil_space_acquire_silent(space_id);
 
@@ -7992,13 +7992,13 @@ static int i_s_tablespaces_encryption_fill_table(
     mem_heap_empty(heap);
 
     /* Get the next record */
-    mutex_enter(&dict_sys->mutex);
+    dict_sys_mutex_enter();
     mtr_start(&mtr);
   }
 
   mtr_commit(&mtr);
   dd_table_close(dd_spaces, thd, &mdl, true);
-  mutex_exit(&dict_sys->mutex);
+  dict_sys_mutex_exit();
   mem_heap_free(heap);
 
   DBUG_RETURN(0);
