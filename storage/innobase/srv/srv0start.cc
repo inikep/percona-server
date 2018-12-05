@@ -55,6 +55,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "btr0btr.h"
 #include "btr0cur.h"
+#include "btr0scrub.h"
 #include "buf0buf.h"
 #include "buf0dump.h"
 #include "current_thd.h"
@@ -3148,6 +3149,7 @@ void srv_start_threads(bool bootstrap) {
   fts_optimize_init();
 
   fil_system_acquire();
+  btr_scrub_init();
   fil_crypt_threads_init();
   fil_system_release();
 
@@ -3367,6 +3369,7 @@ void srv_pre_dd_shutdown() {
 
   if (srv_start_state_is_set(SRV_START_STATE_STAT)) {
     fil_crypt_threads_cleanup();
+    btr_scrub_cleanup();
   }
 
   switch (trx_purge_state()) {
