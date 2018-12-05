@@ -63,6 +63,7 @@ class ha_heap : public handler {
                 : HA_ONLY_WHOLE_INDEX | HA_KEY_SCAN_NOT_ROR);
   }
   uint max_supported_keys() const override { return HP_MAX_KEY; }
+  uint max_supported_key_length() const override { return HP_MAX_KEY_LENGTH; }
   uint max_supported_key_part_length(HA_CREATE_INFO *create_info
                                      [[maybe_unused]]) const override {
     return HP_MAX_KEY_LENGTH;

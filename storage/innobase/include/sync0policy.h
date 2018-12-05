@@ -348,7 +348,7 @@ class AggregateMutexStatsPolicy
   }
 
   /** Destructor */
-  ~AggregateMutexStatsPolicy() {}
+  ~AggregateMutexStatsPolicy() = default;
 
   /** Called when the mutex is "created". Note: Not from the constructor
   but when the mutex is initialised.
