@@ -846,10 +846,24 @@ int ha_innopart::open(const char *name, int, uint, const dd::Table *table_def) {
     to release TABLE_SHARE::LOCK_ha_data temporarily. */
     unlock_shared_ha_data();
 
-    dict_table_t **table_parts = Ha_innopart_share::open_table_parts(
-        thd, table, table_def, m_part_info, norm_name);
+    dict_table_t **table_parts;
+    {
+      dd::cache::Dictionary_client::Auto_releaser releaser(thd->dd_client());
 
-    if (table_parts == nullptr) return HA_ERR_INTERNAL_ERROR;
+      /* ha_innopart::clone calls handler::clone which calls
+         handler::ha_open(table_def=nullptr)) */
+      if (table_def == nullptr && table_share->tmp_table == NO_TMP_TABLE) {
+        if (thd->dd_client()->acquire(table_share->db.str,
+                                      table_share->table_name.str, &table_def))
+          return HA_ERR_INTERNAL_ERROR;
+        assert(table_def);
+      }
+
+      table_parts = Ha_innopart_share::open_table_parts(thd, table, table_def,
+                                                        m_part_info, norm_name);
+
+      if (table_parts == nullptr) return HA_ERR_INTERNAL_ERROR;
+    }
 
     /* Now acquire TABLE_SHARE::LOCK_ha_data again and assign table
     and index information. set_table_parts_and_indexes() will check
