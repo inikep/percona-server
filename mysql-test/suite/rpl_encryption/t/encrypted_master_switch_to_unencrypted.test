@@ -165,4 +165,7 @@ RESET MASTER;
 DROP TABLE table1_no_encryption;
 
 --connection master
+--replace_result $MYSQL_TMP_DIR MYSQL_TMP_DIR
+--force-rmdir $MYSQL_TMP_DIR/keyring
+
 --source include/rpl_end.inc
