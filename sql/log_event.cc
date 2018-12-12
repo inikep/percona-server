@@ -5313,10 +5313,6 @@ Start_encryption_log_event::Start_encryption_log_event(
       Log_event(header(), footer()) {}
 
 #ifdef MYSQL_SERVER
-int Start_encryption_log_event::do_apply_event(Relay_log_info const *rli) {
-  return rli->get_rli_description_event()->start_decryption(this);
-}
-
 int Start_encryption_log_event::do_update_pos(Relay_log_info *rli) {
   /*
     Master never sends Start_encryption_log_event, any SELE that a slave
