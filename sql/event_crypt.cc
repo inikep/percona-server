@@ -35,8 +35,8 @@ bool encrypt_event(uint32 offs, const Binlog_crypt_data &crypto, uchar *buf,
                        buf_len);
 }
 
-bool decrypt_event(const Binlog_crypt_data &crypto, uchar *buf, uchar *ebuf,
-                   size_t buf_len) {
-  return encrypt_event(crypto.get_offs(), ENCRYPTION_FLAG_DECRYPT, crypto, buf,
-                       ebuf, buf_len);
+bool decrypt_event(uint32 offs, const Binlog_crypt_data &crypto, uchar *buf,
+                   uchar *ebuf, size_t buf_len) {
+  return encrypt_event(offs, ENCRYPTION_FLAG_DECRYPT, crypto, buf, ebuf,
+                       buf_len);
 }
