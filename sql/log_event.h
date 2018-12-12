@@ -651,7 +651,6 @@ class Log_event {
   */
   ha_checksum crc;
 
-
   /**
     Index in @c rli->gaq array to indicate a group that this event is
     purging. The index is set by Coordinator to a group terminator
@@ -1473,7 +1472,6 @@ class Start_encryption_log_event final
 
  protected:
 #ifdef MYSQL_SERVER
-  virtual int do_apply_event(Relay_log_info const *rli) override;
   virtual int do_update_pos(Relay_log_info *rli) override;
   virtual enum_skip_reason do_shall_skip(
       Relay_log_info *rli MY_ATTRIBUTE((unused))) noexcept override {

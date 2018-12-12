@@ -4038,6 +4038,7 @@ static bool read_gtids_and_update_trx_parser_from_relaylog(
     // This is not a fatal error; the log may just be truncated.
     // @todo but what other errors could happen? IO error?
     LogErr(WARNING_LEVEL, ER_BINLOG_ERROR_READING_GTIDS_FROM_RELAY_LOG, -1);
+    sql_print_warning(relaylog_file_reader.get_error_str());
   }
 
 #ifndef DBUG_OFF
@@ -4273,6 +4274,7 @@ static enum_read_gtids_from_binlog_status read_gtids_from_binlog(
 
     // @todo but what other errors could happen? IO error?
     LogErr(WARNING_LEVEL, ER_BINLOG_ERROR_READING_GTIDS_FROM_BINARY_LOG, -1);
+    sql_print_warning(binlog_file_reader.get_error_str());
   }
 
   if (all_gtids)
@@ -4989,7 +4991,6 @@ bool MYSQL_BIN_LOG::open_binlog(
     extra_description_event->created = 0;
     /* Don't set log_pos in event header */
     extra_description_event->set_artificial_event();
-
     if (binary_event_serialize(extra_description_event, m_binlog_file))
       goto err;
     bytes_written += extra_description_event->common_header->data_written;
