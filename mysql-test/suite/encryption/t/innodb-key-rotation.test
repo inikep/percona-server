@@ -214,10 +214,6 @@ drop table t1, t2, t3, t4, t5, t6, t7;
 # Decrypt all tables
 SET GLOBAL default_table_encryption = ONLINE_FROM_KEYRING_TO_UNENCRYPTED;
 --let $wait_timeout= 600
-#--let $wait_condition=SELECT COUNT(*) = 3 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION <> 0 AND ROTATING_OR_FLUSHING = 0
---let $wait_condition=SELECT COUNT(*) = 3 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION <> 0
---source include/wait_condition.inc
-
 SET GLOBAL default_table_encryption=ONLINE_TO_KEYRING;
 SET GLOBAL innodb_encryption_threads=0;
 # The backup file might be a leftover after calling generate key on existing key

@@ -492,8 +492,15 @@ extern const size_t CONCURRENT_UNDO_TRUNCATE_LIMIT;
 
 extern char *srv_log_group_home_dir;
 
+enum redo_log_encrypt_enum {
+  REDO_LOG_ENCRYPT_OFF = 0,
+  REDO_LOG_ENCRYPT_ON = 1,
+  REDO_LOG_ENCRYPT_MK = 2,
+  REDO_LOG_ENCRYPT_RK = 3,
+};
+
 /** Enable or Disable Encrypt of REDO tablespace. */
-extern bool srv_redo_log_encrypt;
+extern ulong srv_redo_log_encrypt;
 
 /* Maximum number of redo files of a cloned DB. */
 #define SRV_N_LOG_FILES_CLONE_MAX 1000

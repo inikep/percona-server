@@ -93,12 +93,6 @@ let NEW_CMD = $MYSQLD --no-defaults --innodb_dedicated_server=OFF --innodb_page_
 --echo # Start the DB server with datadir1
 --let $restart_parameters = restart: --datadir=$MYSQLD_DATADIR1 --innodb_page_size=$START_PAGE_SIZE --innodb_log_file_size=$LOG_FILE_SIZE
 --source include/start_mysqld_no_echo.inc
-
---echo # Search for error message
-let SEARCH_FILE= $MYSQL_TMP_DIR/wl9290.err;
-let SEARCH_PATTERN=  Redo log was encrypted, but keyring is not loaded;
---source include/search_pattern.inc
-
 # shutdown server
 --let $_server_id= `SELECT @@server_id`
 --source include/shutdown_mysqld.inc
