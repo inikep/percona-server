@@ -197,6 +197,9 @@ void deinit_keyring_services(SERVICE_TYPE(registry) *) { return; }
 constexpr char Encryption::KEY_MAGIC_V1[];
 constexpr char Encryption::KEY_MAGIC_V2[];
 constexpr char Encryption::KEY_MAGIC_V3[];
+constexpr char Encryption::KEY_MAGIC_RK_V1[];
+constexpr char Encryption::KEY_MAGIC_RK_V2[];
+
 constexpr char Encryption::KEY_MAGIC_PS_V1[];
 
 constexpr char Encryption::MASTER_KEY_PREFIX[];
@@ -822,6 +825,31 @@ bool Encryption::fill_encryption_info(const byte *key, const byte *iv,
   }
 
   return (true);
+}
+
+bool Encryption::fill_encryption_info(uint key_version, byte *iv,
+                                      byte *encrypt_info) {
+  byte *ptr = encrypt_info;
+  ulint crc;
+  memset(encrypt_info, 0, INFO_SIZE);
+  memcpy(ptr, KEY_MAGIC_RK_V2, MAGIC_SIZE);
+  ptr += MAGIC_SIZE;
+  /* Write master key id. */
+  mach_write_to_4(ptr, key_version);
+  ptr += 4;
+  /* Write server uuid. */
+  memcpy(ptr, server_uuid, SERVER_UUID_LEN);
+  ptr += SERVER_UUID_LEN;
+  /* Write tablespace iv. */
+  memcpy(ptr, iv, KEY_LEN);
+  ptr += KEY_LEN;
+  /* Write checksum bytes. */
+  crc = ut_crc32(encrypt_info, KEY_LEN);
+  mach_write_to_4(ptr, crc);
+#ifdef UNIV_ENCRYPT_DEBUG
+  fprintf(stderr, "Encrypting log with key version: %u\n", key_version);
+#endif
+  return true;
 }
 
 byte *Encryption::get_master_key_from_info(byte *encrypt_info, Version version,
