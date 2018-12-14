@@ -491,6 +491,12 @@ ibool meb_get_checksum_algorithm_enum(const char *algo_name,
 }
 #endif /* !UNIV_HOTBACKUP */
 
+static const char *redo_log_encrypt_names[] = {"off", "on", "master_key",
+                                               "keyring_key", NullS};
+static TYPELIB redo_log_encrypt_typelib = {
+    array_elements(redo_log_encrypt_names) - 1, "redo_log_encrypt_typelib",
+    redo_log_encrypt_names, nullptr};
+
 #ifndef UNIV_HOTBACKUP
 /* The following counter is used to convey information to InnoDB
 about server activity: in case of normal DML ops it is not
@@ -4403,7 +4409,8 @@ bool innobase_fix_tablespaces_empty_uuid() {
   /* Rotate log tablespace */
   bool failure1 = !log_rotate_encryption();
 
-  bool failure2 = !fil_encryption_rotate_global(space_ids);
+  bool failure2 =
+      !fil_encryption_rotate_global(space_ids) || !log_rotate_encryption();
 
   my_free(master_key);
 
@@ -21457,65 +21464,6 @@ static int validate_innodb_undo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
   return (0);
 }
 
-/** Validate the value of innodb_redo_log_encrypt global variable. This function
-is registered as a callback with MySQL.
-@param[in]	thd       thread handle
-@param[in]	var       pointer to system variable
-@param[in]	save      possibly updated variable value
-@param[in]	value     current variable value
-@return error code */
-static int validate_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
-                                            struct st_mysql_value *value) {
-  /* Call the default check function first. */
-  auto error = check_func_bool(thd, var, save, value);
-  if (error != 0) {
-    return (error);
-  }
-  bool target = *static_cast<bool *>(save);
-
-  /* Set the default output to current value for all error cases. */
-  *static_cast<bool *>(save) = srv_redo_log_encrypt;
-
-  if (srv_redo_log_encrypt == target) {
-    /* No change */
-    return (0);
-  }
-
-  /* If encryption is to be disabled. This will just make sure I/O doesn't
-  write REDO encrypted from now on. */
-  if (target == false) {
-    /* Check and exit if concurrent clone in progress. */
-    if (clone_check_active()) {
-      my_error(ER_CLONE_IN_PROGRESS, MYF(0));
-      return (ER_CLONE_IN_PROGRESS);
-    }
-    *static_cast<bool *>(save) = false;
-    return (0);
-  }
-
-  if (srv_read_only_mode) {
-    ib::error(ER_IB_MSG_1242);
-    return (0);
-  }
-
-  /* Check and exit if concurrent clone in progress. The mark ensures
-  that any new clone waits while we set encryption information. */
-  if (!clone_mark_wait()) {
-    my_error(ER_CLONE_IN_PROGRESS, MYF(0));
-    return (ER_CLONE_IN_PROGRESS);
-  }
-
-  /* Enable encryption for REDO tablespaces */
-  bool ret = srv_enable_redo_encryption(false);
-
-  if (!ret) {
-    /* At this point, REDO log is set to be encrypted. */
-    *static_cast<bool *>(save) = true;
-  }
-  clone_mark_free();
-  return (0);
-}
-
 /** Update the number of rollback segments per tablespace when the
 system variable innodb_rollback_segments is changed.
 This function is registered as a callback with MySQL.
@@ -23607,10 +23555,12 @@ static MYSQL_SYSVAR_STR(
     /*validate_func*/ meb::validate_redo_log_archive_dirs,
     /*update_func*/ nullptr, /*default*/ nullptr);
 
-static MYSQL_SYSVAR_BOOL(redo_log_encrypt, srv_redo_log_encrypt,
-                         PLUGIN_VAR_OPCMDARG,
-                         "Enable or disable Encryption of REDO tablespace.",
-                         validate_innodb_redo_log_encrypt, nullptr, FALSE);
+static MYSQL_SYSVAR_ENUM(redo_log_encrypt, srv_redo_log_encrypt,
+                         PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_NOPERSIST,
+                         "Enable or disable Encryption of REDO tablespace."
+                         "Possible values: OFF, ON, MASTER_KEY, KEYRING_KEY.",
+                         NULL, NULL, REDO_LOG_ENCRYPT_OFF,
+                         &redo_log_encrypt_typelib);
 
 static MYSQL_SYSVAR_BOOL(
     print_ddl_logs, srv_print_ddl_logs, PLUGIN_VAR_OPCMDARG,
