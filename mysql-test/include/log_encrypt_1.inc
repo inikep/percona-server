@@ -1,10 +1,24 @@
+# WL#9290 InnoDB: Support transparent tablespace data encryption for redo log
+# This test case will test basic redo log encryption support features.
+
+--source include/no_valgrind_without_big.inc
+--source include/have_innodb_max_16k.inc
+
+--disable_query_log
+call mtr.add_suppression("Ignoring tablespace .* because it could not be opened");
+call mtr.add_suppression("Encryption can't find master key, please check the keyring plugin is loaded.");
+call mtr.add_suppression("Redo log cannot be encrypted if the keyring plugin is not loaded.");
+call mtr.add_suppression("Check keyring plugin fail, please check the keyring plugin is loaded.");
+call mtr.add_suppression("Redo log key generation failed.");
+--enable_query_log
+
+--let $restart_parameters = restart: $KEYRING_PARAMS
+--source include/restart_mysqld_no_echo.inc
+
 CREATE TABLE t1(c1 INT, c2 char(20)) ENGINE = InnoDB;
+
 SHOW CREATE TABLE t1;
-Table	Create Table
-t1	CREATE TABLE `t1` (
-  `c1` int DEFAULT NULL,
-  `c2` char(20) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
 INSERT INTO t1 VALUES(0, "aaaaa");
 INSERT INTO t1 VALUES(1, "bbbbb");
 INSERT INTO t1 VALUES(2, "ccccc");
@@ -21,33 +35,20 @@ INSERT INTO t1 select * from t1;
 INSERT INTO t1 select * from t1;
 INSERT INTO t1 select * from t1;
 INSERT INTO t1 select * from t1;
+
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
-c1	c2
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-# restart:
+
+# Restart to confirm the encryption info can be retrieved properly.
+--let $restart_parameters = restart: $KEYRING_PARAMS
+--source include/restart_mysqld_no_echo.inc
+
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
-c1	c2
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
-0	aaaaa
+
 DROP TABLE t1;
+
+# Crash/recovery test.
 CREATE TABLE t1(c1 INT, c2 char(20)) ENGINE = InnoDB;
+
 INSERT INTO t1 VALUES(0, "aaaaa");
 INSERT INTO t1 VALUES(1, "bbbbb");
 INSERT INTO t1 VALUES(2, "ccccc");
@@ -58,21 +59,14 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
-# Kill the server
-# restart:
+
+# Restart to confirm the encryption info can be retrieved properly.
+--let $restart_parameters = restart: $KEYRING_PARAMS
+--source include/restart_mysqld_no_echo.inc
+
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
-c1	c2
-0	aaaaa
-1	bbbbb
-2	ccccc
-3	ddddd
-4	eeeee
-5	fffff
-6	ggggg
-7	hhhhh
-8	iiiii
-9	jjjjj
 DELETE FROM t1;
+
 START TRANSACTION;
 INSERT INTO t1 VALUES(0, "aaaaa");
 INSERT INTO t1 VALUES(1, "bbbbb");
@@ -84,9 +78,13 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
-# restart:
+
+# Restart to confirm the encryption info can be retrieved properly.
+--let $restart_parameters = restart: $KEYRING_PARAMS --general-log --log-output=FILE --general_log_file=$MYSQL_TMP_DIR/keyring_query_log
+--source include/restart_mysqld_no_echo.inc
+
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
-c1	c2
+
 INSERT INTO t1 VALUES(0, "aaaaa");
 INSERT INTO t1 VALUES(1, "bbbbb");
 INSERT INTO t1 VALUES(2, "ccccc");
@@ -97,16 +95,8 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
+
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
-c1	c2
-0	aaaaa
-1	bbbbb
-2	ccccc
-3	ddddd
-4	eeeee
-5	fffff
-6	ggggg
-7	hhhhh
-8	iiiii
-9	jjjjj
+
+# Cleanup
 DROP TABLE t1;
