@@ -54,6 +54,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fil0rkinfo.h"
 #include "create_info_encryption_key.h"
 
+#define REDO_LOG_ENCRYPT_NO_VERSION 0
+
 /** Structure containing encryption specification */
 struct fil_space_crypt_t;
 
@@ -332,6 +334,8 @@ struct fil_space_t {
 
   /** Encrypt initial vector */
   byte encryption_iv[Encryption::KEY_LEN];
+
+  ulint encryption_key_version;
 
   /** Encryption is in progress */
   encryption_op_type encryption_op_in_progress;
