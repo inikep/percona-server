@@ -38,7 +38,6 @@ c1	c2
 0	aaaaa
 0	aaaaa
 0	aaaaa
-# restart:
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
 c1	c2
 0	aaaaa
@@ -63,8 +62,6 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
-# Kill the server
-# restart:
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
 c1	c2
 0	aaaaa
@@ -89,7 +86,6 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
-# restart:
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
 c1	c2
 INSERT INTO t1 VALUES(0, "aaaaa");

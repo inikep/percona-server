@@ -247,7 +247,7 @@ static os_event_t srv_master_thread_disabled_event;
 char *srv_log_group_home_dir = nullptr;
 
 /** Enable or disable Encrypt of REDO tablespace. */
-bool srv_redo_log_encrypt = false;
+ulong srv_redo_log_encrypt = 0;
 
 ulong srv_n_log_files = SRV_N_LOG_FILES_MAX;
 

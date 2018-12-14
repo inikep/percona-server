@@ -53,7 +53,7 @@ set global innodb_redo_log_encrypt=-2;
 --error ER_WRONG_TYPE_FOR_VAR
 set global innodb_redo_log_encrypt=1e1;
 --error ER_WRONG_VALUE_FOR_VAR
-set global innodb_redo_log_encrypt=2;
+set global innodb_redo_log_encrypt=5;
 
 #
 # Cleanup

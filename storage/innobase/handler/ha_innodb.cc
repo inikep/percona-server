@@ -562,6 +562,12 @@ bool meb_get_checksum_algorithm_enum(const char *algo_name,
 }
 #endif /* !UNIV_HOTBACKUP */
 
+static const char *redo_log_encrypt_names[] = {"off", "on", "master_key",
+                                               "keyring_key", NullS};
+static TYPELIB redo_log_encrypt_typelib = {
+    array_elements(redo_log_encrypt_names) - 1, "redo_log_encrypt_typelib",
+    redo_log_encrypt_names, nullptr};
+
 #ifndef UNIV_HOTBACKUP
 /* The following counter is used to convey information to InnoDB
 about server activity: in case of normal DML ops it is not
@@ -24286,10 +24292,12 @@ static MYSQL_SYSVAR_STR(
     /*validate_func*/ meb::validate_redo_log_archive_dirs,
     /*update_func*/ nullptr, /*default*/ nullptr);
 
-static MYSQL_SYSVAR_BOOL(redo_log_encrypt, srv_redo_log_encrypt,
-                         PLUGIN_VAR_OPCMDARG,
-                         "Enable or disable Encryption of REDO tablespace.",
-                         validate_innodb_redo_log_encrypt, nullptr, false);
+static MYSQL_SYSVAR_ENUM(redo_log_encrypt, srv_redo_log_encrypt,
+                         PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_NOPERSIST,
+                         "Enable or disable Encryption of REDO tablespace."
+                         "Possible values: OFF, ON, MASTER_KEY, KEYRING_KEY.",
+                         validate_innodb_redo_log_encrypt, nullptr,
+                         REDO_LOG_ENCRYPT_OFF, &redo_log_encrypt_typelib);
 
 static MYSQL_SYSVAR_BOOL(
     print_ddl_logs, srv_print_ddl_logs, PLUGIN_VAR_OPCMDARG,
