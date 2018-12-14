@@ -794,8 +794,8 @@ done:
 }
 
 /** Open a partitioned InnoDB table.
-@param[in]  name  table name
-@param[in]  table_def dd::Table describing table to be opened
+@param[in]	name	table name
+@param[in]	table_def	dd::Table describing table to be opened
 @retval 1 if error
 @retval 0 if success */
 int ha_innopart::open(const char *name, int, uint, const dd::Table *table_def) {
