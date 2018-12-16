@@ -6034,13 +6034,15 @@ static int innodb_deinit(MYSQL_PLUGIN plugin_info [[maybe_unused]]) {
 /** Create a hard-coded tablespace file at server initialization.
 @param[in]      space_id        fil_space_t::id
 @param[in]      filename        file name
+@param[in]      flags           tabelspace flags
 @retval false   on success
 @retval true    on failure */
-static bool dd_create_hardcoded(space_id_t space_id, const char *filename) {
+static bool dd_create_hardcoded(space_id_t space_id, const char *filename,
+                                ulint flags) {
   page_no_t pages = FIL_IBD_FILE_INITIAL_SIZE;
 
   dberr_t err = fil_ibd_create(space_id, dict_sys_t::s_dd_space_name, filename,
-                               predefined_flags, pages);
+                               flags, pages);
 
   if (err == DB_SUCCESS) {
     mtr_t mtr;
@@ -6062,9 +6064,11 @@ static bool dd_create_hardcoded(space_id_t space_id, const char *filename) {
 /** Open a hard-coded tablespace file at server initialization.
 @param[in]      space_id        fil_space_t::id
 @param[in]      filename        file name
+@param[in]      flags           tabelspace flags
 @retval false   on success
 @retval true    on failure */
-static bool dd_open_hardcoded(space_id_t space_id, const char *filename) {
+static bool dd_open_hardcoded(space_id_t space_id, const char *filename,
+                              ulint flags) {
   bool fail = false;
   fil_space_t *space = fil_space_acquire_silent(space_id);
 
@@ -6074,10 +6078,10 @@ static bool dd_open_hardcoded(space_id_t space_id, const char *filename) {
 
     fail = strstr(space->files.front().name, filename) == nullptr ||
            /* Ignore encryption flag as it might have changed */
-           ((space->flags ^ predefined_flags) & ~(FSP_FLAGS_MASK_ENCRYPTION));
+           ((space->flags ^ flags) & ~(FSP_FLAGS_MASK_ENCRYPTION));
 
     fil_space_release(space);
-  } else if (fil_ibd_open(true, FIL_TYPE_TABLESPACE, space_id, predefined_flags,
+  } else if (fil_ibd_open(true, FIL_TYPE_TABLESPACE, space_id, flags,
                           dict_sys_t::s_dd_space_name, filename, true,
                           false) != DB_SUCCESS) {
     fail = true;
@@ -6111,12 +6115,31 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
     return innodb_init_abort();
   }
 
+  /* srv_is_upgrade_mode no longer exists; derive the condition from the
+  presence of the 5.7-era mysql/plugin tablespace, which is exactly what
+  dict_detect_encryption() looks up in its upgrade branch. */
+  const bool is_upgrade =
+      fil_space_get_id_by_name("mysql/plugin") != SPACE_UNKNOWN;
+  bool do_encrypt = dict_detect_encryption(is_upgrade);
   bool ret;
 
+  if (do_encrypt && !Encryption::check_keyring()) {
+    my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
+    return innodb_init_abort();
+  }
+
+  is_dd_encrypted = do_encrypt;
+
+  const ulint dd_space_flags =
+      do_encrypt ? predefined_flags | FSP_FLAGS_MASK_ENCRYPTION
+                 : predefined_flags;
+
   ret = create ? dd_create_hardcoded(dict_sys_t::s_dict_space_id,
-                                     dict_sys_t::s_dd_space_file_name)
+                                     dict_sys_t::s_dd_space_file_name,
+                                     dd_space_flags)
                : dd_open_hardcoded(dict_sys_t::s_dict_space_id,
-                                   dict_sys_t::s_dd_space_file_name);
+                                   dict_sys_t::s_dd_space_file_name,
+                                   dd_space_flags);
 
   /* Once hardcoded tablespace mysql is created or opened,
   prepare it along with innodb system tablespace for server.
@@ -6131,12 +6154,15 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
     snprintf(se_private_data_innodb_system, len, fmt, TRX_SYS_SPACE,
              srv_sys_space.flags(), DD_SPACE_CURRENT_SRV_VERSION,
              DD_SPACE_CURRENT_SPACE_VERSION);
+
     snprintf(se_private_data_dd, len, fmt, dict_sys_t::s_dict_space_id,
-             predefined_flags, DD_SPACE_CURRENT_SRV_VERSION,
+             dd_space_flags, DD_SPACE_CURRENT_SRV_VERSION,
              DD_SPACE_CURRENT_SPACE_VERSION);
 
-    static Plugin_tablespace dd_space(dict_sys_t::s_dd_space_name, "",
-                                      se_private_data_dd, "",
+    const char *dd_space_options = do_encrypt ? "encryption=y" : "";
+
+    static Plugin_tablespace dd_space(dict_sys_t::s_dd_space_name,
+                                      dd_space_options, se_private_data_dd, "",
                                       innobase_hton_name);
     static Plugin_tablespace::Plugin_tablespace_file dd_file(
         dict_sys_t::s_dd_space_file_name, "");
