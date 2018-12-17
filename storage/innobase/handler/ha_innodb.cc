@@ -5545,7 +5545,6 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
     dict_stats_evict_tablespaces();
 
     btr_search_enabled = old_btr_search_value;
-
   }
 
   bool do_encrypt = dict_detect_encryption(srv_is_upgrade_mode);
@@ -5568,7 +5567,7 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
                                      dd_space_flags)
                : dd_open_hardcoded(dict_sys_t::s_space_id,
                                    dict_sys_t::s_dd_space_file_name,
-				   dd_space_flags);
+                                   dd_space_flags);
 
   /* Once hardcoded tablespace mysql is created or opened,
   prepare it along with innodb system tablespace for server.
@@ -5588,8 +5587,7 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
              dd_space_flags, DD_SPACE_CURRENT_SRV_VERSION,
              DD_SPACE_CURRENT_SPACE_VERSION);
 
-    const char *dd_space_options =
-        do_encrypt ? "encryption=y" : "";
+    const char *dd_space_options = do_encrypt ? "encryption=y" : "";
 
     static Plugin_tablespace dd_space(dict_sys_t::s_dd_space_name,
                                       dd_space_options, se_private_data_dd, "",
@@ -13066,22 +13064,26 @@ void ha_innobase::adjust_encryption_options(HA_CREATE_INFO *create_info,
 
   bool is_tmp = (create_info->options & HA_LEX_CREATE_TMP_TABLE) != 0;
 
-  /* If table is intrinsic, it will use encryption for table based on
-  temporary tablespace encryption property. For non-intrinsic tables
-  without explicit encryption attribute, table will be forced to be
-  encrypted if innodb_encrypt_tables=ON/FORCE */
+  if (is_intrinsic || is_tmp) {
+    return;
+  }
+
   if (create_info->encrypt_type.length == 0 &&
       create_info->encrypt_type.str == nullptr) {
-    if ((is_intrinsic && srv_tmp_space.is_encrypted()) ||
-        (!is_intrinsic && (srv_encrypt_tables == SRV_ENCRYPT_TABLES_ON ||
-                           srv_encrypt_tables == SRV_ENCRYPT_TABLES_FORCE))) {
-      create_info->encrypt_type = yes_string;
-    } else if (!is_intrinsic && !is_tmp &&
-               (srv_encrypt_tables == SRV_ENCRYPT_TABLES_KEYRING_ON ||
-                srv_encrypt_tables == SRV_ENCRYPT_TABLES_KEYRING_FORCE ||
-                srv_encrypt_tables ==
-                    SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE)) {
-      create_info->encrypt_type = keyring_string;
+    switch (srv_encrypt_tables) {
+      case SRV_ENCRYPT_TABLES_ON:
+      case SRV_ENCRYPT_TABLES_FORCE:
+        create_info->encrypt_type = yes_string;
+        break;
+      case SRV_ENCRYPT_TABLES_KEYRING_ON:
+      case SRV_ENCRYPT_TABLES_KEYRING_FORCE:
+      case SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE:
+        create_info->encrypt_type = keyring_string;
+        break;
+      case SRV_ENCRYPT_TABLES_OFF:
+        break;
+      default:
+        ut_ad(0);
     }
   }
 
