@@ -2350,26 +2350,34 @@ class Mysqlbinlog_event_data_istream : public Binlog_event_data_istream {
                        ALLOCATOR *allocator, bool verify_checksum,
                        enum_binlog_checksum_alg checksum_alg) {
     bool error = Binlog_event_data_istream::read_event_data(
-               buffer, length, allocator, verify_checksum, checksum_alg);
+        buffer, length, allocator, verify_checksum, checksum_alg);
 
-    if (m_binlog_encrypted && m_error->get_type() != Binlog_read_error::READ_EOF) {
+    if (m_binlog_encrypted &&
+        m_error->get_type() != Binlog_read_error::READ_EOF) {
       if (!force_opt) {
         m_error->set_type(Binlog_read_error::DECRYPT);
       } else {
         m_error->set_type(Binlog_read_error::SUCCESS);
-        // We will be creating Unknown_log_events with events marked as encrypted
+        // We will be creating Unknown_log_events with events marked as
+        // encrypted
+      }
+      if (*buffer != nullptr) {
+        allocator->deallocate(*buffer);
+        *buffer = nullptr;
       }
       return true;
     }
 
-    if (!error && (*buffer)[EVENT_TYPE_OFFSET] == binary_log::START_ENCRYPTION_EVENT) {
+    if (!error &&
+        (*buffer)[EVENT_TYPE_OFFSET] == binary_log::START_ENCRYPTION_EVENT) {
       m_binlog_encrypted = true;
     }
 
     return error || rewrite_db(buffer, length);
   }
 
-  bool start_decryption(binary_log::Start_encryption_event *see MY_ATTRIBUTE((unused))) {
+  bool start_decryption(
+      binary_log::Start_encryption_event *see MY_ATTRIBUTE((unused))) {
     m_binlog_encrypted = true;
     return false;
   }
@@ -2537,9 +2545,9 @@ static Exit_status dump_local_log_entries(PRINT_EVENT_INFO *print_event_info,
 
     Log_event *ev = mysqlbinlog_file_reader.read_event_object();
     if (mysqlbinlog_file_reader.event_data_istream()->is_binlog_encrypted() &&
-        mysqlbinlog_file_reader.get_error_type() != Binlog_read_error::READ_EOF &&
-        (!ev || ev->get_type_code() != binary_log::START_ENCRYPTION_EVENT)) {
-      DBUG_ASSERT(ev == nullptr);
+        mysqlbinlog_file_reader.get_error_type() !=
+            Binlog_read_error::READ_EOF &&
+        !ev) {
       if (force_opt) {
         ev = new Unknown_log_event;
       }
