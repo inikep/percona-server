@@ -4436,8 +4436,7 @@ bool innobase_fix_tablespaces_empty_uuid() {
   /* Rotate log tablespace */
   bool failure1 = !log_rotate_encryption();
 
-  bool failure2 =
-      !fil_encryption_rotate_global(space_ids) || !log_rotate_encryption();
+  bool failure2 = !fil_encryption_rotate_global(space_ids);
 
   my_free(master_key);
 
@@ -22440,6 +22439,23 @@ static void innodb_temp_tablespace_encryption_update(THD *thd, SYS_VAR *var,
   }
 }
 
+/** Enable or disable encryption of redo logs
+@param[in]	thd	thread handle
+@param[in]	var	system variable
+@param[out]	var_ptr	current value
+@param[in]	save	immediate result from check function */
+static void innodb_redo_encryption_update(THD *thd, SYS_VAR *var, void *var_ptr,
+                                          const void *save) {
+  if (srv_read_only_mode) {
+    push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WRONG_ARGUMENTS,
+                        " Redo log cannot be"
+                        " encrypted in innodb_read_only mode");
+    return;
+  }
+
+  *static_cast<ulong *>(var_ptr) = *static_cast<const ulong *>(save);
+}
+
 static SHOW_VAR innodb_status_variables_export[] = {
     {"Innodb", (char *)&show_innodb_vars, SHOW_FUNC, SHOW_SCOPE_GLOBAL},
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_GLOBAL}};
@@ -23683,8 +23699,8 @@ static MYSQL_SYSVAR_ENUM(redo_log_encrypt, srv_redo_log_encrypt,
                          PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_NOPERSIST,
                          "Enable or disable Encryption of REDO tablespace."
                          "Possible values: OFF, ON, MASTER_KEY, KEYRING_KEY.",
-                         NULL, NULL, REDO_LOG_ENCRYPT_OFF,
-                         &redo_log_encrypt_typelib);
+                         NULL, innodb_redo_encryption_update,
+                         REDO_LOG_ENCRYPT_OFF, &redo_log_encrypt_typelib);
 
 static MYSQL_SYSVAR_BOOL(
     print_ddl_logs, srv_print_ddl_logs, PLUGIN_VAR_OPCMDARG,
