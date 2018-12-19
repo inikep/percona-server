@@ -303,6 +303,13 @@ class Basic_binlog_file_reader {
     m_data_istream.reset_crypto();
 
     Format_description_log_event *fd = read_fdle(offset);
+
+    /* Invalid starting offset e.g. "SHOW BINLOG EVENTS FROM 5" */
+    if (offset > 0 && position() > offset) {
+      if (fd) delete fd;
+      DBUG_RETURN(m_error.set_type(Binlog_read_error::INVALID_OFFSET));
+    }
+
     if (!fd) DBUG_RETURN(has_fatal_error());
 
     if (position() < offset && seek(offset)) {
