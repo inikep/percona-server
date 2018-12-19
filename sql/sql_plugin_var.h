@@ -289,7 +289,7 @@ class sys_var_pluginvar : public sys_var {
   bool is_non_persistent() override {
     return (plugin_var->flags & PLUGIN_VAR_NOPERSIST);
   }
-  bool is_hint_updateable() const {
+  bool is_hint_updateable() const override {
     return (plugin_var->flags & PLUGIN_VAR_HINTUPDATEABLE);
   }
 
@@ -303,7 +303,7 @@ class sys_var_pluginvar : public sys_var {
     @return pointer to Item object or NULL if it's
             impossible to obtain the value.
   */
-  Item *copy_value(THD *thd);
+  Item *copy_value(THD *thd) override;
 };
 
 /*
