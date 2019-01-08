@@ -198,6 +198,13 @@ bool dd_table_match(const dict_table_t *table, const Table *dd_table) {
   }
 
   for (const auto dd_index : dd_table->indexes()) {
+    if (table->skip_alter_undo && dd_index->is_disabled()) {
+      /* Only secondary indexes can be disabled with expanded fast index
+      creation */
+      ut_ad(dd_index->type() == dd::Index::IT_MULTIPLE);
+      continue;
+    }
+
     if (dd_table->tablespace_id() == dict_sys_t::s_dd_sys_space_id &&
         dd_index->tablespace_id() != dd_table->tablespace_id()) {
       ib::warn(ER_IB_MSG_167)
@@ -1599,10 +1606,10 @@ bool dd_instant_columns_exist(const dd::Table &dd_table) {
 #endif /* UNIV_DEBUG */
 
 /** Add column default values for new instantly added columns
-@param[in]  old_table MySQL table as it is before the ALTER operation
-@param[in]  altered_table MySQL table that is being altered
-@param[in,out]  new_dd_table  New dd::Table
-@param[in]  new_table New InnoDB table object */
+@param[in]	old_table	MySQL table as it is before the ALTER operation
+@param[in]	altered_table	MySQL table that is being altered
+@param[in,out]	new_dd_table	New dd::Table
+@param[in]	new_table	New InnoDB table object */
 void dd_add_instant_columns(const TABLE *old_table, const TABLE *altered_table,
                             dd::Table *new_dd_table,
                             const dict_table_t *new_table) {
@@ -1909,6 +1916,11 @@ void dd_write_table(dd::Object_id dd_space_id, Table *dd_table,
   }
 
   for (auto dd_index : *dd_table->indexes()) {
+    if (table->skip_alter_undo && dd_index->is_disabled()) {
+      ut_ad(dd_index->type() == dd::Index::IT_MULTIPLE);
+      continue;
+    }
+
     /* Don't assume the index orders are the same, even on
     CREATE TABLE. This could be called from TRUNCATE path,
     which would do some adjustment on FULLTEXT index, thus
