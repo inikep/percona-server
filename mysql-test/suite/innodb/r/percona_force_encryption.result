@@ -215,13 +215,13 @@ create table t7(a INT);
 show create table t7;
 Table	Create Table
 t7	CREATE TABLE `t7` (
-  `a` int(11) DEFAULT NULL
+  `a` int DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ENCRYPTION='Y'
 alter table t7 tablespace=ts1;
 show create table t7;
 Table	Create Table
 t7	CREATE TABLE `t7` (
-  `a` int(11) DEFAULT NULL
+  `a` int DEFAULT NULL
 ) /*!50100 TABLESPACE `ts1` */ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 drop table t7;
 drop tablespace ts1;

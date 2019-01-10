@@ -296,6 +296,9 @@ struct Srv_threads {
   waiting procedure used in the pre_dd_shutdown. */
   os_event_t shutdown_cleanup_dbg;
 #endif /* UNIV_DEBUG */
+
+  /** true if there is keyring encryption thread running */
+  bool m_encryption_threads_active;
 };
 
 /** Check if given thread is still active. */

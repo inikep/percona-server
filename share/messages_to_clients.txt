@@ -9353,6 +9353,31 @@ ER_COMPRESSION_DICTIONARY_DATA_TOO_LONG
 ER_COMPRESSION_DICTIONARY_IS_REFERENCED
   eng "Compression dictionary '%-.192s' is in use"
 
+ER_DA_MSG_0
+  eng ""
+
+ER_DA_MSG_1
+  eng ""
+
+ER_DA_MSG_2
+  eng ""
+
+ER_DA_MSG_3
+  eng ""
+
+ER_DA_MSG_4
+  eng ""
+
+ER_DA_MSG_5
+  eng ""
+
+ER_DA_MSG_6
+  eng ""
+
+ER_DA_ENCRYPTION_TABLE_CHECK_FAILED
+  eng "Table %s is encrypted but decryption failed. Seems that the encryption key fetched from keyring is not the correct one. Are you using the correct keyring?";
+
+
 #
 # End of Percona Server 8.0 client messages
 #
