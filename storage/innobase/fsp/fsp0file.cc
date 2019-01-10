@@ -358,6 +358,8 @@ dberr_t Datafile::read_first_page(bool read_only_mode) {
   }
 
   if (err == DB_SUCCESS && m_order == 0) {
+    srv_stats.page0_read.add(1);
+
     m_flags = fsp_header_get_flags(m_first_page);
 
     m_space_id = fsp_header_get_space_id(m_first_page);
@@ -738,28 +740,24 @@ Datafile::ValidateOutput Datafile::validate_first_page(space_id_t space_id,
         ib::info(ER_IB_MSG_402) << "Read encryption metadata from "
                                 << m_filepath << " successfully, encryption"
                                 << " of this tablespace enabled.";
+        if (recv_recovery_is_on() && memcmp(m_encryption_key, m_encryption_iv,
+                                            ENCRYPTION_KEY_LEN) == 0) {
+          ut_free(m_encryption_key);
+          ut_free(m_encryption_iv);
+          m_encryption_key = NULL;
+          m_encryption_iv = NULL;
+        }
       }
     } else if (Encryption::tablespace_key_exists(crypt_data->key_id) == false) {
-      ib::error() << "Table " << m_name << " in file " << m_filename << ' '
-                  << "is encrypted but encryption service or "
-                  << "used key_id " << crypt_data->key_id
-                  << " is not available. "
-                  << "Can't continue reading table.";
+      ut_ad(m_filename != nullptr);
+      ib::warn(ER_XB_MSG_5, space_id, m_filename, crypt_data->key_id);
 
       m_is_valid = false;
       free_first_page();
       fil_space_destroy_crypt_data(&crypt_data);
       output.keyring_encryption_info.keyring_encryption_key_is_missing = true;
-      output.error = DB_CORRUPTION;
+      output.error = DB_INVALID_ENCRYPTION_META;
       return output;
-    }
-
-    if (recv_recovery_is_on() &&
-        memcmp(m_encryption_key, m_encryption_iv, ENCRYPTION_KEY_LEN) == 0) {
-      ut_free(m_encryption_key);
-      ut_free(m_encryption_iv);
-      m_encryption_key = NULL;
-      m_encryption_iv = NULL;
     }
   }
 #ifndef UNIV_HOTBACKUP
