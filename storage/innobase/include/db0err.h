@@ -198,12 +198,6 @@ enum dberr_t {
   /** Page was discarded, was not written to storage. */
   DB_PAGE_IS_STALE,
 
-  DB_DECRYPTION_FAILED = 998, /*!< Tablespace encrypted and
-                              decrypt operation failed because
-                              of missing key management plugin,
-                              or missing or incorrect key or
-                              incorret AES method or algorithm. */
-
   DB_PAGE_CORRUPTED = 999, /*!< Page read from tablespace is
                            corrupted. */
 
