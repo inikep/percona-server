@@ -297,6 +297,9 @@ struct Srv_threads {
   os_event_t m_shutdown_cleanup_dbg;
 #endif /* UNIV_DEBUG */
 
+  /** true if there is keyring encryption thread running */
+  bool m_encryption_threads_active;
+
   /** When the master thread notices that shutdown has started (by noticing
   srv_shutdown_state >= SRV_SHUTDOWN_PRE_DD_AND_SYSTEM_TRANSACTIONS), it exits
   its main loop. Then the master thread proceeds with actions related to tasks:
