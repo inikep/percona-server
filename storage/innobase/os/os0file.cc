@@ -8242,7 +8242,7 @@ void os_aio_print_pending_io(FILE *file) { AIO::print_to_file(file); }
 
 /**
 Set the file create umask
-@param[in]  umask   The umask to use for file creation. */
+@param[in]	umask		The umask to use for file creation. */
 void os_file_set_umask(ulint umask) { os_innodb_umask = umask; }
 
 Encryption::Encryption(const Encryption &other) noexcept
@@ -8844,9 +8844,9 @@ bool Encryption::fill_encryption_info(uint key_version, byte *iv,
   ptr += ENCRYPTION_SERVER_UUID_LEN;
   /* Write tablespace iv. */
   memcpy(ptr, iv, ENCRYPTION_KEY_LEN);
-  ptr += ENCRYPTION_KEY_LEN * 2;
+  ptr += ENCRYPTION_KEY_LEN;
   /* Write checksum bytes. */
-  crc = ut_crc32(encrypt_info, ENCRYPTION_KEY_LEN * 2);
+  crc = ut_crc32(encrypt_info, ENCRYPTION_KEY_LEN);
   mach_write_to_4(ptr, crc);
 #ifdef UNIV_ENCRYPT_DEBUG
   fprintf(stderr, "Encrypting log with key version: %u\n", key_version);
