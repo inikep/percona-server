@@ -3561,6 +3561,9 @@ dberr_t Buf_fetch_normal::get(buf_block_t *&block) noexcept {
 
     /* Page not in buf_pool: needs to be read from file */
     read_page();
+    if (m_err && *m_err == DB_IO_DECRYPT_FAIL) {
+      return DB_IO_DECRYPT_FAIL;
+    }
   }
 
   return DB_SUCCESS;
@@ -3635,6 +3638,9 @@ dberr_t Buf_fetch_other::get(buf_block_t *&block) noexcept {
 
     /* Page not in buf_pool: needs to be read from file */
     read_page();
+    if (m_err && *m_err == DB_IO_DECRYPT_FAIL) {
+      return DB_IO_DECRYPT_FAIL;
+    }
   }
 
   return (DB_SUCCESS);
@@ -3974,7 +3980,7 @@ void Buf_fetch<T>::read_page() {
        corrupted in a way where the key_id field is
        nonzero. There is no checksum on field
        FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION. */
-    if (err == DB_DECRYPTION_FAILED) return;
+    if (err == DB_IO_DECRYPT_FAIL) return;
 
     ib::fatal(ER_IB_MSG_74)
         << "Unable to read page " << m_page_id << " into the buffer pool after "
@@ -4141,7 +4147,9 @@ buf_block_t *Buf_fetch<T>::single_page() {
   Counter::inc(m_buf_pool->stat.m_n_page_gets, m_page_id.page_no());
 
   for (;;) {
-    if (static_cast<T *>(this)->get(block) == DB_NOT_FOUND) {
+    dberr_t error = static_cast<T *>(this)->get(block);
+    if (error == DB_NOT_FOUND ||
+        (error == DB_IO_DECRYPT_FAIL && block == nullptr)) {
       return (nullptr);
     }
     ut_a(!block->page.was_stale());
@@ -4161,7 +4169,9 @@ buf_block_t *Buf_fetch<T>::single_page() {
       }
     }
 
-    if (UNIV_UNLIKELY(block->page.is_corrupt && srv_pass_corrupt_table <= 1)) {
+    if (UNIV_UNLIKELY((block->page.is_corrupt && srv_pass_corrupt_table <= 1) ||
+                      error == DB_IO_DECRYPT_FAIL)) {
+      ut_ad(*m_err != DB_SUCCESS);
       buf_block_unfix(block);
 
       return (nullptr);
@@ -5391,7 +5401,6 @@ void buf_page_free_stale_during_write(buf_page_t *bpage,
   /* Since we aborted a write request. We need to adjust the number of
   of outstanding write requests. */
   --buf_pool->n_flush[flush_type];
-
   mutex_exit(&buf_pool->flush_state_mutex);
 
   /* Free the page. This can fail, if some other thread start to free this stale
@@ -5511,9 +5520,6 @@ bool buf_page_io_complete(buf_page_t *bpage, bool evict) {
         // Here bpage should not be encrypted. If it is still encrypted it means
         // that decryption failed and whole space is not readable
         if (bpage->encrypted) {
-          ib::error()
-              << "Page is still encrypted - which means decryption failed. "
-                 "Marking whole space as encrypted";
           fil_space_set_encrypted(bpage->id.space());
 
           trx_t *trx;
