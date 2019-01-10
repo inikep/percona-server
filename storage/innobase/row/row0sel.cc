@@ -4152,10 +4152,8 @@ dberr_t row_search_no_mvcc(byte *buf, page_cur_mode_t mode,
       err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index,
                                         BTR_SEARCH_LEAF, pcur, false, 0, mtr);
       if (err != DB_SUCCESS) {
-        if (err == DB_DECRYPTION_FAILED) {
-          ib::warn() << "Table is encrypted but encryption service or"
-                        " used key_id is not available. "
-                        " Can't continue reading table.";
+        if (err == DB_IO_DECRYPT_FAIL) {
+          ib::warn(ER_XB_MSG_4, index->table_name);
           index->table->set_file_unreadable();
         }
         return (err);
@@ -5002,10 +5000,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
     err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index,
                                       BTR_SEARCH_LEAF, pcur, false, 0, &mtr);
     if (err != DB_SUCCESS) {
-      if (err == DB_DECRYPTION_FAILED) {
-        ib::warn() << "Table is encrypted but encryption service or"
-                      " used key_id is not available. "
-                      " Can't continue reading table.";
+      if (err == DB_IO_DECRYPT_FAIL) {
+        ib::warn(ER_XB_MSG_4, index->table_name);
         index->table->set_file_unreadable();
       }
       rec = NULL;
@@ -5033,7 +5029,7 @@ rec_loop:
   rec = btr_pcur_get_rec(pcur);
 
   if (!index->table->is_readable() && !index->table->is_corrupt) {
-    err = DB_DECRYPTION_FAILED;
+    err = DB_IO_DECRYPT_FAIL;
     goto lock_wait_or_error;
   }
 
