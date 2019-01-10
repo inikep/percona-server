@@ -6132,6 +6132,9 @@ dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name, os_
     ut_ad(page_size.physical() <= n);
     err = os_file_read_page(type, file_name, file, buf, 0, page_size.physical(), nullptr,
                             true, nullptr);
+    if (err == DB_SUCCESS) {
+      srv_stats.page0_read.add(1);
+    }
   }
   return (err);
 }
