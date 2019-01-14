@@ -6133,13 +6133,14 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
     return innodb_init_abort();
   }
 
-  /* srv_is_upgrade_mode no longer exists; derive the condition from the
-  presence of the 5.7-era mysql/plugin tablespace, which is exactly what
-  dict_detect_encryption() looks up in its upgrade branch. */
-  const bool is_upgrade =
-      fil_space_get_id_by_name("mysql/plugin") != SPACE_UNKNOWN;
-  bool do_encrypt = dict_detect_encryption(is_upgrade);
-  bool ret;
+  bool do_encrypt = false;
+  bool ret = dict_detect_encryption_of_mysql_ibd(dict_init_mode, do_encrypt);
+  if (!ret) {
+    ib::error(ER_XB_MSG_4, "mysql.ibd")
+        << "Failed to determine if mysql.ibd is encrypted. "
+           "Have you deleted it?";
+    return innodb_init_abort();
+  }
 
   if (do_encrypt && !Encryption::check_keyring()) {
     my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
