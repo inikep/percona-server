@@ -7863,7 +7863,7 @@ QUEUE_EVENT_RESULT queue_event(Master_info *mi, const char *buf,
         we update only the positions and not the file names, as a ROTATE
         EVENT from the master prior to this will update the file name.
 
-      When master's binlog is encrypted it will also sent heartbeat
+      When master's binlog is PS 5_7 encrypted it will also sent heartbeat
       event after reading Start_encryption_event from the binlog.
       As Start_encryption_event is not sent to slave, the master
       informs the slave to update it's master_log_pos by sending
