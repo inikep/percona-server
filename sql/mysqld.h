@@ -390,7 +390,6 @@ extern char *opt_log_error_suppression_list;
 extern char *opt_log_error_services;
 extern bool encrypt_tmp_files;
 extern char *opt_protocol_compression_algorithms;
-extern bool encrypt_binlog;
 /** The size of the host_cache. */
 extern uint host_cache_size;
 extern ulong log_error_verbosity;
