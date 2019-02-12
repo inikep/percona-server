@@ -886,7 +886,7 @@ static enum_read_rotate_from_relay_log_status read_rotate_from_relay_log(
     DBUG_PRINT("info", ("Read event of type %s", ev->get_type_str()));
     switch (ev->get_type_code()) {
       case binary_log::FORMAT_DESCRIPTION_EVENT:
-      case binary_log::START_ENCRYPTION_EVENT:
+      case binary_log::START_5_7_ENCRYPTION_EVENT:
         break;
       case binary_log::ROTATE_EVENT:
         /*
@@ -4173,7 +4173,7 @@ static int sql_delay_event(Log_event *ev, THD *thd, Relay_log_info *rli) {
       if (type != binary_log::ROTATE_EVENT &&
           type != binary_log::FORMAT_DESCRIPTION_EVENT &&
           type != binary_log::PREVIOUS_GTIDS_LOG_EVENT &&
-          type != binary_log::START_ENCRYPTION_EVENT) {
+          type != binary_log::START_5_7_ENCRYPTION_EVENT) {
         // Calculate when we should execute the event.
         sql_delay_end = ev->common_header->when.tv_sec +
                         rli->mi->clock_diff_with_master + sql_delay;
@@ -4533,7 +4533,7 @@ apply_event_and_update_pos(Log_event **ptr_ev, THD *thd, Relay_log_info *rli) {
         ev->get_type_code() != binary_log::ROTATE_EVENT &&
         ev->get_type_code() != binary_log::FORMAT_DESCRIPTION_EVENT &&
         ev->get_type_code() != binary_log::PREVIOUS_GTIDS_LOG_EVENT &&
-        ev->get_type_code() != binary_log::START_ENCRYPTION_EVENT) {
+        ev->get_type_code() != binary_log::START_5_7_ENCRYPTION_EVENT) {
       if (ev->starts_group()) {
         rli->mts_recovery_group_seen_begin = true;
       } else if ((ev->ends_group() || !rli->mts_recovery_group_seen_begin) &&
@@ -6092,7 +6092,7 @@ bool mts_recovery_groups(Relay_log_info *rli) {
         if (ev->get_type_code() == binary_log::ROTATE_EVENT ||
             ev->get_type_code() == binary_log::FORMAT_DESCRIPTION_EVENT ||
             ev->get_type_code() == binary_log::PREVIOUS_GTIDS_LOG_EVENT ||
-            ev->get_type_code() == binary_log::START_ENCRYPTION_EVENT) {
+            ev->get_type_code() == binary_log::START_5_7_ENCRYPTION_EVENT) {
           delete ev;
           ev = nullptr;
           continue;
@@ -7261,7 +7261,7 @@ QUEUE_EVENT_RESULT queue_event(Master_info *mi, const char *buf,
   DBUG_EXECUTE_IF(
       "corrupt_queue_event",
       if (event_type != binary_log::FORMAT_DESCRIPTION_EVENT &&
-          event_type != binary_log::START_ENCRYPTION_EVENT) {
+          event_type != binary_log::START_5_7_ENCRYPTION_EVENT) {
         char *debug_event_buf_c = const_cast<char *>(buf);
         int debug_cor_pos = rand() % (event_len - BINLOG_CHECKSUM_LEN);
         debug_event_buf_c[debug_cor_pos] = ~debug_event_buf_c[debug_cor_pos];
@@ -7473,8 +7473,6 @@ QUEUE_EVENT_RESULT queue_event(Master_info *mi, const char *buf,
       }
 
       new_fdle = dynamic_cast<Format_description_log_event *>(ev);
-      new_fdle->copy_crypto_data(*(mi->get_mi_description_event()));
-
       if (new_fdle->common_footer->checksum_alg ==
           binary_log::BINLOG_CHECKSUM_ALG_UNDEF)
         new_fdle->common_footer->checksum_alg =
@@ -7535,7 +7533,7 @@ QUEUE_EVENT_RESULT queue_event(Master_info *mi, const char *buf,
         we update only the positions and not the file names, as a ROTATE
         EVENT from the master prior to this will update the file name.
 
-      When master's binlog is encrypted it will also sent heartbeat
+      When master's binlog is PS 5_7 encrypted it will also sent heartbeat
       event after reading Start_encryption_event from the binlog.
       As Start_encryption_event is not sent to slave, the master
       informs the slave to update it's master_log_pos by sending
