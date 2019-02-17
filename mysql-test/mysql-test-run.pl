@@ -7469,7 +7469,7 @@ Options to control what test suites or cases to run
                         sysschema test suite. An empty sys database is
                         still created.
   skip-test-list=FILE   Skip the tests listed in FILE. Each line in the file
-                        is an entry and should be formatted as: 
+                        is an entry and should be formatted as:
                         <TESTNAME> : <COMMENT>
   skip-test=PREFIX or REGEX
                         Skip test cases which name are prefixed with PREFIX
@@ -7521,7 +7521,7 @@ Options for test case authoring
   test-progress[={0|1}] Print the percentage of tests completed. This setting
                         is enabled by default. To disable it, set the value to
                         0. Argument to '--test-progress' is optional.
-                        
+
 
 Options that pass on options (these may be repeated)
 
