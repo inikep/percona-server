@@ -6680,9 +6680,8 @@ static int i_s_dict_fill_innodb_tablespaces(
 
   if (fsp_is_undo_tablespace(space_id)) {
     row_format = "Undo";
-  } else if (fsp_is_system_or_temp_tablespace(space_id)) {
-    row_format = "Compact or Redundant";
-  } else if (fsp_is_shared_tablespace(flags) && !is_compressed) {
+  } else if (fsp_is_system_or_temp_tablespace(space_id) ||
+             (fsp_is_shared_tablespace(flags) && !is_compressed)) {
     row_format = "Any";
   } else if (is_compressed) {
     row_format = "Compressed";
@@ -6741,12 +6740,15 @@ static int i_s_dict_fill_innodb_tablespaces(
 
   OK(fields[INNODB_TABLESPACES_SPACE_VERSION]->store(space_version, true));
 
-  mutex_enter(&dict_sys->mutex);
-  char *filepath = fil_space_get_first_path(space_id);
-  mutex_exit(&dict_sys->mutex);
+  char *filepath = nullptr;
+  if (!fsp_is_system_tablespace(space_id)) {
+    mutex_enter(&dict_sys->mutex);
+    filepath = fil_space_get_first_path(space_id);
+    mutex_exit(&dict_sys->mutex);
 
-  if (filepath == nullptr) {
-    filepath = Fil_path::make_ibd_from_table_name(name);
+    if (filepath == nullptr) {
+      filepath = Fil_path::make_ibd_from_table_name(name);
+    }
   }
 
   os_file_stat_t stat;
@@ -6848,7 +6850,7 @@ static int i_s_innodb_tablespaces_fill_table(THD *thd, TABLE_LIST *tables,
     mtr_commit(&mtr);
     mutex_exit(&dict_sys->mutex);
 
-    if (ret && space != 0) {
+    if (ret) {
       i_s_dict_fill_innodb_tablespaces(
           thd, space, name, flags, server_version, space_version, is_encrypted,
           autoextend_size, state.c_str(), tables->table);
