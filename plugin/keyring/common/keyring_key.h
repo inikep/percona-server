@@ -52,6 +52,7 @@ struct Key : IKey {
   size_t get_key_data_size() override;
   size_t get_key_pod_size() const override;
   uchar *release_key_data() override;
+  void xor_data(uchar *data, size_t data_len) override;
   void xor_data() override;
   void set_key_data(uchar *key_data, size_t key_data_size) override;
   void set_key_type(const std::string *key_type) override;
