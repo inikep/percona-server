@@ -71,6 +71,8 @@ compression/decompression request in an ``ALTER TABLE``, it is forced to the
 Two new variables: :variable:`innodb_compressed_columns_zip_level` and
 :variable:`innodb_compressed_columns_threshold` have been implemented.
 
+.. _compression_dictionary:
+
 Compression dictionary support
 ==============================
 
@@ -89,6 +91,20 @@ The compression dictionary is stored in a new system |InnoDB| table.  As this
 table is of the data dictionary kind, concurrent reads are allowed, but writes
 are serialized, and reads are blocked by writes. Table read through old read
 views are not supported, similar to |InnoDB| internal DDL transactions.
+
+Interaction with :variable:`innodb_force_recovery` variable
+-----------------------------------------------------------
+
+Compression dictionary operations are treated like DDL operations with the
+exception when :variable:`innodb_force_value` is set to ``3``: with values
+less than ``3``, compression dictionary operations are allowed, and with
+values >= ``3``, they are forbidden.
+
+.. note:: 
+
+  Prior to |Percona Server| :rn:`8.0.15-6` using Compression dictionary operations
+  with :variable:`innodb_force_recovery` variable set to value > 0 would result in
+  an error.
 
 Example
 -------
