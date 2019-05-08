@@ -94,6 +94,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fil0crypt.h"
 #include "ha_innodb.h"
 #include "sql/handler.h"
+#include "system_key.h"
 #include "ut0mem.h"
 
 #ifdef UNIV_HOTBACKUP
@@ -247,7 +248,7 @@ static os_event_t srv_master_thread_disabled_event;
 char *srv_log_group_home_dir = nullptr;
 
 /** Enable or disable Encrypt of REDO tablespace. */
-ulong srv_redo_log_encrypt = 0;
+bool srv_redo_log_encrypt = false;
 
 ulong srv_n_log_files = SRV_N_LOG_FILES_MAX;
 
@@ -2876,8 +2877,6 @@ bool srv_enable_redo_encryption() {
   /* Start to encrypt the redo log block from now on. */
   fil_space_t *space = fil_space_get(dict_sys_t::s_log_space_first_id);
 
-  /* While enabling encryption, make sure not to overwrite the tablespace key.
-   */
   if (FSP_FLAGS_GET_ENCRYPTION(space->flags)) {
     return false;
   }

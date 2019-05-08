@@ -1183,7 +1183,7 @@ bool Encryption::encrypt_log_block(const IORequest &, byte *src_ptr,
 
       msg.seekp(0);
       ut_print_buf_hex(msg, check_buf, OS_FILE_LOG_BLOCK_SIZE);
-      ib::fatal(UT_LOCATION_HERE) << msg.str();
+      ib::fatal() << msg.str();
     }
     ut::free(buf2);
     ut::free(check_buf);
@@ -1603,7 +1603,7 @@ dberr_t Encryption::decrypt_log(const IORequest &type, byte *src, ulint src_len,
     block = nullptr;
   }
 
-  /* Decrypt the log blocks one by one. */
+  /* Encrypt the log blocks one by one. */
   while (ptr != src + src_len) {
 #ifdef UNIV_ENCRYPT_DEBUG
     {
@@ -1699,6 +1699,7 @@ dberr_t Encryption::decrypt(const IORequest &type, byte *src, ulint src_len,
   const page_id_t page_id(
       mach_read_from_4(src + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID),
       mach_read_from_4(src + FIL_PAGE_OFFSET));
+  auto page_no = mach_read_from_4(src + FIL_PAGE_OFFSET);
 
   {
     std::ostringstream msg;
@@ -1901,9 +1902,8 @@ bool Encryption::check_keyring() noexcept {
     char *key_type = nullptr;
     char key_name[MASTER_KEY_NAME_MAX_LEN];
 
-    key_name[sizeof(DEFAULT_MASTER_KEY)] = 0;
-
     strncpy(key_name, DEFAULT_MASTER_KEY, sizeof(key_name));
+    key_name[sizeof(key_name) - 1] = 0;
 
     /*
       We call keyring API to generate master key here.

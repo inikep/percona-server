@@ -489,15 +489,8 @@ extern const size_t CONCURRENT_UNDO_TRUNCATE_LIMIT;
 
 extern char *srv_log_group_home_dir;
 
-enum redo_log_encrypt_enum {
-  REDO_LOG_ENCRYPT_OFF = 0,
-  REDO_LOG_ENCRYPT_ON = 1,
-  REDO_LOG_ENCRYPT_MK = 2,
-  REDO_LOG_ENCRYPT_RK = 3,
-};
-
 /** Enable or Disable Encrypt of REDO tablespace. */
-extern ulong srv_redo_log_encrypt;
+extern bool srv_redo_log_encrypt;
 
 /* Maximum number of redo files of a cloned DB. */
 constexpr uint32_t SRV_N_LOG_FILES_CLONE_MAX = 1000;
@@ -1204,10 +1197,6 @@ bool set_undo_tablespace_encryption(THD *thd, space_id_t space_id, mtr_t *mtr);
 @return false for success, true otherwise. */
 bool srv_enable_undo_encryption(THD *thd);
 
-/** Enable REDO log encryption.
-@return false for success, true otherwise. */
-bool srv_enable_redo_encryption();
-
 /** Get count of tasks in the queue.
  @return number of tasks in queue */
 ulint srv_get_task_queue_length(void);
@@ -1251,6 +1240,13 @@ void undo_spaces_init();
 /** Free the resources occupied by undo::spaces and trx_sys_undo_spaces,
 called once during thread de-initialization. */
 void undo_spaces_deinit();
+
+/** Enable REDO log encryption.
+@param[in] is_boot	true if it is called during server start up. In this
+                        case, default master key will be used which will be
+                        rotated later with actual master key from keyring.
+@return false for success, true otherwise. */
+bool srv_enable_redo_encryption();
 
 /** Set redo log variable for performance schema global status.
 @param[in]      enable  true => redo log enabled, false => redo log disabled */
@@ -1407,6 +1403,9 @@ struct export_var_t {
                                   encrypted */
   int64_t innodb_pages_decrypted; /*!< Number of pages
                                   decrypted */
+
+  /* Current redo log encryption key versison for keyring encryption */
+  int64_t innodb_redo_key_version;
   ulint innodb_encryption_rotation_pages_read_from_cache;
   ulint innodb_encryption_rotation_pages_read_from_disk;
   ulint innodb_encryption_rotation_pages_modified;

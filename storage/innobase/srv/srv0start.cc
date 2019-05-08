@@ -438,9 +438,18 @@ static dberr_t create_log_files(char *logfilename, size_t dirnamelen, lsn_t lsn,
       return (DB_ERROR);
     }
 
+    // TODO: ??
+    log_space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+
     fsp_flags_set_encryption(log_space->flags);
     err = fil_set_encryption(log_space->id, Encryption::AES, nullptr, nullptr);
     ut_ad(err == DB_SUCCESS);
+
+    if (err != DB_SUCCESS) {
+      ib::error(ER_REDO_ENCRYPTION_FAILED);
+
+      return (DB_ERROR);
+    }
   }
 
   const ulonglong file_pages = srv_log_file_size / UNIV_PAGE_SIZE;
@@ -488,8 +497,8 @@ static dberr_t create_log_files(char *logfilename, size_t dirnamelen, lsn_t lsn,
   /* Write encryption information into the first log file header
   if redo log is set with encryption. */
   if (FSP_FLAGS_GET_ENCRYPTION(log_space->flags) &&
-      !log_write_encryption(log_space->encryption_key,
-                            log_space->encryption_iv)) {
+      !log_write_encryption(log_space->encryption_key, log_space->encryption_iv
+                            )) {
     return (DB_ERROR);
   }
 

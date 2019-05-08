@@ -1822,7 +1822,6 @@ static inline void row_upd_eval_new_vals(
 @param[in,out]  node            row update node
 @param[in]      update          an update vector if it is update
 @param[in]      thd             mysql thread handle
-@param[in]      thd             mysql thread handle
 @param[in,out]  prebuilt        nullptr, or a prebuilt object: used to extract
                                 mysql table object when user thread invokes
                                 dml and for compress heap */

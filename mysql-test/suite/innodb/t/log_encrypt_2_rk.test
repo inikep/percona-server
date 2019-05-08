@@ -1,2 +1,0 @@
---let $redo_log_mode=KEYRING_KEY
---source include/log_encrypt_2.inc

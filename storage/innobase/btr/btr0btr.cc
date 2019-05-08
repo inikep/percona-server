@@ -975,8 +975,8 @@ ulint btr_create(ulint type, space_id_t space, space_index_t index_id,
 
 /** Free a B-tree except the root page. The root page MUST be freed after
 this by calling btr_free_root.
-@param[in,out]  block           root page
-@param[in]      log_mode        mtr logging mode
+@param[in,out]	block		root page
+@param[in]	log_mode	mtr logging mode
 @param[in]	is_ahi_allowed	false for intrinsic tables because AHI
                                 is disallowed. See dict_index_t->disable_ahi,
                                 true for other tables */

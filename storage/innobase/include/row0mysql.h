@@ -1027,6 +1027,7 @@ dfield_t *innobase_get_computed_value(
     mem_heap_t **local_heap, mem_heap_t *heap, const dict_field_t *ifield,
     THD *thd, TABLE *mysql_table, const dict_table_t *old_table,
     upd_t *parent_update, dict_foreign_t *foreign, mem_heap_t **compress_heap);
+
 /** Parse out multi-values from a MySQL record
 @param[in]      mysql_table     MySQL table structure
 @param[in]      f_idx           field index of the multi-value column
