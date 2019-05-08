@@ -4413,7 +4413,7 @@ static void innobase_post_recover() {
       srv_redo_log_encrypt = false;
     } else {
       /* Enable encryption for REDO log */
-      if (srv_enable_redo_encryption(true)) {
+      if (srv_enable_redo_encryption()) {
         ut_ad(false);
         srv_redo_log_encrypt = false;
       }
@@ -4687,6 +4687,21 @@ a new master key and do key rotation. These tablespaces if encrypted
 during startup, will be encrypted with tablespace key which has empty UUID
 @return false on success, true on failure */
 bool innobase_fix_tablespaces_empty_uuid() {
+  if (Encryption::get_master_key_id() == 0) {
+    /* We have to call srv_enable_redo_encryption during every startup, to
+       report errors generated in this function correctly. Without this call
+       here, some illegal configurations, such as enabling encryption without a
+       keyring are silently accepted, and result in errors later during the
+       server run. These functions are also called later, when the master key is
+       correctly set up, later in this function.
+     */
+    if (srv_enable_redo_encryption()) {
+      srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
+    } else {
+      log_rotate_default_key();
+    }
+  }
+
   /* If we are in read only mode, we cannot do rotation but it
   is OK */
   if (srv_read_only_mode) {
@@ -4718,6 +4733,12 @@ bool innobase_fix_tablespaces_empty_uuid() {
   if (master_key == nullptr) {
     my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
     return (true);
+  }
+
+  if (srv_enable_redo_encryption()) {
+    srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
+  } else {
+    log_rotate_default_key();
   }
 
   /** Check if sys, temp need rotation to fix the empty uuid */
@@ -22223,7 +22244,7 @@ static int validate_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
   }
 
   /* Enable encryption for REDO tablespaces */
-  bool ret = srv_enable_redo_encryption(false);
+  bool ret = srv_enable_redo_encryption();
 
   if (!ret) {
     /* At this point, REDO log is set to be encrypted. */
