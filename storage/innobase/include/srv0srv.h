@@ -492,13 +492,6 @@ extern const size_t CONCURRENT_UNDO_TRUNCATE_LIMIT;
 
 extern char *srv_log_group_home_dir;
 
-enum redo_log_encrypt_enum {
-  REDO_LOG_ENCRYPT_OFF = 0,
-  REDO_LOG_ENCRYPT_ON = 1,
-  REDO_LOG_ENCRYPT_MK = 2,
-  REDO_LOG_ENCRYPT_RK = 3,
-};
-
 /** Enable or Disable Encrypt of REDO tablespace. */
 extern ulong srv_redo_log_encrypt;
 
@@ -1211,13 +1204,6 @@ bool set_undo_tablespace_encryption(THD *thd, space_id_t space_id, mtr_t *mtr,
 @return false for success, true otherwise. */
 bool srv_enable_undo_encryption(THD *thd, bool is_boot);
 
-/** Enable REDO log encryption.
-@param[in] is_boot	true if it is called during server start up. In this
-                        case, default master key will be used which will be
-                        rotated later with actual master key from keyring.
-@return false for success, true otherwise. */
-bool srv_enable_redo_encryption(bool is_boot);
-
 /** Get count of tasks in the queue.
  @return number of tasks in queue */
 ulint srv_get_task_queue_length(void);
@@ -1261,6 +1247,19 @@ void undo_spaces_init();
 /** Free the resources occupied by undo::spaces and trx_sys_undo_spaces,
 called once during thread de-initialization. */
 void undo_spaces_deinit();
+
+/** Enables master key redo encryption.
+ * Doesn't depend on the srv_redo_log_encrypt variable, used by
+ * SET innodb_redo_log_encrypt = MK. */
+bool srv_enable_redo_encryption_mk();
+
+/** Enables master key redo encryption.
+ * Doesn't depend on the srv_redo_log_encrypt variable, used by
+ * SET innodb_redo_log_encrypt = RK. */
+bool srv_enable_redo_encryption_rk();
+
+/** Enables redo log encryption based on srv_redo_log_encrypt. */
+bool srv_enable_redo_encryption();
 
 /** Set redo log variable for performance schema global status.
 @param[in]	enable	true => redo log enabled, false => redo log disabled */

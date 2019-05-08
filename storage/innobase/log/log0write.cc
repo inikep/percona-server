@@ -3019,7 +3019,8 @@ static bool log_file_header_fill_encryption(byte *buf, ulint key_version,
   return (true);
 }
 
-bool log_write_encryption(byte *key, byte *iv, bool is_boot) {
+bool log_write_encryption(byte *key, byte *iv, bool is_boot,
+                          redo_log_encrypt_enum redo_log_encrypt) {
   const page_id_t page_id{dict_sys_t::s_log_space_first_id, 0};
   byte *log_block_buf = static_cast<byte *>(
       ut::aligned_zalloc(OS_FILE_LOG_BLOCK_SIZE, OS_FILE_LOG_BLOCK_SIZE));
@@ -3033,8 +3034,8 @@ bool log_write_encryption(byte *key, byte *iv, bool is_boot) {
     version = space->encryption_key_version;
   }
 
-  if (srv_redo_log_encrypt == REDO_LOG_ENCRYPT_MK ||
-      srv_redo_log_encrypt == REDO_LOG_ENCRYPT_ON ||
+  if (redo_log_encrypt == REDO_LOG_ENCRYPT_MK ||
+      redo_log_encrypt == REDO_LOG_ENCRYPT_ON ||
       found_log_encryption_mode == REDO_LOG_ENCRYPT_MK) {
     if (!log_file_header_fill_encryption(log_block_buf, key, iv, is_boot,
                                          true)) {
@@ -3042,7 +3043,7 @@ bool log_write_encryption(byte *key, byte *iv, bool is_boot) {
       return (false);
     }
 
-  } else if (srv_redo_log_encrypt == REDO_LOG_ENCRYPT_RK ||
+  } else if (redo_log_encrypt == REDO_LOG_ENCRYPT_RK ||
              found_log_encryption_mode == REDO_LOG_ENCRYPT_RK) {
     if (!log_file_header_fill_encryption(log_block_buf, version, iv)) {
       ut::aligned_free(log_block_buf);
@@ -3067,7 +3068,63 @@ bool log_rotate_encryption() {
   }
 
   /* Rotate log tablespace */
-  return (log_write_encryption(nullptr, nullptr, false));
+  return (log_write_encryption(
+      nullptr, nullptr, false,
+      static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt)));
+}
+
+void log_rotate_default_key() {
+  fil_space_t *space = fil_space_get(dict_sys_t::s_log_space_first_id);
+
+  if (srv_shutdown_state.load() >= SRV_SHUTDOWN_CLEANUP) {
+    return;
+  }
+
+  /* If the redo log space is using default key, rotate it.
+  We also need the server_uuid initialized. */
+  if (space->encryption_type != Encryption::NONE &&
+      Encryption::get_master_key_id() == Encryption::DEFAULT_MASTER_KEY_ID &&
+      !srv_read_only_mode && strlen(server_uuid) > 0 &&
+      (srv_redo_log_encrypt == REDO_LOG_ENCRYPT_MK ||
+       srv_redo_log_encrypt == REDO_LOG_ENCRYPT_ON)) {
+    ut_a(FSP_FLAGS_GET_ENCRYPTION(space->flags));
+
+    log_write_encryption(nullptr, nullptr, false, REDO_LOG_ENCRYPT_MK);
+  }
+
+  if (space->encryption_type != Encryption::NONE &&
+      space->encryption_key_version == REDO_LOG_ENCRYPT_NO_VERSION &&
+      !srv_read_only_mode && strlen(server_uuid) > 0 &&
+      srv_redo_log_encrypt == REDO_LOG_ENCRYPT_RK) {
+    /* This only happens when the server uuid was just generated, so we can
+     * save the key to the keyring */
+    if (my_key_store(PERCONA_REDO_KEY_NAME, "AES", nullptr,
+                     space->encryption_key, Encryption::KEY_LEN)) {
+      srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
+      ib::error() << "Can't store redo log encryption key.";
+    }
+    uint version = 0;
+    size_t klen = 0;
+    size_t klen2 = 0;
+    char *redo_key_type = nullptr;
+    byte *rkey = nullptr;
+    unsigned char *rkey2 = nullptr;
+    if (my_key_fetch(PERCONA_REDO_KEY_NAME, &redo_key_type, nullptr,
+                     reinterpret_cast<void **>(&rkey), &klen)) {
+      srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
+      ib::error() << "Can't fetch latest redo log encryption key.";
+    }
+    const bool err = (parse_system_key(rkey, klen, &version, &rkey2, &klen2) ==
+                      reinterpret_cast<uchar *>(NullS));
+    if (err) {
+      srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
+      ib::error() << "Can't parse latest redo log encryption key.";
+    }
+    space->encryption_key_version = version;
+    if (!log_write_encryption(nullptr, nullptr, false, REDO_LOG_ENCRYPT_RK)) {
+      ib::error() << "Can't write redo log encryption information.";
+    }
+  }
 }
 
 /** @} */
