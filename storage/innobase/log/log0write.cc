@@ -2848,7 +2848,8 @@ static bool log_file_header_fill_encryption(byte *buf, ulint key_version,
   return (true);
 }
 
-bool log_write_encryption(byte *key, byte *iv, bool is_boot) {
+bool log_write_encryption(byte *key, byte *iv, bool is_boot,
+                          redo_log_encrypt_enum redo_log_encrypt) {
   const page_id_t page_id{dict_sys_t::s_log_space_first_id, 0};
   byte *log_block_buf_ptr;
   byte *log_block_buf;
@@ -2868,8 +2869,8 @@ bool log_write_encryption(byte *key, byte *iv, bool is_boot) {
     version = space->encryption_key_version;
   }
 
-  if (srv_redo_log_encrypt == REDO_LOG_ENCRYPT_MK ||
-      srv_redo_log_encrypt == REDO_LOG_ENCRYPT_ON ||
+  if (redo_log_encrypt == REDO_LOG_ENCRYPT_MK ||
+      redo_log_encrypt == REDO_LOG_ENCRYPT_ON ||
       found_log_encryption_mode == REDO_LOG_ENCRYPT_MK) {
     if (!log_file_header_fill_encryption(log_block_buf, key, iv, is_boot,
                                          true)) {
@@ -2877,7 +2878,7 @@ bool log_write_encryption(byte *key, byte *iv, bool is_boot) {
       return (false);
     }
 
-  } else if (srv_redo_log_encrypt == REDO_LOG_ENCRYPT_RK ||
+  } else if (redo_log_encrypt == REDO_LOG_ENCRYPT_RK ||
              found_log_encryption_mode == REDO_LOG_ENCRYPT_RK) {
     if (!log_file_header_fill_encryption(log_block_buf, version, iv)) {
       ut_free(log_block_buf_ptr);
@@ -2902,10 +2903,12 @@ bool log_rotate_encryption() {
   }
 
   /* Rotate log tablespace */
-  return (log_write_encryption(nullptr, nullptr, false));
+  return (log_write_encryption(
+      nullptr, nullptr, false,
+      static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt)));
 }
 
-void redo_rotate_default_master_key() {
+void redo_rotate_default_key() {
   fil_space_t *space = fil_space_get(dict_sys_t::s_log_space_first_id);
 
   if (srv_shutdown_state.load() >= SRV_SHUTDOWN_CLEANUP) {
@@ -2921,7 +2924,7 @@ void redo_rotate_default_master_key() {
        srv_redo_log_encrypt == REDO_LOG_ENCRYPT_ON)) {
     ut_a(FSP_FLAGS_GET_ENCRYPTION(space->flags));
 
-    log_write_encryption(nullptr, nullptr, false);
+    log_write_encryption(nullptr, nullptr, false, REDO_LOG_ENCRYPT_MK);
   }
 
   if (space->encryption_type != Encryption::NONE &&
@@ -2953,7 +2956,7 @@ void redo_rotate_default_master_key() {
       ib::error() << "Can't parse latest redo log encryption key.";
     }
     space->encryption_key_version = version;
-    if (!log_write_encryption(nullptr, nullptr, false)) {
+    if (!log_write_encryption(nullptr, nullptr, false, REDO_LOG_ENCRYPT_RK)) {
       ib::error() << "Can't write redo log encryption information.";
     }
   }
