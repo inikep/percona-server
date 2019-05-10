@@ -22,9 +22,6 @@
 /* The C++ file's header */
 #include "./rdb_psi.h"
 
-/* MySQL header files */
-#include <mysql/psi/mysql_stage.h>
-
 namespace myrocks {
 
 /*
@@ -85,10 +82,8 @@ void init_rocksdb_psi_keys() {
   const char *const category = "rocksdb";
   int count;
 
-  if (PSI_server == nullptr) return;
-
   count = array_elements(all_rocksdb_mutexes);
-  PSI_server->register_mutex(category, all_rocksdb_mutexes, count);
+  mysql_mutex_register(category, all_rocksdb_mutexes, count);
 
   count = array_elements(all_rocksdb_conds);
   // TODO(jay) Disabling PFS for conditions due to the bug
