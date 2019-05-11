@@ -5001,7 +5001,7 @@ static int rocksdb_init_func(void *const p) {
     directories.push_back(myrocks::rocksdb_wal_dir);
   }
 
-  io_watchdog = new Rdb_io_watchdog(directories);
+  io_watchdog = new Rdb_io_watchdog(std::move(directories));
   io_watchdog->reset_timeout(rocksdb_io_write_timeout_secs);
 
   // NO_LINT_DEBUG
