@@ -3873,7 +3873,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
     Rdb_deadlock_info deadlock_info;
 
     for (auto it = path_entry.path.begin(); it != path_entry.path.end(); it++) {
-      auto txn = *it;
+      const auto &txn = *it;
       const GL_INDEX_ID gl_index_id = {
           txn.m_cf_id, rdb_netbuf_to_uint32(reinterpret_cast<const uchar *>(
                            txn.m_waiting_key.c_str()))};
@@ -3882,7 +3882,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
     DBUG_ASSERT_IFF(path_entry.limit_exceeded, path_entry.path.empty());
     /* print the first txn in the path to display the full deadlock cycle */
     if (!path_entry.path.empty() && !path_entry.limit_exceeded) {
-      auto deadlocking_txn = *(path_entry.path.end() - 1);
+      const auto &deadlocking_txn = *(path_entry.path.end() - 1);
       deadlock_info.victim_trx_id = deadlocking_txn.m_txn_id;
       deadlock_info.deadlock_time = path_entry.deadlock_time;
     }
@@ -3923,7 +3923,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
     auto dlock_buffer = rdb->GetDeadlockInfoBuffer();
     m_data += "----------LATEST DETECTED DEADLOCKS----------\n";
 
-    for (auto path_entry : dlock_buffer) {
+    for (const auto &path_entry : dlock_buffer) {
       std::string path_data;
       if (path_entry.limit_exceeded) {
         path_data += "\n-------DEADLOCK EXCEEDED MAX DEPTH-------\n";
@@ -3934,7 +3934,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
         const auto dl_info = get_dl_path_trx_info(path_entry);
         const auto deadlock_time = dl_info.deadlock_time;
         for (auto it = dl_info.path.begin(); it != dl_info.path.end(); it++) {
-          const auto trx_info = *it;
+          const auto &trx_info = *it;
           path_data += format_string(
               "TIMESTAMP: %" PRId64
               "\n"
@@ -3963,7 +3963,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
   std::vector<Rdb_deadlock_info> get_deadlock_info() {
     std::vector<Rdb_deadlock_info> deadlock_info;
     auto dlock_buffer = rdb->GetDeadlockInfoBuffer();
-    for (auto path_entry : dlock_buffer) {
+    for (const auto &path_entry : dlock_buffer) {
       if (!path_entry.limit_exceeded) {
         deadlock_info.push_back(get_dl_path_trx_info(path_entry));
       }
@@ -10995,7 +10995,7 @@ static int calculate_stats(
 
   // get RocksDB table properties for these ranges
   rocksdb::TablePropertiesCollection props;
-  for (auto it : ranges) {
+  for (const auto &it : ranges) {
     const auto old_size MY_ATTRIBUTE((__unused__)) = props.size();
     const auto status = rdb->GetPropertiesOfTablesInRange(
         it.first, &it.second[0], it.second.size(), &props);
