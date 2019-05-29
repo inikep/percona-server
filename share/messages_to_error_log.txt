@@ -11224,10 +11224,10 @@ ER_XB_MSG_1
 ER_COMPRESSION_DICTIONARY_NO_CREATE
   eng "Cannot create compression dictionary tables in %s%sread-only mode."
 
-ER_XB_MSG_2
+ER_XB_UNUSED_1
   eng "%s"
 
-ER_XB_MSG_3
+ER_XB_UNUSED_2
   eng "%s"
 
 ER_XB_MSG_4
@@ -11238,6 +11238,21 @@ ER_XB_MSG_5
 
 ER_XB_MSG_WAIT_FOR_KEYRING_ENCRYPT_THREAD
   eng "Waiting for keyring encryption threads to exit"
+
+ER_XB_UNUSED_3
+  eng "%s"
+
+ER_XB_MSG_6
+  eng "%s"
+
+ER_XB_UNUSED_4
+  eng "%s"
+
+ER_XB_MSG_8
+  eng "%s"
+
+ER_REDO_ENCRYPTION_CANT_BE_CHANGED
+  eng "Redo log encryption mode can't be switched without stopping the server and recreating the redo logs. Current mode is %s, requested %s."
 
 #
 # End of Percona Server 8.0 server error log messages
