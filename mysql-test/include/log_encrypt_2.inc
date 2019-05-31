@@ -48,7 +48,14 @@ SHOW VARIABLES LIKE "%innodb_redo_log_encrypt%";
 
 SELECT * FROM t1 LIMIT 10;
 
-# Key rotation.
+SELECT rotate_system_key("percona_redo");
+
+if ($wait_for_key_version)
+{
+--let $wait_condition = select variable_value = 2 from performance_schema.global_status where variable_name = 'innodb_encryption_redo_key_version'
+--source include/wait_condition.inc
+}
+
 ALTER INSTANCE ROTATE INNODB MASTER KEY;
 
 DROP TABLE t1;
@@ -84,6 +91,11 @@ INSERT INTO t1 SELECT * FROM t1;
 SHOW VARIABLES LIKE "%innodb_redo_log_encrypt%";
 
 SELECT * FROM t1 LIMIT 10;
+
+--let $restart_parameters = restart: $KEYRING_PARAMS --general-log --log-output=FILE --general_log_file=$MYSQL_TMP_DIR/keyring_query_log
+--source include/restart_mysqld_no_echo.inc
+
+INSERT INTO t1 SELECT * FROM t1;
 DROP TABLE t1;
 
 --let $restart_parameters = restart: $KEYRING_PARAMS --general-log --log-output=FILE --general_log_file=$MYSQL_TMP_DIR/keyring_query_log
