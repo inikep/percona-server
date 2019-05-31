@@ -54,6 +54,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "log0types.h"
 #include "my_compiler.h"
 
+extern uint srv_redo_log_key_version;
+
 /** Prefix for name of log file, e.g. "ib_logfile" */
 constexpr const char *const ib_logfile_basename = "ib_logfile";
 
@@ -898,6 +900,9 @@ It will re-encrypt the redo log encryption metadata and write it to
 redo log file header.
 @return true if success. */
 bool log_rotate_encryption();
+
+/* Checks if there is a new redo key when using keyring encryption. */
+void log_check_new_key_version();
 
 /** Computes lsn up to which sync flush should be done or returns 0
 if there is no need to execute sync flush now.
