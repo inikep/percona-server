@@ -58,6 +58,9 @@ c1	c2
 7	hhhhh
 8	iiiii
 9	jjjjj
+SELECT rotate_system_key("percona_redo");
+rotate_system_key("percona_redo")
+1
 ALTER INSTANCE ROTATE INNODB MASTER KEY;
 DROP TABLE t1;
 CREATE TABLE t1(c1 INT, c2 char(20)) ENCRYPTION="Y" ENGINE = InnoDB;
@@ -96,6 +99,7 @@ c1	c2
 7	hhhhh
 8	iiiii
 9	jjjjj
+INSERT INTO t1 SELECT * FROM t1;
 DROP TABLE t1;
 SHOW VARIABLES LIKE "%innodb_redo_log_encrypt%";
 Variable_name	Value

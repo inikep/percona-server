@@ -1957,6 +1957,8 @@ void srv_export_innodb_status(void) {
 
   export_vars.innodb_scrub_log = srv_stats.n_log_scrubs;
 
+  export_vars.innodb_redo_key_version = srv_redo_log_key_version;
+
   if (!srv_read_only_mode) {
     export_vars.innodb_encryption_rotation_pages_read_from_cache =
         crypt_stat.pages_read_from_cache;
@@ -2981,51 +2983,18 @@ bool srv_enable_redo_encryption_rk() {
   byte iv[Encryption::KEY_LEN];
   uint version;
 
-  Encryption::random_value(key);
+  Encryption::random_value(iv);
 
   // load latest key & write version
 
-  char *redo_key_type = nullptr;
-  byte *rkey = nullptr;
-  size_t klen = 0;
-
-  if (my_key_fetch(PERCONA_REDO_KEY_NAME, &redo_key_type, nullptr,
-                   reinterpret_cast<void **>(&rkey), &klen) ||
-      rkey == nullptr) {
-    if (my_key_generate(PERCONA_REDO_KEY_NAME, "AES", nullptr,
-                        Encryption::KEY_LEN)) {
-      ib::error() << "Redo log key generation failed.";
-      my_free(redo_key_type);
-      my_free(rkey);
-      return true;
-    } else if (my_key_fetch(PERCONA_REDO_KEY_NAME, &redo_key_type, nullptr,
-                            reinterpret_cast<void **>(&rkey), &klen)) {
-      ib::error() << "Couldn't fetch newly generated redo key.";
-      my_free(redo_key_type);
-      my_free(rkey);
-      return true;
-    }
-  }
-
-  assert(rkey != nullptr);
-  byte *rkey2 = nullptr;
-  size_t klen2 = 0;
-  bool parse_err = (parse_system_key(rkey, klen, &version, &rkey2, &klen2) ==
-                    reinterpret_cast<uchar *>(NullS));
-  if (parse_err) {
-    ib::error() << "Couldn't parse system key: " << rkey;
-    my_free(redo_key_type);
-    my_free(rkey);
+  redo_log_key *mkey = redo_log_key_mgr.load_latest_key(true);
+  if (mkey == nullptr) {
     return true;
   }
-  ut_ad(klen2 == Encryption::KEY_LEN);
-  memcpy(key, rkey2, Encryption::KEY_LEN);
-  my_free(rkey2);
 
-  ut_ad(redo_key_type && strcmp(redo_key_type, "AES") == 0);
-
-  my_free(redo_key_type);
-  my_free(rkey);
+  version = mkey->version;
+  srv_redo_log_key_version = version;
+  memcpy(key, mkey->key, Encryption::KEY_LEN);
 
 #ifdef UNIV_ENCRYPT_DEBUG
   fprintf(stderr, "Fetched redo key: %s.\n", key);
@@ -3037,9 +3006,10 @@ bool srv_enable_redo_encryption_rk() {
     return true;
   }
 
+  space->encryption_redo_key = mkey;
   space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
   space->encryption_key_version = version;
-  dberr_t err = fil_set_encryption(space->id, Encryption::AES, key, iv);
+  dberr_t err = fil_set_encryption(space->id, Encryption::KEYRING, key, iv);
 
   if (err != DB_SUCCESS) {
     ib::error() << "Can't set redo log tablespace to be encrypted.";
@@ -3234,6 +3204,8 @@ static void srv_master_main_loop(srv_slot_t *slot) {
 
     /* Purge any deleted tablespace pages. */
     fil_purge();
+
+    log_check_new_key_version();
   }
 }
 
