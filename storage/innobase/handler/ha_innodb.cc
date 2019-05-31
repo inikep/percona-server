@@ -1470,6 +1470,9 @@ static SHOW_VAR innodb_status_variables[] = {
     {"encryption_n_rowlog_blocks_decrypted",
      (char *)&export_vars.innodb_n_rowlog_blocks_decrypted, SHOW_LONGLONG,
      SHOW_SCOPE_GLOBAL},
+    {"encryption_redo_key_version",
+     (char *)&export_vars.innodb_redo_key_version, SHOW_LONGLONG,
+     SHOW_SCOPE_GLOBAL},
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_GLOBAL},
     /* Encryption */
     {"encryption_rotation_pages_read_from_cache",
