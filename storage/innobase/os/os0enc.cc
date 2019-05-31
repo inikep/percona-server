@@ -645,6 +645,12 @@ bool Encryption::fill_encryption_info(byte *key, byte *iv, byte *encrypt_info,
   memcpy(reinterpret_cast<char *>(ptr), s_uuid, sizeof(s_uuid));
   ptr += sizeof(s_uuid) - 1;
 
+  /* We should never write empty UUID. Only exemption is for
+  tablespaces when InnoDB is initializing (like system, temp, etc).
+  These tablespaces UUID will be fixed by handlerton API after server
+  generates uuid */
+  ut_ad(!srv_is_uuid_ready || strlen(s_uuid) != 0);
+
   byte key_info[KEY_LEN * 2];
 
   memset(key_info, 0x0, sizeof(key_info));
@@ -796,6 +802,11 @@ byte *Encryption::get_master_key_from_info(byte *encrypt_info, Version version,
   return (ptr);
 }
 
+/** Decoding the encryption info from the first page of a tablespace.
+@param[in,out]	key		key
+@param[in,out]	iv		iv
+@param[in]	encryption_info	encryption info
+@return true if success */
 bool Encryption::decode_encryption_info(byte *key, byte *iv,
                                         byte *encryption_info,
                                         bool decrypt_key) noexcept {
@@ -948,7 +959,6 @@ bool Encryption::is_encrypted_log(const byte *block) noexcept {
 bool Encryption::encrypt_log_block(const IORequest &type, byte *src_ptr,
                                    byte *dst_ptr) noexcept {
   ulint len = 0;
-  ulint data_len;
   ulint main_len;
   ulint remain_len;
   byte remain_buf[MY_AES_BLOCK_SIZE * 2];
@@ -967,7 +977,10 @@ bool Encryption::encrypt_log_block(const IORequest &type, byte *src_ptr,
 #endif /* UNIV_ENCRYPT_DEBUG */
 
   /* This is data size which need to encrypt. */
-  data_len = OS_FILE_LOG_BLOCK_SIZE - LOG_BLOCK_HDR_SIZE;
+  const ulint unencrypted_trailer_size =
+      (m_type == KEYRING) ? LOG_BLOCK_TRL_SIZE : 0;
+  const ulint data_len =
+      OS_FILE_LOG_BLOCK_SIZE - LOG_BLOCK_HDR_SIZE - unencrypted_trailer_size;
   main_len = (data_len / MY_AES_BLOCK_SIZE) * MY_AES_BLOCK_SIZE;
   remain_len = data_len - main_len;
 
@@ -980,6 +993,7 @@ bool Encryption::encrypt_log_block(const IORequest &type, byte *src_ptr,
     case NONE:
       ut_error;
 
+    case KEYRING:
     case AES: {
       ut_ad(m_klen == KEY_LEN);
 
@@ -1031,6 +1045,14 @@ bool Encryption::encrypt_log_block(const IORequest &type, byte *src_ptr,
       ut_error;
   }
 
+  /* Set the encrypted flag. */
+  log_block_set_encrypt_bit(dst_ptr, true);
+
+  if (m_type == KEYRING) {
+    const ulint crc = log_block_calc_checksum_crc32(dst_ptr);
+    log_block_set_checksum(dst_ptr, crc + m_key_version);
+  }
+
 #ifdef UNIV_ENCRYPT_DEBUG
   {
     std::ostringstream os{};
@@ -1063,9 +1085,6 @@ bool Encryption::encrypt_log_block(const IORequest &type, byte *src_ptr,
   }
 #endif /* UNIV_ENCRYPT_DEBUG */
 
-  /* Set the encrypted flag. */
-  log_block_set_encrypt_bit(dst_ptr, true);
-
   return (true);
 }
 
@@ -1090,28 +1109,6 @@ byte *Encryption::encrypt_log(const IORequest &type, byte *src, ulint src_len,
     src_ptr += OS_FILE_LOG_BLOCK_SIZE;
     dst_ptr += OS_FILE_LOG_BLOCK_SIZE;
   }
-
-#ifdef UNIV_ENCRYPT_DEBUG
-  {
-    byte *check_buf = static_cast<byte *>(ut_malloc_nokey(src_len));
-    byte *buf2 = static_cast<byte *>(ut_malloc_nokey(src_len));
-
-    memcpy(check_buf, dst, src_len);
-
-    dberr_t err = decrypt_log(type, check_buf, src_len, buf2, src_len);
-    if (err != DB_SUCCESS || memcmp(src, check_buf, src_len) != 0) {
-      std::ostringstream msg{};
-      ut_print_buf_hex(msg, src, src_len);
-      ib::error() << msg.str();
-
-      msg.seekp(0);
-      ut_print_buf_hex(msg, check_buf, src_len);
-      ib::fatal() << msg.str();
-    }
-    ut_free(buf2);
-    ut_free(check_buf);
-  }
-#endif /* UNIV_ENCRYPT_DEBUG */
 
   return (dst);
 }
@@ -1408,19 +1405,37 @@ byte *Encryption::encrypt(const IORequest &type, byte *src, ulint src_len,
 
 dberr_t Encryption::decrypt_log_block(const IORequest &type, byte *src,
                                       byte *dst) noexcept {
-  ulint data_len;
   ulint main_len;
   ulint remain_len;
   byte remain_buf[MY_AES_BLOCK_SIZE * 2];
   byte *ptr = src;
 
   /* This is data size which need to encrypt. */
-  data_len = OS_FILE_LOG_BLOCK_SIZE - LOG_BLOCK_HDR_SIZE;
+  const ulint unencrypted_trailer_size =
+      (m_type == KEYRING) ? LOG_BLOCK_TRL_SIZE : 0;
+  const ulint data_len =
+      OS_FILE_LOG_BLOCK_SIZE - LOG_BLOCK_HDR_SIZE - unencrypted_trailer_size;
+
   main_len = (data_len / MY_AES_BLOCK_SIZE) * MY_AES_BLOCK_SIZE;
   remain_len = data_len - main_len;
 
   ptr += LOG_BLOCK_HDR_SIZE;
   switch (m_type) {
+    case KEYRING: {
+      const ulint block_crc = log_block_calc_checksum_crc32(src);
+      const ulint written_crc = log_block_get_checksum(src);
+
+      const ulint enc_key_version = written_crc - block_crc;
+
+      if (m_key_version != enc_key_version &&
+          enc_key_version != REDO_LOG_ENCRYPT_NO_VERSION) {
+        redo_log_key *mkey = redo_log_key_mgr.load_key_version(enc_key_version);
+        m_key_version = mkey->version;
+        m_key = reinterpret_cast<unsigned char *>(mkey->key);
+      }
+    }
+      /* FALLTHROUGH */
+
     case AES: {
       lint elen;
 
@@ -1489,6 +1504,11 @@ dberr_t Encryption::decrypt_log_block(const IORequest &type, byte *src,
 
   /* Reset the encrypted flag. */
   log_block_set_encrypt_bit(ptr, false);
+
+  if (m_type == KEYRING) {
+    const ulint crc = log_block_calc_checksum_crc32(ptr);
+    log_block_set_checksum(ptr, crc);
+  }
 
   return (DB_SUCCESS);
 }
@@ -1599,6 +1619,7 @@ dberr_t Encryption::decrypt(const IORequest &type, byte *src, ulint src_len,
   const page_id_t page_id(
       mach_read_from_4(src + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID),
       mach_read_from_4(src + FIL_PAGE_OFFSET));
+  auto page_no = mach_read_from_4(src + FIL_PAGE_OFFSET);
 
   {
     std::ostringstream msg;
