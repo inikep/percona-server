@@ -10711,8 +10711,8 @@ ER_XB_MSG_5
 ER_XB_MSG_WAIT_FOR_KEYRING_ENCRYPT_THREAD
   eng "Waiting for keyring encryption threads to exit"
 
-ER_XB_MSG_5B
-  eng "%s"
+ER_PARALLEL_DOUBLEWRITE_WRITE_ERROR
+  eng "Parallel doublewrite buffer write failed, crashing the server to avoid data loss"
 
 ER_XB_MSG_6
   eng "%s"
