@@ -489,8 +489,8 @@ ibool meb_get_checksum_algorithm_enum(const char *algo_name,
 }
 #endif /* !UNIV_HOTBACKUP */
 
-static const char *redo_log_encrypt_names[] = {"off", "on", "master_key",
-                                               "keyring_key", NullS};
+static const char *redo_log_encrypt_names[] = {"OFF", "ON", "MASTER_KEY",
+                                               "KEYRING_KEY", NullS};
 static TYPELIB redo_log_encrypt_typelib = {
     array_elements(redo_log_encrypt_names) - 1, "redo_log_encrypt_typelib",
     redo_log_encrypt_names, nullptr};
@@ -9120,7 +9120,7 @@ static void innobase_store_multi_value_low(json_binary::Value *bv,
       row_mysql_store_col_in_innobase_format(dfield, buf, true, mysql_data,
                                              col_len, comp, false, nullptr, 0,
                                              nullptr);
-     } else if (type == DATA_CHAR || type == DATA_VARCHAR ||
+    } else if (type == DATA_CHAR || type == DATA_VARCHAR ||
                type == DATA_VARMYSQL) {
       mysql_data = (byte *)elt.get_data();
       col_len = (ulint)elt.get_data_length();
@@ -21412,6 +21412,91 @@ static int validate_innodb_undo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
   return (0);
 }
 
+/** Validate the value of innodb_redo_log_encrypt global variable. This function
+is registered as a callback with MySQL.
+@param[in]	thd       thread handle
+@param[in]	var       pointer to system variable
+@param[in]	save      possibly updated variable value
+@param[in]	value     current variable value
+@return error code */
+static int validate_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
+                                            struct st_mysql_value *value) {
+  const char *redo_log_encrypt_input;
+  char buff[STRING_BUFFER_USUAL_SIZE];
+  int len = sizeof(buff);
+  redo_log_encrypt_input = value->val_str(value, buff, &len);
+
+  bool legit_value = false;
+  uint use = 0;
+  for (; use < array_elements(redo_log_encrypt_names) - 1; use++) {
+    if (innobase_strcasecmp(redo_log_encrypt_input,
+                            redo_log_encrypt_names[use]) == 0) {
+      legit_value = true;
+      break;
+    }
+  }
+
+  if (innobase_strcasecmp(redo_log_encrypt_input, "0") == 0) {
+    use = 0;
+    legit_value = true;
+  }
+
+  if (innobase_strcasecmp(redo_log_encrypt_input, "false") == 0) {
+    use = 0;
+    legit_value = true;
+  }
+
+  if (innobase_strcasecmp(redo_log_encrypt_input, "1") == 0) {
+    use = 1;
+    legit_value = true;
+  }
+
+  if (innobase_strcasecmp(redo_log_encrypt_input, "true") == 0) {
+    use = 1;
+    legit_value = true;
+  }
+
+  if (!legit_value) return 1;
+
+  // TODO(laurynas) or = use; ?
+  /* Set the default output to current value for all error cases. */
+  *static_cast<ulong *>(save) = srv_redo_log_encrypt;
+
+  if (srv_redo_log_encrypt == use) {
+    /* No change */
+    return (0);
+  }
+
+  /* If encryption is to be disabled. This will just make sure I/O doesn't
+  write REDO encrypted from now on. */
+  if (use == REDO_LOG_ENCRYPT_OFF) {
+    /* Check and exit if concurrent clone in progress. */
+    if (clone_check_active()) {
+      my_error(ER_CLONE_IN_PROGRESS, MYF(0));
+      return (ER_CLONE_IN_PROGRESS);
+    }
+    *static_cast<ulong *>(save) = REDO_LOG_ENCRYPT_OFF;
+    return (0);
+  }
+
+  if (srv_read_only_mode) {
+    ib::error(ER_IB_MSG_1242);
+    return (ER_IB_MSG_1242);
+  }
+
+  /* Check and exit if concurrent clone in progress. The mark ensures
+  that any new clone waits while we set encryption information. */
+  if (!clone_mark_wait()) {
+    my_error(ER_CLONE_IN_PROGRESS, MYF(0));
+    return (ER_CLONE_IN_PROGRESS);
+  }
+
+  clone_mark_free();
+  *static_cast<ulong *>(save) = use;
+
+  return 0;
+}
+
 /** Update the number of rollback segments per tablespace when the
 system variable innodb_rollback_segments is changed.
 This function is registered as a callback with MySQL.
@@ -23539,8 +23624,9 @@ static MYSQL_SYSVAR_ENUM(redo_log_encrypt, srv_redo_log_encrypt,
                          PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_NOPERSIST,
                          "Enable or disable Encryption of REDO tablespace."
                          "Possible values: OFF, ON, MASTER_KEY, KEYRING_KEY.",
-                         NULL, update_innodb_redo_log_encrypt,
-                         REDO_LOG_ENCRYPT_OFF, &redo_log_encrypt_typelib);
+                         validate_innodb_redo_log_encrypt,
+                         update_innodb_redo_log_encrypt, REDO_LOG_ENCRYPT_OFF,
+                         &redo_log_encrypt_typelib);
 
 static MYSQL_SYSVAR_BOOL(
     print_ddl_logs, srv_print_ddl_logs, PLUGIN_VAR_OPCMDARG,
