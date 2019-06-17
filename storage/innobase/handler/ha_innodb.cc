@@ -4101,7 +4101,7 @@ static void innobase_post_recover() {
       srv_redo_log_encrypt = false;
     } else {
       /* Enable encryption for REDO log */
-      if (srv_enable_redo_encryption()) {
+      if (srv_enable_redo_encryption(nullptr)) {
         ut_ad(false);
         srv_redo_log_encrypt = false;
       }
@@ -4395,7 +4395,7 @@ bool innobase_fix_tablespaces_empty_uuid() {
        server run. These functions are also called later, when the master key is
        correctly set up, later in this function.
      */
-    if (srv_enable_redo_encryption()) {
+    if (srv_enable_redo_encryption(nullptr)) {
       srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
     } else {
       log_rotate_default_key();
@@ -4435,7 +4435,7 @@ bool innobase_fix_tablespaces_empty_uuid() {
     return (true);
   }
 
-  if (srv_enable_redo_encryption()) {
+  if (srv_enable_redo_encryption(nullptr)) {
     srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
   } else {
     log_rotate_default_key();
@@ -21587,7 +21587,6 @@ static int validate_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
 
   if (!legit_value) return 1;
 
-  // TODO(laurynas) or = use; ?
   /* Set the default output to current value for all error cases. */
   *static_cast<ulong *>(save) = srv_redo_log_encrypt;
 
@@ -22504,9 +22503,9 @@ static void update_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var,
       existing_redo_encryption_mode != target &&
       !(existing_redo_encryption_mode == REDO_LOG_ENCRYPT_MK &&
         target == REDO_LOG_ENCRYPT_ON)) {
-    ib::warn(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
-             log_encrypt_name(existing_redo_encryption_mode),
-             log_encrypt_name(static_cast<redo_log_encrypt_enum>(target)));
+    ib::error(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
+              log_encrypt_name(existing_redo_encryption_mode),
+              log_encrypt_name(static_cast<redo_log_encrypt_enum>(target)));
     ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_DA_REDO_ENCRYPTION_CANT_BE_CHANGED,
                 log_encrypt_name(existing_redo_encryption_mode),
                 log_encrypt_name(static_cast<redo_log_encrypt_enum>(target)));
@@ -22514,15 +22513,14 @@ static void update_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var,
   }
 
   if (srv_read_only_mode) {
-    push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WRONG_ARGUMENTS,
-                        " Redo log cannot be"
-                        " encrypted in innodb_read_only mode");
+    ib::error(ER_IB_MSG_1242);
+    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_IB_MSG_1242);
     return;
   }
 
   if (target == REDO_LOG_ENCRYPT_MK || target == REDO_LOG_ENCRYPT_ON) {
     ut_ad(strlen(server_uuid) > 0);
-    if (srv_enable_redo_encryption_mk()) {
+    if (srv_enable_redo_encryption_mk(thd)) {
       return;
     }
     srv_redo_log_encrypt = target;
@@ -22531,7 +22529,7 @@ static void update_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var,
 
   if (target == REDO_LOG_ENCRYPT_RK) {
     ut_ad(strlen(server_uuid) > 0);
-    if (srv_enable_redo_encryption_rk()) {
+    if (srv_enable_redo_encryption_rk(thd)) {
       return;
     }
 
