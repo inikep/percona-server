@@ -13,12 +13,6 @@ ERROR HY000: Function 'keyring_file' already exists
 UNINSTALL PLUGIN keyring_file;
 SELECT @@global.innodb_redo_log_encrypt;
 @@global.innodb_redo_log_encrypt
-OFF
-INSTALL PLUGIN keyring_file SONAME 'keyring_file.so';
-ERROR HY000: Function 'keyring_file' already exists
-UNINSTALL PLUGIN keyring_file;
-SELECT @@global.innodb_redo_log_encrypt;
-@@global.innodb_redo_log_encrypt
 KEYRING_KEY
 SET GLOBAL innodb_redo_log_encrypt = KEYRING_KEY;
 SELECT @@global.innodb_redo_log_encrypt;
@@ -73,7 +67,7 @@ a	LEFT(b,10)
 DROP TABLE tde_db.t1,tde_db.t2,tde_db.t3,tde_db.t4;
 SELECT @@global.innodb_redo_log_encrypt;
 @@global.innodb_redo_log_encrypt
-OFF
+KEYRING_KEY
 CREATE TABLE tde_db.t1 (a BIGINT PRIMARY KEY, b LONGBLOB) ENGINE=InnoDB;
 CREATE TABLE tde_db.t2 (a BIGINT PRIMARY KEY, b LONGBLOB)
 ENCRYPTION='Y' ENGINE=InnoDB;

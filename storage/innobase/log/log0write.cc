@@ -2922,8 +2922,7 @@ bool log_read_encryption() {
     /* Make sure the keyring is loaded. */
     if (!Encryption::check_keyring()) {
       ut::aligned_free(log_block_buf);
-      ib::error() << "Redo log was encrypted,"
-                  << " but keyring plugin is not loaded.";
+      ib::error() << "Redo log was encrypted, but keyring is not loaded.";
       return (false);
     }
     unsigned char *info_ptr =
@@ -2934,7 +2933,7 @@ bool log_read_encryption() {
     fprintf(stderr, "Using redo log encryption key version: %u\n", version);
 #endif
 
-    mkey = redo_log_key_mgr.load_key_version(version);
+    mkey = redo_log_key_mgr.load_key_version(nullptr, version);
     if (mkey != nullptr) {
       encrypted_log = true;
       memcpy(key, mkey->key, Encryption::KEY_LEN);
@@ -2971,10 +2970,12 @@ bool log_read_encryption() {
             : static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt);
     if (existing_redo_encryption_mode != set_encryption &&
         srv_redo_log_encrypt != REDO_LOG_ENCRYPT_OFF) {
-      ib::warn(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
-               log_encrypt_name(existing_redo_encryption_mode),
-               log_encrypt_name(
-                   static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt)));
+      ib::error(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
+                log_encrypt_name(existing_redo_encryption_mode),
+                log_encrypt_name(
+                    static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt)));
+
+      return (false);
 
       srv_redo_log_encrypt = existing_redo_encryption_mode;
     }
@@ -3110,7 +3111,7 @@ void log_check_new_key_version() {
   }
   if (srv_redo_log_encrypt == REDO_LOG_ENCRYPT_RK) {
     /* re-fetch latest key */
-    redo_log_key *mkey = redo_log_key_mgr.load_latest_key(false);
+    redo_log_key *mkey = redo_log_key_mgr.load_latest_key(nullptr, false);
     if (mkey != nullptr) {
       space->encryption_redo_key = mkey;
       srv_redo_log_key_version = mkey->version;
@@ -3148,7 +3149,7 @@ void log_rotate_default_key() {
       srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
       ib::error() << "Can't store redo log encryption key.";
     }
-    redo_log_key *key = redo_log_key_mgr.load_latest_key(true);
+    redo_log_key *key = redo_log_key_mgr.load_latest_key(nullptr, true);
     space->encryption_key_version = key->version;
     space->encryption_redo_key = key;
     srv_redo_log_key_version = key->version;
