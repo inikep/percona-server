@@ -4417,7 +4417,7 @@ static void innobase_post_recover() {
       srv_redo_log_encrypt = false;
     } else {
       /* Enable encryption for REDO log */
-      if (srv_enable_redo_encryption()) {
+      if (srv_enable_redo_encryption(nullptr)) {
         ut_ad(false);
         srv_redo_log_encrypt = false;
       }
@@ -4704,7 +4704,7 @@ bool innobase_fix_tablespaces_empty_uuid() {
        server run. These functions are also called later, when the master key is
        correctly set up, later in this function.
      */
-    if (srv_enable_redo_encryption()) {
+    if (srv_enable_redo_encryption(nullptr)) {
       srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
     } else {
       log_rotate_default_key();
@@ -4744,7 +4744,7 @@ bool innobase_fix_tablespaces_empty_uuid() {
     return (true);
   }
 
-  if (srv_enable_redo_encryption()) {
+  if (srv_enable_redo_encryption(nullptr)) {
     srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
   } else {
     log_rotate_default_key();
@@ -22265,7 +22265,6 @@ static int validate_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
 
   if (!legit_value) return 1;
 
-  // TODO(laurynas) or = use; ?
   /* Set the default output to current value for all error cases. */
   *static_cast<ulong *>(save) = srv_redo_log_encrypt;
 
