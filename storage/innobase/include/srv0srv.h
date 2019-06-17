@@ -1255,15 +1255,15 @@ void undo_spaces_deinit();
 /** Enables master key redo encryption.
  * Doesn't depend on the srv_redo_log_encrypt variable, used by
  * SET innodb_redo_log_encrypt = MK. */
-bool srv_enable_redo_encryption_mk();
+bool srv_enable_redo_encryption_mk(THD *thd);
 
 /** Enables master key redo encryption.
  * Doesn't depend on the srv_redo_log_encrypt variable, used by
  * SET innodb_redo_log_encrypt = RK. */
-bool srv_enable_redo_encryption_rk();
+bool srv_enable_redo_encryption_rk(THD *thd);
 
 /** Enables redo log encryption based on srv_redo_log_encrypt. */
-bool srv_enable_redo_encryption();
+bool srv_enable_redo_encryption(THD *thd);
 
 /** Set redo log variable for performance schema global status.
 @param[in]	enable	true => redo log enabled, false => redo log disabled */
