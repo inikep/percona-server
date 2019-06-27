@@ -3,7 +3,6 @@
 # Test sleeps for long times
 --source include/big_test.inc
 
-set @saved_log_output = @@global.log_output;
 set @@global.log_output = 'TABLE';
 truncate table mysql.slow_log;
 
@@ -36,8 +35,8 @@ connection default;
 disconnect con1;
 disconnect con2;
 
-TRUNCATE mysql.slow_log;
 --source include/wait_until_count_sessions.inc
 
-set @@global.log_output = @saved_log_output;
-truncate table mysql.slow_log;
+TRUNCATE mysql.slow_log;
+
+set @@global.log_output=default;

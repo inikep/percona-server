@@ -1794,7 +1794,7 @@ void srv_shutdown_exit_threads() {
         os_event_set(log_scrub_event);
       }
 
-      if (srv_n_fil_crypt_threads_started) {
+      if (srv_threads.m_crypt_threads_n) {
         os_event_set(fil_crypt_threads_event);
       }
 
@@ -3396,7 +3396,7 @@ void srv_pre_dd_shutdown() {
   /* Since this point we do not expect accesses to DD coming from InnoDB. */
 
   for (;;) {
-    const auto threads_count = srv_threads.m_encryption_threads_active;
+    const auto threads_count = srv_threads.m_crypt_threads_n;
     if (threads_count == 0) {
       break;
     }
