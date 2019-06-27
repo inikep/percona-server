@@ -279,6 +279,8 @@ struct Srv_threads {
   waiting procedure used in the pre_dd_shutdown. */
   os_event_t shutdown_cleanup_dbg;
 #endif /* UNIV_DEBUG */
+  /** true if tablespace alter encrypt thread is created */
+  bool m_ts_alter_encrypt_thread_active;
 
   /** true if there is keyring encryption thread running */
   bool m_encryption_threads_active;
@@ -850,7 +852,7 @@ extern bool srv_print_lock_wait_timeout_info;
 
 extern bool srv_cmp_per_index_enabled;
 
-extern ulong srv_encrypt_tables;
+extern enum_default_table_encryption srv_default_table_encryption;
 
 /** Number of times secondary index lookup triggered cluster lookup */
 extern std::atomic<ulint> srv_sec_rec_cluster_reads;

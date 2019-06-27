@@ -212,9 +212,21 @@ our $opt_vardir;
 our $opt_xml_report;
 our $opt_gterm;
 
+#
+# Suites run by default (i.e. when invoking ./mtr without parameters)
+#
 our $DEFAULT_SUITES = "auth_sec,binlog_gtid,binlog_nogtid,clone,collations,connection_control,encryption,federated,funcs_2,gcol,sysschema,gis,innodb,innodb_fts,innodb_gis,innodb_undo,innodb_zip,json,main,opt_trace,parts,perfschema,query_rewrite_plugins,rpl,rpl_gtid,rpl_nogtid,secondary_engine,service_status_var_registration,service_sys_var_registration,service_udf_registration,sys_vars,binlog,test_service_sql_api,test_services,x,"
   # Percona suites
-  ."percona-pam-for-mysql";
+  ."audit_log,binlog_57_decryption,percona-pam-for-mysql,"
+  ."keyring_vault,"
+  ."rocksdb,rocksdb_rpl,rocksdb_sys_vars,"
+  ."rpl_encryption,"
+  ."tokudb,tokudb_add_index,tokudb_alter_table,tokudb_bugs,tokudb_parts,"
+  ."tokudb_perfschema,tokudb_rpl,"
+  # MySQL suites tested by Percona by default
+  ."audit_null,engines/iuds,engines/funcs,funcs_1,group_replication,interactive_utilities,jp,stress";
+
+# End of list of default suites
 
 our $opt_big_test                  = 0;
 our $opt_check_testcases           = 1;
@@ -2679,6 +2691,7 @@ sub read_plugin_defs($) {
           $semi = ';';
         }
 
+	$ENV{ $plug_var . '_EARLY_LOAD'} = $early_load_var;
         $ENV{ $plug_var . '_LOAD' }     = $load_var;
         $ENV{ $plug_var . '_LOAD_EARLY' } = $early_load_var;
         $ENV{ $plug_var . '_LOAD_ADD' } = $load_add_var;
