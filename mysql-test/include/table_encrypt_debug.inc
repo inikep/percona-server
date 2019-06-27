@@ -244,6 +244,7 @@ DROP TABLE tde_db.test_tbl;
 # Cleanup
 DROP DATABASE tde_db;
 eval SET GLOBAL innodb_file_per_table=$innodb_file_per_table;
+
 # Clean up
 --source include/shutdown_mysqld.inc
 --remove_file $MYSQLD_DATADIR/t1.cfg_back

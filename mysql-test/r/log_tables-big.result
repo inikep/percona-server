@@ -1,4 +1,3 @@
-set @saved_log_output = @@global.log_output;
 set @@global.log_output = 'TABLE';
 truncate table mysql.slow_log;
 set session long_query_time=10;
