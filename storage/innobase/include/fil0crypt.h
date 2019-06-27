@@ -124,10 +124,10 @@ struct Cached_key {
 };
 
 /** is encryption enabled */
-extern ulong srv_encrypt_tables;
+extern enum_default_table_encryption srv_default_table_encryption;
 
 struct fil_space_rotate_state_t {
-  fil_space_rotate_state_t() : trx(NULL), flush_observer(NULL) {}
+  fil_space_rotate_state_t() : trx(nullptr), flush_observer(nullptr) {}
 
   time_t start_time;          /*!< time when rotation started */
   ulint active_threads;       /*!< active threads in space */
@@ -199,8 +199,7 @@ struct fil_space_crypt_t {
   bool should_encrypt() const {
     return (
         (encryption == FIL_ENCRYPTION_ON) ||
-        ((srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING ||
-          srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE) &&
+        (srv_default_table_encryption == DEFAULT_TABLE_ENC_ONLINE_TO_KEYRING &&
          encryption == FIL_ENCRYPTION_DEFAULT));
   }
 
@@ -516,7 +515,7 @@ void fil_crypt_set_rotation_iops(uint val);
 /*********************************************************************
 Adjust encrypt tables
 @param[in]	val		New setting for innodb-encrypt-tables */
-void fil_crypt_set_encrypt_tables(uint val);
+void fil_crypt_set_encrypt_tables(enum_default_table_encryption val);
 
 /*********************************************************************
 Init threads for key rotation */

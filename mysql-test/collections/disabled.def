@@ -75,6 +75,8 @@ rpl_gtid.rpl_master_errors : BUG#4797 percona https://jira.percona.com/browse/PS
 
 # rpl_nogtid suite tests
 rpl_nogtid.rpl_perfschema_applier_xa_status_check : BUG#27914287 Disabled until the WL#9075 (Performance Schema, XA Transactions) be implemented
+rpl_nogtid.rpl_semi_sync_group_commit_deadlock : BUG#80581 percona https://bugs.mysql.com/bug.php?id=80581
+rpl_nogtid.rpl_semi_sync_non_group_commit_deadlock : BUG#80581 percona https://bugs.mysql.com/bug.php?id=80581
 rpl_nogtid.rpl_binlog_format_errors               : BUG#29776083 EXPLICIT BINLOG INJECTION WITH SELF LOGGING ENGINES IS BROKEN
 
 # rpl suite tests
@@ -91,7 +93,6 @@ rocksdb.covered_unpack_info_format : BUG#0 MYR-180 fb-mysql-5.6.35/922021ce3d8bf
 rocksdb.fast_prefix_index_fetch : BUG#0 MYR-180 fb-mysql-5.6.35/922021ce3d8bfc40152c112f6a59eb71e3d6dd98
 rocksdb.level_read_uncommitted : BUG#0 MyRocks does not yet suppore ISO read uncommitted
 rocksdb.level_serializable : BUG#0 MyRocks does not yet support ISO serializable
-rocksdb.mysqlbinlog_gtid_skip_empty_trans_rocksdb : BUG#25 MYR-25
 rocksdb.rpl_read_free : BUG#6 MYR-6
 rocksdb.slow_query_log : BUG#26 MYR-26
 # 8.0
@@ -103,11 +104,11 @@ rocksdb.validate_datadic : BUG#4218 PS-4218
 rocksdb.add_index_inplace : BUG#0 inplace alter partitioning has not yet been implemented
 rocksdb.add_index_inplace_crash : BUG#0 inplace alter partitioning has not yet been implemented
 
-# rocksdb.rpl suite tests
-rocksdb.rpl.rpl_rocksdb_snapshot : BUG#0 LOCK BINLOG FOR BACKUP
+# rocksdb_rpl suite tests
+rocksdb_rpl.rpl_rocksdb_snapshot : BUG#0 LOCK BINLOG FOR BACKUP
 
-# rocksdb.sys_vars suite tests
-rocksdb.sys_vars.rocksdb_validate_tables_basic : BUG#0 disabled until validation is figured out
+# rocksdb_sys_vars suite tests
+rocksdb_sys_vars.rocksdb_validate_tables_basic : BUG#0 disabled until validation is figured out
 
 # tokudb suite tests
 tokudb.mvcc-19 : BUG#0 tokutek
@@ -115,17 +116,61 @@ tokudb.mvcc-20 : BUG#0 tokutek
 tokudb.mvcc-27 : BUG#0 tokutek
 tokudb.storage_engine_default : BUG#0 tokudb is not the default storage engine
 
-# PS-5102 (Merge MySQL 8.0.16) work in progress
-innodb.percona_force_encryption : BUG#5102 work in progress
-innodb.percona_sys_tablespace_encrypt : BUG#5102 work in progress
-innodb.tablespace_encrypt_6 : BUG#5102 work in progress
-innodb.innodb_row_log_encryption : BUG#5102 work in progress
-innodb.tablespace_encrypt_1 : BUG#5102 work in progress
-main.mysql_80_inplace_upgrade : BUG#5102 work in progress
-main.dd_upgrade_cs : BUG#5102 work in progress
-main.dd_upgrade_error_debug : BUG#5102 work in progress
-main.histograms : BUG#5102 work in progress
-innodb.table_encrypt_1 : BUG#5102 work in progress
-innodb.tablespace_encrypt_4 : BUG#5102 work in progress
-innodb.tablespace_encrypt_8 : BUG#5102 work in progress
-innodb.temp_table_encrypt : BUG#5102 work in progress
+# tokudb_alter_table suite tests
+# alter table
+tokudb_alter_table.hcad_tmp_tables : BUG#0 tmp tables bypass hot alter, we run hcad_tmp_tables_56 instead
+tokudb_alter_table.hcad_with_locks : BUG#0 can't alter table concurrent with reading a table in 5.5
+# virtual columns
+tokudb_alter_table.virtual_columns : BUG#0 no virtual columns in MySQL 5.5
+tokudb_alter_table.frm_discover_partition : BUG#0 needs the tokutek patch for frm discovery for partitioned tables
+# 8.0
+tokudb_alter_table.frm_discover : BUG#0 no .frm in 8.0
+
+# tokudb_bugs suite tests
+tokudb_bugs.2952 : BUG#0 tokutek not_5_5
+tokudb_bugs.4472 : BUG#0 #4521
+tokudb_bugs.fileops-2 : BUG#0 tokutek not_5_5
+tokudb_bugs.fileops-3 : BUG#0 tokutek not_5_5
+tokudb_bugs.fileops-4 : BUG#0 tokutek not_5_5
+tokudb_bugs.xa-2 : BUG#0 tokutek not_5_5
+tokudb_bugs.checkpoint_lock_2 : BUG#0 test can not work when the checkpoint_safe_lock is a fair rwlock
+tokudb_bugs.6053 : BUG#0 tokudb is not the default storage engine
+tokudb_bugs.1883 : BUG#0 tokutek's auto inc singleton patch missing
+tokudb_bugs.3083 : BUG#0 no patch to find_shortest_key to prefer PK over CK
+tokudb_bugs.db768 : BUG#768 https://tokutek.atlassian.net/browse/DB-768
+tokudb_bugs.dict_leak_3518 : BUG#635 https://tokutek.atlassian.net/browse/DB-635
+tokudb_bugs.1872 : BUG#750 https://tokutek.atlassian.net/browse/DB-750
+tokudb_bugs.db917 : BUG#917 https://tokutek.atlassian.net/browse/DB-917
+# 8.0
+tokudb_bugs.frm_store : BUG#0 no .frm in 8.0
+tokudb_bugs.frm_store2 : BUG#0 no .frm in 8.0
+tokudb_bugs.frm_store3 : BUG#0 no .frm in 8.0
+
+# tokudb_parts suite tests
+tokudb_parts.partition_basic_symlink_tokudb : BUG#0 tokudb_file_per_table is not supported
+tokudb_parts.partition_reorganize_tokudb : BUG#0 tokudb_file_per_table is not supported
+tokudb_parts.partition_exchange_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_qa_1_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_qa_4_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_qa_5_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_qa_7_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_qa_8_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_myisam_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_exch_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.partition_mgm_lc0_tokudb : BUG#0 exchange partition is not supported
+tokudb_parts.nonflushing_analyze_debug : BUG#0 percona's test which has not yet been ported to 8.0
+tokudb_parts.partition_debug_sync_tokudb : BUG#0 the "debug-sync" code does not exist in 8.0
+tokudb_parts.partition_debug_tokudb : BUG#0 the debug code does not exist in 8.0
+
+# tokudb_rpl suite tests
+tokudb_rpl.rpl_row_sp002_tokudb : BUG#0 tokudb does not support foreign keys
+tokudb_rpl.rpl_deadlock_tokudb : BUG#0 temporarily disabled until properly debugged
+tokudb_rpl.rpl_partition_tokudb : BUG#0 exchange partition is not supported
+
+# encryption suite tests
+encryption.encryption_force : BUG#5817 Align Keyring encryption and default_table_encryption
+encryption.innodb_lotoftables : BUG#5817 Align Keyring encryption and default_table_encryption
+encryption.innodb-bad-key-change2 : BUG#5322 Keyring encrypted tablespace import/export is broken
+encryption.innodb-bad-key-change3 : BUG#5322 Keyring encrypted tablespace import/export is broken
+encryption.innodb_encryption_discard_import : BUG#5322 Keyring encrypted tablespace import/export is broken
+encryption.innodb-redo-wrongkey : BUG#5635 Intoduce crypt_schema 2 for better error checking in encryption threads

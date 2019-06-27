@@ -8682,6 +8682,7 @@ static bool validate_table_encryption(THD *thd, HA_CREATE_INFO *create_info) {
   // Study if this table uses general tablespaces and if any one is encrypted.
   bool uses_general_tablespace = false;
   bool uses_encrypted_tablespace = false;
+  bool uses_system_tablespace = false;
   dd::Encrypt_result result =
       dd::is_tablespace_encrypted(thd, create_info, &uses_general_tablespace);
   if (result.error) return true;
@@ -8700,7 +8701,14 @@ static bool validate_table_encryption(THD *thd, HA_CREATE_INFO *create_info) {
             create_info->tablespace, &tt)) {
       return true;
     }
-    uses_general_tablespace = (tt != Tablespace_type::SPACE_TYPE_IMPLICIT);
+    uses_general_tablespace = (tt != Tablespace_type::SPACE_TYPE_IMPLICIT &&
+                               tt != Tablespace_type::SPACE_TYPE_SHARED);
+    uses_system_tablespace = tt == Tablespace_type::SPACE_TYPE_SYSTEM;
+    if (uses_system_tablespace) {
+      dd::Encrypt_result result2 = dd::is_system_tablespace_encrypted(thd);
+      if (result2.error) return true;
+      uses_encrypted_tablespace = result2.value;
+    }
   }
 
   /*
@@ -8708,7 +8716,8 @@ static bool validate_table_encryption(THD *thd, HA_CREATE_INFO *create_info) {
     type does not match the general tablespace encryption type.
   */
   bool requested_type = dd::is_encrypted(create_info->encrypt_type);
-  if (uses_general_tablespace && requested_type != uses_encrypted_tablespace) {
+  if ((uses_general_tablespace || uses_system_tablespace) &&
+      requested_type != uses_encrypted_tablespace) {
     my_error(ER_INVALID_ENCRYPTION_REQUEST, MYF(0),
              requested_type ? "'encrypted'" : "'unencrypted'",
              uses_encrypted_tablespace ? "'encrypted'" : "'unencrypted'");
@@ -8818,13 +8827,6 @@ bool mysql_create_table_no_lock(THD *thd, const char *db,
 
   if (schema == nullptr) {
     my_error(ER_BAD_DB_ERROR, MYF(0), db);
-    return true;
-  }
-
-  // Do not accept ENCRYPTION clause for temporary table.
-  if ((create_info->options & HA_LEX_CREATE_TMP_TABLE) &&
-      create_info->encrypt_type.length) {
-    my_error(ER_CANNOT_USE_ENCRYPTION_CLAUSE, MYF(0), "temporary");
     return true;
   }
 
@@ -17204,12 +17206,12 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
           &dd_disabled_sec_keys);
     }
 
-    bool error = false;
+    bool error2 = false;
     if (copy_data_between_tables(thd, thd->m_stage_progress_psi, table,
                                  new_table, alter_info->create_list, &copied,
                                  &deleted, alter_info->keys_onoff, &alter_ctx,
                                  optimize_keys)) {
-      error = true;
+      error2 = true;
     }
 
     if (optimize_keys &&
@@ -17217,12 +17219,12 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
             thd, create_info, new_table, alter_info,
             is_tmp_table ? table->s->tmp_table_def : old_table_def, table_def,
             &dd_disabled_sec_keys)) {
-      error = true;
+      error2 = true;
     }
 
     new_table->file->ha_extra(HA_EXTRA_END_ALTER_COPY);
 
-    if (error) {
+    if (error2) {
       goto err_new_table_cleanup;
     }
 
