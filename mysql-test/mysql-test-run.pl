@@ -2728,6 +2728,7 @@ sub read_plugin_defs($) {
           $semi = ';';
         }
 
+	$ENV{ $plug_var . '_EARLY_LOAD'} = $early_load_var;
         $ENV{ $plug_var . '_LOAD' }     = $load_var;
         $ENV{ $plug_var . '_LOAD_EARLY' } = $early_load_var;
         $ENV{ $plug_var . '_LOAD_ADD' } = $load_add_var;
