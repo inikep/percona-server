@@ -768,10 +768,8 @@ bool Encryption::fill_encryption_info(byte *key, byte *iv, byte *encrypt_info,
   byte *master_key = nullptr;
   uint32_t master_key_id = DEFAULT_MASTER_KEY_ID;
 
-#ifndef UNIV_HOTBACKUP
   /* Server uuid must have already been generated */
   ut_ad(strlen(server_uuid) > 0);
-#endif
 
   /* Get master key from keyring. */
   if (encrypt_key) {
