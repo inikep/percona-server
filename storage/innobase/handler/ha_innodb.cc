@@ -2693,8 +2693,13 @@ bool Encryption::is_master_key_encryption(const char *algorithm) noexcept {
 /** Check if the NO algorithm was explicitly specified.
 @param[in]      algorithm       Encryption algorithm to check
 @return true if no algorithm explicitly requested */
-bool Encryption::none_explicitly_specified(const char *algorithm) noexcept {
-  return (algorithm != nullptr && innobase_strcasecmp(algorithm, "n") == 0);
+bool Encryption::none_explicitly_specified(ulong create_info_used_fields,
+                                           const char *algorithm) noexcept {
+  if (create_info_used_fields & HA_CREATE_USED_ENCRYPT) {
+    ut_ad(algorithm != nullptr);
+    return innobase_strcasecmp(algorithm, "n") == 0;
+  }
+  return false;
 }
 
 bool Encryption::is_keyring(const char *algoritm) noexcept {
@@ -2702,15 +2707,16 @@ bool Encryption::is_keyring(const char *algoritm) noexcept {
 }
 
 bool Encryption::is_online_encryption_on() noexcept {
-  return srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING ||
-         srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE;
+  return srv_default_table_encryption == DEFAULT_TABLE_ENC_ONLINE_TO_KEYRING;
 }
 
 // This for now excludes MK encryption ...
-bool Encryption::should_be_keyring_encrypted(const char *algorithm) noexcept {
-  return !none_explicitly_specified(algorithm) &&
+bool Encryption::should_be_keyring_encrypted(ulong create_info_used_fields,
+                                             const char *algorithm) noexcept {
+  return !none_explicitly_specified(create_info_used_fields, algorithm) &&
          (is_keyring(algorithm) ||
-          (algorithm == nullptr && is_online_encryption_on()));
+          (!Encryption::is_master_key_encryption(algorithm) &&
+           is_online_encryption_on()));
 }
 
 dberr_t Encryption::set_algorithm(const char *option,
@@ -3337,7 +3343,8 @@ static int innodb_init_abort() {
 @param[in,out]	tablespaces	predefined tablespaces created by the DDSE
 @return 0 on success, 1 on failure */
 static int innobase_init_files(dict_init_mode_t dict_init_mode,
-                               List<const Plugin_tablespace> *tablespaces)
+                               List<const Plugin_tablespace> *tablespaces,
+                               bool &is_dd_encrypted)
     MY_ATTRIBUTE((warn_unused_result));
 
 /** Initialize InnoDB for being used to store the DD tables.
@@ -4355,6 +4362,13 @@ error_exit:
   return (ret);
 }
 
+void innobase_fix_default_table_encryption(ulong encryption_option) {
+  if (!srv_read_only_mode) {
+    fil_crypt_set_encrypt_tables(
+        static_cast<enum_default_table_encryption>(encryption_option));
+  }
+}
+
 /** Fix the empty UUID of tablespaces like system, temp etc by generating
 a new master key and do key rotation. These tablespaces if encrypted
 during startup, will be encrypted with tablespace key which has empty UUID
@@ -5210,6 +5224,9 @@ static int innodb_init(void *p) {
   innobase_hton->fix_tablespaces_empty_uuid =
       innobase_fix_tablespaces_empty_uuid;
 
+  innobase_hton->fix_default_table_encryption =
+      innobase_fix_default_table_encryption;
+
   innobase_hton->post_ddl = innobase_post_ddl;
 
   /* Initialize handler clone interfaces for. */
@@ -5245,8 +5262,7 @@ static int innodb_init(void *p) {
   innobase_hton->upgrade_get_compression_dict_data =
       dd_upgrade_get_compression_dict_data;
 
-  if ((srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING ||
-       srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE) &&
+  if (srv_default_table_encryption == DEFAULT_TABLE_ENC_ONLINE_TO_KEYRING &&
       !Encryption::tablespace_key_exists_or_create_new_one_if_does_not_exist(
           FIL_DEFAULT_ENCRYPTION_KEY, server_uuid)) {
     sql_print_error(
@@ -5257,7 +5273,7 @@ static int innodb_init(void *p) {
   }
 
   // We are starting encryption threads, we must lock the keyring plugins
-  if (srv_n_fil_crypt_threads > 0) {
+  if (srv_n_fil_crypt_threads_requested > 0) {
     uint number_of_keyring_locked = lock_keyrings(NULL);
 
     if (number_of_keyring_locked == 0) {
@@ -5483,7 +5499,8 @@ static bool dd_open_hardcoded(space_id_t space_id, const char *filename,
 @param[in,out]	tablespaces	predefined tablespaces created by the DDSE
 @return 0 on success, 1 on failure */
 static int innobase_init_files(dict_init_mode_t dict_init_mode,
-                               List<const Plugin_tablespace> *tablespaces) {
+                               List<const Plugin_tablespace> *tablespaces,
+                               bool &is_dd_encrypted) {
   DBUG_TRACE;
 
   ut_ad(dict_init_mode == DICT_INIT_CREATE_FILES ||
@@ -5580,6 +5597,8 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
     my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
     return innodb_init_abort();
   }
+
+  is_dd_encrypted = do_encrypt;
 
   const ulint dd_space_flags =
       do_encrypt ? predefined_flags | FSP_FLAGS_MASK_ENCRYPTION
@@ -11587,7 +11606,11 @@ and set the encryption flag in table flags
 dberr_t create_table_info_t::enable_master_key_encryption(dict_table_t *table) {
   const char *encrypt = m_create_info->encrypt_type.str;
 
-  if (Encryption::is_none(encrypt)) return (DB_SUCCESS);
+  /* if table is part of tablespace - no need for retrieving
+  master key as tablespace key was already decrypted
+  either by validate_first_page or during tablespace creation */
+  if (Encryption::is_none(encrypt) || !(m_flags2 & DICT_TF2_USE_FILE_PER_TABLE))
+    return (DB_SUCCESS);
 
   /* Set the encryption flag. */
   byte *master_key = nullptr;
@@ -11610,10 +11633,12 @@ dberr_t create_table_info_t::enable_master_key_encryption(dict_table_t *table) {
 
 dberr_t create_table_info_t::enable_keyring_encryption(
     dict_table_t *table, fil_encryption_t &keyring_encryption_option) {
-  if (Encryption::none_explicitly_specified(m_create_info->encrypt_type.str)) {
+  if (Encryption::none_explicitly_specified(m_create_info->used_fields,
+                                            m_create_info->encrypt_type.str)) {
     keyring_encryption_option = FIL_ENCRYPTION_OFF;
   } else if (Encryption::is_keyring(m_create_info->encrypt_type.str) ||
-             (srv_encrypt_tables == SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING)) {
+             (srv_default_table_encryption ==
+              DEFAULT_TABLE_ENC_ONLINE_TO_KEYRING)) {
     // Check if keyring is up and the key exists in keyring was already done in
     // encryption option validation
     keyring_encryption_option =
@@ -12509,7 +12534,6 @@ bool innobase_is_valid_tablespace_name(ts_command_type ts_cmd,
 bool create_table_info_t::create_option_tablespace_is_valid() {
   bool is_temp = m_create_info->options & HA_LEX_CREATE_TMP_TABLE;
   bool is_file_per_table = tablespace_is_file_per_table(m_create_info);
-  bool is_general_space = tablespace_is_general_space(m_create_info);
   bool is_temp_space =
       (m_create_info->tablespace &&
        strcmp(m_create_info->tablespace, dict_sys_t::s_temp_space_name) == 0);
@@ -12546,31 +12570,18 @@ bool create_table_info_t::create_option_tablespace_is_valid() {
 
   if (!m_use_shared_space) {
     if (!m_use_file_per_table) {
-      /* System or temporary tablespace is being used for table */
-      if (m_create_info->encrypt_type.str != nullptr &&
-          !Encryption::is_none(m_create_info->encrypt_type.str)) {
-        /* Encryption is not allowed for system tablespace. */
+      if (m_create_info->encrypt_type.str != nullptr && is_temp) {
+        /* Temporary tablespace is being used for table */
         my_printf_error(ER_ILLEGAL_HA_CREATE_OPTION,
-                        "InnoDB : ENCRYPTION=Y is not accepted"
-                        " for system tablespace.",
+                        "InnoDB: ENCRYPTION is not accepted"
+                        " for temporary tablespace. For temporary tablespace"
+                        " encryption please use innodb_temp_tablespace_encrypt"
+                        " variable.",
                         MYF(0));
         return false;
       }
     }
     return (true);
-  }
-
-  if (m_use_shared_space && !is_general_space) {
-    /* System tablespace is being used for table */
-    if (m_create_info->encrypt_type.str != nullptr &&
-        !Encryption::is_none(m_create_info->encrypt_type.str)) {
-      /* Encryption is not allowed for system tablespace. */
-      my_printf_error(ER_ILLEGAL_HA_CREATE_OPTION,
-                      "InnoDB : ENCRYPTION=Y is not accepted"
-                      " for system tablespace.",
-                      MYF(0));
-      return false;
-    }
   }
 
   /* Name validation should be ensured from the SQL layer. */
@@ -12780,7 +12791,7 @@ bool create_table_info_t::create_option_encryption_is_valid() const {
   encryption */
 
   if (Encryption::should_be_keyring_encrypted(
-          m_create_info->encrypt_type.str)) {
+          m_create_info->used_fields, m_create_info->encrypt_type.str)) {
     for (ulint i = 0; i < m_form->s->keys; i++) {
       const KEY *key = m_form->key_info + i;
       if (key->flags & HA_SPATIAL) {
@@ -13005,33 +13016,32 @@ const char *create_table_info_t::create_options_are_invalid() {
   return (ret);
 }
 
-static const LEX_STRING yes_string = {STRING_WITH_LEN("Y")};
-static const LEX_STRING keyring_string = {STRING_WITH_LEN("KEYRING")};
-
 void ha_innobase::adjust_encryption_key_id(HA_CREATE_INFO *create_info,
                                            dd::Properties *options) noexcept {
-  LEX_STRING *encrypt_type = &create_info->encrypt_type;
-
   if (false == create_info->was_encryption_key_id_set) {
-    if (Encryption::should_be_keyring_encrypted(encrypt_type->str)) {
+    if (Encryption::should_be_keyring_encrypted(
+            create_info->used_fields, create_info->encrypt_type.str)) {
       create_info->encryption_key_id =
           THDVAR(current_thd, default_encryption_key_id);
       create_info->was_encryption_key_id_set = true;
     }
-  } else if (Encryption::is_master_key_encryption(encrypt_type->str) ||
-             Encryption::none_explicitly_specified(encrypt_type->str)) {
+  } else if (Encryption::is_master_key_encryption(
+                 create_info->encrypt_type.str) ||
+             Encryption::none_explicitly_specified(
+                 create_info->used_fields, create_info->encrypt_type.str)) {
     // if it is encrypted table with Master key encryption or marked as not to
     // be encrypted and alter table does not have ENCRYPTION_KEY_ID - mark
     // encryption key id as not set.
 
-    push_warning_printf(current_thd, Sql_condition::SL_WARNING,
-                        HA_WRONG_CREATE_OPTION,
-                        Encryption::none_explicitly_specified(encrypt_type->str)
-                            ? "InnoDB: Ignored ENCRYPTION_KEY_ID %u when "
-                              "encryption is disabled."
-                            : "InnoDB: Ignored ENCRYPTION_KEY_ID %u when "
-                              "Master Key encryption is enabled.",
-                        create_info->encryption_key_id);
+    push_warning_printf(
+        current_thd, Sql_condition::SL_WARNING, HA_WRONG_CREATE_OPTION,
+        Encryption::none_explicitly_specified(create_info->used_fields,
+                                              create_info->encrypt_type.str)
+            ? "InnoDB: Ignored ENCRYPTION_KEY_ID %u when "
+              "encryption is disabled."
+            : "InnoDB: Ignored ENCRYPTION_KEY_ID %u when "
+              "Master Key encryption is enabled.",
+        create_info->encryption_key_id);
     create_info->encryption_key_id = FIL_DEFAULT_ENCRYPTION_KEY;
     create_info->was_encryption_key_id_set = false;
     options->remove("encryption_key_id");
@@ -13059,42 +13069,8 @@ void ha_innobase::adjust_encryption_options(HA_CREATE_INFO *create_info,
     return;
   }
 
-  if (create_info->encrypt_type.length == 0 &&
-      create_info->encrypt_type.str == nullptr) {
-    switch (srv_encrypt_tables) {
-      case SRV_ENCRYPT_TABLES_ON:
-      case SRV_ENCRYPT_TABLES_FORCE:
-        create_info->encrypt_type = yes_string;
-        break;
-      case SRV_ENCRYPT_TABLES_KEYRING_ON:
-      case SRV_ENCRYPT_TABLES_KEYRING_FORCE:
-      case SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING_FORCE:
-        create_info->encrypt_type = keyring_string;
-        break;
-      case SRV_ENCRYPT_TABLES_OFF:
-      case SRV_ENCRYPT_TABLES_ONLINE_FROM_KEYRING_TO_UNENCRYPTED:
-      case SRV_ENCRYPT_TABLES_ONLINE_TO_KEYRING:
-        break;
-      default:
-        ut_ad(0);
-    }
-  }
-
   adjust_encryption_key_id(create_info,
                            table_def ? &(table_def->options()) : nullptr);
-
-  /* Add encryption attribute only to file_per_table table */
-  if (table_def && (create_info->tablespace == nullptr ||
-                    strcmp(create_info->tablespace,
-                           dict_sys_t::s_file_per_table_name) == 0)) {
-    dd::Properties &table_options = table_def->options();
-    if (create_info->encrypt_type.str != nullptr) {
-      dd::String_type encrypt_type;
-      encrypt_type.assign(create_info->encrypt_type.str,
-                          create_info->encrypt_type.length);
-      table_options.set("encrypt_type", encrypt_type);
-    }
-  }
 }
 
 /** Update create_info.  Used in SHOW CREATE TABLE et al. */
@@ -13195,7 +13171,9 @@ static bool innobase_ddse_dict_init(
     ib::info(ER_IB_MSG_DBLWR_1305) << "Atomic write disabled";
   }
 
-  if (innobase_init_files(dict_init_mode, tablespaces)) {
+  bool is_dd_encrypted{false};
+
+  if (innobase_init_files(dict_init_mode, tablespaces, is_dd_encrypted)) {
     return true;
   }
 
@@ -13299,6 +13277,13 @@ static bool innobase_ddse_dict_init(
   def->add_index(0, "index_pk", "PRIMARY KEY(id)");
   def->add_index(1, "index_k_thread_id", "KEY(thread_id)");
   /* Options and tablespace are set at the SQL layer. */
+
+  if (is_dd_encrypted) {
+    innodb_dynamic_metadata->set_encrypted();
+    innodb_table_stats->set_encrypted();
+    innodb_index_stats->set_encrypted();
+    innodb_ddl_log->set_encrypted();
+  }
 
   tables->push_back(innodb_dynamic_metadata);
   tables->push_back(innodb_table_stats);
@@ -22212,7 +22197,7 @@ static int innodb_encryption_threads_validate(
     return 1;
   }
 
-  if (srv_n_fil_crypt_threads == 0 &&
+  if (srv_n_fil_crypt_threads_requested == 0 &&
       intbuf > 0) {  // We are starting encryption threads, we must lock
                      // the keyring plugins
     uint number_of_keyrings_locked = lock_keyrings(NULL);
@@ -22233,9 +22218,9 @@ static int innodb_encryption_threads_validate(
       unlock_keyrings(NULL);
       return 1;
     }
-  } else if (intbuf == 0 &&
-             srv_n_fil_crypt_threads > 0) {  // We are disabling encryption
-                                             // threads, unlock the keyrings
+  } else if (intbuf == 0 && srv_n_fil_crypt_threads_requested >
+                                0) {  // We are disabling encryption
+                                      // threads, unlock the keyrings
     unlock_keyrings(NULL);
   }
 
@@ -23747,11 +23732,11 @@ static MYSQL_SYSVAR_BOOL(encrypt_online_alter_logs,
                          "Encrypt online alter logs.", nullptr, nullptr, false);
 
 static MYSQL_SYSVAR_UINT(
-    encryption_threads, srv_n_fil_crypt_threads, PLUGIN_VAR_RQCMDARG,
+    encryption_threads, srv_n_fil_crypt_threads_requested, PLUGIN_VAR_RQCMDARG,
     "Number of threads performing background key rotation and "
     "scrubbing",
     innodb_encryption_threads_validate, innodb_encryption_threads_update,
-    srv_n_fil_crypt_threads, 0, UINT_MAX32, 0);
+    srv_n_fil_crypt_threads_requested, 0, UINT_MAX32, 0);
 
 static MYSQL_SYSVAR_UINT(encryption_rotate_key_age,
                          srv_fil_crypt_rotate_key_age, PLUGIN_VAR_RQCMDARG,
