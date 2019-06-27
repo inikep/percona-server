@@ -92,6 +92,7 @@ class DD_bootstrap_ctx {
   uint m_actual_dd_version = 0;
   uint m_upgraded_server_version = 0;
   Stage m_stage = Stage::NOT_STARTED;
+  bool m_dd_encrypted = false;
 
  public:
   DD_bootstrap_ctx() {}
@@ -110,6 +111,8 @@ class DD_bootstrap_ctx {
   void set_actual_dd_version(uint actual_dd_version) {
     m_actual_dd_version = actual_dd_version;
   }
+
+  void set_dd_encrypted() noexcept { m_dd_encrypted = true; }
 
   uint get_actual_dd_version() const { return m_actual_dd_version; }
 
@@ -185,6 +188,8 @@ class DD_bootstrap_ctx {
   bool is_initialize() const {
     return opt_initialize && (m_actual_dd_version == dd::DD_VERSION);
   }
+
+  bool is_dd_encrypted() const noexcept { return m_dd_encrypted; }
 };
 
 }  // namespace bootstrap
