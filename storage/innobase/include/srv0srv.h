@@ -293,9 +293,11 @@ struct Srv_threads {
   waiting procedure used in the pre_dd_shutdown. */
   os_event_t m_shutdown_cleanup_dbg;
 #endif /* UNIV_DEBUG */
+  /** true if tablespace alter encrypt thread is created */
+  bool m_ts_alter_encrypt_thread_active;
 
-  /** true if there is keyring encryption thread running */
-  bool m_encryption_threads_active;
+  /** No of key rotation threads started */
+  size_t m_crypt_threads_n = 0;
 
   /** When the master thread notices that shutdown has started (by noticing
   srv_shutdown_state >= SRV_SHUTDOWN_PRE_DD_AND_SYSTEM_TRANSACTIONS), it exits
@@ -464,8 +466,7 @@ extern ulong srv_rollback_segments;
 /** Maximum size of undo tablespace. */
 extern unsigned long long srv_max_undo_tablespace_size;
 
-extern uint srv_n_fil_crypt_threads;
-extern uint srv_n_fil_crypt_threads_started;
+extern uint srv_n_fil_crypt_threads_requested;
 
 /** Rate at which UNDO records should be purged. */
 extern ulong srv_purge_rseg_truncate_frequency;
@@ -902,7 +903,7 @@ extern bool srv_print_lock_wait_timeout_info;
 
 extern bool srv_cmp_per_index_enabled;
 
-extern ulong srv_encrypt_tables;
+extern enum_default_table_encryption srv_default_table_encryption;
 
 /** Number of times secondary index lookup triggered cluster lookup */
 extern std::atomic<ulint> srv_sec_rec_cluster_reads;
