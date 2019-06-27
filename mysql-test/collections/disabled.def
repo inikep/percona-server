@@ -172,24 +172,9 @@ tokudb.rpl.rpl_deadlock_tokudb : BUG#0 temporarily disabled until properly debug
 tokudb.rpl.rpl_partition_tokudb : BUG#0 exchange partition is not supported
 
 # encryption suite tests
-encryption.innodb-bad-key-change2 : BUG#5322 percona https://jira.percona.com/browse/PS-5322
-
-# PS-5102 (Merge MySQL 8.0.16) work in progress
-innodb.percona_force_encryption : BUG#5102 work in progress
-innodb.percona_session_temp_tablespaces_encrypt_bootstrap : BUG#5102 work in progress
-innodb.percona_sys_tablespace_encrypt : BUG#5102 work in progress
-innodb.tablespace_encrypt_6 : BUG#5102 work in progress
-innodb.innodb_row_log_encryption : BUG#5102 work in progress
-innodb.tablespace_encrypt_1 : BUG#5102 work in progress
-main.percona_dd_upgrade_encrypted : BUG#5102 work in progress
-main.mysql_80_inplace_upgrade : BUG#5102 work in progress
-main.dd_upgrade_cs : BUG#5102 work in progress
-main.dd_upgrade_error_debug : BUG#5102 work in progress
-main.histograms : BUG#5102 work in progress
-innodb.percona_temp_table_encrypt_keyring_file : BUG#5102 work in progress
-main.percona_dd_upgrade_8013 : BUG#5102 work in progress
-innodb.table_encrypt_1 : BUG#5102 work in progress
-innodb.tablespace_encrypt_4 : BUG#5102 work in progress
-innodb.tablespace_encrypt_8 : BUG#5102 work in progress
-innodb.temp_table_encrypt : BUG#5102 work in progress
-innodb.percona_log_encrypt_failure : BUG#5102 work in progress
+encryption.encryption_force : BUG#5817 Align Keyring encryption and default_table_encryption
+encryption.innodb_lotoftables : BUG#5817 Align Keyring encryption and default_table_encryption
+encryption.innodb-bad-key-change2 : BUG#5322 Keyring encrypted tablespace import/export is broken
+encryption.innodb-bad-key-change3 : BUG#5322 Keyring encrypted tablespace import/export is broken
+encryption.innodb_encryption_discard_import : BUG#5322 Keyring encrypted tablespace import/export is broken
+encryption.innodb-redo-wrongkey : BUG#5635 Intoduce crypt_schema 2 for better error checking in encryption threads
