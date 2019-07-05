@@ -1985,7 +1985,7 @@ static dberr_t srv_sys_enable_encryption(bool create_new_db) {
     err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
     ut_ad(err == DB_SUCCESS);
   } else {
-    const ulint fsp_flags = srv_sys_space.m_files.begin()->flags();
+    const auto fsp_flags = srv_sys_space.m_files.begin()->flags();
     const bool is_encrypted = FSP_FLAGS_GET_ENCRYPTION(fsp_flags);
 
     if (is_encrypted && !srv_sys_tablespace_encrypt &&
