@@ -3845,7 +3845,7 @@ when it could be dropped concurrently.
 @param[in]	id	tablespace ID
 @return	the tablespace
 @retval	NULL if missing */
-fil_space_t *fil_space_acquire_for_io(ulint space_id) {
+fil_space_t *fil_space_acquire_for_io(space_id_t space_id) {
   auto shard = fil_system->shard_by_id(space_id);
 
   shard->mutex_acquire();
@@ -3866,7 +3866,7 @@ when it could be dropped concurrently.
 @param[in]	id	tablespace ID
 @return	the tablespace
 @retval	NULL if missing */
-fil_space_t *fil_space_acquire_for_io_with_load(ulint space_id) {
+fil_space_t *fil_space_acquire_for_io_with_load(space_id_t space_id) {
   auto shard = fil_system->shard_by_id(space_id);
 
   shard->mutex_acquire();
@@ -8232,7 +8232,7 @@ void fil_aio_wait(ulint segment) {
 
   shard->mutex_release();
 
-  const ulint space_id = file->space->id;
+  const auto space_id = file->space->id;
 
   ut_ad(fil_validate_skip());
 
@@ -8256,7 +8256,7 @@ void fil_aio_wait(ulint segment) {
           return;
         }
 
-        ulint offset = bpage->id.page_no();
+        const auto offset = bpage->id.page_no();
         dberr_t err = buf_page_io_complete(bpage);
         if (err == DB_SUCCESS) {
           return;
@@ -11736,7 +11736,7 @@ void fil_space_set_corrupt(space_id_t space_id) {
 
 /** Mark space as encrypted
 @param space_id space id */
-void fil_space_set_encrypted(ulint space_id) {
+void fil_space_set_encrypted(space_id_t space_id) {
   auto *const shard = fil_system->shard_by_id(space_id);
 
   shard->mutex_acquire();
@@ -11758,13 +11758,13 @@ void fil_system_release() {
   fil_system->mutex_release_all();
 }
 
-void fil_lock_shard_by_id(ulint space_id) {
+void fil_lock_shard_by_id(space_id_t space_id) {
   auto *const shard = fil_system->shard_by_id(space_id);
   ut_ad(shard);
   shard->mutex_acquire();
 }
 
-void fil_unlock_shard_by_id(ulint space_id) {
+void fil_unlock_shard_by_id(space_id_t space_id) {
   auto *const shard = fil_system->shard_by_id(space_id);
   ut_ad(shard);
   shard->mutex_release();

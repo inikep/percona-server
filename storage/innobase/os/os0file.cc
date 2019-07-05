@@ -1484,9 +1484,9 @@ byte *os_file_compress_page(Compression compression, ulint block_size,
   // bytes left 4 bytes for key version and 4 bytes for post encryption checksum
   *dst_len = ut_calc_align(len, block_size);
 
-  ut_ad(*dst_len >= len &&
-        *dst_len <=
-            out_len + FIL_PAGE_DATA + (will_be_encrypted_with_keyring ? 8 : 0));
+  ut_ad(*dst_len >= len);
+  ut_ad(*dst_len <=
+        out_len + FIL_PAGE_DATA + (will_be_encrypted_with_keyring ? 8 : 0));
 
   /* Clear out the unused portion of the page. */
   if (len % block_size) {
@@ -1694,8 +1694,7 @@ void os_file_read_string(FILE *file, char *str, ulint size) {
 
 static dberr_t verify_post_encryption_checksum(const IORequest &type,
                                                Encryption &encryption,
-                                               byte *buf, ulint src_len,
-                                               ulint offset) {
+                                               byte *buf, ulint src_len) {
   bool is_crypt_checksum_correct =
       false;  // For MK encryption is_crypt_checksum_correct stays false
   ulint original_type =
@@ -1713,13 +1712,14 @@ static dberr_t verify_post_encryption_checksum(const IORequest &type,
     } else {
       is_crypt_checksum_correct = fil_space_verify_crypt_checksum(
           buf, src_len, type.is_page_zip_compressed(),
-          encryption.is_encrypted_and_compressed(buf), offset);
+          encryption.is_encrypted_and_compressed(buf));
     }
 
     if (encryption.m_encryption_rotation == Encryption::NO_ROTATION &&
         !is_crypt_checksum_correct) {  // There is no re-encryption going on
-      ulint space_id = mach_read_from_4(buf + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
-      ulint page_no = mach_read_from_4(buf + FIL_PAGE_OFFSET);
+      const auto space_id =
+          mach_read_from_4(buf + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
+      const auto page_no = mach_read_from_4(buf + FIL_PAGE_OFFSET);
       ib::error() << "Post - encryption checksum verification failed - "
                      "decryption failed for space id = "
                   << space_id << " page_no = " << page_no;
@@ -1763,8 +1763,8 @@ static bool load_key_needed_for_decryption(const IORequest &type,
           mach_read_from_4(buf + FIL_PAGE_ENCRYPTION_KEY_VERSION);
     }
 
-    ut_ad(key_version_read_from_page != ENCRYPTION_KEY_VERSION_INVALID &&
-          key_version_read_from_page != ENCRYPTION_KEY_VERSION_NOT_ENCRYPTED);
+    ut_ad(key_version_read_from_page != ENCRYPTION_KEY_VERSION_INVALID);
+    ut_ad(key_version_read_from_page != ENCRYPTION_KEY_VERSION_NOT_ENCRYPTED);
 
     // in rare cases - when (re-)encryption was aborted there can be pages
     // encrypted with different key versions in a given tablespace - retrieve
@@ -1790,9 +1790,7 @@ static bool load_key_needed_for_decryption(const IORequest &type,
     // encryption.m_key = key_read;
     //******
 
-    // encryption.m_klen = static_cast<ulint>(key_len);
     encryption.m_key_version = key_version_read_from_page;
-    // encryption.m_free_key_on_delete= true; // we own the key
   } else {
     ut_ad(encryption.m_type == Encryption::AES);
     if (encryption.m_encryption_rotation == Encryption::NO_ROTATION)
@@ -1847,8 +1845,8 @@ static dberr_t os_file_io_complete(const IORequest &type, os_file_t fh,
                                  : encryption.is_encrypted_page(buf);
 
     if (is_page_encrypted && encryption.m_type != Encryption::NONE) {
-      dberr_t err = verify_post_encryption_checksum(type, encryption, buf,
-                                                    src_len, offset);
+      dberr_t err =
+          verify_post_encryption_checksum(type, encryption, buf, src_len);
       if (err != DB_SUCCESS) return err;
 
       if (!load_key_needed_for_decryption(type, encryption, buf))
@@ -1907,7 +1905,7 @@ static dberr_t os_file_io_complete(const IORequest &type, os_file_t fh,
     ut_ad(!was_page_encrypted ||  //! type.is_page_zip_compressed() ||
           fil_space_verify_crypt_checksum(
               buf, src_len, type.is_page_zip_compressed(),
-              encryption.is_encrypted_and_compressed(buf), offset));
+              encryption.is_encrypted_and_compressed(buf)));
   }
 #endif
 
@@ -8477,8 +8475,8 @@ void Encryption::create_tablespace_key(byte **tablespace_key, uint key_id) {
   }
   my_free(system_tablespace_key);
   // Newly created key should have 1 assigned as its key version
-  ut_ad(tablespace_key_version == 1 &&
-        tablespace_key_data_length == ENCRYPTION_KEY_LEN);
+  ut_ad(tablespace_key_version == 1);
+  ut_ad(tablespace_key_data_length == ENCRYPTION_KEY_LEN);
 #endif
 }
 
@@ -9603,8 +9601,8 @@ byte *Encryption::encrypt(const IORequest &type, byte *src, ulint src_len,
     ut_ad(type.is_page_zip_compressed() ||
           fil_space_verify_crypt_checksum(
               dst, *dst_len, type.is_page_zip_compressed(),
-              type.is_compressed(),
-              page_no));  // This works only for not zipped compressed pages
+              type.is_compressed()));  // This works only for not zipped
+                                       // compressed pages
 #endif
   }
 
@@ -9657,12 +9655,12 @@ byte *Encryption::encrypt(const IORequest &type, byte *src, ulint src_len,
     ut_ad(type.is_page_zip_compressed() ||
           fil_space_verify_crypt_checksum(dst, *dst_len,
                                           type.is_page_zip_compressed(),
-                                          type.is_compressed(), page_no));
+                                          type.is_compressed()));
 
     ut_ad(type.is_page_zip_compressed() ||
           fil_space_verify_crypt_checksum(dst, *dst_len,
                                           type.is_page_zip_compressed(),
-                                          type.is_compressed(), page_no));
+                                          type.is_compressed()));
   }
   fprintf(stderr, "Encrypted page:%lu.%lu\n", space_id, page_no);
 
