@@ -2926,7 +2926,7 @@ bool log_read_encryption() {
     /* Make sure the keyring is loaded. */
     if (!Encryption::check_keyring()) {
       ut::aligned_free(log_block_buf);
-      ib::fatal() << "Redo log was encrypted,"
+      ib::error() << "Redo log was encrypted,"
                   << " but keyring plugin is not loaded.";
       return (false);
     }
@@ -2954,7 +2954,7 @@ bool log_read_encryption() {
     existing_redo_encryption_mode = REDO_LOG_ENCRYPT_MK;
     if (!Encryption::check_keyring()) {
       ut::aligned_free(log_block_buf);
-      ib::fatal(ER_IB_MSG_1238) << "Redo log was encrypted,"
+      ib::error(ER_IB_MSG_1238) << "Redo log was encrypted,"
                                 << " but keyring is not loaded.";
       return (false);
     }
@@ -2975,7 +2975,7 @@ bool log_read_encryption() {
             : static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt);
     if (existing_redo_encryption_mode != set_encryption &&
         srv_redo_log_encrypt != REDO_LOG_ENCRYPT_OFF) {
-      ib::fatal(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
+      ib::error(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
                 log_encrypt_name(existing_redo_encryption_mode),
                 log_encrypt_name(
                     static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt)));
@@ -3007,7 +3007,7 @@ bool log_read_encryption() {
     }
   } else if (encryption_magic) {
     ut::aligned_free(log_block_buf);
-    ib::fatal() << "Cannot read the encryption"
+    ib::error() << "Cannot read the encryption"
                    " information in log file header, please"
                    " check if keyring plugin loaded and"
                    " the key file exists.";
