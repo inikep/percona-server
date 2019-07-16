@@ -9505,8 +9505,8 @@ ER_DA_REDO_ENCRYPTION_CANT_FETCH_KEY
 ER_DA_REDO_ENCRYPTION_CANT_PARSE_KEY
   eng "Couldn't parse system key: %s"
 
-ER_DA_MSG_5
-  eng ""
+ER_DA_REDO_ENCRYPTION_KEYRING
+  eng "Redo log cannot be encrypted if the keyring plugin is not loaded."
 
 ER_DA_MSG_6
   eng ""
