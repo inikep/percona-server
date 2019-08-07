@@ -42,7 +42,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "sql/handler.h"
 #include "univ.i"
 
-#include "create_info_encryption_key.h"
+#include "keyring_encryption_key_info.h"
 
 /** Build a table definition without updating SYSTEM TABLES
 @param[in,out]	table		dict table object
