@@ -87,7 +87,7 @@ struct trx_t;
 struct upd_node_t;
 struct upd_t;
 
-#include "create_info_encryption_key.h"
+#include "keyring_encryption_key_info.h"
 
 #ifndef UNIV_HOTBACKUP
 extern ibool row_rollback_on_timeout;

@@ -42,8 +42,8 @@
 #include <string>
 
 #include <mysql/components/services/page_track_service.h>
-#include "create_info_encryption_key.h"
 #include "ft_global.h"  // ft_hints
+#include "keyring_encryption_key_info.h"
 #include "lex_string.h"
 #include "m_ctype.h"
 #include "map_helpers.h"
@@ -891,6 +891,8 @@ class st_alter_tablespace {
   bool wait_until_completed = true;
   const char *ts_comment = nullptr;
   const char *encryption = nullptr;
+  bool explicit_encryption{false};
+  KeyringEncryptionKeyIdInfo encryption_key_id;
 
   bool is_tablespace_command() {
     return ts_cmd_type == CREATE_TABLESPACE ||
@@ -2880,7 +2882,7 @@ struct HA_CREATE_INFO {
   and ignored by the Server layer. */
 
   LEX_STRING encrypt_type{nullptr, 0};
-  uint32_t encryption_key_id{0};
+  EncryptionKeyId encryption_key_id{FIL_DEFAULT_ENCRYPTION_KEY};
   bool was_encryption_key_id_set{false};
 
   /**
