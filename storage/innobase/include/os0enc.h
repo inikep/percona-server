@@ -32,7 +32,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 
 #include <mysql/components/my_service.h>
 
-#include "create_info_encryption_key.h"
+#include "keyring_encryption_key_info.h"
 #include "template_utils.h"
 
 #include "univ.i"
@@ -275,6 +275,12 @@ class Encryption {
   @return DB_SUCCESS or error code */
   [[nodiscard]] static dberr_t validate(const char *option) noexcept;
 
+  /** Validate the algorithm string for tablespace
+  @param[in]	option		Encryption option
+  @return DB_SUCCESS or error code */
+  MY_NODISCARD static dberr_t validate_for_tablespace(
+      const char *option) noexcept;
+
   /** Convert to a "string".
   @param[in]  type  The encryption type
   @return the string representation */
@@ -345,6 +351,12 @@ class Encryption {
   static bool get_tablespace_key(uint key_id, const char *uuid,
                                  uint tablespace_key_version,
                                  byte **tablespace_key, size_t *key_len);
+
+  /** Create tablespace key
+  @param[in]	key_id          keyring encryption key info
+  @return true  failure
+          false success */
+  static bool create_tablespace_key(const EncryptionKeyId key_id);
 
   /** Get master key by key id.
   @param[in]      master_key_id master key id
