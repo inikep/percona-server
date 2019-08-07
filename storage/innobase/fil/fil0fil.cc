@@ -5628,11 +5628,13 @@ dberr_t fil_rename_tablespace_by_id(space_id_t space_id, const char *old_name,
 @param[in]	size		Initial size of the tablespace file in pages,
                                 must be >= FIL_IBD_FILE_INITIAL_SIZE
 @param[in]	type		FIL_TYPE_TABLESPACE or FIL_TYPE_TEMPORARY
+@param[in]	mode		keyring encryption mode
+@param[in]	keyring_encryption_key_id info on keyring encryption key
 @return DB_SUCCESS or error code */
 static dberr_t fil_create_tablespace(
     space_id_t space_id, const char *name, const char *path, uint32_t flags,
     page_no_t size, fil_type_t type, const fil_encryption_t mode,
-    const CreateInfoEncryptionKeyId &keyring_encryption_key_id) {
+    const KeyringEncryptionKeyIdInfo &keyring_encryption_key_id) {
   pfs_os_file_t file;
   dberr_t err;
   byte *buf2;
@@ -5827,8 +5829,8 @@ static dberr_t fil_create_tablespace(
   if (mode == FIL_ENCRYPTION_ON || mode == FIL_ENCRYPTION_OFF ||
       (srv_default_table_encryption == DEFAULT_TABLE_ENC_ONLINE_TO_KEYRING ||
        keyring_encryption_key_id.was_encryption_key_id_set)) {
-    crypt_data = fil_space_create_crypt_data(mode, keyring_encryption_key_id.encryption_key_id,
-                                             server_uuid);
+    crypt_data =
+        fil_space_create_crypt_data(mode, keyring_encryption_key_id.id, server_uuid);
 
     if (crypt_data->should_encrypt()) {
       crypt_data->encrypting_with_key_version =
@@ -5902,11 +5904,13 @@ static dberr_t fil_create_tablespace(
 @param[in]	flags		Tablespace flags
 @param[in]	size		Initial size of the tablespace file in pages,
                                 must be >= FIL_IBD_FILE_INITIAL_SIZE
+@param[in]      mode            keyring encryption mode
+@param[in]      keyring_encryption_key_id info on keyring encryption key
 @return DB_SUCCESS or error code */
 dberr_t fil_ibd_create(
     space_id_t space_id, const char *name, const char *path, uint32_t flags,
-    page_no_t size, fil_encryption_t mode,
-    const CreateInfoEncryptionKeyId &keyring_encryption_key_id) {
+    page_no_t size, const fil_encryption_t mode,
+    const KeyringEncryptionKeyIdInfo &keyring_encryption_key_id) {
   ut_a(size >= FIL_IBD_FILE_INITIAL_SIZE);
   ut_ad(!srv_read_only_mode);
   return (fil_create_tablespace(space_id, name, path, flags, size,
@@ -5927,7 +5931,7 @@ dberr_t fil_ibt_create(space_id_t space_id, const char *name, const char *path,
   ut_a(size >= FIL_IBT_FILE_INITIAL_SIZE);
   return (fil_create_tablespace(space_id, name, path, flags, size,
                                 FIL_TYPE_TEMPORARY, FIL_ENCRYPTION_DEFAULT,
-                                CreateInfoEncryptionKeyId()));
+                                KeyringEncryptionKeyIdInfo()));
 }
 
 bool fil_replace_tablespace(space_id_t old_space_id, space_id_t new_space_id,
@@ -5951,7 +5955,7 @@ bool fil_replace_tablespace(space_id_t old_space_id, space_id_t new_space_id,
   err = fil_create_tablespace(new_space_id, space_name.c_str(),
                               file_name.c_str(), flags, size_in_pages,
                               FIL_TYPE_TABLESPACE, FIL_ENCRYPTION_DEFAULT,
-                              CreateInfoEncryptionKeyId());
+                              KeyringEncryptionKeyIdInfo());
 
   return (err == DB_SUCCESS);
 }
