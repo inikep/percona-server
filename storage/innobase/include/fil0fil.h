@@ -53,7 +53,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <vector>
 
 #include "fil0rkinfo.h"
-#include "create_info_encryption_key.h"
+#include "keyring_encryption_key_info.h"
 
 #define REDO_LOG_ENCRYPT_NO_VERSION 0
 
@@ -1771,11 +1771,12 @@ dberr_t fil_rename_tablespace(space_id_t space_id, const char *old_path,
 @param[in]	flags		Tablespace flags
 @param[in]	size		Initial size of the tablespace file in pages,
                                 must be >= FIL_IBD_FILE_INITIAL_SIZE
+@param[in]      keyring_encryption_key_id info on keyring encryption key
 @return DB_SUCCESS or error code */
 dberr_t fil_ibd_create(
     space_id_t space_id, const char *name, const char *path, uint32_t flags,
     page_no_t size, fil_encryption_t mode,
-    const KeyringEncryptionKeyIdInfo &create_info_encryption_key_id)
+    const KeyringEncryptionKeyIdInfo &keyring_encryption_key_id)
     MY_ATTRIBUTE((warn_unused_result));
 
 /** Create a session temporary tablespace (IBT) file.
