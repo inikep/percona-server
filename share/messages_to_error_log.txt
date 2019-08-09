@@ -10877,7 +10877,7 @@ ER_XB_UNUSED_3
   eng "%s"
 
 ER_XB_MSG_6
-  eng "%s"
+  eng "Key rotation of encrypted session temporary tablespace %s failed"
 
 ER_XB_UNUSED_4
   eng "%s"
