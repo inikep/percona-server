@@ -10715,7 +10715,7 @@ ER_PARALLEL_DOUBLEWRITE_WRITE_ERROR
   eng "Parallel doublewrite buffer write failed, crashing the server to avoid data loss"
 
 ER_XB_MSG_6
-  eng "%s"
+  eng "Key rotation of encrypted session temporary tablespace %s failed"
 
 ER_XB_MSG_7
   eng "%s"
