@@ -9237,7 +9237,6 @@ ER_DA_UNDO_NO_KEYRING
 ER_DA_ENCRYPTION_TABLE_CHECK_FAILED
   eng "Table %s is encrypted but decryption failed. Seems that the encryption key fetched from keyring is not the correct one. Are you using the correct keyring?";
 
-
 #
 # End of Percona Server 8.0 client messages
 #
@@ -19893,7 +19892,7 @@ ER_PARALLEL_DOUBLEWRITE_WRITE_ERROR
   eng "Parallel doublewrite buffer write failed, crashing the server to avoid data loss"
 
 ER_XB_MSG_6
-  eng "%s"
+  eng "Key rotation of encrypted session temporary tablespace %s failed"
 
 ER_XB_MSG_7
   eng "%s"
