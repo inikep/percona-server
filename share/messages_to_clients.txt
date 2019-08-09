@@ -9352,7 +9352,6 @@ ER_DA_UNDO_NO_KEYRING
 ER_DA_ENCRYPTION_TABLE_CHECK_FAILED
   eng "Table %s is encrypted but decryption failed. Seems that the encryption key fetched from keyring is not the correct one. Are you using the correct keyring?";
 
-
 #
 # End of Percona Server 8.0 client messages
 #
