@@ -77,3 +77,7 @@ int log_message(int, ...) {
   /* Do not pollute the unit test output with annoying messages. */
   return 0;
 }
+
+bool acl_is_utility_user(const char *, const char *, const char *) {
+  return false;
+}
