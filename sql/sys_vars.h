@@ -2207,7 +2207,7 @@ class Sys_var_enum_default_table_encryption : public Sys_var_enum {
       : Sys_var_enum(name_arg, comment, flag_args, off, size, getopt, values,
                      def_val, lock, binlog_status_arg, on_check_func, nullptr) {
   }
-  virtual bool global_update(THD *thd, set_var *var);
+  bool global_update(THD *thd, set_var *var) override;
 };
 
 /**
