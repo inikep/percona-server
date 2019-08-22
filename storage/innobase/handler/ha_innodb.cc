@@ -5140,7 +5140,6 @@ static void innobase_post_ddl(THD *thd) {
 @return error code
 @retval 0 on success */
 static int innodb_init(void *p) {
-  fprintf(stderr, "innodb_init\n");
   DBUG_ENTER("innodb_init");
 
   handlerton *innobase_hton = (handlerton *)p;
@@ -5618,8 +5617,9 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
   bool ret = dict_detect_encryption_of_mysql_ibd(
       dict_init_mode, upgrade_mysql_plugin_space, do_encrypt);
   if (!ret) {
-    ib::error(ER_XB_MSG_4) << "Failed to determine if mysql.ibd is encrypted. "
-                              "Have you deleted it?";
+    ib::error(ER_XB_MSG_4, "mysql.ibd")
+        << "Failed to determine if mysql.ibd is encrypted. "
+           "Have you deleted it?";
     DBUG_RETURN(innodb_init_abort());
   }
 
@@ -5688,9 +5688,6 @@ static int innobase_init_files(dict_init_mode_t dict_init_mode,
   } else {
     DBUG_RETURN(innodb_init_abort());
   }
-
-  /* Create mutex to protect encryption master_key_id. */
-  mutex_create(LATCH_ID_MASTER_KEY_ID_MUTEX, &master_key_id_mutex);
 
   innobase_old_blocks_pct = static_cast<uint>(
       buf_LRU_old_ratio_update(innobase_old_blocks_pct, TRUE));
@@ -18250,7 +18247,8 @@ int ha_innobase::check(THD *thd,                /*!< in: user thread handle */
         is_ok = false;
 
         if (err == DB_IO_DECRYPT_FAIL) {
-          ib_senderrf(thd, IB_LOG_LEVEL_ERROR, ER_XB_MSG_4,
+          ib_senderrf(thd, IB_LOG_LEVEL_ERROR,
+                      ER_DA_ENCRYPTION_TABLE_CHECK_FAILED,
                       index->table->name.m_name);
         } else {
           push_warning_printf(thd, Sql_condition::SL_WARNING, ER_NOT_KEYFILE,
@@ -18321,7 +18319,8 @@ int ha_innobase::check(THD *thd,                /*!< in: user thread handle */
     }
     if (ret != DB_SUCCESS) {
       if (ret == DB_IO_DECRYPT_FAIL) {
-        ib_senderrf(thd, IB_LOG_LEVEL_ERROR, ER_XB_MSG_4,
+        ib_senderrf(thd, IB_LOG_LEVEL_ERROR,
+                    ER_DA_ENCRYPTION_TABLE_CHECK_FAILED,
                     index->table->name.m_name);
       } else {
         /* Assume some kind of corruption. */
@@ -21728,7 +21727,7 @@ static int validate_innodb_undo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
   ut_ad(undo::spaces->size() >= FSP_IMPLICIT_UNDO_TABLESPACES);
 
   if (!Encryption::check_keyring()) {
-    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_UNDO_NO_KEYRING);
+    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_DA_UNDO_NO_KEYRING);
     ib::error(ER_UNDO_NO_KEYRING);
     return (0);
   }
@@ -21808,7 +21807,6 @@ static int validate_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var, void *save,
 
   if (!legit_value) return 1;
 
-  // TODO(laurynas) or = use; ?
   /* Set the default output to current value for all error cases. */
   *static_cast<ulong *>(save) = srv_redo_log_encrypt;
 
@@ -22690,7 +22688,7 @@ static void update_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var,
     ib::error(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
               log_encrypt_name(existing_redo_encryption_mode),
               log_encrypt_name(static_cast<redo_log_encrypt_enum>(target)));
-    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
+    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_DA_REDO_ENCRYPTION_CANT_BE_CHANGED,
                 log_encrypt_name(existing_redo_encryption_mode),
                 log_encrypt_name(static_cast<redo_log_encrypt_enum>(target)));
     return;
@@ -22705,7 +22703,7 @@ static void update_innodb_redo_log_encrypt(THD *thd, SYS_VAR *var,
   ut_ad(strlen(server_uuid) > 0);
 
   if (!Encryption::check_keyring()) {
-    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_REDO_ENCRYPTION_KEYRING);
+    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_DA_REDO_ENCRYPTION_KEYRING);
     ib::error(ER_REDO_ENCRYPTION_KEYRING);
     return;
   }
