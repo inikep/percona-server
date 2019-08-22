@@ -3068,7 +3068,7 @@ redo_log_key *redo_log_keys::load_key_version(THD *thd, uint version) {
     ib::error(ER_REDO_ENCRYPTION_CANT_LOAD_KEY_VERSION, version);
     if (thd) {
       ib_senderrf(thd, IB_LOG_LEVEL_WARN,
-                  ER_REDO_ENCRYPTION_CANT_LOAD_KEY_VERSION, version);
+                  ER_DA_REDO_ENCRYPTION_CANT_LOAD_KEY_VERSION, version);
     }
     return nullptr;
   }
@@ -3091,7 +3091,8 @@ redo_log_key *redo_log_keys::generate_and_store_new_key(THD *thd) {
                       ENCRYPTION_KEY_LEN)) {
     ib::error(ER_REDO_ENCRYPTION_CANT_GENERATE_KEY);
     if (thd) {
-      ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_REDO_ENCRYPTION_CANT_GENERATE_KEY);
+      ib_senderrf(thd, IB_LOG_LEVEL_WARN,
+                  ER_DA_REDO_ENCRYPTION_CANT_GENERATE_KEY);
     }
     return nullptr;
   }
@@ -3104,7 +3105,7 @@ redo_log_key *redo_log_keys::generate_and_store_new_key(THD *thd) {
                    reinterpret_cast<void **>(&rkey), &klen)) {
     ib::error(ER_REDO_ENCRYPTION_CANT_FETCH_KEY);
     if (thd) {
-      ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_REDO_ENCRYPTION_CANT_FETCH_KEY);
+      ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_DA_REDO_ENCRYPTION_CANT_FETCH_KEY);
     }
     my_free(redo_key_type);
     my_free(rkey);
@@ -3124,7 +3125,7 @@ redo_log_key *redo_log_keys::generate_and_store_new_key(THD *thd) {
   if (err) {
     ib::error(ER_REDO_ENCRYPTION_CANT_PARSE_KEY, rkey);
     if (thd != nullptr) {
-      ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_REDO_ENCRYPTION_CANT_PARSE_KEY,
+      ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_DA_REDO_ENCRYPTION_CANT_PARSE_KEY,
                   rkey);
     }
     my_free(redo_key_type);
