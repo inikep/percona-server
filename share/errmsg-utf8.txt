@@ -19894,8 +19894,8 @@ ER_PARALLEL_DOUBLEWRITE_WRITE_ERROR
 ER_XB_MSG_6
   eng "Key rotation of encrypted session temporary tablespace %s failed"
 
-ER_XB_MSG_7
-  eng "%s"
+ER_XB_UNDO_DELETE_FAILURE
+  eng "Deletion of 5.7 undo tablespace %s failed"
 
 ER_REDO_ENCRYPTION_CANT_BE_CHANGED
   eng "Redo log encryption mode can't be switched without stopping the server and recreating the redo logs. Current mode is %s, requested %s."
