@@ -2503,7 +2503,7 @@ files_checked:
 
     mtr_start(&mtr);
 
-    bool ret = fsp_header_init(0, sum_of_new_sizes, &mtr, false);
+    bool ret = fsp_header_init(0, sum_of_new_sizes, &mtr, true);
 
     mtr_commit(&mtr);
 
