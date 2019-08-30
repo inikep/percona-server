@@ -141,6 +141,11 @@ static const size_t MAX_BLOCKS = 128;
 /** Disk sector size of aligning write buffer for DIRECT_IO */
 static ulint os_io_ptr_align = UNIV_SECTOR_SIZE;
 
+/** Set to true when default master key is used. This variable
+main purpose is to avoid extra Encryption::get_master_key() when there
+are no encrypted tablespaces */
+bool default_master_key_used = false;
+
 /** Determine if O_DIRECT is supported
 @retval	true	if O_DIRECT is supported.
 @retval	false	if O_DIRECT is not supported. */
@@ -8875,6 +8880,7 @@ bool Encryption::fill_encryption_info(byte *key, byte *iv, byte *encrypt_info,
       strcpy(reinterpret_cast<char *>(master_key),
              ENCRYPTION_DEFAULT_MASTER_KEY);
       is_default_master_key = true;
+      default_master_key_used = is_default_master_key;
     } else {
       get_master_key(&master_key_id, &master_key);
 
