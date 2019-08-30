@@ -133,6 +133,11 @@ static Blocks *block_cache;
 /** Number of blocks to allocate for sync read/writes */
 static const size_t MAX_BLOCKS = 128;
 
+/** Set to true when default master key is used. This variable
+main purpose is to avoid extra Encryption::get_master_key() when there
+are no encrypted tablespaces */
+bool default_master_key_used = false;
+
 /** Determine if O_DIRECT is supported
 @retval true    if O_DIRECT is supported.
 @retval false   if O_DIRECT is not supported. */
