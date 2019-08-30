@@ -610,6 +610,7 @@ bool Encryption::fill_encryption_info(byte *key, byte *iv, byte *encrypt_info,
 
       strcpy(reinterpret_cast<char *>(master_key), DEFAULT_MASTER_KEY);
       is_default_master_key = true;
+      default_master_key_used = is_default_master_key;
     } else {
       get_master_key(&master_key_id, &master_key);
 
