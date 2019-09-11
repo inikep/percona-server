@@ -386,6 +386,11 @@ bool reinit_io_cache(IO_CACHE *info, enum cache_type type, my_off_t seek_offset,
   info->error = 0;
   init_functions(info);
 
+  if (info->m_encryptor != nullptr)
+    info->m_encryptor->set_stream_offset(seek_offset);
+  if (info->m_decryptor != nullptr)
+    info->m_decryptor->set_stream_offset(seek_offset);
+
   if (DBUG_EVALUATE_IF("fault_injection_reinit_io_cache", true, false))
     return true;
   return false;
@@ -1632,9 +1637,12 @@ supposedly written\n");
 
 my_off_t mysql_encryption_file_seek(IO_CACHE *cache, my_off_t pos, int whence,
                                     myf flags) {
-  if (cache->m_encryptor != nullptr) cache->m_encryptor->set_stream_offset(pos);
-  if (cache->m_decryptor != nullptr) cache->m_decryptor->set_stream_offset(pos);
-  return mysql_file_seek(cache->file, pos, whence, flags);
+  auto result = mysql_file_seek(cache->file, pos, whence, flags);
+  if (cache->m_encryptor != nullptr)
+    cache->m_encryptor->set_stream_offset(result);
+  if (cache->m_decryptor != nullptr)
+    cache->m_decryptor->set_stream_offset(result);
+  return result;
 }
 
 size_t mysql_encryption_file_read(IO_CACHE *cache, uchar *buffer, size_t count,

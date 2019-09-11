@@ -372,8 +372,9 @@ Unique::Unique(qsort2_cmp comp_func, void *comp_func_fixed_arg, uint size_arg,
   */
   max_elements =
       (ulong)(max_in_memory_size / ALIGN_SIZE(sizeof(TREE_ELEMENT) + size));
-  (void)open_cached_file(&file, mysql_tmpdir, TEMP_PREFIX, DISK_BUFFER_SIZE,
-                         MYF(MY_WME));
+  (void)open_cached_file_encrypted(&file, mysql_tmpdir, TEMP_PREFIX,
+                                   DISK_BUFFER_SIZE, MYF(MY_WME),
+                                   encrypt_tmp_files);
 }
 
 /**
@@ -925,8 +926,9 @@ bool Unique::get(TABLE *table) {
       key_memory_TABLE_sort_io_cache, sizeof(IO_CACHE), MYF(MY_ZEROFILL));
 
   if (!outfile || (!my_b_inited(outfile) &&
-                   open_cached_file(outfile, mysql_tmpdir, TEMP_PREFIX,
-                                    READ_RECORD_BUFFER, MYF(MY_WME))))
+                   open_cached_file_encrypted(outfile, mysql_tmpdir,
+                                              TEMP_PREFIX, READ_RECORD_BUFFER,
+                                              MYF(MY_WME), encrypt_tmp_files)))
     return true;
   if (reinit_io_cache(outfile, WRITE_CACHE, 0L, 0, 0) != 0) return true;
 
