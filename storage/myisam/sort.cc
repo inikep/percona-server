@@ -60,6 +60,8 @@
 
 extern void print_error(const char *fmt, ...);
 
+extern bool get_global_encrypt_tmp_files();
+
 /* Functions defined in this file */
 
 static ha_rows find_all_keys(MI_SORT_PARAM *info, uint keys, uchar **sort_keys,
@@ -604,8 +606,9 @@ static int write_keys(MI_SORT_PARAM *info, uchar **sort_keys, uint count,
                          pointer_cast<unsigned char *>(&b)) < 0;
   });
   if (!my_b_inited(tempfile) &&
-      open_cached_file(tempfile, my_tmpdir(info->tmpdir), "ST",
-                       DISK_BUFFER_SIZE, info->sort_info->param->myf_rw))
+      open_cached_file_encrypted(
+          tempfile, my_tmpdir(info->tmpdir), "ST", DISK_BUFFER_SIZE,
+          info->sort_info->param->myf_rw, get_global_encrypt_tmp_files()))
     DBUG_RETURN(1); /* purecov: inspected */
 
   buffpek->file_pos = my_b_tell(tempfile);
@@ -640,8 +643,9 @@ static int write_keys_varlen(MI_SORT_PARAM *info, uchar **sort_keys, uint count,
                          pointer_cast<unsigned char *>(&b)) < 0;
   });
   if (!my_b_inited(tempfile) &&
-      open_cached_file(tempfile, my_tmpdir(info->tmpdir), "ST",
-                       DISK_BUFFER_SIZE, info->sort_info->param->myf_rw))
+      open_cached_file_encrypted(
+          tempfile, my_tmpdir(info->tmpdir), "ST", DISK_BUFFER_SIZE,
+          info->sort_info->param->myf_rw, get_global_encrypt_tmp_files()))
     DBUG_RETURN(1); /* purecov: inspected */
 
   buffpek->file_pos = my_b_tell(tempfile);
@@ -658,8 +662,9 @@ static int write_key(MI_SORT_PARAM *info, uchar *key, IO_CACHE *tempfile) {
   DBUG_ENTER("write_key");
 
   if (!my_b_inited(tempfile) &&
-      open_cached_file(tempfile, my_tmpdir(info->tmpdir), "ST",
-                       DISK_BUFFER_SIZE, info->sort_info->param->myf_rw))
+      open_cached_file_encrypted(
+          tempfile, my_tmpdir(info->tmpdir), "ST", DISK_BUFFER_SIZE,
+          info->sort_info->param->myf_rw, get_global_encrypt_tmp_files()))
     DBUG_RETURN(1);
 
   if (my_b_write(tempfile, (uchar *)&key_length, sizeof(key_length)) ||
@@ -695,8 +700,9 @@ static int merge_many_buff(MI_SORT_PARAM *info, uint keys, uchar **sort_keys,
 
   if (*maxbuffer < MERGEBUFF2) DBUG_RETURN(0); /* purecov: inspected */
   if (flush_io_cache(t_file) ||
-      open_cached_file(&t_file2, my_tmpdir(info->tmpdir), "ST",
-                       DISK_BUFFER_SIZE, info->sort_info->param->myf_rw))
+      open_cached_file_encrypted(
+          &t_file2, my_tmpdir(info->tmpdir), "ST", DISK_BUFFER_SIZE,
+          info->sort_info->param->myf_rw, get_global_encrypt_tmp_files()))
     DBUG_RETURN(1); /* purecov: inspected */
 
   from_file = t_file;
