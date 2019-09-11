@@ -33,6 +33,8 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <string>
+
 #include "dur_prop.h"  // durability_properties
 #include "lex_string.h"
 #include "mysql/components/services/bits/psi_thread_bits.h"
