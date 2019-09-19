@@ -6095,6 +6095,12 @@ dberr_t fil_ibd_open(bool validate, fil_type_t purpose, space_id_t space_id,
       first_page ? fil_space_read_crypt_data(page_size_t(flags), first_page)
                  : nullptr;
 
+  keyring_encryption_info.page0_has_crypt_data = crypt_data != nullptr;
+  keyring_encryption_info.is_mk_to_keyring_rotation =
+      crypt_data != nullptr ? crypt_data->encryption_rotation ==
+                                  Encryption_rotation::MASTER_KEY_TO_KEYRING
+                            : false;
+
   space = fil_space_create(space_name, space_id, flags, purpose, crypt_data);
 
   if (space == nullptr) {
@@ -9130,13 +9136,13 @@ static dberr_t fil_iterate(const Fil_page_iterator &iter, buf_block_t *block,
       write_request.encryption_key(iter.m_encryption_key, Encryption::KEY_LEN,
                                    false, iter.m_encryption_iv,
                                    iter.m_encryption_key_version,
-                                   iter.m_encryption_key_id, NULL, NULL);
+                                   iter.m_encryption_key_id, nullptr, nullptr);
       write_request.encryption_algorithm(Encryption::AES);
     } else if (offset != 0 && iter.m_crypt_data) {
-      write_request.encryption_key(iter.m_encryption_key, Encryption::KEY_LEN,
-                                   false, iter.m_encryption_iv,
-                                   iter.m_encryption_key_version,
-                                   iter.m_crypt_data->key_id, NULL, NULL);
+      write_request.encryption_key(
+          iter.m_encryption_key, Encryption::KEY_LEN, false,
+          iter.m_encryption_iv, iter.m_encryption_key_version,
+          iter.m_crypt_data->key_id, nullptr, iter.m_crypt_data->uuid);
 
       write_request.encryption_algorithm(Encryption::KEYRING);
 
