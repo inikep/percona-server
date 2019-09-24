@@ -469,6 +469,9 @@ sub create_disabled_test_list($$) {
   # Add 'disabled.def' to the list of disabled files
   add_to_disabled_files_map("$::glob_mysql_test_dir/collections/disabled.def",
                             \%disabled_files_map);
+  add_to_disabled_files_map(
+    "$::glob_mysql_test_dir/collections/disabled_rocksdb.def",
+    \%disabled_files_map);
 
   # Add internal 'disabled.def' to the list of disabled files only if it exists
   my $disabled_seed_file_path =
