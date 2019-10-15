@@ -400,7 +400,10 @@ XError set_object_capability(Context *context, Argument_object *capabilities,
 }  // namespace details
 
 Session_impl::Session_impl(std::unique_ptr<Protocol_factory> factory)
-    : m_context(std::make_shared<Context>()), m_factory(std::move(factory)) {
+    : m_context(std::make_shared<Context>()),
+      m_factory(std::move(factory)),
+      m_server_supported_auth_methods{Auth::k_mysql41, Auth::k_plain,
+                                      Auth::k_sha256_memory} {
   if (nullptr == m_factory.get()) {
     m_factory.reset(new details::Protocol_factory_default());
   }
@@ -459,7 +462,7 @@ XError Session_impl::set_mysql_option(
                   ER_TEXT_OPTION_NOT_SUPPORTED_AFTER_CONNECTING};
 
   Argument_array array;
-  for (const auto value : values_list) {
+  for (const auto &value : values_list) {
     array.push_back(Argument_value{value});
   }
 
