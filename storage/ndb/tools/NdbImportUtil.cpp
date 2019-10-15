@@ -1404,7 +1404,7 @@ NdbImportUtil::free_row(Row* row)
 {
   RowList& rows = *c_rows_free;
   rows.lock();
-  
+
   for (uint i = 0; i < row->m_blobs.size(); ++i)
   {
     Blob* blob = row->m_blobs[i];
@@ -1418,7 +1418,7 @@ NdbImportUtil::free_row(Row* row)
   rows.push_back(row);
   rows.unlock();
 }
- 
+
 void
 NdbImportUtil::free_rows(RowList& src)
 {
@@ -1945,7 +1945,7 @@ NdbImportUtil::add_reject_table()
   table.add_pseudo_attr("reject",
                         NdbDictionary::Column::Text);
 }
- 
+
 void
 NdbImportUtil::add_rowmap_table()
 {
