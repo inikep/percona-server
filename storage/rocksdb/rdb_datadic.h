@@ -1301,9 +1301,6 @@ class Rdb_binlog_manager {
               rocksdb::WriteBatchBase *const batch);
   bool read(char *const binlog_name, my_off_t *const binlog_pos,
             char *const binlog_gtid) const;
-  void update_slave_gtid_info(const uint id, const char *const db,
-                              const char *const gtid,
-                              rocksdb::WriteBatchBase *const write_batch);
 
  private:
   Rdb_dict_manager *m_dict = nullptr;
@@ -1312,8 +1309,6 @@ class Rdb_binlog_manager {
 
   bool unpack_value(const uchar *const value, char *const binlog_name,
                     my_off_t *const binlog_pos, char *const binlog_gtid) const;
-
-  std::atomic<Rdb_tbl_def *> m_slave_gtid_info_tbl;
 };
 
 /*
