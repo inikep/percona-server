@@ -1098,14 +1098,16 @@ The wrapper functions have the prefix of "innodb_". */
   pfs_os_aio_func(type, mode, name, file, buf, offset, n, read_only, message1, \
                   message2, space_id, trx, should_buffer, __FILE__, __LINE__)
 
-#define os_file_read_pfs(type, file_name, file, buf, offset, n) \
-  pfs_os_file_read_func(type, file_name, file, buf, offset, n, nullptr, __FILE__, __LINE__)
+#define os_file_read_pfs(type, file_name, file, buf, offset, n)         \
+  pfs_os_file_read_func(type, file_name, file, buf, offset, n, nullptr, \
+                        __FILE__, __LINE__)
 
 #define os_file_read_trx_pfs(file, buf, offset, n, trx) \
   pfs_os_file_read_func(file, buf, offset, n, trx, __FILE__, __LINE__)
 
-#define os_file_read_first_page_pfs(type, file_name, file, buf, n, exit) \
-  pfs_os_file_read_first_page_func(type, file_name, file, buf, n, __FILE__, __LINE__, exit)
+#define os_file_read_first_page_pfs(type, file_name, file, buf, n, exit)    \
+  pfs_os_file_read_first_page_func(type, file_name, file, buf, n, __FILE__, \
+                                   __LINE__, exit)
 
 #define os_file_copy_pfs(src, src_offset, dest, dest_offset, size)          \
   pfs_os_file_copy_func(src, src_offset, dest, dest_offset, size, __FILE__, \
