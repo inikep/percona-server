@@ -1091,14 +1091,16 @@ The wrapper functions have the prefix of "innodb_". */
   pfs_os_aio_func(type, mode, name, file, buf, offset, n, read_only, message1, \
                   message2, space_id, trx, should_buffer, __FILE__, __LINE__)
 
-#define os_file_read_pfs(type, file_name, file, buf, offset, n) \
-  pfs_os_file_read_func(type, file_name, file, buf, offset, n, nullptr, __FILE__, __LINE__)
+#define os_file_read_pfs(type, file_name, file, buf, offset, n)         \
+  pfs_os_file_read_func(type, file_name, file, buf, offset, n, nullptr, \
+                        __FILE__, __LINE__)
 
 #define os_file_read_trx_pfs(file, buf, offset, n, trx) \
   pfs_os_file_read_func(file, buf, offset, n, trx, __FILE__, __LINE__)
 
-#define os_file_read_first_page_pfs(type, file_name, file, buf, n, exit) \
-  pfs_os_file_read_first_page_func(type, file_name, file, buf, n, __FILE__, __LINE__, exit)
+#define os_file_read_first_page_pfs(type, file_name, file, buf, n, exit)    \
+  pfs_os_file_read_first_page_func(type, file_name, file, buf, n, __FILE__, \
+                                   __LINE__, exit)
 
 #define os_file_copy_pfs(src, src_offset, dest, dest_offset, size)          \
   pfs_os_file_copy_func(src, src_offset, dest, dest_offset, size, __FILE__, \
@@ -1709,8 +1711,9 @@ Requests a synchronous read operation of page 0 of IBD file.
 @param[in]	offset		file offset where to read
 @param[in]	n		number of bytes to read
 @return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-dberr_t os_file_read_func(IORequest &type, const char* file_name, os_file_t file, void *buf,
-                          os_offset_t offset, ulint n, trx_t *trx)
+dberr_t os_file_read_func(IORequest &type, const char *file_name,
+                          os_file_t file, void *buf, os_offset_t offset,
+                          ulint n, trx_t *trx)
     MY_ATTRIBUTE((warn_unused_result));
 
 /** NOTE! Use the corresponding macro os_file_read_first_page(),
@@ -1723,8 +1726,9 @@ Requests a synchronous read operation of page 0 of IBD file
 @param[in]	n		number of bytes to read
 @param[in]	exit_on_err	if true then exit on error
 @return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-dberr_t os_file_read_first_page_func(IORequest &type, const char* file_name, os_file_t file, void *buf,
-                                     ulint n, bool exit_on_err)
+dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
+                                     os_file_t file, void *buf, ulint n,
+                                     bool exit_on_err)
     MY_ATTRIBUTE((warn_unused_result));
 
 /** Copy data from one file to another file. Data is read/written
