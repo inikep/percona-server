@@ -760,6 +760,19 @@ Datafile::ValidateOutput Datafile::validate_first_page(space_id_t space_id,
           m_encryption_iv = nullptr;
         }
       }
+    } else {
+      // for version 1 and encrypted table we will fail the upgrade.
+      if (crypt_data->private_version == 2 && !crypt_data->key_found) {
+        ut_ad(m_filename != nullptr);
+        ib::warn(ER_XB_MSG_5, space_id, m_filename, crypt_data->key_id);
+
+        m_is_valid = false;
+        free_first_page();
+        fil_space_destroy_crypt_data(&crypt_data);
+        output.keyring_encryption_info.keyring_encryption_key_is_missing = true;
+        output.error = DB_INVALID_ENCRYPTION_META;
+        return output;
+      }
     }
   }
 #ifndef UNIV_HOTBACKUP
