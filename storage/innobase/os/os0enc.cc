@@ -469,16 +469,6 @@ bool Encryption::tablespace_key_exists_or_create_new_one_if_does_not_exist(
   return true;
 }
 
-bool Encryption::create_tablespace_key(EncryptionKeyId key_id) {
-  byte *tablespace_key = nullptr;
-  create_tablespace_key(&tablespace_key, key_id, server_uuid);
-  if (tablespace_key == nullptr) {
-    return true;
-  }
-  my_free(tablespace_key);
-  return false;
-}
-
 void Encryption::get_latest_key_or_create(uint tablespace_key_id,
                                           const char *uuid,
                                           uint *tablespace_key_version,
@@ -1528,7 +1518,7 @@ dberr_t Encryption::decrypt_log_block(const IORequest &type, byte *src,
       if (m_key_version != enc_key_version &&
           enc_key_version != REDO_LOG_ENCRYPT_NO_VERSION) {
         redo_log_key *mkey = redo_log_key_mgr.load_key_version(
-            nullptr, enc_key_version);
+            nullptr, m_key_id_uuid, enc_key_version);
         m_key_version = mkey->version;
         m_key = reinterpret_cast<unsigned char *>(mkey->key);
       }
