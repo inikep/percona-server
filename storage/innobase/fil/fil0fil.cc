@@ -36,6 +36,8 @@ The tablespace memory cache */
 #include <sys/types.h>
 #include <scope_guard.h>
 
+#include "mysqld.h"  // server_uuid
+
 #include "arch0page.h"
 #include "btr0btr.h"
 #include "buf0buf.h"
@@ -3352,6 +3354,7 @@ void Fil_shard::space_free_low(fil_space_t *&space) {
   rw_lock_free(&space->latch);
 
   fil_space_destroy_crypt_data(&space->crypt_data);
+  space->encryption_redo_key_uuid.reset(nullptr);
 
   ut::free(space->name);
   ut::free(space);
@@ -8212,7 +8215,8 @@ inline void fil_io_set_keyring_encryption(IORequest &req_type,
     // version needed to decrypt tablespace - we will find this version in
     // decrypt and retrieve needed version.
     if (space->crypt_data->min_key_version !=
-        ENCRYPTION_KEY_VERSION_NOT_ENCRYPTED) {
+            ENCRYPTION_KEY_VERSION_NOT_ENCRYPTED &&
+        space->crypt_data->encryption != FIL_ENCRYPTION_OFF) {
       key = space->crypt_data->get_min_key_version_key();
       memcpy(key_min, key, 32);
       set_min_key_version = true;
@@ -8247,7 +8251,7 @@ static void fil_io_set_mk_encryption(IORequest &req_type, fil_space_t *space) {
                      ? space->encryption_redo_key->version
                      : space->encryption_key_version;
   req_type.encryption_key(key, 32, space->encryption_iv, version, 0, nullptr,
-                          nullptr);
+                          space->encryption_redo_key_uuid.get());
 
   req_type.encryption_rotation(Encryption_rotation::NO_ROTATION);
 }

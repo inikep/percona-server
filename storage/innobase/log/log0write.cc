@@ -2900,6 +2900,8 @@ bool log_read_encryption() {
   byte *log_block_buf;
   byte key[Encryption::KEY_LEN];
   byte iv[Encryption::KEY_LEN];
+  char uuid[Encryption::SERVER_UUID_LEN + 1];
+  memset(uuid, 0, Encryption::SERVER_UUID_LEN + 1);
   dberr_t err;
 
   log_block_buf = static_cast<byte *>(
@@ -2915,8 +2917,17 @@ bool log_read_encryption() {
   redo_log_key *mkey = nullptr;
   Encryption::Type encryption_type = Encryption::NONE;
   uint version = 0;
-  if (memcmp(log_block_buf + LOG_HEADER_CREATOR_END, Encryption::KEY_MAGIC_RK_V1,
-             Encryption::MAGIC_SIZE) == 0) {
+
+  if (memcmp(log_block_buf + LOG_HEADER_CREATOR_END,
+             Encryption::KEY_MAGIC_RK_V1, Encryption::MAGIC_SIZE) == 0) {
+    // can only happen during the upgrade
+    ut::aligned_free(log_block_buf);
+    ib::error(ER_REDO_ENCRYPTION_CANT_UPGRADE_OLD_VERSION);
+    return false;
+  }
+
+  if (memcmp(log_block_buf + LOG_HEADER_CREATOR_END,
+             Encryption::KEY_MAGIC_RK_V2, Encryption::MAGIC_SIZE) == 0) {
     encryption_magic = true;
     existing_redo_encryption_mode = REDO_LOG_ENCRYPT_RK;
     /* Make sure the keyring is loaded. */
@@ -2928,12 +2939,13 @@ bool log_read_encryption() {
     unsigned char *info_ptr =
         log_block_buf + LOG_HEADER_CREATOR_END + Encryption::MAGIC_SIZE;
     version = mach_read_from_4(info_ptr);
+    memcpy(uuid, info_ptr + 4, Encryption::SERVER_UUID_LEN);
     memcpy(iv, info_ptr + Encryption::SERVER_UUID_LEN + 4, Encryption::KEY_LEN);
 #ifdef UNIV_ENCRYPT_DEBUG
     fprintf(stderr, "Using redo log encryption key version: %u\n", version);
 #endif
 
-    mkey = redo_log_key_mgr.load_key_version(nullptr, version);
+    mkey = redo_log_key_mgr.load_key_version(nullptr, uuid, version);
     if (mkey != nullptr) {
       encrypted_log = true;
       memcpy(key, mkey->key, Encryption::KEY_LEN);
@@ -2970,6 +2982,7 @@ bool log_read_encryption() {
             : static_cast<redo_log_encrypt_enum>(srv_redo_log_encrypt);
     if (existing_redo_encryption_mode != set_encryption &&
         srv_redo_log_encrypt != REDO_LOG_ENCRYPT_OFF) {
+      ut::aligned_free(log_block_buf);
       ib::error(ER_REDO_ENCRYPTION_CANT_BE_CHANGED,
                 log_encrypt_name(existing_redo_encryption_mode),
                 log_encrypt_name(
@@ -2989,6 +3002,16 @@ bool log_read_encryption() {
     space->encryption_redo_key = mkey;
     dberr_t err = fil_set_encryption(space->id, encryption_type, key, iv);
     space->encryption_key_version = version;
+    space->encryption_redo_key_uuid.reset(
+        new (std::nothrow) char[Encryption::SERVER_UUID_LEN + 1]);
+    if (space->encryption_redo_key_uuid.get() == nullptr) {
+      ut::aligned_free(log_block_buf);
+      ib::error() << "Out of memory. Can't set redo log tablespace"
+                  << " encryption metadata.";
+      return (false);
+    }
+    memcpy(space->encryption_redo_key_uuid.get(), uuid,
+           Encryption::SERVER_UUID_LEN + 1);
     if (err == DB_SUCCESS) {
       ut::aligned_free(log_block_buf);
       ib::info() << "Read redo log encryption"
@@ -3042,11 +3065,14 @@ static bool log_file_header_fill_encryption(byte *buf, ulint key_version,
 }
 
 bool log_write_encryption(byte *key, byte *iv, bool is_boot,
-                          redo_log_encrypt_enum redo_log_encrypt) {
+                          redo_log_encrypt_enum redo_log_encrypt,
+                          uint version) {
+  ut_ad(redo_log_encrypt != REDO_LOG_ENCRYPT_MK ||
+        version == REDO_LOG_ENCRYPT_NO_VERSION);
+
   const page_id_t page_id{dict_sys_t::s_log_space_first_id, 0};
   byte *log_block_buf = static_cast<byte *>(
       ut::aligned_zalloc(OS_FILE_LOG_BLOCK_SIZE, OS_FILE_LOG_BLOCK_SIZE));
-  ulint version = 1;
 
   if (key == nullptr && iv == nullptr) {
     fil_space_t *space = fil_space_get(dict_sys_t::s_log_space_first_id);
@@ -3120,6 +3146,8 @@ void log_check_new_key_version() {
 }
 
 void log_rotate_default_key() {
+  DBUG_EXECUTE_IF("crash_before_redo_key_is_rotated", DBUG_SUICIDE(););
+
   fil_space_t *space = fil_space_get(dict_sys_t::s_log_space_first_id);
 
   if (srv_shutdown_state.load() >= SRV_SHUTDOWN_CLEANUP) {
@@ -3145,14 +3173,17 @@ void log_rotate_default_key() {
     ut_a(strlen(server_uuid) > 0);
     /* This only happens when the server uuid was just generated, so we can
      * save the key to the keyring */
-    if (!redo_log_key_mgr.store_used_keys()) {
-      srv_redo_log_encrypt = REDO_LOG_ENCRYPT_OFF;
-      ib::error() << "Can't store redo log encryption key.";
-    }
     redo_log_key *key = redo_log_key_mgr.load_latest_key(nullptr, true);
+    ut_ad(key->version != REDO_LOG_ENCRYPT_NO_VERSION);
     space->encryption_key_version = key->version;
     space->encryption_redo_key = key;
     srv_redo_log_key_version = key->version;
+    DBUG_EXECUTE_IF("assert_default_to_ver2_rotation",
+                    ut_ad(srv_redo_log_key_version == 2););
+    // server uuid may not yet be written to redo log header - write it now
+    log_write_encryption(reinterpret_cast<uchar *>(key->key),
+                         space->encryption_iv, false, REDO_LOG_ENCRYPT_RK,
+                         key->version);
   }
 }
 
