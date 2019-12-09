@@ -401,6 +401,18 @@ fil_space_crypt_t *fil_space_create_crypt_data(
                                       key_id, uuid, key_operation));
 }
 
+bool is_space_keyring_v1_encrypted(fil_space_t *space) {
+  ut_ad(space != nullptr);
+  return space->crypt_data != nullptr &&
+         space->crypt_data->private_version == 1 &&
+         space->crypt_data->type != CRYPT_SCHEME_UNENCRYPTED;
+}
+
+bool is_space_keyring_v1_encrypted(space_id_t space_id) {
+  fil_space_t *space = fil_space_get(space_id);
+  return is_space_keyring_v1_encrypted(space);
+}
+
 /******************************************************************
 Merge fil_space_crypt_t object
 @param[in,out]	dst		Destination cryp data
@@ -682,6 +694,10 @@ void fil_space_crypt_t::write_page0(
   ut_ad(key_id != (uint)(~0));
   mach_write_to_4(encrypt_info_ptr, key_id);
   encrypt_info_ptr += 4;
+  ut_ad(strlen(space->crypt_data->uuid) > 0);
+  memcpy(encrypt_info_ptr, space->crypt_data->uuid,
+         Encryption::SERVER_UUID_LEN);
+  encrypt_info_ptr += Encryption::SERVER_UUID_LEN;
   mach_write_to_1(encrypt_info_ptr, encryption);
   encrypt_info_ptr += 1;
 
@@ -1366,9 +1382,41 @@ static bool fil_crypt_space_needs_rotation(rotate_thread_t *state,
 
   /* If used key_id is not found from encryption plugin we can't
   continue to rotate the tablespace */
+
   if (!crypt_data->is_key_found()) {
-    mutex_exit(&crypt_data->mutex);
-    return false;
+    // We can end up here in case we try to encrypt tablespace but the key used
+    // by this tablespace is no longer in keyring. This can happen when keyring
+    // was changed or crypt_data is in version 1 and key's uuid is empty.
+    if (crypt_data->rotate_state.active_threads == 0 &&
+        crypt_data->encryption == FIL_ENCRYPTION_DEFAULT) {
+      ut_ad(
+          (crypt_data->private_version == 2 || strlen(crypt_data->uuid) == 0) &&
+          is_unenc_to_enc_rotation(*crypt_data));
+
+      crypt_data->key_found =
+          Encryption::tablespace_key_exists_or_create_new_one_if_does_not_exist(
+              crypt_data->key_id, server_uuid);
+
+      if (!crypt_data->key_found) {
+        mutex_exit(&crypt_data->mutex);
+        return false;  // failed to fetch or create the key - skip the
+                       // tablespace
+      }
+
+      key_state->key_version = 1;
+      // We assing here uuid to crypt_data key's uuid. If crypt_data
+      // does not make it to page0 (due to crash) we will do the same
+      // after the restart, because we will end up here again -
+      // encryption key will not be found.
+      ut_ad(strlen(server_uuid) > 0);
+      memcpy(crypt_data->uuid, server_uuid, Encryption::SERVER_UUID_LEN);
+      crypt_data->uuid[Encryption::SERVER_UUID_LEN] = '\0';
+      // fix private_version - it might have been 1
+      crypt_data->private_version = 2;
+    } else {
+      mutex_exit(&crypt_data->mutex);
+      return false;
+    }
   }
 
   const bool space_compressed = space->compression_type != Compression::NONE;
@@ -1404,22 +1452,11 @@ static bool fil_crypt_space_needs_rotation(rotate_thread_t *state,
         crypt_data->encryption, crypt_data->min_key_version,
         key_state->key_version, key_state->rotate_key_age);
 
-    if (need_key_rotation) {
-      if (crypt_data->rotate_state.active_threads == 0) {
-        if (key_state->key_version == ENCRYPTION_KEY_VERSION_INVALID) {
-          ut_ad(is_unenc_to_enc_rotation(*crypt_data));
-          // we are asked to encrypt table with encryption_key_id assigned, but
-          // the key is not in the keyring - create it now.
-          if (Encryption::create_tablespace_key(crypt_data->key_id)) {
-            break;  // failed to create the key - skip the tablespace
-          }
-          key_state->key_version = 1;
-        }
-      } else if (crypt_data->rotate_state.next_offset >
-                 crypt_data->rotate_state.max_offset) {
-        break;  // the space is already being processed and there are no more
-                // pages to rotate
-      }
+    if (need_key_rotation && crypt_data->rotate_state.active_threads != 0 &&
+        crypt_data->rotate_state.next_offset >
+            crypt_data->rotate_state.max_offset) {
+      break;  // the space is already being processed and there are no more
+              // pages to rotate
     }
 
     crypt_data->rotate_state.scrubbing.is_active =
@@ -3308,7 +3345,9 @@ redo_log_key *redo_log_keys::load_latest_key(THD *thd, bool generate) {
   char *key_type = nullptr;
   byte *rkey = nullptr;
 
-  if (my_key_fetch(PERCONA_REDO_KEY_NAME, &key_type, nullptr,
+  std::string key_name = get_key_name(server_uuid);
+
+  if (my_key_fetch(key_name.c_str(), &key_type, nullptr,
                    reinterpret_cast<void **>(&rkey), &klen) ||
       rkey == nullptr || strncmp(key_type, "AES", 4) != 0) {
     /* There is no key yet, we'll try to generate one */
@@ -3352,7 +3391,8 @@ redo_log_key *redo_log_keys::load_latest_key(THD *thd, bool generate) {
   return rk;
 }
 
-redo_log_key *redo_log_keys::load_key_version(THD *thd, uint version) {
+redo_log_key *redo_log_keys::load_key_version(THD *thd, const char *uuid,
+                                              uint version) {
   auto it = m_keys.find(version);
 
   if (it != m_keys.end() && it->second.present) {
@@ -3363,9 +3403,9 @@ redo_log_key *redo_log_keys::load_key_version(THD *thd, uint version) {
   char *key_type = nullptr;
   byte *rkey = nullptr;
 
-  std::ostringstream percona_redo_with_ver_ss;
-  percona_redo_with_ver_ss << PERCONA_REDO_KEY_NAME << ':' << version;
-  if (my_key_fetch(percona_redo_with_ver_ss.str().c_str(), &key_type, nullptr,
+  std::string redo_key_with_ver{get_key_name(
+      version != REDO_LOG_ENCRYPT_NO_VERSION ? uuid : "", version)};
+  if (my_key_fetch(redo_key_with_ver.c_str(), &key_type, nullptr,
                    reinterpret_cast<void **>(&rkey), &klen) ||
       rkey == nullptr || strncmp(key_type, "AES", 4) != 0) {
     my_free(rkey);
@@ -3391,9 +3431,28 @@ redo_log_key *redo_log_keys::load_key_version(THD *thd, uint version) {
   return rk;
 }
 
+std::string redo_log_keys::get_key_name(const char *uuid, uint key_version) {
+  std::ostringstream oss;
+  get_key_name(oss, uuid);
+  oss << ":" << key_version;
+  return oss.str();
+}
+
+std::string redo_log_keys::get_key_name(const char *uuid) {
+  std::ostringstream oss;
+  get_key_name(oss, uuid);
+  return oss.str();
+}
+
+void redo_log_keys::get_key_name(std::ostringstream &oss, const char *uuid) {
+  oss << PERCONA_REDO_KEY_NAME;
+  if (strlen(uuid) > 0) oss << '-' << uuid;
+}
+
 redo_log_key *redo_log_keys::generate_and_store_new_key(THD *thd) {
-  if (my_key_generate(PERCONA_REDO_KEY_NAME, "AES", nullptr,
-                      Encryption::KEY_LEN)) {
+  std::string key_name = get_key_name(server_uuid);
+
+  if (my_key_generate(key_name.c_str(), "AES", nullptr, Encryption::KEY_LEN)) {
     ib::error(ER_REDO_ENCRYPTION_CANT_GENERATE_KEY);
     if (thd) {
       ib_senderrf(thd, IB_LOG_LEVEL_WARN,
@@ -3406,7 +3465,7 @@ redo_log_key *redo_log_keys::generate_and_store_new_key(THD *thd) {
   byte *rkey = nullptr;
   size_t klen = 0;
 
-  if (my_key_fetch(PERCONA_REDO_KEY_NAME, &redo_key_type, nullptr,
+  if (my_key_fetch(key_name.c_str(), &redo_key_type, nullptr,
                    reinterpret_cast<void **>(&rkey), &klen)) {
     ib::error(ER_REDO_ENCRYPTION_CANT_FETCH_KEY);
     if (thd) {
@@ -3450,39 +3509,53 @@ redo_log_key *redo_log_keys::generate_and_store_new_key(THD *thd) {
   return rk;
 }
 
-redo_log_key *redo_log_keys::generate_new_key_without_storing() {
+redo_log_key *redo_log_keys::fetch_or_generate_default_key(THD *thd) {
   ut_ad(m_keys.empty());
+  std::string default_key_name{get_key_name("", 0)};
+  ut_ad(strlen(server_uuid) != 0);
+  ut_ad(default_key_name.length() == strlen("percona_redo:0") &&
+        memcmp(default_key_name.c_str(), "percona_redo:0",
+               default_key_name.length()) == 0);
+
+  char *default_redo_key_type = nullptr;
+  byte *default_rkey = nullptr;
+  size_t default_klen = 0;
+
+  if (my_key_fetch(default_key_name.c_str(), &default_redo_key_type, nullptr,
+                   reinterpret_cast<void **>(&default_rkey), &default_klen)) {
+    ib::error(ER_REDO_ENCRYPTION_CANT_FETCH_DEFAULT_KEY);
+    if (thd != nullptr) {
+      ib_senderrf(thd, IB_LOG_LEVEL_WARN,
+                  ER_REDO_ENCRYPTION_CANT_FETCH_DEFAULT_KEY);
+    }
+    my_free(default_redo_key_type);
+    my_free(default_rkey);
+    return nullptr;
+  }
+
+  if (default_rkey != nullptr) {
+    redo_log_key *rk = &m_keys[0];
+    rk->version = 0;
+    memcpy(rk->key, default_rkey, Encryption::KEY_LEN);
+    rk->present = true;
+    my_free(default_redo_key_type);
+    my_free(default_rkey);
+    return rk;
+  }
+
+  // we use store instead of generate because we want to store system key
+  // with illegal version - percona_redo:0.
   Encryption::random_value(reinterpret_cast<byte *>(&m_keys[0].key));
-  return &m_keys[0];
-}
 
-bool redo_log_keys::store_used_keys() noexcept {
-  /* This is a for loop, but it really only should store a key with current
-  version 0 */
-  for (const auto &item : m_keys) {
-    if (!item.second.persisted()) {
-      ut_ad(item.first == 0);
-      if (my_key_store(PERCONA_REDO_KEY_NAME, "AES", nullptr, item.second.key,
-                       Encryption::KEY_LEN)) {
-        return false;
-      }
-    }
+  if (my_key_store(default_key_name.c_str(), "AES", nullptr, m_keys[0].key,
+                   Encryption::KEY_LEN)) {
+    return nullptr;
   }
 
-  return true;
-}
-
-void redo_log_keys::unload_old_keys() noexcept {
-  if (m_keys.size() == 0) {
-    return;
-  }
-  redo_log_key *last = &(--m_keys.end())->second;
-  for (auto &item : m_keys) {
-    if (&item.second != last) {
-      item.second.present = false;
-      memset(item.second.key, 0, Encryption::KEY_LEN);
-    }
-  }
+  redo_log_key *rk = &m_keys[0];
+  rk->version = 0;
+  rk->present = true;
+  return rk;
 }
 
 redo_log_keys redo_log_key_mgr;
