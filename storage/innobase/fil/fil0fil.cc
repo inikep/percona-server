@@ -36,6 +36,8 @@ The tablespace memory cache */
 #include <sys/types.h>
 #include <scope_guard.h>
 
+#include "mysqld.h"  // server_uuid
+
 #include "arch0page.h"
 #include "btr0btr.h"
 #include "buf0buf.h"
@@ -8242,7 +8244,8 @@ inline void fil_io_set_keyring_encryption(IORequest &req_type,
     // version needed to decrypt tablespace - we will find this version in
     // decrypt and retrieve needed version.
     if (space->crypt_data->min_key_version !=
-        ENCRYPTION_KEY_VERSION_NOT_ENCRYPTED) {
+            ENCRYPTION_KEY_VERSION_NOT_ENCRYPTED &&
+        space->crypt_data->encryption != FIL_ENCRYPTION_OFF) {
       key = space->crypt_data->get_min_key_version_key();
       memcpy(key_min, key, 32);
       set_min_key_version = true;
