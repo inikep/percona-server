@@ -8402,6 +8402,7 @@ bool handler::is_using_prohibited_gap_locks(TABLE *table,
       table->s->table_category != TABLE_CATEGORY_DICTIONARY &&
       !thd->is_system_thread() && ht && ht->db_type == DB_TYPE_ROCKSDB &&
       thd_tx_isolation(thd) >= ISO_REPEATABLE_READ && !thd->rli_slave &&
+      !is_acl_ddl_query(thd->lex->sql_command) &&
       (thd->lex->table_count >= 2 || thd->in_multi_stmt_transaction_mode()) &&
       can_hold_locks_on_trans(thd, lock_type) &&
       thd->lex->sql_command != SQLCOM_ALTER_TABLE &&
