@@ -56,6 +56,7 @@
 #include "sql/sql_class.h"
 #include "sql/sql_lex.h"
 #include "sql/sql_table.h"
+#include "sql/sql_thd_internal_api.h"
 
 /* RocksDB includes */
 #include "monitoring/histogram.h"
@@ -815,7 +816,7 @@ static void rocksdb_set_rocksdb_info_log_level(
   RDB_MUTEX_LOCK_CHECK(rdb_sysvars_mutex);
   rocksdb_info_log_level = *static_cast<const uint64_t *>(save);
   rocksdb_db_options->info_log->SetInfoLogLevel(
-      static_cast<const rocksdb::InfoLogLevel>(rocksdb_info_log_level));
+      static_cast<rocksdb::InfoLogLevel>(rocksdb_info_log_level));
   RDB_MUTEX_UNLOCK_CHECK(rdb_sysvars_mutex);
 }
 
@@ -827,8 +828,7 @@ static void rocksdb_set_rocksdb_stats_level(
 
   RDB_MUTEX_LOCK_CHECK(rdb_sysvars_mutex);
   rocksdb_db_options->statistics->set_stats_level(
-      static_cast<const rocksdb::StatsLevel>(
-          *static_cast<const uint64_t *>(save)));
+      static_cast<rocksdb::StatsLevel>(*static_cast<const uint64_t *>(save)));
   // Actual stats level is defined at rocksdb dbopt::statistics::stats_level_
   // so adjusting rocksdb_stats_level here to make sure it points to
   // the correct stats level.
@@ -8034,7 +8034,7 @@ int ha_rocksdb::read_row_from_secondary_key(uchar *const buf,
                                             const Rdb_key_def &kd,
                                             bool move_forward) {
   int rc = 0;
-  uint pk_size;
+  uint pk_size = 0;
 
   /* Get the key columns and primary key value */
   const rocksdb::Slice &rkey = m_scan_it->key();
@@ -9251,8 +9251,8 @@ bool ha_rocksdb::do_bulk_commit(Rdb_transaction *const tx) {
   does not contain a primary key. (In which case we generate a hidden
   'auto-incremented' pk.)
 */
-bool ha_rocksdb::has_hidden_pk(const TABLE *const table) const {
-  return Rdb_key_def::table_has_hidden_pk(table);
+bool ha_rocksdb::has_hidden_pk(const TABLE *const tabl) const {
+  return Rdb_key_def::table_has_hidden_pk(tabl);
 }
 
 /*
@@ -11075,7 +11075,7 @@ void ha_rocksdb::update_table_stats_if_needed() {
   uint64 n_rows = m_tbl_def->m_tbl_stats.m_stat_n_rows;
 
   if (counter > std::max(rocksdb_table_stats_recalc_threshold_count,
-                         static_cast<uint64>(
+                         static_cast<unsigned long long>(
                              n_rows * rocksdb_table_stats_recalc_threshold_pct /
                              100.0))) {
     // Add the table to the recalc queue
