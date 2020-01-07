@@ -30,6 +30,7 @@
 #include <mutex>  // std::adopt_lock_t
 #include <vector>
 
+#undef ZSTD  // defined in storage/rocksdb/CMakeLists.txt
 #include "map_helpers.h"
 #include "my_dbug.h"
 #include "my_thread_local.h"

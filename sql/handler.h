@@ -4708,7 +4708,8 @@ class handler {
   std::mt19937 *m_random_number_engine{nullptr};
   double m_sampling_percentage;
 
- private:
+  /* TODO(yzha) - we needed these to be public for MYSQL_TABLE_IO_WAIT */
+ public:
   /** Internal state of the batch instrumentation. */
   enum batch_mode_t {
     /** Batch mode not used. */
@@ -4892,6 +4893,8 @@ class handler {
   bool ha_is_record_buffer_wanted(ha_rows *const max_rows) const {
     return is_record_buffer_wanted(max_rows);
   }
+
+  virtual bool init_with_fields() { return false; }
 
   int ha_open(TABLE *table, const char *name, int mode, int test_if_locked,
               const dd::Table *table_def);
@@ -7753,5 +7756,67 @@ class Regex_list_handler {
 
 void warn_about_bad_patterns(const Regex_list_handler *regex_list_handler,
                              const char *name);
+
+std::unordered_set<std::string> split_into_set(const std::string &input,
+                                               char delimiter);
+std::vector<std::string> split_into_vector(const std::string &input,
+                                           char delimiter);
+/**
+  @def MYSQL_TABLE_IO_WAIT
+  Instrumentation helper for table io_waits.
+  Note that this helper is intended to be used from
+  within the handler class only, as it uses members
+  from @c handler
+  Performance schema events are instrumented as follows:
+  - in non batch mode, one event is generated per call
+  - in batch mode, the number of rows affected is saved
+  in @c m_psi_numrows, so that @c end_psi_batch_mode()
+  generates a single event for the batch.
+  @param OP the table operation to be performed
+  @param INDEX the table index used if any, or MAX_KEY.
+  @param RESULT the result of the table operation performed
+  @param PAYLOAD instrumented code to execute
+  @sa handler::end_psi_batch_mode.
+*/
+#ifdef HAVE_PSI_TABLE_INTERFACE
+#define MYSQL_TABLE_IO_WAIT(OP, INDEX, RESULT, PAYLOAD)                     \
+  {                                                                         \
+    if (m_psi != NULL) {                                                    \
+      switch (m_psi_batch_mode) {                                           \
+        case PSI_BATCH_MODE_NONE: {                                         \
+          PSI_table_locker *sub_locker = NULL;                              \
+          PSI_table_locker_state reentrant_safe_state;                      \
+          reentrant_safe_state.m_thread = nullptr;                          \
+          reentrant_safe_state.m_wait = nullptr;                            \
+          sub_locker = PSI_TABLE_CALL(start_table_io_wait)(                 \
+              &reentrant_safe_state, m_psi, OP, INDEX, __FILE__, __LINE__); \
+          PAYLOAD                                                           \
+          if (sub_locker != NULL) PSI_TABLE_CALL(end_table_io_wait)         \
+          (sub_locker, 1);                                                  \
+          break;                                                            \
+        }                                                                   \
+        case PSI_BATCH_MODE_STARTING: {                                     \
+          m_psi_locker = PSI_TABLE_CALL(start_table_io_wait)(               \
+              &m_psi_locker_state, m_psi, OP, INDEX, __FILE__, __LINE__);   \
+          PAYLOAD                                                           \
+          if (RESULT != HA_ERR_END_OF_FILE) m_psi_numrows++;                \
+          m_psi_batch_mode = PSI_BATCH_MODE_STARTED;                        \
+          break;                                                            \
+        }                                                                   \
+        case PSI_BATCH_MODE_STARTED:                                        \
+        default: {                                                          \
+          assert(m_psi_batch_mode == PSI_BATCH_MODE_STARTED);               \
+          PAYLOAD                                                           \
+          if (RESULT != HA_ERR_END_OF_FILE) m_psi_numrows++;                \
+          break;                                                            \
+        }                                                                   \
+      }                                                                     \
+    } else {                                                                \
+      PAYLOAD                                                               \
+    }                                                                       \
+  }
+#else
+#define MYSQL_TABLE_IO_WAIT(OP, INDEX, RESULT, PAYLOAD) PAYLOAD
+#endif
 
 #endif /* HANDLER_INCLUDED */
