@@ -7786,6 +7786,28 @@ static Sys_var_uint Sys_immediate_server_version(
     BLOCK_SIZE(1), NO_MUTEX_GUARD, IN_BINLOG,
     ON_CHECK(check_session_admin_or_replication_applier));
 
+static bool check_set_default_table_encryption_exclusions(THD *thd,
+                                                          set_var *var) {
+  longlong val = static_cast<longlong>(var->save_result.ulonglong_value);
+
+  if (val == DEFAULT_TABLE_ENC_ONLINE_TO_KEYRING ||
+      val == DEFAULT_TABLE_ENC_ONLINE_FROM_KEYRING_TO_UNENCRYPTED) {
+    static const LEX_CSTRING innodb_engine{STRING_WITH_LEN("innodb")};
+
+    bool is_online_enc_disallowed = false;
+
+    plugin_ref plugin;
+    if ((plugin = ha_resolve_by_name(nullptr, &innodb_engine, false))) {
+      handlerton *hton = plugin_data<handlerton *>(plugin);
+      is_online_enc_disallowed = hton->check_mk_keyring_exclusions(thd, val);
+      plugin_unlock(nullptr, plugin);
+    }
+
+    if (is_online_enc_disallowed) return true;
+  }
+  return false;
+}
+
 static bool check_set_default_table_encryption_access(sys_var *self
                                                       [[maybe_unused]],
                                                       THD *thd, set_var *var) {
@@ -7821,6 +7843,12 @@ static bool check_set_default_table_encryption_access(sys_var *self
   return true;
 }
 
+static bool check_set_default_table_encryption(sys_var *self [[maybe_unused]],
+                                               THD *thd, set_var *var) {
+  return check_set_default_table_encryption_access(self, thd, var) ||
+         check_set_default_table_encryption_exclusions(thd, var);
+}
+
 static const char *default_table_encryption_type_names[] = {
     "OFF", "ON", "ONLINE_TO_KEYRING", "ONLINE_FROM_KEYRING_TO_UNENCRYPTED",
     nullptr};
@@ -7846,8 +7874,7 @@ static Sys_var_enum_default_table_encryption Sys_default_table_encryption(
     "unless the user specifies an explicit encryption property.",
     HINT_UPDATEABLE SESSION_VAR(default_table_encryption), CMD_LINE(OPT_ARG),
     default_table_encryption_type_names, DEFAULT(DEFAULT_TABLE_ENC_OFF),
-    NO_MUTEX_GUARD, IN_BINLOG,
-    ON_CHECK(check_set_default_table_encryption_access));
+    NO_MUTEX_GUARD, IN_BINLOG, ON_CHECK(check_set_default_table_encryption));
 
 static bool check_set_table_encryption_privilege_access(sys_var *, THD *thd,
                                                         set_var *) {
@@ -8089,5 +8116,5 @@ static Sys_var_ulonglong Sys_var_buffered_error_log_size(
     ON_UPDATE(buffered_error_log_size_update));
 
 #ifndef NDEBUG
-    Debug_shutdown_actions Debug_shutdown_actions::instance;
+Debug_shutdown_actions Debug_shutdown_actions::instance;
 #endif
