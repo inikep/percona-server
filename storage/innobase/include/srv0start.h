@@ -266,4 +266,9 @@ bool srv_shutdown_state_matches(F &&f) {
   return std::forward<F>(f)(state);
 }
 
+/** check if there is no encryption conflicts when setting
+either Master Key or Keyring encryption for undo */
+dberr_t check_mk_and_keyring_encrypt_exclusion_for_undo(
+    bool should_acquire_space, THD *thd);
+
 #endif
