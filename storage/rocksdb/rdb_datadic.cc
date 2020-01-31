@@ -1186,11 +1186,11 @@ bool Rdb_key_def::can_cover_lookup() const {
   return true;
 }
 
-uchar *Rdb_key_def::pack_field(Field *const field, Rdb_field_packing *pack_info,
-                               uchar *tuple, uchar *const packed_tuple,
-                               uchar *const pack_buffer,
-                               Rdb_string_writer *const unpack_info,
-                               uint *const n_null_fields) const {
+uchar *Rdb_key_def::pack_field(
+    Field *const field, Rdb_field_packing *pack_info, uchar *tuple,
+    uchar *const packed_tuple MY_ATTRIBUTE((__unused__)),
+    uchar *const pack_buffer, Rdb_string_writer *const unpack_info,
+    uint *const n_null_fields) const {
   if (field->real_maybe_null()) {
     DBUG_ASSERT(is_storage_available(tuple - packed_tuple, 1));
     if (field->is_real_null()) {
@@ -1855,7 +1855,7 @@ int Rdb_key_def::skip_variable_space_pad(const Rdb_field_packing *const fpi,
 */
 template <int length>
 void Rdb_key_def::pack_integer(
-    Rdb_field_packing *const fpi, Field *const field,
+    Rdb_field_packing *const fpi MY_ATTRIBUTE((__unused__)), Field *const field,
     uchar *buf MY_ATTRIBUTE((__unused__)), uchar **dst,
     Rdb_pack_field_context *const pack_ctx MY_ATTRIBUTE((__unused__))) {
   DBUG_ASSERT(fpi != nullptr);
@@ -1898,7 +1898,7 @@ void Rdb_key_def::pack_integer(
 
 template <int length>
 void Rdb_key_def::pack_unsigned(
-    Rdb_field_packing *const fpi, Field *const field,
+    Rdb_field_packing *const fpi MY_ATTRIBUTE((__unused__)), Field *const field,
     uchar *buf MY_ATTRIBUTE((__unused__)), uchar **dst,
     Rdb_pack_field_context *const pack_ctx MY_ATTRIBUTE((__unused__))) {
   DBUG_ASSERT(fpi != nullptr);
@@ -1924,8 +1924,8 @@ void Rdb_key_def::pack_unsigned(
 
 template <int length>
 int Rdb_key_def::unpack_integer(
-    Rdb_field_packing *const fpi, Field *const field, uchar *const to,
-    Rdb_string_reader *const reader,
+    Rdb_field_packing *const fpi MY_ATTRIBUTE((__unused__)), Field *const field,
+    uchar *const to, Rdb_string_reader *const reader,
     Rdb_string_reader *const unp_reader MY_ATTRIBUTE((__unused__))) {
   DBUG_ASSERT(length == fpi->m_max_image_len);
 
@@ -1963,7 +1963,8 @@ int Rdb_key_def::unpack_integer(
 
 template <int length>
 int Rdb_key_def::unpack_unsigned(
-    Rdb_field_packing *const fpi, Field *const field, uchar *const to,
+    Rdb_field_packing *const fpi MY_ATTRIBUTE((__unused__)),
+    Field *const field MY_ATTRIBUTE((__unused__)), uchar *const to,
     Rdb_string_reader *const reader,
     Rdb_string_reader *const unp_reader MY_ATTRIBUTE((__unused__))) {
   DBUG_ASSERT(length == fpi->m_max_image_len);
@@ -2274,8 +2275,9 @@ void Rdb_key_def::pack_float(
   allowed in the database.
 */
 int Rdb_key_def::unpack_float(
-    Rdb_field_packing *const fpi, Field *const field MY_ATTRIBUTE((__unused__)),
-    uchar *const field_ptr, Rdb_string_reader *const reader,
+    Rdb_field_packing *const fpi MY_ATTRIBUTE((__unused__)),
+    Field *const field MY_ATTRIBUTE((__unused__)), uchar *const field_ptr,
+    Rdb_string_reader *const reader,
     Rdb_string_reader *const unp_reader MY_ATTRIBUTE((__unused__))) {
   static float zero_val = 0.0;
   static const uchar zero_pattern[4] = {128, 0, 0, 0};
@@ -2318,8 +2320,9 @@ void Rdb_key_def::pack_newdate(
 */
 
 int Rdb_key_def::unpack_newdate(
-    Rdb_field_packing *const fpi, Field *const field MY_ATTRIBUTE((__unused__)),
-    uchar *const field_ptr, Rdb_string_reader *const reader,
+    Rdb_field_packing *const fpi MY_ATTRIBUTE((__unused__)),
+    Field *const field MY_ATTRIBUTE((__unused__)), uchar *const field_ptr,
+    Rdb_string_reader *const reader,
     Rdb_string_reader *const unp_reader MY_ATTRIBUTE((__unused__))) {
   const char *from;
   DBUG_ASSERT(fpi->m_max_image_len == 3);
@@ -2399,8 +2402,8 @@ void Rdb_key_def::pack_binary_str(
 */
 
 int Rdb_key_def::unpack_binary_str(
-    Rdb_field_packing *const fpi, Field *const field, uchar *const to,
-    Rdb_string_reader *const reader,
+    Rdb_field_packing *const fpi, Field *const field MY_ATTRIBUTE((__unused__)),
+    uchar *const to, Rdb_string_reader *const reader,
     Rdb_string_reader *const unp_reader MY_ATTRIBUTE((__unused__))) {
   const char *from;
   if (!(from = reader->read(fpi->m_max_image_len))) {
@@ -4405,8 +4408,8 @@ int Rdb_validate_tbls::add_table(Rdb_tbl_def *tdef) {
   Scan the datadir for all databases (subdirectories) and get a list of .frm
   files they contain
 */
-bool Rdb_validate_tbls::compare_to_actual_tables(const std::string &datadir,
-                                                 bool *has_errors) {
+bool Rdb_validate_tbls::compare_to_actual_tables(
+    const std::string &datadir, bool *has_errors MY_ATTRIBUTE((unused))) {
   bool result = true;
   struct MY_DIR *dir_info;
   struct fileinfo *file_info;
@@ -5928,7 +5931,8 @@ void Rdb_dict_manager::log_start_drop_table(
 }
 
 void Rdb_dict_manager::log_start_drop_index(GL_INDEX_ID gl_index_id,
-                                            const char *log_action) const {
+                                            const char *log_action
+                                                MY_ATTRIBUTE((unused))) const {
   struct Rdb_index_info index_info;
   if (!get_index_info(gl_index_id, &index_info)) {
     /*
