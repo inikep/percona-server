@@ -4885,6 +4885,22 @@ int Query_log_event::do_apply_event(Relay_log_info const *rli,
 
         dispatch_sql_command(thd, &parser_state);
 
+        if (rpl_skip_tx_api &&
+            sqlcom_can_generate_row_events(thd->lex->sql_command) &&
+            thd->get_row_count_func() > 0) {
+          /* At this point we know that the master's binlog_format is NOT ROW
+             because we received a Query_log_event which generated rows.
+             If master's binlog format was ROW all row generating events would
+             be sent as Row_log_events */
+          rli->report(ERROR_LEVEL, ER_MTA_INCONSISTENT_DATA,
+                      "Master's binlog format is not ROW but %s is enabled on "
+                      "the slave, this should only be used when master's "
+                      "binlog format is ROW.",
+                      "rpl_skip_tx_api");
+          thd->is_slave_error = 1;
+          goto end;
+        }
+
         enum_sql_command command = thd->lex->sql_command;
 
         /*

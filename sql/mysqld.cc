@@ -1385,6 +1385,7 @@ ulong binlog_cache_use = 0, binlog_cache_disk_use = 0;
 ulong binlog_stmt_cache_use = 0, binlog_stmt_cache_disk_use = 0;
 ulong max_connections, max_connect_errors;
 ulong rpl_stop_replica_timeout = LONG_TIMEOUT;
+bool rpl_skip_tx_api = false;
 bool thread_cache_size_specified = false;
 bool host_cache_size_specified = false;
 bool table_definition_cache_specified = false;
