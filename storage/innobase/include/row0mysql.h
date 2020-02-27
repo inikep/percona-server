@@ -482,7 +482,7 @@ inline dberr_t row_drop_table_for_mysql(const char *name, trx_t *trx) {
 
 /** Discards the tablespace of a table which stored in an .ibd file. Discarding
  means that this function deletes the .ibd file and assigns a new table id for
- the table. Also the flag table->file_unreadable is set TRUE.
+ the table. Also the flag table->ibd_file_missing is set TRUE.
  @return error code or DB_SUCCESS */
 dberr_t row_discard_tablespace_for_mysql(
     const char *name, /*!< in: table name */
@@ -1030,7 +1030,6 @@ struct SysIndexCallback {
                                 or NULL.
 @param[in]	parent_update	update vector for the parent row
 @param[in]	foreign		foreign key information
-@param[in]	prebuilt	compress_heap must be taken from here
 @return the field filled with computed value, or NULL if just want
 to store the value in passed in "my_rec" */
 dfield_t *innobase_get_computed_value(
