@@ -204,7 +204,7 @@ static inline buf_block_t *btr_block_get_func(const page_id_t &page_id,
 @param page_size Page size
 @param mode Latch mode
 @param index Index tree, may be NULL if not the insert buffer tree
-@param mtr Mini-transaction handl
+@param mtr Mini-transaction handle
 @return the uncompressed page frame */
 #define btr_page_get(page_id, page_size, mode, index, mtr) \
   buf_block_get_frame(btr_block_get(page_id, page_size, mode, index, mtr))
