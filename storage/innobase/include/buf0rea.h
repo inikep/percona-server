@@ -67,8 +67,8 @@ ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
 buffer buf_pool if it is not already there. Sets the io_fix flag and sets
 an exclusive lock on the buffer frame. The flag is cleared and the x-lock
 released by the i/o-handler thread.
-@param[in]  page_id     page id
-@param[in]  page_size   page size
+@param[in]	page_id		page id
+@param[in]	page_size	page size
 @return true if page has been read in, false in case of failure */
 bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
                    trx_t *trx);

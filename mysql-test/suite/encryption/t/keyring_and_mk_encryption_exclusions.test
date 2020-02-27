@@ -145,6 +145,7 @@ SET DEBUG_SYNC = 'now SIGNAL go_alter_encryption_to_y';
 
 --connection con1
 SET GLOBAL debug="-d,hang_on_ts_hang_rotation";
+SET GLOBAL innodb_encryption_threads=0;
 DROP TABLESPACE ts_hang;
 
 --echo # Now check when TABLESPACE ENCRYPTION is ALTERED to 'N' while encryption threads start to process
@@ -179,6 +180,7 @@ SET DEBUG_SYNC = 'now SIGNAL go_alter_encryption_to_n';
 
 --connection con1
 SET GLOBAL debug="-d,hang_on_ts_hang_rotation";
+SET GLOBAL innodb_encryption_threads=0;
 DROP TABLESPACE ts_hang;
 
 --echo # Here we check that encryption threads are dissallowed from running on a tablespace for which
@@ -353,6 +355,7 @@ EOF
 --source include/search_pattern_in_file.inc
 
 --remove_file $BOOT_LOG
+--exec rm $MYSQLD_DATADIR1/*
 
 --echo # It should not be possible to bootstrap server with encryption threads turned ON and
 --echo # innodb-sys-tablespace-encrypt=RE_ENCRYPTING_TO_KEYRING as this option does not make sense.
@@ -367,6 +370,9 @@ EOF
 --let ABORT_ON=NOT_FOUND
 --let SEARCH_FILE=$BOOT_LOG
 --source include/search_pattern_in_file.inc
+
+--remove_file $BOOT_LOG
+--exec rm $MYSQLD_DATADIR1/*
 
 --let BOOTSTRAP_CMD = $MYSQLD_CMD --initialize-insecure --basedir=$MYSQLD_BASEDIR --datadir=$MYSQLD_DATADIR1 --init-file=$BOOTSTRAP_SQL --innodb-sys-tablespace-encrypt=ON --default-table-encryption=OFF $KEYRING_PLUGIN_OPT $KEYRING_PLUGIN_EARLY_LOAD $KEYRING_DATA > $BOOT_LOG 2>&1
 
