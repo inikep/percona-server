@@ -198,9 +198,6 @@ enum dberr_t {
   /** Page was discarded, was not written to storage. */
   DB_PAGE_IS_STALE,
 
-  DB_PAGE_CORRUPTED = 999, /*!< Page read from tablespace is
-                           corrupted. */
-
   /* The following are partial failure codes */
 
   DB_FAIL = 1000,
