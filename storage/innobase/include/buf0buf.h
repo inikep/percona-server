@@ -451,8 +451,7 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
                               const page_size_t &page_size, ulint rw_latch,
                               buf_block_t *guess, Page_fetch mode,
                               const char *file, ulint line, mtr_t *mtr,
-                              bool dirty_with_no_latch = false,
-                              dberr_t *err = nullptr);
+                              bool dirty_with_no_latch = false);
 
 /** Initializes a page to the buffer buf_pool. The page is usually not read
 from a file even if it cannot be found in the buffer buf_pool. This is one
@@ -979,8 +978,7 @@ the buffer pool.
 @param[in]	bpage	pointer to the block in question
 @param[in]	evict	whether or not to evict the page from LRU list
 @return true if successful */
-dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict);
-
+bool buf_page_io_complete(buf_page_t *bpage, bool evict);
 /** Calculates the index of a buffer pool to the buf_pool[] array.
  @return the position of the buffer pool in buf_pool[] */
 UNIV_INLINE
