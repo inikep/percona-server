@@ -207,7 +207,7 @@ buf_block_t *btr_block_get_func(const page_id_t &page_id,
 @param page_size Page size
 @param mode Latch mode
 @param index Index tree, may be NULL if not the insert buffer tree
-@param mtr Mini-transaction handl
+@param mtr Mini-transaction handle
 @return the uncompressed page frame */
 #define btr_page_get(page_id, page_size, mode, index, mtr) \
   buf_block_get_frame(btr_block_get(page_id, page_size, mode, index, mtr))
@@ -546,8 +546,8 @@ ibool btr_index_rec_validate(const rec_t *rec,          /*!< in: index record */
                                                   record and page on error */
     MY_ATTRIBUTE((warn_unused_result));
 /** Checks the consistency of an index tree.
-@return	DB_SUCCESS if ok, error code if not */
-dberr_t btr_validate_index(
+@return	true if ok, error code if not */
+bool btr_validate_index(
     dict_index_t *index, /*!< in: index */
     const trx_t *trx,    /*!< in: transaction or 0 */
     bool lockout)        /*!< in: true if X-latch index is intended */
