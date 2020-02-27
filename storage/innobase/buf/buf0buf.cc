@@ -3952,7 +3952,6 @@ dberr_t Buf_fetch<T>::check_state(buf_block_t *&block) {
 template <typename T>
 void Buf_fetch<T>::read_page() {
   bool success{};
-
   auto sync = m_mode != Page_fetch::SCAN;
 
   if (sync) {
@@ -4150,9 +4149,7 @@ buf_block_t *Buf_fetch<T>::single_page() {
   Counter::inc(m_buf_pool->stat.m_n_page_gets, m_page_id.page_no());
 
   for (;;) {
-    dberr_t error = static_cast<T *>(this)->get(block);
-    if (error == DB_NOT_FOUND ||
-        (error == DB_IO_DECRYPT_FAIL && block == nullptr)) {
+    if (static_cast<T *>(this)->get(block) == DB_NOT_FOUND) {
       return (nullptr);
     }
     ut_a(!block->page.was_stale());
@@ -4303,7 +4300,7 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
                               const page_size_t &page_size, ulint rw_latch,
                               buf_block_t *guess, Page_fetch mode,
                               const char *file, ulint line, mtr_t *mtr,
-                              bool dirty_with_no_latch, dberr_t *err) {
+                              bool dirty_with_no_latch) {
 #ifdef UNIV_DEBUG
   ut_ad(mtr->is_active());
 

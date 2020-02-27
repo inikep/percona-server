@@ -448,8 +448,7 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
                               const page_size_t &page_size, ulint rw_latch,
                               buf_block_t *guess, Page_fetch mode,
                               const char *file, ulint line, mtr_t *mtr,
-                              bool dirty_with_no_latch = false,
-                              dberr_t *err = nullptr);
+                              bool dirty_with_no_latch = false);
 
 /** Initializes a page to the buffer buf_pool. The page is usually not read
 from a file even if it cannot be found in the buffer buf_pool. This is one
