@@ -3200,6 +3200,7 @@ static void srv_master_main_loop(srv_slot_t *slot) {
     if (!clone_mark_wait()) {
       continue;
     }
+
     /* Allow any blocking clone to progress. */
     clone_mark_free();
 
