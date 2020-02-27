@@ -1662,6 +1662,10 @@ static byte *recv_parse_or_apply_log_rec_body(
                             Encryption::MAGIC_SIZE) == 0 &&
                      !recv_sys->apply_log_recs) {
             return (fil_parse_write_crypt_data_v2(space_id, ptr, end_ptr, len));
+          } else if (memcmp(ptr_copy, Encryption::KEY_MAGIC_PS_V3,
+                            Encryption::MAGIC_SIZE) == 0 &&
+                     !recv_sys->apply_log_recs) {
+            return (fil_parse_write_crypt_data_v3(space_id, ptr, end_ptr, len));
           }
 
           if (fsp_is_system_or_temp_tablespace(space_id)) {
@@ -2383,12 +2387,6 @@ void recv_recover_page_func(
 #endif /* !UNIV_HOTBACKUP */
     buf_block_t *block) {
   mutex_enter(&recv_sys->mutex);
-
-  if (block->page.encrypted) {
-    recv_sys->found_corrupt_log = true;
-    mutex_exit(&recv_sys->mutex);
-    return;
-  }
 
   if (recv_sys->apply_log_recs == false) {
     /* Log records should not be applied now */
