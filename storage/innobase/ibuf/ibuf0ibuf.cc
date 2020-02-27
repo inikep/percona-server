@@ -743,9 +743,9 @@ static page_t *ibuf_bitmap_get_map_page_func(const page_id_t &page_id,
                                              mtr_t *mtr) {
   buf_block_t *block;
 
-  block = buf_page_get_gen(ibuf_bitmap_page_no_calc(page_id, page_size),
-                           page_size, RW_X_LATCH, nullptr, Page_fetch::NORMAL,
-                           file, line, mtr);
+  block =
+      buf_page_get_gen(ibuf_bitmap_page_no_calc(page_id, page_size), page_size,
+                       RW_X_LATCH, nullptr, Page_fetch::NORMAL, file, line, mtr);
 
   buf_block_dbg_add_level(block, SYNC_IBUF_BITMAP);
 
