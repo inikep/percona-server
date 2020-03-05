@@ -7553,3 +7553,7 @@ static Sys_var_bool Sys_skip_slave_start(
     READ_ONLY GLOBAL_VAR(opt_skip_slave_start), CMD_LINE(OPT_ARG),
     DEFAULT(false), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr),
     ON_UPDATE(nullptr));
+
+#ifndef NDEBUG
+Debug_shutdown_actions Debug_shutdown_actions::instance;
+#endif
