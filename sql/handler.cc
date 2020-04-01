@@ -8399,7 +8399,7 @@ bool handler::is_using_prohibited_gap_locks(TABLE *table,
   thr_lock_type lock_type = table->reginfo.lock_type;
 
   if (!using_full_primary_key &&
-      table->s->table_category != TABLE_CATEGORY_DICTIONARY &&
+      table->s->table_category == TABLE_CATEGORY_USER &&
       !thd->is_system_thread() && ht && ht->db_type == DB_TYPE_ROCKSDB &&
       thd_tx_isolation(thd) >= ISO_REPEATABLE_READ && !thd->rli_slave &&
       !is_acl_ddl_query(thd->lex->sql_command) &&
