@@ -6487,6 +6487,8 @@ void ha_rocksdb::free_key_buffers() {
 
   my_free(m_scan_it_upper_bound);
   m_scan_it_upper_bound = nullptr;
+
+  release_blob_buffer();
 }
 
 /**
@@ -14926,6 +14928,37 @@ static void rocksdb_set_update_cf_options(
 }
 
 void rdb_queue_save_stats_request() { rdb_bg_thread.request_save_stats(); }
+
+uchar *ha_rocksdb::get_blob_buffer(uint current_size) {
+  auto output = m_blob_buffer_current;
+  m_blob_buffer_current = m_blob_buffer_current + current_size;
+  DBUG_ASSERT((m_blob_buffer_current - m_blob_buffer_start) <=
+              m_total_blob_buffer_allocated);
+  return output;
+}
+
+bool ha_rocksdb::reset_blob_buffer(uint total_size) {
+  if (m_blob_buffer_start == nullptr) {
+    m_blob_buffer_start = reinterpret_cast<uchar *>(
+        my_malloc(PSI_NOT_INSTRUMENTED, total_size, MYF(0)));
+    m_total_blob_buffer_allocated = total_size;
+  } else if (m_total_blob_buffer_allocated < total_size) {
+    my_free(m_blob_buffer_start);
+    m_blob_buffer_start = reinterpret_cast<uchar *>(
+        my_malloc(PSI_NOT_INSTRUMENTED, total_size, MYF(0)));
+    m_total_blob_buffer_allocated = total_size;
+  }
+  if (!m_blob_buffer_start) return true;
+  m_blob_buffer_current = m_blob_buffer_start;
+  return false;
+}
+
+void ha_rocksdb::release_blob_buffer() {
+  if (m_blob_buffer_start != nullptr) {
+    my_free(m_blob_buffer_start);
+    m_blob_buffer_start = nullptr;
+  }
+}
 
 double ha_rocksdb::read_time(uint index, uint ranges, ha_rows rows) {
   DBUG_ENTER_FUNC();

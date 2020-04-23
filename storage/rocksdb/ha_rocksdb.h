@@ -245,6 +245,22 @@ class ha_rocksdb : public my_core::handler {
   */
   rocksdb::PinnableSlice m_retrieved_record;
 
+  /*
+    In case blob indexes are covering, then this buffer will be used
+    to store the unpacked blob values temporarily.
+    Alocation of m_blob_buffer_start will be done as part of reset_blob_buffer()
+    and deallocation will be done in release_blob_buffer()
+    Use case of below 3 parameters -
+    1) m_blob_buffer_start - stores start pointer of the blob buffer.
+    2) m_blob_buffer_current - stores current pointer where we can store blob
+    data. 3) m_total_blob_buffer_allocated - amount of total buffer alocated.
+  */
+  uchar *m_blob_buffer_start = nullptr;
+
+  uchar *m_blob_buffer_current = nullptr;
+
+  uint m_total_blob_buffer_allocated = 0;
+
   /* Type of locking to apply to rows */
   enum { RDB_LOCK_NONE, RDB_LOCK_READ, RDB_LOCK_WRITE } m_lock_rows;
 
@@ -868,7 +884,7 @@ class ha_rocksdb : public my_core::handler {
 
     /* Free blob data */
     m_retrieved_record.Reset();
-
+    release_blob_buffer();
     DBUG_RETURN(HA_EXIT_SUCCESS);
   }
 
@@ -936,6 +952,26 @@ class ha_rocksdb : public my_core::handler {
 
   int adjust_handler_stats_sst_and_memtable();
   int adjust_handler_stats_table_scan();
+
+ public:
+  /*
+    Returns the buffer of size(current_size) which will be used
+    to store a blob value while unpacking keys from covering index.
+  */
+  uchar *get_blob_buffer(uint current_size);
+
+  /*
+    Resets the m_blob_buffer_current to m_blob_buffer_start.
+    If m_blob_buffer_start is nullptr, then the buffer of size total_size
+    will be allocated.
+  */
+  bool reset_blob_buffer(uint total_size);
+
+  /*
+    Releases the blob buffer memory
+  */
+  void release_blob_buffer();
+
 };
 
 /*
