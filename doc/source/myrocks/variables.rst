@@ -781,7 +781,7 @@ Allowed range is up to ``18446744073709551615``.
 
 .. variable:: rocksdb_cache_dump
 
-  :version 5.7.30-33: Implemented
+  :version 8.0.20-11: Implemented
   :cli: ``-rocksdb-cache-dump``
   :dyn: No
   :scope: Global
