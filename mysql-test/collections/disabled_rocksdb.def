@@ -30,15 +30,3 @@ rocksdb.com_rpc_tx : BUG#0000 detached session is missing in 8.0
 # Misc bugs
 rocksdb.persistent_cache : BUG#0000 only repros with other tests running
 rocksdb.index_merge_rocksdb2 : BUG#0000 query plan is different between 8.0 and 5.6
-rocksdb.add_index_inplace : BUG#0000 : ALTER TABLE ALGORITHM=INPLACE fails
-
-# Rebase: not-yet-implemented bugs
-rocksdb.rqg_examples : BUG#0000 Rebase: not-yet-implemented
-rocksdb.verify_tbl_share_primary_idx : BUG#0000 Rebase: not-yet-implemented
-rocksdb.rocksdb_deadlock_detect_rc : BUG#0000 Rebase: not-yet-implemented
-rocksdb.rocksdb_deadlock_detect_rr : BUG#0000 Rebase: not-yet-implemented
-rocksdb.bloomfilter2 : BUG#0000 Rebase: not-yet-implemented
-rocksdb.bloomfilter3 : BUG#0000 Rebase: not-yet-implemented
-rocksdb.track_and_verify_wals_in_manifest : BUG#0000 Rebase: not-yet-implemented
-rocksdb.mysqldump : BUG#0000 Rebase: not-yet-implemented
-rocksdb_rpl.rocksdb_slave_check_before_image_consistency : BUG#0000 Rebase: not-yet-implemented
