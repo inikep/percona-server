@@ -177,6 +177,12 @@ class SysTablespace : public Tablespace<SysTablespace_node> {
   @return value stored at offset FIL_PAGE_FILE_FLUSH_LSN or error code */
   [[nodiscard]] ut::Expected<lsn_t> read_lsn_and_check_flags();
 
+  /** Read and validate encryption metadata from the first system tablespace
+  node. This is done before doublewrite recovery so encrypted doublewrite pages
+  can be decrypted.
+  @return encryption metadata stored in the first page or error code */
+  [[nodiscard]] ut::Expected<Encryption_metadata> read_encryption_metadata();
+
   /** @return the sum of the node sizes that were created, in pages. */
   [[nodiscard]] page_no_t get_sum_of_new_sizes_in_pages() const {
     return m_sum_of_new_sizes_in_pages;
