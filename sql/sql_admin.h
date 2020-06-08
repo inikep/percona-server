@@ -375,6 +375,8 @@ class Sql_cmd_show_grants : public Sql_cmd {
 
 enum alter_instance_action_enum {
   ROTATE_INNODB_MASTER_KEY,
+  ROTATE_INNODB_SYSTEM_KEY,
+  ROTATE_REDO_SYSTEM_KEY,
   ALTER_INSTANCE_RELOAD_TLS,
   ALTER_INSTANCE_RELOAD_TLS_ROLLBACK_ON_ERROR,
   ROTATE_BINLOG_MASTER_KEY,
@@ -393,6 +395,7 @@ class Sql_cmd_alter_instance : public Sql_cmd {
   friend class PT_alter_instance;
   const enum alter_instance_action_enum alter_instance_action;
   LEX_CSTRING channel_name_;
+  uint system_key_id;
   Alter_instance *alter_instance;
 
  public:
@@ -402,6 +405,14 @@ class Sql_cmd_alter_instance : public Sql_cmd {
       : alter_instance_action(alter_instance_action_arg),
         channel_name_(channel_name),
         alter_instance(nullptr) {}
+
+  explicit Sql_cmd_alter_instance(
+      enum alter_instance_action_enum alter_instance_action_arg,
+      const LEX_CSTRING &channel_name, uint system_key_id_arg)
+      : alter_instance_action(alter_instance_action_arg),
+        channel_name_(channel_name),
+        system_key_id(system_key_id_arg),
+        alter_instance(NULL) {}
 
   virtual bool execute(THD *thd);
   virtual enum_sql_command sql_command_code() const {
