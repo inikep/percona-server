@@ -3231,6 +3231,7 @@ void Fil_shard::space_detach(fil_space_t *space) {
 There must not be any pending I/O's or flushes on the files.
 @param[in,out]	space		tablespace */
 void Fil_shard::space_free_low(fil_space_t *&space) {
+
   /* Wait for fil_space_t::release_for_io(); */
   while (space->n_pending_ios) {
     os_thread_sleep(100);
@@ -6061,7 +6062,7 @@ dberr_t fil_ibd_open(bool validate, fil_type_t purpose, space_id_t space_id,
   }
 
   /* We pass UNINITIALIZED flags while we try to open DD tablespace. In that
-     case, set the flags now based on what is read from disk.*/
+  case, set the flags now based on what is read from disk.*/
   if (FSP_FLAGS_ARE_NOT_SET(flags) && fsp_is_dd_tablespace(space_id)) {
     flags = df.flags();
     is_encrypted = FSP_FLAGS_GET_ENCRYPTION(flags);
