@@ -27,5 +27,11 @@ SET GLOBAL innodb_encryption_threads=4;
 --let $restart_parameters=restart:--innodb-read-only=0 --default-table-encryption=ONLINE_FROM_KEYRING_TO_UNENCRYPTED --innodb-encryption-threads=4
 --source include/restart_mysqld.inc
 --echo # All done
-SET GLOBAL default_table_encryption=OFF;
+
+--echo # Decrypt all tables
+--let $wait_timeout= 600
+--let $wait_condition=SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION <> 0
+--source include/wait_condition.inc
+
 SET GLOBAL innodb_encryption_threads=0;
+SET GLOBAL default_table_encryption=OFF;
