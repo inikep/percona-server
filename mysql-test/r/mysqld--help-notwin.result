@@ -1482,6 +1482,10 @@ The following options may be given as the first argument:
  running
  --utility-user=name Specifies a MySQL user that will be added to the internal
  list of users and recognized as the utility user.
+ --utility-user-dynamic-privileges=name 
+ Specifies the dynamic privileges that the utility user
+ will have in a comma delimited list. See the manual for a
+ complete list of privileges.
  --utility-user-password=name 
  Specifies the password required for the utility user.
  --utility-user-privileges=name 
@@ -1782,7 +1786,7 @@ performance-schema-max-socket-classes 10
 performance-schema-max-socket-instances -1
 performance-schema-max-sql-text-length 1024
 performance-schema-max-stage-classes 175
-performance-schema-max-statement-classes 224
+performance-schema-max-statement-classes 226
 performance-schema-max-statement-stack 10
 performance-schema-max-table-handles -1
 performance-schema-max-table-instances -1
@@ -1900,6 +1904,7 @@ updatable-views-with-limit YES
 upgrade AUTO
 userstat FALSE
 utility-user (No default value)
+utility-user-dynamic-privileges (No default value)
 utility-user-password (No default value)
 utility-user-privileges 
 utility-user-schema-access (No default value)
