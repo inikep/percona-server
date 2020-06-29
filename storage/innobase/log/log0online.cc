@@ -642,8 +642,8 @@ static bool log_online_read_bitmap_page(
   IORequest io_request(IORequest::LOG | IORequest::READ |
                        IORequest::NO_ENCRYPTION);
   const bool success =
-      os_file_read(io_request, bitmap_file->name, bitmap_file->file, page, bitmap_file->offset,
-                   MODIFIED_PAGE_BLOCK_SIZE);
+      os_file_read(io_request, bitmap_file->name, bitmap_file->file, page,
+                   bitmap_file->offset, MODIFIED_PAGE_BLOCK_SIZE);
 
   if (UNIV_UNLIKELY(!success)) {
     /* The following call prints an error message */
