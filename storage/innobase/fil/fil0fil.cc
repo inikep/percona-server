@@ -8218,8 +8218,11 @@ inline void fil_io_set_keyring_encryption(IORequest &req_type,
   key_id = space->crypt_data->key_id;
 
   if (req_type.is_write()) {
-    if (space->crypt_data->should_encrypt() &&
-        space->crypt_data->max_key_version != 0) {
+    if (space->crypt_data->encryption == FIL_ENCRYPTION_ON ||
+        space->crypt_data->encryption_rotation ==
+            Encryption_rotation::ENCRYPTING ||
+        space->crypt_data->encryption_rotation ==
+            Encryption_rotation::MASTER_KEY_TO_KEYRING) {
       if (space->crypt_data->local_keys_cache.size() == 0)
         space->crypt_data->load_keys_to_local_cache();
 
@@ -11174,6 +11177,23 @@ bool Fil_system::open_for_recovery(space_id_t space_id) {
              Encryption::Progress::ENCRYPTION) &&
         recv_sys->keys != nullptr) {
       fil_tablespace_encryption_init(space);
+    }
+
+    if (recv_sys->crypt_datas != nullptr &&
+        recv_sys->crypt_datas->count(space_id) > 0) {
+      if (space->crypt_data != nullptr) {
+        fil_space_destroy_crypt_data(&space->crypt_data);
+      }
+      space->crypt_data = (*recv_sys->crypt_datas)[space_id];
+      recv_sys->crypt_datas->erase(space_id);
+
+      dberr_t err = fil_set_encryption(space->id, Encryption::KEYRING, nullptr,
+                                       space->crypt_data->iv);
+
+      if (err != DB_SUCCESS) {
+        ib::error(ER_IB_MSG_343) << "Can't set encryption information"
+                                 << " for tablespace" << space->name << "!";
+      }
     }
 
     if (!recv_sys->dblwr->empty()) {
