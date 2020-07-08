@@ -227,7 +227,6 @@ Encryption::Encryption(const Encryption &other) noexcept
     : m_type(other.m_type),
       m_key(other.m_key),
       m_klen(other.m_klen),
-      m_key_allocated(other.m_key_allocated),
       m_iv(other.m_iv),
       m_tablespace_key(other.m_tablespace_key),
       m_key_version(other.m_key_version),
@@ -239,9 +238,6 @@ Encryption::Encryption(const Encryption &other) noexcept
 }
 
 Encryption::~Encryption() {
-  if (m_key_allocated && m_key != nullptr) {
-    my_free(m_key);
-  }
 }
 
 void Encryption::set_key(byte *key, ulint key_len) noexcept {
