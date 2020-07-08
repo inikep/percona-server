@@ -181,7 +181,6 @@ class Encryption {
       : m_type(NONE),
         m_key(nullptr),
         m_klen(0),
-        m_key_allocated(false),
         m_iv(nullptr),
         m_tablespace_key(nullptr),
         m_key_version(0),
@@ -588,9 +587,6 @@ class Encryption {
 
   /** Encrypt key length*/
   ulint m_klen;
-
-  /** Encrypt key allocated */
-  bool m_key_allocated;
 
   /** Encrypt initial vector */
   byte *m_iv;
