@@ -366,4 +366,7 @@
 /* mysql native password support */
 #cmakedefine WITHOUT_MYSQL_NATIVE_PASSWORD @WITHOUT_MYSQL_NATIVE_PASSWORD@
 
+/* Jemalloc */
+#cmakedefine HAVE_JEMALLOC 1
+
 #endif
