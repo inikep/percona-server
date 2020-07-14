@@ -2580,7 +2580,8 @@ class Rdb_transaction {
   ulonglong m_insert_count = 0;
   ulonglong m_update_count = 0;
   ulonglong m_delete_count = 0;
-  ulonglong m_lock_count = 0;
+  // per row data
+  ulonglong m_row_lock_count = 0;
   std::unordered_map<GL_INDEX_ID, ulonglong> m_auto_incr_map;
 
   bool m_is_delayed_snapshot = false;
@@ -2813,19 +2814,23 @@ class Rdb_transaction {
 
   ulonglong get_delete_count() const { return m_delete_count; }
 
+  ulonglong get_row_lock_count() const { return m_row_lock_count; }
+
   void incr_insert_count() { ++m_insert_count; }
 
   void incr_update_count() { ++m_update_count; }
 
   void incr_delete_count() { ++m_delete_count; }
 
-  int get_timeout_sec() const { return m_timeout_sec; }
+  void incr_row_lock_count() { ++m_row_lock_count; }
 
-  ulonglong get_lock_count() const { return m_lock_count; }
+  ulonglong get_max_row_lock_count() const { return m_max_row_locks; }
+
+  int get_timeout_sec() const { return m_timeout_sec; }
 
   virtual void set_sync(bool sync) = 0;
 
-  virtual void release_lock(rocksdb::ColumnFamilyHandle *const column_family,
+  virtual void release_lock(const Rdb_key_def &key_descr,
                             const std::string &rowkey) = 0;
 
   virtual bool prepare() = 0;
@@ -3223,10 +3228,11 @@ class Rdb_transaction {
   virtual rocksdb::Status get(rocksdb::ColumnFamilyHandle *const column_family,
                               const rocksdb::Slice &key,
                               rocksdb::PinnableSlice *const value) const = 0;
-  virtual rocksdb::Status get_for_update(
-      rocksdb::ColumnFamilyHandle *const column_family,
-      const rocksdb::Slice &key, rocksdb::PinnableSlice *const value,
-      bool exclusive, const bool do_validate) = 0;
+  virtual rocksdb::Status get_for_update(const Rdb_key_def &key_descr,
+                                         const rocksdb::Slice &key,
+                                         rocksdb::PinnableSlice *const value,
+                                         bool exclusive,
+                                         const bool do_validate) = 0;
 
   rocksdb::Iterator *get_iterator(
       rocksdb::ColumnFamilyHandle *const column_family, bool skip_bloom_filter,
@@ -3447,13 +3453,17 @@ class Rdb_transaction_impl : public Rdb_transaction {
     m_rocksdb_tx->GetWriteOptions()->sync = sync;
   }
 
-  void release_lock(rocksdb::ColumnFamilyHandle *const column_family,
+  void release_lock(const Rdb_key_def &key_descr,
                     const std::string &rowkey) override {
     if (!THDVAR(m_thd, lock_scanned_rows)) {
-      m_rocksdb_tx->UndoGetForUpdate(column_family, rocksdb::Slice(rowkey));
-      assert(m_lock_count > 0);
-      if (m_lock_count > 0) {
-        m_lock_count--;
+      m_rocksdb_tx->UndoGetForUpdate(key_descr.get_cf(),
+                                     rocksdb::Slice(rowkey));
+      // row_lock_count track row(pk)
+      assert(!key_descr.is_primary_key() ||
+             (key_descr.is_primary_key() && m_row_lock_count > 0));
+      // m_row_lock_count tracks per row data instead of per key data
+      if (key_descr.is_primary_key() && m_row_lock_count > 0) {
+        m_row_lock_count--;
       }
     }
   }
@@ -3536,7 +3546,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
     m_insert_count = 0;
     m_update_count = 0;
     m_delete_count = 0;
-    m_lock_count = 0;
+    m_row_lock_count = 0;
     set_tx_read_only(false);
     m_rollback_only = false;
     return res;
@@ -3549,7 +3559,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
     m_insert_count = 0;
     m_update_count = 0;
     m_delete_count = 0;
-    m_lock_count = 0;
+    m_row_lock_count = 0;
     m_auto_incr_map.clear();
     m_ddl_transaction = false;
     if (m_rocksdb_tx) {
@@ -3602,10 +3612,6 @@ class Rdb_transaction_impl : public Rdb_transaction {
                       const rocksdb::Slice &key, const rocksdb::Slice &value,
                       const bool assume_tracked) override {
     ++m_write_count;
-    ++m_lock_count;
-    if (m_write_count > m_max_row_locks || m_lock_count > m_max_row_locks) {
-      return rocksdb::Status::Aborted(rocksdb::Status::kLockLimit);
-    }
     return m_rocksdb_tx->Put(column_family, key, value, assume_tracked);
   }
 
@@ -3613,10 +3619,6 @@ class Rdb_transaction_impl : public Rdb_transaction {
                              const rocksdb::Slice &key,
                              const bool assume_tracked) override {
     ++m_write_count;
-    ++m_lock_count;
-    if (m_write_count > m_max_row_locks || m_lock_count > m_max_row_locks) {
-      return rocksdb::Status::Aborted(rocksdb::Status::kLockLimit);
-    }
     return m_rocksdb_tx->Delete(column_family, key, assume_tracked);
   }
 
@@ -3624,10 +3626,6 @@ class Rdb_transaction_impl : public Rdb_transaction {
       rocksdb::ColumnFamilyHandle *const column_family,
       const rocksdb::Slice &key, const bool assume_tracked) override {
     ++m_write_count;
-    ++m_lock_count;
-    if (m_write_count > m_max_row_locks || m_lock_count > m_max_row_locks) {
-      return rocksdb::Status::Aborted(rocksdb::Status::kLockLimit);
-    }
     return m_rocksdb_tx->SingleDelete(column_family, key, assume_tracked);
   }
 
@@ -3664,11 +3662,14 @@ class Rdb_transaction_impl : public Rdb_transaction {
     return m_rocksdb_tx->Get(m_read_opts, column_family, key, value);
   }
 
-  rocksdb::Status get_for_update(
-      rocksdb::ColumnFamilyHandle *const column_family,
-      const rocksdb::Slice &key, rocksdb::PinnableSlice *const value,
-      bool exclusive, const bool do_validate) override {
-    if (++m_lock_count > m_max_row_locks) {
+  rocksdb::Status get_for_update(const Rdb_key_def &key_descr,
+                                 const rocksdb::Slice &key,
+                                 rocksdb::PinnableSlice *const value,
+                                 bool exclusive,
+                                 const bool do_validate) override {
+    rocksdb::ColumnFamilyHandle *const column_family = key_descr.get_cf();
+    /* check row lock limit in a trx */
+    if (get_row_lock_count() >= get_max_row_lock_count()) {
       return rocksdb::Status::Aborted(rocksdb::Status::kLockLimit);
     }
 
@@ -3691,6 +3692,8 @@ class Rdb_transaction_impl : public Rdb_transaction {
                                      exclusive, false);
       m_read_opts.snapshot = saved_snapshot;
     }
+    // row_lock_count is to track per row instead of per key
+    if (key_descr.is_primary_key()) incr_row_lock_count();
     return s;
   }
 
@@ -3902,8 +3905,7 @@ class Rdb_writebatch_impl : public Rdb_transaction {
 
   void set_sync(bool sync) override { write_opts.sync = sync; }
 
-  void release_lock(rocksdb::ColumnFamilyHandle *const column_family
-                        MY_ATTRIBUTE((unused)),
+  void release_lock(const Rdb_key_def &key_descr MY_ATTRIBUTE((unused)),
                     const std::string &rowkey MY_ATTRIBUTE((unused))) override {
     // Nothing to do here since we don't hold any row locks.
   }
@@ -3914,7 +3916,7 @@ class Rdb_writebatch_impl : public Rdb_transaction {
     m_insert_count = 0;
     m_update_count = 0;
     m_delete_count = 0;
-    m_lock_count = 0;
+    m_row_lock_count = 0;
     release_snapshot();
 
     reset();
@@ -3980,10 +3982,12 @@ class Rdb_writebatch_impl : public Rdb_transaction {
                                       value);
   }
 
-  rocksdb::Status get_for_update(
-      rocksdb::ColumnFamilyHandle *const column_family,
-      const rocksdb::Slice &key, rocksdb::PinnableSlice *const value,
-      bool /* exclusive */, const bool /* do_validate */) override {
+  rocksdb::Status get_for_update(const Rdb_key_def &key_descr,
+                                 const rocksdb::Slice &key,
+                                 rocksdb::PinnableSlice *const value,
+                                 bool /* exclusive */,
+                                 const bool /* do_validate */) override {
+    rocksdb::ColumnFamilyHandle *const column_family = key_descr.get_cf();
     if (value == nullptr) {
       rocksdb::PinnableSlice pin_val;
       rocksdb::Status s = get(column_family, key, &pin_val);
@@ -4706,7 +4710,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
           "%s\n"
           "lock count %llu, write count %llu\n"
           "insert count %llu, update count %llu, delete count %llu\n",
-          curr_time - snapshot_timestamp, buffer, tx->get_lock_count(),
+          curr_time - snapshot_timestamp, buffer, tx->get_row_lock_count(),
           tx->get_write_count(), tx->get_insert_count(), tx->get_update_count(),
           tx->get_delete_count());
     }
@@ -4830,7 +4834,7 @@ class Rdb_trx_info_aggregator : public Rdb_tx_list_walker {
 
           m_trx_info->push_back(
               {rdb_trx->GetName(), rdb_trx->GetID(), tx_impl->get_write_count(),
-               tx_impl->get_lock_count(), tx_impl->get_timeout_sec(),
+               tx_impl->get_row_lock_count(), tx_impl->get_timeout_sec(),
                state_it->second, waiting_key, waiting_cf_id, is_replication,
                0, /* skip_trx_api */
                tx_impl->is_tx_read_only(), rdb_trx->IsDeadlockDetect(),
@@ -9269,15 +9273,14 @@ void dbug_dump_database(rocksdb::DB *const db) {
 }
 
 rocksdb::Status ha_rocksdb::get_for_update(
-    Rdb_transaction *const tx, rocksdb::ColumnFamilyHandle *const column_family,
+    Rdb_transaction *const tx, const Rdb_key_def &key_descr,
     const rocksdb::Slice &key, rocksdb::PinnableSlice *const value) const {
   assert(m_lock_rows != RDB_LOCK_NONE);
-  const bool exclusive = m_lock_rows != RDB_LOCK_READ;
 
-  const bool do_validate =
-      my_core::thd_tx_isolation(ha_thd()) > ISO_READ_COMMITTED;
+  bool exclusive = m_lock_rows != RDB_LOCK_READ;
+  bool do_validate = my_core::thd_tx_isolation(ha_thd()) > ISO_READ_COMMITTED;
   rocksdb::Status s =
-      tx->get_for_update(column_family, key, value, exclusive, do_validate);
+      tx->get_for_update(key_descr, key, value, exclusive, do_validate);
 
   return s;
 }
@@ -9348,8 +9351,7 @@ int ha_rocksdb::get_row_by_rowid(uchar *const buf, const char *const rowid,
     // already taken the lock
     s = rocksdb::Status::OK();
   } else {
-    s = get_for_update(tx, m_pk_descr->get_cf(), key_slice,
-                       &m_retrieved_record);
+    s = get_for_update(tx, *m_pk_descr, key_slice, &m_retrieved_record);
   }
 
   DBUG_EXECUTE_IF("rocksdb_return_status_corrupted",
@@ -9654,7 +9656,7 @@ void ha_rocksdb::unlock_row() {
 
   if (m_lock_rows != RDB_LOCK_NONE) {
     Rdb_transaction *const tx = get_or_create_tx(table->in_use);
-    tx->release_lock(m_pk_descr->get_cf(),
+    tx->release_lock(*m_pk_descr,
                      std::string(m_last_rowkey.ptr(), m_last_rowkey.length()));
   }
 
@@ -10005,7 +10007,7 @@ int ha_rocksdb::check_and_lock_unique_pk(const uint key_id,
        -> T2 Put(insert, blocked) -> T1 commit -> T2 commit(overwrite)
   */
   const rocksdb::Status s =
-      get_for_update(row_info.tx, m_pk_descr->get_cf(), row_info.new_pk_slice,
+      get_for_update(row_info.tx, *m_pk_descr, row_info.new_pk_slice,
                      ignore_pk_unique_check ? nullptr : &m_retrieved_record);
   if (!s.ok() && !s.IsNotFound()) {
     return row_info.tx->set_status_error(
@@ -10116,7 +10118,7 @@ int ha_rocksdb::check_and_lock_sk(
         rocksdb::Slice((const char *)m_sk_packed_tuple_old, size);
 
     const rocksdb::Status s =
-        get_for_update(row_info.tx, kd.get_cf(), old_slice, nullptr);
+        get_for_update(row_info.tx, kd, old_slice, nullptr);
     if (!s.ok()) {
       return row_info.tx->set_status_error(table->in_use, s, kd, m_tbl_def,
                                            m_table_handler);
@@ -10162,8 +10164,7 @@ int ha_rocksdb::check_and_lock_sk(
       lower_bound_buf, upper_bound_buf, &lower_bound_slice, &upper_bound_slice);
   const bool fill_cache = !THDVAR(ha_thd(), skip_fill_cache);
 
-  const rocksdb::Status s =
-      get_for_update(row_info.tx, kd.get_cf(), new_slice, nullptr);
+  const rocksdb::Status s = get_for_update(row_info.tx, kd, new_slice, nullptr);
   if (!s.ok() && !s.IsNotFound()) {
     return row_info.tx->set_status_error(table->in_use, s, kd, m_tbl_def,
                                          m_table_handler);
@@ -10984,7 +10985,7 @@ int ha_rocksdb::rnd_next_with_direction(uchar *const buf, bool move_forward) {
       }
 
       const rocksdb::Status s =
-          get_for_update(tx, m_pk_descr->get_cf(), key, &m_retrieved_record);
+          get_for_update(tx, *m_pk_descr, key, &m_retrieved_record);
       if (s.IsNotFound() &&
           should_skip_invalidated_record(HA_ERR_KEY_NOT_FOUND)) {
         continue;
@@ -11171,8 +11172,7 @@ int ha_rocksdb::delete_row(const uchar *const buf) {
         if (n_null_fields == 0) {
           rocksdb::Slice sk_slice(
               reinterpret_cast<const char *>(m_sk_packed_tuple), packed_size);
-          const rocksdb::Status s =
-              get_for_update(tx, kd.get_cf(), sk_slice, nullptr);
+          const rocksdb::Status s = get_for_update(tx, kd, sk_slice, nullptr);
           if (!s.ok()) {
             DBUG_RETURN(tx->set_status_error(table->in_use, s, kd, m_tbl_def,
                                              m_table_handler));
