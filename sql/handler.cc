@@ -3396,6 +3396,7 @@ int handler::ha_index_next(uchar *buf) {
     result = HA_ERR_KEY_NOT_FOUND;
 
   table->set_row_status_from_handler(result);
+  DEBUG_SYNC(ha_thd(), "handler_ha_index_next_end");
   return result;
 }
 
