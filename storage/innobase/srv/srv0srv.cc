@@ -1735,6 +1735,20 @@ void srv_export_innodb_status(void) {
     buf_pool_t *buf_pool = buf_pool_from_array(i);
     export_vars.innodb_buffer_pool_pages_old += buf_pool->LRU_old_len;
   }
+  if (!srv_read_only_mode) {
+    export_vars.innodb_checkpoint_age =
+        (log_get_lsn(*log_sys) - pages_persistence->get_checkpoint_lsn());
+
+    export_vars.innodb_checkpoint_max_age = ut_uint64_align_down(
+        ib::redo::handler->get_capacity_estimate().max_history_length,
+        OS_FILE_LOG_BLOCK_SIZE);
+  } else {
+    export_vars.innodb_checkpoint_age = 0;
+    export_vars.innodb_checkpoint_max_age = 0;
+  }
+
+  ibuf_export_ibuf_status(&export_vars.innodb_ibuf_free_list,
+                          &export_vars.innodb_ibuf_segment_size);
   export_vars.innodb_lsn_current = log_get_lsn(*log_sys);
   export_vars.innodb_lsn_flushed = log_sys->flushed_to_disk_lsn;
   export_vars.innodb_lsn_last_checkpoint =
