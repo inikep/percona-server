@@ -2258,6 +2258,14 @@ dirty pages lower than this LSN in the BP.
 @param[in] lwm  Low water mark */
 void fil_checkpoint(lsn_t lwm);
 
+/** Delete the in memory tablespace(fil_space_t*) entries of the IBT
+tablespaces from the IBT deleted hash. This is done after ensuring all dirty
+pages of deleted IBTs are removed. Note: we cannot use checkpoint because when
+considering checkpoint, we dont consider LSN from temporary tablespaces. So
+the pages of IBT will still remain in flush_list even after checkpoint moves
+its lwm */
+void fil_clear_deleted_ibts();
+
 /** Count how many truncated undo space IDs are still tracked in
 the buffer pool and the file_system cache.
 @param[in]  undo_num  undo tablespace number.
@@ -2270,6 +2278,10 @@ Fil:shard::checkpoint removes all its pages from the buffer pool and the
 fil_space_t from Fil_system.
 @return true if this space_id is in the list of recently deleted undo spaces. */
 bool fil_is_deleted(space_id_t space_id);
+
+/** @return true if IBT is deleted
+@param[in]	space_id	tablespace id */
+bool fil_ibt_is_deleted(space_id_t space_id);
 
 #endif /* !UNIV_HOTBACKUP */
 
