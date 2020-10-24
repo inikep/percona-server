@@ -55,20 +55,21 @@ class Rdb_convert_to_record_value_decoder {
   Rdb_convert_to_record_value_decoder &operator=(
       const Rdb_convert_to_record_value_decoder &decoder) = delete;
 
-  static int decode(uchar *const buf, uint *offset, TABLE *table,
-                    my_core::Field *field, Rdb_field_encoder *field_dec,
-                    Rdb_string_reader *reader, bool decode, bool is_null);
+  static int decode(uchar *const buf, TABLE *table,
+                    Rdb_field_encoder *field_dec, Rdb_string_reader *reader,
+                    bool decode, bool is_null);
 
  private:
-  static int decode_blob(TABLE *table, Field *field, Rdb_string_reader *reader,
-                         bool decode);
-  static int decode_fixed_length_field(Field *const field,
+  static int decode_blob(TABLE *table, uchar *const buf,
+                         Rdb_field_encoder *field_dec,
+                         Rdb_string_reader *reader, bool decode);
+  static int decode_fixed_length_field(uchar *const buf,
                                        Rdb_field_encoder *field_dec,
                                        Rdb_string_reader *const reader,
                                        bool decode);
 
-  static int decode_varchar(Field *const field, Rdb_string_reader *const reader,
-                            bool decode);
+  static int decode_varchar(uchar *const buf, Rdb_field_encoder *field_dec,
+                            Rdb_string_reader *const reader, bool decode);
 };
 
 /**
@@ -88,11 +89,8 @@ class Rdb_value_field_iterator {
   const char *m_null_bytes;
   // The current open table
   TABLE *m_table;
-  // The current field
-  Field *m_field;
   Rdb_field_encoder *m_field_dec;
   uchar *const m_buf;
-  uint m_offset;
 
  public:
   Rdb_value_field_iterator(TABLE *table, Rdb_string_reader *value_slice_reader,
@@ -110,15 +108,12 @@ class Rdb_value_field_iterator {
   int next();
   // Whether current field is the end of fields
   bool end_of_fields() const;
-  void *get_dst() const;
   // Whether the value of current field is null
   bool is_null() const;
   // get current field index
   int get_field_index() const;
   // get current field type
   enum_field_types get_field_type() const;
-  // get current field
-  Field *get_field() const;
 };
 
 /**
