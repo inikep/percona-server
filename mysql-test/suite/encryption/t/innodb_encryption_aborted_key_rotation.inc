@@ -103,13 +103,8 @@ SELECT * FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION;
 --let SEARCH_FILE=$t1_IBD
 --source include/search_pattern_in_file.inc
 
---let $wait_timeout= 600
---echo # All tables should get encrypted. $tables_count + 1 - because INNODB_TABLESPACES_ENCRYPTION contains artificial table
---echo # innodb_system
---let $wait_condition=SELECT COUNT(*) = $tables_count + 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES_ENCRYPTION WHERE MIN_KEY_VERSION = 2
---source include/wait_condition.inc
+SET GLOBAL default_table_encryption=ONLINE_FROM_KEYRING_TO_UNENCRYPTED;
 
-SET GLOBAL innodb_encrypt_tables=ONLINE_FROM_KEYRING_TO_UNENCRYPTED;
 
 --let $wait_timeout= 600
 --echo # All tables should get decrypted, apart from t1.
@@ -119,7 +114,7 @@ SET GLOBAL innodb_encrypt_tables=ONLINE_FROM_KEYRING_TO_UNENCRYPTED;
 #Cleanup
 
 SET GLOBAL innodb_encryption_threads=0;
-SET GLOBAL innodb_encrypt_tables=ONLINE_TO_KEYRING;
+SET GLOBAL default_table_encryption=ONLINE_TO_KEYRING;
 
 DROP TABLE t1;
 DROP PROCEDURE innodb_insert_proc;
