@@ -298,6 +298,7 @@ our @DEFAULT_SUITES = qw(
   rocksdb
   rocksdb_rpl
   rocksdb_sys_vars
+  rocksdb_stress
   rpl_encryption
   tokudb
   tokudb_add_index
