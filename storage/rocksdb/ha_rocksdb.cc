@@ -713,6 +713,7 @@ static bool rocksdb_enable_insert_with_update_caching = true;
 static unsigned long long  // NOLINT(runtime/int)
     rocksdb_max_compaction_history = 0;
 static bool rocksdb_skip_locks_if_skip_unique_check = false;
+static bool rocksdb_alter_column_default_inplace = false;
 
 std::atomic<uint64_t> rocksdb_row_lock_deadlocks(0);
 std::atomic<uint64_t> rocksdb_row_lock_wait_timeouts(0);
@@ -2206,6 +2207,12 @@ static MYSQL_SYSVAR_BOOL(skip_locks_if_skip_unique_check,
                          "Skip row locking when unique checks are disabled.",
                          nullptr, nullptr, false);
 
+static MYSQL_SYSVAR_BOOL(
+    alter_column_default_inplace, rocksdb_alter_column_default_inplace,
+    PLUGIN_VAR_RQCMDARG,
+    "Allow inplace alter for alter column default operation", nullptr, nullptr,
+    true);
+
 static const int ROCKSDB_ASSUMED_KEY_VALUE_DISK_SIZE = 100;
 
 static struct SYS_VAR *rocksdb_system_variables[] = {
@@ -2387,6 +2394,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(trace_block_cache_access),
     MYSQL_SYSVAR(max_compaction_history),
     MYSQL_SYSVAR(skip_locks_if_skip_unique_check),
+    MYSQL_SYSVAR(alter_column_default_inplace),
     nullptr};
 
 static int rocksdb_compact_column_family(
@@ -13064,7 +13072,10 @@ my_core::enum_alter_inplace_result ha_rocksdb::check_if_supported_inplace_alter(
         my_core::Alter_inplace_info::ADD_INDEX |
         my_core::Alter_inplace_info::ADD_UNIQUE_INDEX |
         my_core::Alter_inplace_info::CHANGE_CREATE_OPTION |
-        my_core::Alter_inplace_info::DROP_PARTITION)) {
+        my_core::Alter_inplace_info::DROP_PARTITION |
+        (rocksdb_alter_column_default_inplace
+             ? my_core::Alter_inplace_info::ALTER_COLUMN_DEFAULT
+             : 0))) {
     DBUG_RETURN(my_core::HA_ALTER_INPLACE_NOT_SUPPORTED);
   }
 
