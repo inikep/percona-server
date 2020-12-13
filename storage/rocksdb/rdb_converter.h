@@ -129,8 +129,8 @@ class Rdb_converter {
   Rdb_converter &operator=(const Rdb_converter &decoder) = delete;
   ~Rdb_converter();
 
-  void setup_field_decoders(const MY_BITMAP *field_map,
-                            bool decode_all_fields = false);
+  void setup_field_decoders(const MY_BITMAP *field_map, uint active_index,
+                            bool keyread_only, bool decode_all_fields = false);
 
   int decode(const std::shared_ptr<Rdb_key_def> &key_def, uchar *dst,
              const rocksdb::Slice *key_slice,
@@ -166,6 +166,8 @@ class Rdb_converter {
   const std::vector<READ_FIELD> *get_decode_fields() const {
     return &m_decoders_vect;
   }
+
+  const MY_BITMAP *get_lookup_bitmap() { return &m_lookup_bitmap; }
 
  private:
   int decode_value_header(Rdb_string_reader *reader,
@@ -236,5 +238,11 @@ class Rdb_converter {
   my_core::ha_rows m_row_checksums_checked;
   // buffer to hold data during encode_value_slice
   String m_storage_record;
+  /*
+    For the active index, indicates which columns must be covered for the
+    current lookup to be covered. If the bitmap field is null, that means this
+    index does not cover the current lookup for any record.
+   */
+  MY_BITMAP m_lookup_bitmap;
 };
 }  // namespace myrocks
