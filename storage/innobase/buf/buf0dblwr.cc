@@ -2550,6 +2550,12 @@ file::Block *dblwr::get_encrypted_frame(buf_page_t *bpage,
     return nullptr;
   }
 
+  /* Don't encrypt pages of system tablespace upto TRX_SYS_PAGE(including). The
+  doublewrite buffer header is on TRX_SYS_PAGE */
+  if (fsp_is_system_tablespace(space_id) && page_no <= FSP_TRX_SYS_PAGE_NO) {
+    return nullptr;
+  }
+
   if (!space->can_encrypt()) {
     /* Encryption key information is not available. */
     return nullptr;
@@ -2584,6 +2590,9 @@ file::Block *dblwr::get_encrypted_frame(buf_page_t *bpage,
   }
 
   type.get_encryption_info().set(space->m_encryption_metadata);
+  type.set_encryption_algorithm(Encryption::AES);
+  page_size_t page_size(space->flags);
+
   auto e_block = os_file_encrypt_page(type, frame, n);
 
   if (compressed_block != nullptr) {
@@ -3064,6 +3073,7 @@ it needed.
     size_t z_page_size;
 
     en.set(space.m_encryption_metadata);
+    req_type.set_encryption_algorithm(Encryption::AES);
     const auto node = space.get_node_for_page_no(page_no);
     req_type.block_size(node->get_block_size());
 
