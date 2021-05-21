@@ -5461,7 +5461,7 @@ void rocksdb_truncation_table_cleanup(void) {
 static int rocksdb_init_internal(void *const p) {
   DBUG_ENTER_FUNC();
 
-  if (rdb_check_rocksdb_corruption()) {
+  if (rdb_has_rocksdb_corruption()) {
     // NO_LINT_DEBUG
     sql_print_error(
         "RocksDB: There was a corruption detected in RockDB files. "
@@ -5485,10 +5485,8 @@ static int rocksdb_init_internal(void *const p) {
     }
   }
 
-  DBUG_EXECUTE_IF("rocksdb_init_failure_files_corruption", {
-    // Simulate rdb_check_rocksdb_corruption failure
-    DBUG_RETURN(HA_EXIT_FAILURE);
-  });
+  DBUG_EXECUTE_IF("rocksdb_init_failure_files_corruption",
+                  { DBUG_RETURN(HA_EXIT_FAILURE); });
 
   if (opt_rocksdb_fault_injection_options != nullptr &&
       *opt_rocksdb_fault_injection_options != '\0') {
@@ -5559,7 +5557,6 @@ static int rocksdb_init_internal(void *const p) {
   Rdb_transaction::init_mutex();
 
   DBUG_EXECUTE_IF("rocksdb_init_failure_mutexes_initialized", {
-    // Simulate rdb_check_rocksdb_corruption failure
     DBUG_RETURN(HA_EXIT_FAILURE);
   });
 
@@ -5683,7 +5680,6 @@ static int rocksdb_init_internal(void *const p) {
   }
 
   DBUG_EXECUTE_IF("rocksdb_init_failure_reads", {
-    // Simulate rdb_check_rocksdb_corruption failure
     DBUG_RETURN(HA_EXIT_FAILURE);
   });
 
@@ -5855,7 +5851,6 @@ static int rocksdb_init_internal(void *const p) {
   }
 
   DBUG_EXECUTE_IF("rocksdb_init_failure_cache", {
-    // Simulate rdb_check_rocksdb_corruption failure
     DBUG_RETURN(HA_EXIT_FAILURE);
   });
 
@@ -5869,7 +5864,6 @@ static int rocksdb_init_internal(void *const p) {
   }
 
   DBUG_EXECUTE_IF("rocksdb_init_failure_cf_options", {
-    // Simulate rdb_check_rocksdb_corruption failure
     DBUG_RETURN(HA_EXIT_FAILURE);
   });
 
@@ -15501,6 +15495,10 @@ std::string rdb_corruption_marker_file_name() {
   std::string ret(rocksdb_datadir);
   ret.append("/ROCKSDB_CORRUPTED");
   return ret;
+}
+
+rocksdb::DBOptions *get_rocksdb_db_options() {
+  return rocksdb_db_options.get();
 }
 
 static void rocksdb_max_compaction_history_update(
