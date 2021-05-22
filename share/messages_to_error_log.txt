@@ -2760,7 +2760,7 @@ ER_FAILED_TO_FIND_DL_ENTRY
   eng "Can't find symbol '%-.128s' in library."
 
 ER_FAILED_TO_OPEN_SHARED_LIBRARY
-  eng "Can't open shared library '%-.192s' (errno: %d %-.128s)."
+  eng "Can't open shared library '%-.192s' (errno: %d %s)."
 
 ER_THREAD_PRIORITY_IGNORED
   eng "Thread priority attribute setting in Resource Group SQL shall be ignored due to unsupported platform or insufficient privilege."
@@ -11671,6 +11671,12 @@ ER_IB_MSG_DEPRECATED_INNODB_PARALLEL_DOUBLEWRITE_PATH
 
 ER_IB_MSG_DEPRECATED_INNODB_PARALLEL_DBLWR_ENCRYPT
   eng "Setting Percona-specific INNODB_PARALLEL_DBLWR_ENCRYPT is deprecated and has no effect."
+
+ER_KEYRING_COMPONENT_NO_CONFIG
+  eng "Keyring configuration doesn't exists: %s"
+
+ER_KEYRING_COMPONENT_CONFIG_PARSE_FAILED
+  eng "Keyring configuration JSON parse error: %s (%lu)"
 
 #
 # End of Percona Server 8.0 server error log messages
