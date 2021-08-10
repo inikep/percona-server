@@ -123,6 +123,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <memory>
 #include <type_traits> /* std::is_trivially_default_constructible */
 #include <unordered_set>
+#include <utility>
 
 #include "my_basename.h"
 #include "mysql/components/services/bits/psi_bits.h"
