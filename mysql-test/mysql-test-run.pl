@@ -303,6 +303,10 @@ our @DEFAULT_SUITES = qw(
   engines/funcs
   funcs_1
   jp
+  rocksdb
+  rocksdb_rpl
+  rocksdb_stress
+  rocksdb_sys_vars
   rpl_recovery
   stress
 );
