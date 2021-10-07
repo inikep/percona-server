@@ -15901,7 +15901,7 @@ bool ha_rocksdb::use_read_free_rpl() const {
 */
 bool ha_rocksdb::has_ttl_column() const { return m_tbl_def->has_ttl_col(); }
 
-uchar *ha_rocksdb::get_blob_buffer(uint current_size) {
+uchar *blob_buffer::get_blob_buffer(uint current_size) {
   auto output = m_blob_buffer_current;
   m_blob_buffer_current = m_blob_buffer_current + current_size;
   assert((m_blob_buffer_current - m_blob_buffer_start) <=
@@ -15909,7 +15909,7 @@ uchar *ha_rocksdb::get_blob_buffer(uint current_size) {
   return output;
 }
 
-bool ha_rocksdb::reset_blob_buffer(uint total_size) {
+bool blob_buffer::reset_blob_buffer(uint total_size) {
   if (m_blob_buffer_start == nullptr) {
     m_blob_buffer_start = reinterpret_cast<uchar *>(
         my_malloc(PSI_NOT_INSTRUMENTED, total_size, MYF(0)));
@@ -15925,7 +15925,7 @@ bool ha_rocksdb::reset_blob_buffer(uint total_size) {
   return false;
 }
 
-void ha_rocksdb::release_blob_buffer() {
+void blob_buffer::release_blob_buffer() {
   if (m_blob_buffer_start != nullptr) {
     my_free(m_blob_buffer_start);
     m_blob_buffer_start = nullptr;
