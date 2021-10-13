@@ -133,6 +133,8 @@ static std::vector<std::string> rdb_tables_to_recalc;
 
 static Rdb_exec_time st_rdb_exec_time;
 
+int mysql_value_to_bool(struct st_mysql_value *value, bool *return_value);
+
 /**
   Updates row counters based on the table type and operation type.
 */
@@ -393,6 +395,11 @@ static int rocksdb_force_flush_memtable_now(
     struct SYS_VAR *const var MY_ATTRIBUTE((__unused__)),
     void *const var_ptr MY_ATTRIBUTE((__unused__)),
     struct st_mysql_value *const value MY_ATTRIBUTE((__unused__))) {
+  bool parsed_value = false;
+  if (mysql_value_to_bool(value, &parsed_value) != 0 || !parsed_value) {
+    return 1;
+  }
+
   // NO_LINT_DEBUG
   sql_print_information("RocksDB: Manual memtable flush.");
   rocksdb_flush_all_memtables();
@@ -608,7 +615,7 @@ static bool rocksdb_ignore_unknown_options = 1;
 static bool rocksdb_enable_2pc = 0;
 static char *rocksdb_strict_collation_exceptions;
 static bool rocksdb_collect_sst_properties = 1;
-static bool rocksdb_force_flush_memtable_now_var = 0;
+static bool rocksdb_force_flush_memtable_now_var = 1;
 static bool rocksdb_force_flush_memtable_and_lzero_now_var = 0;
 static bool rocksdb_enable_ttl = 1;
 static bool rocksdb_enable_ttl_read_filtering = 1;
@@ -1832,7 +1839,7 @@ static MYSQL_SYSVAR_BOOL(
     PLUGIN_VAR_RQCMDARG,
     "Forces memstore flush which may block all write requests so be careful",
     rocksdb_force_flush_memtable_now, rocksdb_force_flush_memtable_now_stub,
-    false);
+    true);
 
 static MYSQL_SYSVAR_BOOL(
     force_flush_memtable_and_lzero_now,
