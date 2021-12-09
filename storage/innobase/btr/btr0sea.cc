@@ -1125,7 +1125,8 @@ retry:
   ut_ad(!index->disable_ahi);
   ut_ad(btr_search_enabled);
 
-  ut_ad(block->page.id.space() == index->space);
+  ut_ad(index->space == FIL_NULL ||
+        block->page.id.space() == index->space);
   ut_a(index_id == index->id);
   ut_a(!dict_index_is_ibuf(index));
 #ifdef UNIV_DEBUG
