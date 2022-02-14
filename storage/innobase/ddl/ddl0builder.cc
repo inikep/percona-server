@@ -1975,7 +1975,7 @@ dberr_t Builder::fts_sort_and_build() noexcept {
   }
 }
 
-void Builder::finalize() noexcept {
+void Builder::finalize(bool apply_log) noexcept {
   ut_a(m_ctx.m_need_observer);
   ut_a(get_state() == State::FINISH);
 
@@ -1997,11 +1997,13 @@ void Builder::finalize() noexcept {
   if (err == DB_SUCCESS) {
     write_redo(m_index);
 
-    DEBUG_SYNC(m_ctx.thd(), "row_log_apply_before");
+    if (apply_log) {
+      DEBUG_SYNC(m_ctx.thd(), "row_log_apply_before");
 
-    err = row_log_apply(m_ctx.m_trx, m_index, m_ctx.m_table, m_local_stage);
+      err = row_log_apply(m_ctx.m_trx, m_index, m_ctx.m_table, m_local_stage);
 
-    DEBUG_SYNC(m_ctx.thd(), "row_log_apply_after");
+      DEBUG_SYNC(m_ctx.thd(), "row_log_apply_after");
+    }
   }
 
   if (err != DB_SUCCESS) {
@@ -2075,15 +2077,17 @@ dberr_t Builder::finish() noexcept {
     thread_ctx->m_file.m_file.close();
   }
 
-  if (get_error() != DB_SUCCESS || !m_ctx.m_online) {
+  if (get_error() == DB_SUCCESS && !m_index->table->is_temporary()) {
+    bool apply_log = true;
     /* Do not apply any online log. */
-  } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
-    ut_a(!m_index->online_log);
-    ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
-
-    m_ctx.m_trx->flush_observer->flush();
-  } else {
-    finalize();
+    if (!m_ctx.m_online) {
+      apply_log = false;
+    } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
+      ut_a(!m_index->online_log);
+      ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
+      apply_log = false;
+    }
+    finalize(apply_log);
   }
 
   set_next_state();
