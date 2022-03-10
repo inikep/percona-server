@@ -749,6 +749,8 @@ void MetadataRecover::store() {
 
 /** Frees the recovery system. */
 void recv_sys_free() {
+  if (!recv_sys) return;
+
   mutex_enter(&recv_sys->mutex);
 
   recv_sys_finish();
