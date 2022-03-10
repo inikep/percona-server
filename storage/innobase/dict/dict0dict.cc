@@ -3992,6 +3992,8 @@ void dict_persist_init() {
 
 /** Clear the structure */
 void dict_persist_close() {
+  if (!dict_persist) return;
+
   ut::delete_(dict_persist->persisters);
 
 #ifndef UNIV_HOTBACKUP
