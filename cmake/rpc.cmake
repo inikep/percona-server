@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2023, Oracle and/or its affiliates.
+# Copyright (c) 2018, 2022, Oracle and/or its affiliates.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
@@ -47,49 +47,54 @@ FUNCTION(WARN_MISSING_SYSTEM_TIRPC)
 ENDFUNCTION()
 
 MACRO(MYSQL_CHECK_RPC)
-  IF(LINUX AND WITH_TIRPC STREQUAL "bundled")
-    SET(TIRPC_FOUND TRUE)
-
-    SET(TIRPC_INCLUDE_DIR "${CMAKE_BINARY_DIR}/tirpc/include/tirpc")
-    SET(RPC_INCLUDE_DIRS "${TIRPC_INCLUDE_DIR}")
-    SET(TIRPC_VERSION "1.3.3")
-    SET(TIRPC_LIBRARIES "${CMAKE_BINARY_DIR}/tirpc/lib/libtirpc.a")
-    INCLUDE_DIRECTORIES(BEFORE SYSTEM "${TIRPC_INCLUDE_DIR}")
-
-  ELSEIF(LINUX AND NOT LIBTIRPC_VERSION_TOO_OLD)
-    MYSQL_CHECK_PKGCONFIG()
-    PKG_CHECK_MODULES(TIRPC libtirpc)
-  ENDIF()
-
-  IF(TIRPC_FOUND)
-    IF(TIRPC_VERSION VERSION_LESS 1.0)
-      SET(LIBTIRPC_VERSION_TOO_OLD 1 CACHE INTERNAL "libtirpc is too old" FORCE)
-      MESSAGE(WARNING
-        "Ignoring libtirpc version ${TIRPC_VERSION}, need at least 1.0")
-      UNSET(TIRPC_FOUND)
-      UNSET(TIRPC_FOUND CACHE)
-      GET_CMAKE_PROPERTY(CACHE_VARS CACHE_VARIABLES)
-      FOREACH(CACHE_VAR ${CACHE_VARS})
-        IF(CACHE_VAR MATCHES "^TIRPC_.*")
-          UNSET(${CACHE_VAR})
-          UNSET(${CACHE_VAR} CACHE)
-        ENDIF()
-      ENDFOREACH()
-    ENDIF()
-  ENDIF()
-
-  IF(TIRPC_FOUND)
+  IF(WITH_TIRPC)
     ADD_DEFINITIONS(-DHAVE_TIRPC)
+    FIND_PATH(RPC_INCLUDE_DIRS NAMES rpc/rpc.h)
+  ELSE()
+    IF(LINUX AND WITH_TIRPC STREQUAL "bundled")
+      SET(TIRPC_FOUND TRUE)
 
-    # RPC headers may be found in /usr/include rather than /usr/include/tirpc
-    IF(TIRPC_INCLUDE_DIRS)
-      SET(RPC_INCLUDE_DIRS ${TIRPC_INCLUDE_DIRS})
-      INCLUDE_DIRECTORIES(SYSTEM "${TIRPC_INCLUDE_DIRS}")
+      SET(TIRPC_INCLUDE_DIR "${CMAKE_BINARY_DIR}/tirpc/include/tirpc")
+      SET(RPC_INCLUDE_DIRS "${TIRPC_INCLUDE_DIR}")
+      SET(TIRPC_VERSION "1.3.3")
+      SET(TIRPC_LIBRARIES "${CMAKE_BINARY_DIR}/tirpc/lib/libtirpc.a")
+      INCLUDE_DIRECTORIES(BEFORE SYSTEM "${TIRPC_INCLUDE_DIR}")
+
+    ELSEIF(LINUX AND NOT LIBTIRPC_VERSION_TOO_OLD)
+      MYSQL_CHECK_PKGCONFIG()
+      PKG_CHECK_MODULES(TIRPC libtirpc)
+    ENDIF()
+
+    IF(TIRPC_FOUND)
+      IF(TIRPC_VERSION VERSION_LESS 1.0)
+        SET(LIBTIRPC_VERSION_TOO_OLD 1 CACHE INTERNAL "libtirpc is too old" FORCE)
+        MESSAGE(WARNING
+          "Ignoring libtirpc version ${TIRPC_VERSION}, need at least 1.0")
+        UNSET(TIRPC_FOUND)
+        UNSET(TIRPC_FOUND CACHE)
+        GET_CMAKE_PROPERTY(CACHE_VARS CACHE_VARIABLES)
+        FOREACH(CACHE_VAR ${CACHE_VARS})
+          IF(CACHE_VAR MATCHES "^TIRPC_.*")
+            UNSET(${CACHE_VAR})
+            UNSET(${CACHE_VAR} CACHE)
+          ENDIF()
+        ENDFOREACH()
+      ENDIF()
+    ENDIF()
+
+    IF(TIRPC_FOUND)
+      ADD_DEFINITIONS(-DHAVE_TIRPC)
+
+      # RPC headers may be found in /usr/include rather than /usr/include/tirpc
+      IF(TIRPC_INCLUDE_DIRS)
+        SET(RPC_INCLUDE_DIRS ${TIRPC_INCLUDE_DIRS})
+        INCLUDE_DIRECTORIES(SYSTEM "${TIRPC_INCLUDE_DIRS}")
+      ELSE()
+        FIND_PATH(RPC_INCLUDE_DIRS NAMES rpc/rpc.h)
+      ENDIF()
     ELSE()
       FIND_PATH(RPC_INCLUDE_DIRS NAMES rpc/rpc.h)
     ENDIF()
-  ELSE()
-    FIND_PATH(RPC_INCLUDE_DIRS NAMES rpc/rpc.h)
   ENDIF()
 
   IF(NOT RPC_INCLUDE_DIRS)
