@@ -5447,6 +5447,10 @@ class handler {
   */
 
   virtual bool is_ignorable_error(int error);
+  virtual bool continue_partition_copying_on_error(
+      int error MY_ATTRIBUTE((unused))) {
+    return false;
+  }
 
   /**
     @brief Determine whether an error is fatal or not.
@@ -5677,9 +5681,11 @@ class handler {
                                 enum ha_rkey_function find_flag);
   bool is_using_prohibited_gap_locks(TABLE *table, bool using_full_unique_key);
 
+ public:
   virtual int read_range_first(const key_range *start_key,
                                const key_range *end_key, bool eq_range_arg,
                                bool sorted);
+
   virtual int read_range_next();
 
  public:
@@ -5806,7 +5812,7 @@ class handler {
   */
   int ha_extra(enum ha_extra_function operation);
 
- private:
+ public:
   /**
     Storage engine specific implementation of ha_extra()
 
