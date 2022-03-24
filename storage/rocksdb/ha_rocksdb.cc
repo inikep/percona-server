@@ -8374,6 +8374,16 @@ int ha_rocksdb::read_row_from_secondary_key(uchar *const buf,
   int rc = 0;
   uint pk_size = 0;
 
+  // Due to MRR, now an index-only scan have pushed index condition.
+  // (If it does, we follow non-index only code path here, except that
+  //  we don't fetch the row).
+  bool have_icp = (pushed_idx_cond && pushed_idx_cond_keyno == active_index);
+  if (have_icp) {
+    if (kd.m_is_reverse_cf) move_forward = !move_forward;
+    rc = find_icp_matching_index_rec(move_forward, buf);
+    if (rc) return (rc);
+  }
+
   /* Get the key columns and primary key value */
   const rocksdb::Slice &rkey = m_scan_it->key();
   const rocksdb::Slice &value = m_scan_it->value();
@@ -8390,29 +8400,17 @@ int ha_rocksdb::read_row_from_secondary_key(uchar *const buf,
   m_keyread_only = save_keyread_only;
 #endif
 
-  if (covered_lookup && m_lock_rows == RDB_LOCK_NONE) {
-    pk_size =
-        kd.get_primary_key_tuple(table, *m_pk_descr, &rkey, m_pk_packed_tuple);
-    if (pk_size == RDB_INVALID_KEY_LEN) {
-      rc = HA_ERR_ROCKSDB_CORRUPT_DATA;
-    } else {
+  pk_size =
+      kd.get_primary_key_tuple(table, *m_pk_descr, &rkey, m_pk_packed_tuple);
+  if (pk_size == RDB_INVALID_KEY_LEN) {
+    rc = HA_ERR_ROCKSDB_CORRUPT_DATA;
+  } else {
+    if (covered_lookup && m_lock_rows == RDB_LOCK_NONE) {
       rc = kd.unpack_record(table, buf, &rkey, &value,
                             m_converter->get_verify_row_debug_checksums());
       inc_covered_sk_lookup();
-    }
-  } else {
-    if (kd.m_is_reverse_cf) move_forward = !move_forward;
-
-    rc = find_icp_matching_index_rec(move_forward, buf);
-    if (!rc) {
-      const rocksdb::Slice &rkey = m_scan_it->key();
-      pk_size = kd.get_primary_key_tuple(table, *m_pk_descr, &rkey,
-                                         m_pk_packed_tuple);
-      if (pk_size == RDB_INVALID_KEY_LEN) {
-        rc = HA_ERR_ROCKSDB_CORRUPT_DATA;
-      } else {
-        rc = get_row_by_rowid(buf, m_pk_packed_tuple, pk_size);
-      }
+    } else {
+      rc = get_row_by_rowid(buf, m_pk_packed_tuple, pk_size);
     }
   }
 
