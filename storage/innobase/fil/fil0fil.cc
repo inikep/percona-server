@@ -7229,6 +7229,13 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
   }
 #endif /* !UNIV_HOTBACKUP */
 
+  /* Set encryption information. This is done while still holding the shard
+  mutex, because fil_reset_encryption() modifies the space's encryption fields
+  under that same mutex and would otherwise race with the reads here. */
+  if (req_type.are_write_transformations_enabled()) {
+    fil_io_set_encryption(req_type, page_id, space);
+  }
+
   mutex_release();
 
   DEBUG_SYNC_C("innodb_fil_do_io_prepared_io_with_no_mutex");
@@ -7257,9 +7264,6 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
 
       req_type.compression_algorithm(space->compression_type);
     }
-
-    /* Set encryption information. */
-    fil_io_set_encryption(req_type, page_id, space);
 
     req_type.block_size(file->get_block_size());
   } else {
