@@ -10453,3 +10453,8 @@ ER_TP_CANNOT_DISABLE_MTL_WITH_DL
 # same directory as this file for more
 # information.
 ################################################################################
+
+start-error-number 50000
+
+ER_RDB_TTL_COL_FORMAT
+  eng "TTL column (%s) in MyRocks must be an unsigned non-null 64-bit integer or non-null timestamp, exist inside the table, and have an accompanying ttl duration."
