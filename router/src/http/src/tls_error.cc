@@ -47,7 +47,6 @@ static std::string ossl_to_str(const std::string &prefix) {
       section.append("errcode=" + std::to_string(err) +
                      // comment to make clang-format happy
                      " (lib=" + std::to_string(ERR_GET_LIB(err)) + ")" +
-                     " (func=" + std::to_string(ERR_GET_FUNC(err)) + ")" +
                      " (reason=" + std::to_string(ERR_GET_REASON(err)) + ")");
     }
     sections.push_front(section);
