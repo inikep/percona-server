@@ -11762,6 +11762,9 @@ ER_KEYRING_COMPONENT_NO_CONFIG
 ER_KEYRING_COMPONENT_CONFIG_PARSE_FAILED
   eng "Keyring configuration JSON parse error: %s (%lu)"
 
+ER_PERCONA_UNSUPPORTED_ENGINE 
+  eng "Table '%s.%s' requires the '%s' storage engine, which was removed in Percona Server 8.0.28"
+
 ER_SEC_LOG_PATH_NULL
   eng "--%s is set to NULL. Dynamic log files can be saved anywhere, possibly overwriting other files."
 
