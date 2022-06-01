@@ -27,6 +27,12 @@ IF(USE_LD_LLD AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
   STRING(REPLACE "-fuse-ld=gold" "" CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS}")
 ENDIF()
 
+# Fix "undefined reference to '__muloti4'" for clang-7 or older
+# https://stackoverflow.com/questions/49793632/clang-fsanitize-undefined-with-128-integer-operations-undefined-reference-to
+IF(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8)
+  STRING_APPEND(CMAKE_CXX_LINK_FLAGS " --rtlib=compiler-rt -lgcc_s")
+ENDIF()
+
 INCLUDE(cmake/version.cmake)
 SET(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
