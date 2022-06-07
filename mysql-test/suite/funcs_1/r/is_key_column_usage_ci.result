@@ -64,15 +64,18 @@ WHERE (constraint_catalog IS NOT NULL OR table_catalog IS NOT NULL) AND
 table_name != 'ndb_binlog_index'
 ORDER BY constraint_schema, constraint_name, table_schema, table_name, column_name;
 CONSTRAINT_CATALOG	CONSTRAINT_SCHEMA	CONSTRAINT_NAME	TABLE_CATALOG	TABLE_SCHEMA	TABLE_NAME	COLUMN_NAME
+def	mysql	compression_dictionary_cols_ibfk_1	def	mysql	compression_dictionary_cols	dict_id
 def	mysql	name	def	mysql	help_category	name
 def	mysql	name	def	mysql	help_keyword	name
 def	mysql	name	def	mysql	help_topic	name
+def	mysql	name_idx	def	mysql	compression_dictionary	name
 def	mysql	PRIMARY	def	mysql	columns_priv	Column_name
 def	mysql	PRIMARY	def	mysql	columns_priv	Db
 def	mysql	PRIMARY	def	mysql	columns_priv	Host
 def	mysql	PRIMARY	def	mysql	columns_priv	Table_name
 def	mysql	PRIMARY	def	mysql	columns_priv	User
 def	mysql	PRIMARY	def	mysql	component	component_id
+def	mysql	PRIMARY	def	mysql	compression_dictionary	id
 def	mysql	PRIMARY	def	mysql	db	Db
 def	mysql	PRIMARY	def	mysql	db	Host
 def	mysql	PRIMARY	def	mysql	db	User
@@ -136,6 +139,8 @@ def	mysql	PRIMARY	def	mysql	time_zone_transition_type	Time_zone_id
 def	mysql	PRIMARY	def	mysql	time_zone_transition_type	Transition_type_id
 def	mysql	PRIMARY	def	mysql	user	Host
 def	mysql	PRIMARY	def	mysql	user	User
+def	mysql	table_idx	def	mysql	compression_dictionary_cols	column_id
+def	mysql	table_idx	def	mysql	compression_dictionary_cols	table_id
 def	performance_schema	ACCOUNT	def	performance_schema	accounts	HOST
 def	performance_schema	ACCOUNT	def	performance_schema	accounts	USER
 def	performance_schema	ACCOUNT	def	performance_schema	events_errors_summary_by_account_by_error	ERROR_NUMBER
