@@ -311,7 +311,10 @@ our @DEFAULT_SUITES = qw(
   component_connection_control
   jdv
 
+  component_encryption_udf
+  percona
   percona_binlog
+  percona_innodb
   percona_rpl
   percona_rpl_gtid
   percona-pam-for-mysql
