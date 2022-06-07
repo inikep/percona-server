@@ -1,5 +1,6 @@
 #
 --source include/have_debug.inc
+--source include/count_sessions.inc
 
 --echo #
 --echo # WL#7897 -- Use DD API for Stored Routines.
@@ -98,3 +99,5 @@ CREATE PROCEDURE `tèst-db`.test() SELECT 1;
 DROP DATABASE `tèst-db`;
 SET DEBUG='-d,simulate_lctn_two_case_for_schema_case_compare';
 SET NAMES default;
+
+--source include/wait_until_count_sessions.inc
