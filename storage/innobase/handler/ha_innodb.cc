@@ -10650,8 +10650,12 @@ inline MY_ATTRIBUTE((warn_unused_result)) int create_table_info_t::
 
       err = DB_UNSUPPORTED;
       dict_mem_table_free(table);
-    }
-    if (err == DB_SUCCESS) {
+    } else if (m_create_info->encrypt_type.length > 0 &&
+               !Encryption::is_none(m_create_info->encrypt_type.str)) {
+      my_error(ER_TABLESPACE_CANNOT_ENCRYPT, MYF(0));
+      err = DB_UNSUPPORTED;
+      dict_mem_table_free(table);
+    } else {
       /* Get a new table ID */
       dict_table_assign_new_id(table, m_trx);
 
@@ -11958,6 +11962,14 @@ bool create_table_info_t::innobase_table_flags() {
       /* Incorrect encryption option */
       my_error(ER_INVALID_ENCRYPTION_OPTION, MYF(0));
       DBUG_RETURN(false);
+    }
+    if (m_use_shared_space ||
+        (m_create_info->options & HA_LEX_CREATE_TMP_TABLE)) {
+      if (!Encryption::is_none(encryption)) {
+        /* Can't encrypt shared tablespace */
+        my_error(ER_TABLESPACE_CANNOT_ENCRYPT, MYF(0));
+        DBUG_RETURN(false);
+      }
     }
   }
 
@@ -14208,17 +14220,6 @@ static int validate_create_tablespace_info(THD *thd,
                       " 16k.",
                       MYF(0));
       error = HA_WRONG_CREATE_OPTION;
-    }
-  }
-
-  if (alter_info->encrypt) {
-    dberr_t err;
-
-    err = Encryption::validate(alter_info->encrypt_type.str);
-
-    if (err == DB_UNSUPPORTED) {
-      my_error(ER_INVALID_ENCRYPTION_OPTION, MYF(0));
-      return (HA_WRONG_CREATE_OPTION);
     }
   }
 
