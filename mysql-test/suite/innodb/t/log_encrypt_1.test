@@ -33,7 +33,7 @@ let $restart_parameters = restart: --early-plugin-load="keyring_file=$KEYRING_PL
 --replace_regex /\.dll/.so/
 --source include/restart_mysqld.inc
 
-#Enable redo log encryption
+# Enable redo log encryption
 SET GLOBAL innodb_redo_log_encrypt = ON;
 
 SHOW CREATE TABLE t1;

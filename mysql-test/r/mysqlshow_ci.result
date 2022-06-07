@@ -83,19 +83,29 @@ Database: information_schema
 | APPLICABLE_ROLES                      |
 | CHARACTER_SETS                        |
 | CHECK_CONSTRAINTS                     |
+| CLIENT_STATISTICS                     |
 | COLLATION_CHARACTER_SET_APPLICABILITY |
 | COLLATIONS                            |
 | COLUMN_PRIVILEGES                     |
 | COLUMN_STATISTICS                     |
 | COLUMNS                               |
+<<<<<<< HEAD
+| COMPRESSION_DICTIONARY                |
+| COMPRESSION_DICTIONARY_TABLES         |
+||||||| 91a17cedb1e
+=======
 | ENABLED_ROLES                         |
+>>>>>>> mysql-8.0.19
 | ENGINES                               |
 | EVENTS                                |
 | FILES                                 |
+| GLOBAL_TEMPORARY_TABLES               |
+| INDEX_STATISTICS                      |
 | INNODB_BUFFER_PAGE                    |
 | INNODB_BUFFER_PAGE_LRU                |
 | INNODB_BUFFER_POOL_STATS              |
 | INNODB_CACHED_INDEXES                 |
+| INNODB_CHANGED_PAGES                  |
 | INNODB_CMP                            |
 | INNODB_CMP_PER_INDEX                  |
 | INNODB_CMP_PER_INDEX_RESET            |
@@ -119,6 +129,8 @@ Database: information_schema
 | INNODB_TABLES                         |
 | INNODB_TABLESPACES                    |
 | INNODB_TABLESPACES_BRIEF              |
+| INNODB_TABLESPACES_ENCRYPTION         |
+| INNODB_TABLESPACES_SCRUBBING          |
 | INNODB_TABLESTATS                     |
 | INNODB_TEMP_TABLE_INFO                |
 | INNODB_TRX                            |
@@ -145,10 +157,14 @@ Database: information_schema
 | STATISTICS                            |
 | TABLE_CONSTRAINTS                     |
 | TABLE_PRIVILEGES                      |
+| TABLE_STATISTICS                      |
 | TABLES                                |
 | TABLESPACES                           |
+| TEMPORARY_TABLES                      |
+| THREAD_STATISTICS                     |
 | TRIGGERS                              |
 | USER_PRIVILEGES                       |
+| USER_STATISTICS                       |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
 | VIEWS                                 |
@@ -161,19 +177,29 @@ Database: INFORMATION_SCHEMA
 | APPLICABLE_ROLES                      |
 | CHARACTER_SETS                        |
 | CHECK_CONSTRAINTS                     |
+| CLIENT_STATISTICS                     |
 | COLLATION_CHARACTER_SET_APPLICABILITY |
 | COLLATIONS                            |
 | COLUMN_PRIVILEGES                     |
 | COLUMN_STATISTICS                     |
 | COLUMNS                               |
+<<<<<<< HEAD
+| COMPRESSION_DICTIONARY                |
+| COMPRESSION_DICTIONARY_TABLES         |
+||||||| 91a17cedb1e
+=======
 | ENABLED_ROLES                         |
+>>>>>>> mysql-8.0.19
 | ENGINES                               |
 | EVENTS                                |
 | FILES                                 |
+| GLOBAL_TEMPORARY_TABLES               |
+| INDEX_STATISTICS                      |
 | INNODB_BUFFER_PAGE                    |
 | INNODB_BUFFER_PAGE_LRU                |
 | INNODB_BUFFER_POOL_STATS              |
 | INNODB_CACHED_INDEXES                 |
+| INNODB_CHANGED_PAGES                  |
 | INNODB_CMP                            |
 | INNODB_CMP_PER_INDEX                  |
 | INNODB_CMP_PER_INDEX_RESET            |
@@ -197,6 +223,8 @@ Database: INFORMATION_SCHEMA
 | INNODB_TABLES                         |
 | INNODB_TABLESPACES                    |
 | INNODB_TABLESPACES_BRIEF              |
+| INNODB_TABLESPACES_ENCRYPTION         |
+| INNODB_TABLESPACES_SCRUBBING          |
 | INNODB_TABLESTATS                     |
 | INNODB_TEMP_TABLE_INFO                |
 | INNODB_TRX                            |
@@ -223,10 +251,14 @@ Database: INFORMATION_SCHEMA
 | STATISTICS                            |
 | TABLE_CONSTRAINTS                     |
 | TABLE_PRIVILEGES                      |
+| TABLE_STATISTICS                      |
 | TABLES                                |
 | TABLESPACES                           |
+| TEMPORARY_TABLES                      |
+| THREAD_STATISTICS                     |
 | TRIGGERS                              |
 | USER_PRIVILEGES                       |
+| USER_STATISTICS                       |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
 | VIEWS                                 |
