@@ -414,12 +414,12 @@ insert into t1 select * from t0;
 explain select * from t0 left join t1 on (t0.key1=t1.key1)
 where t0.key1=3 or t0.key2=4;
 EXPLAIN
--> Nested loop left join  (rows=4)
-    -> Filter: ((t0.key1 = 3) or (t0.key2 = 4))  (rows=4)
-        -> Deduplicate rows sorted by row ID  (rows=4)
-            -> Index range scan on t0 using i1 over (key1 = 3)  (rows=2)
-            -> Index range scan on t0 using i2 over (key2 = 4)  (rows=2)
-    -> Index lookup on t1 using i1 (key1=t0.key1)  (rows=1)
+-> Nested loop left join  (...)
+    -> Filter: ((t0.key1 = 3) or (t0.key2 = 4))  (...)
+        -> Deduplicate rows sorted by row ID  (...)
+            -> Index range scan on t0 using i1 over (key1 = 3)  (...)
+            -> Index range scan on t0 using i2 over (key2 = 4)  (...)
+    -> Index lookup on t1 using i1 (key1=t0.key1)  (...)
 
 select * from t0 left join t1 on (t0.key1=t1.key1)
 where t0.key1=3 or t0.key2=4;
@@ -429,23 +429,14 @@ key1	key2	key3	key4	key5	key6	key7	key8	key1	key2	key3	key4	key5	key6	key7	key8
 explain
 select * from t0,t1 where (t0.key1=t1.key1) and ( t0.key1=3 or t0.key2=4);
 EXPLAIN
--> Nested loop inner join  (rows=4)
-    -> Filter: ((t0.key1 = 3) or (t0.key2 = 4))  (rows=4)
-        -> Deduplicate rows sorted by row ID  (rows=4)
-            -> Index range scan on t0 using i1 over (key1 = 3)  (rows=2)
-            -> Index range scan on t0 using i2 over (key2 = 4)  (rows=2)
-    -> Index lookup on t1 using i1 (key1=t0.key1)  (rows=1)
+-> Nested loop inner join  (...)
+    -> Filter: ((t0.key1 = 3) or (t0.key2 = 4))  (...)
+        -> Deduplicate rows sorted by row ID  (...)
+            -> Index range scan on t0 using i1 over (key1 = 3)  (...)
+            -> Index range scan on t0 using i2 over (key2 = 4)  (...)
+    -> Index lookup on t1 using i1 (key1=t0.key1)  (...)
 
 #  index_merge vs. ref
-explain
-select * from t0,t1 where (t0.key1=t1.key1) and
-(t0.key1=3 or t0.key2=4) and t1.key1<200;
-EXPLAIN
--> Nested loop inner join  (rows=2)
-    -> Filter: ((t0.key1 = 3) or (t0.key2 = 4))  (rows=2)
-        -> Index range scan on t0 using i1 over (key1 < 200), with index condition: (t0.key1 < 200)  (rows=2)
-    -> Index lookup on t1 using i1 (key1=t0.key1)  (rows=1)
-
 #  index_merge vs. ref
 explain
 select * from t0,t1 where (t0.key1=t1.key1) and
@@ -472,10 +463,10 @@ EXPLAIN
 explain select * from t0,t1 where t0.key1 < 3 and
 (t1.key1 = t0.key1 or t1.key8 = t0.key1);
 EXPLAIN
--> Nested loop inner join  (rows=4.07)
-    -> Index range scan on t0 using i1 over (key1 < 3), with index condition: (t0.key1 < 3)  (rows=2)
-    -> Filter: ((t1.key1 = t0.key1) or (t1.key8 = t0.key1))  (rows=2.03)
-        -> Index range scan on t1 (re-planned for each iteration)  (rows=1024)
+-> Nested loop inner join  (...)
+    -> Index range scan on t0 using i1 over (key1 < 3), with index condition: (t0.key1 < 3)  (...)
+    -> Filter: ((t1.key1 = t0.key1) or (t1.key8 = t0.key1))  (...)
+        -> Index range scan on t1 (re-planned for each iteration)  (...)
 
 #  index_merge inside union
 explain select * from t1 where key1=3 or key2=4
@@ -746,7 +737,7 @@ a	filler	b
 must use union, not sort-union:
 explain select * from t2 where a=4 or b=4;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t2	NULL	index_merge	a,b	a,b	5,5	NULL	6	100.00	Using union(a,b); Using where
+1	SIMPLE	t2	NULL	index_merge	a,b	a,b	5,5	NULL	#	#	Using union(a,b); Using where
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t2`.`a` AS `a`,`test`.`t2`.`filler` AS `filler`,`test`.`t2`.`b` AS `b` from `test`.`t2` where ((`test`.`t2`.`a` = 4) or (`test`.`t2`.`b` = 4))
 select * from t2 where a=4 or b=4;
@@ -792,9 +783,9 @@ explain select * from t1
 where exists (select 1 from t2, t3 
 where t2.a=t1.a and (t3.a=t2.b or t3.b=t2.b or t3.b=t2.b+1));
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
-1	SIMPLE	t1	NULL	ALL	NULL	NULL	NULL	NULL	2	100.00	NULL
-1	SIMPLE	t2	NULL	ALL	NULL	NULL	NULL	NULL	2	50.00	Using where
-1	SIMPLE	t3	NULL	ALL	a,b	NULL	NULL	NULL	1002	23.26	Range checked for each record (index map: 0x3); FirstMatch(t1)
+1	SIMPLE	t1	NULL	ALL	NULL	NULL	NULL	NULL	#	#	NULL
+1	SIMPLE	t2	NULL	ALL	NULL	NULL	NULL	NULL	#	#	Using where
+1	SIMPLE	t3	NULL	ALL	a,b	NULL	NULL	NULL	#	#	Range checked for each record (index map: 0x3); FirstMatch(t1)
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #2 was resolved in SELECT #1
 Note	1003	/* select#1 */ select `test`.`t1`.`a` AS `a` from `test`.`t1` semi join (`test`.`t2` join `test`.`t3`) where ((`test`.`t2`.`a` = `test`.`t1`.`a`) and ((`test`.`t3`.`a` = `test`.`t2`.`b`) or (`test`.`t3`.`b` = `test`.`t2`.`b`) or (`test`.`t3`.`b` = (`test`.`t2`.`b` + 1))))
