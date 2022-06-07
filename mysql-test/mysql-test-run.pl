@@ -159,7 +159,14 @@ my $path_config_file;       # The generated config file, var/my.cnf
 my $path_vardir_trace;      # Unix formatted opt_vardir for trace files
 
 my $DEFAULT_SUITES =
-"main,sys_vars,binlog,binlog_gtid,binlog_nogtid,federated,gis,rpl,rpl_gtid,rpl_nogtid,innodb,innodb_gis,innodb_fts,innodb_zip,innodb_undo,perfschema,funcs_1,opt_trace,parts,auth_sec,query_rewrite_plugins,gcol,sysschema,test_service_sql_api,json,connection_control,test_services,collations,service_udf_registration,service_sys_var_registration,service_status_var_registration,x,secondary_engine";
+"main,sys_vars,binlog,binlog_gtid,binlog_nogtid,federated,gis,rpl,rpl_gtid,rpl_nogtid,innodb,innodb_gis,innodb_fts,innodb_zip,innodb_undo,perfschema,funcs_1,opt_trace,parts,auth_sec,query_rewrite_plugins,gcol,sysschema,test_service_sql_api,json,connection_control,test_services,collations,service_udf_registration,service_sys_var_registration,service_status_var_registration,x,secondary_engine,"
+  ."funcs_2,jp,stress,engines/iuds,engines/funcs,group_replication,audit_null,"
+  ."interactive_utilities,innodb_stress"
+  ."binlog_encryption,rpl_encryption,audit_log,keyring_vault"
+  ."tokudb.add_index,tokudb.alter_table,tokudb,tokudb.bugs,tokudb.parts,"
+  ."tokudb.rpl,tokudb.perfschema,"
+  ."rocksdb,rocksdb.rpl,rocksdb.sys_vars,"
+  ."keyring_vault,audit_null";
 
 my $build_thread       = 0;
 my $daemonize_mysqld   = 0;
@@ -209,6 +216,7 @@ our $opt_suite_opt;
 our $opt_summary_report;
 our $opt_vardir;
 our $opt_xml_report;
+our $opt_gterm;
 
 our $opt_big_test         = 0;
 our $opt_check_testcases  = 1;
@@ -342,6 +350,16 @@ select(STDOUT);
 $| = 1;    # Automatically flush STDOUT
 
 main();
+
+sub is_core_dump {
+  my $core_path= shift;
+  my $core_name= basename($core_path);
+  # Name beginning with core, not ending in .gz, .c, nor .log, not belonging to
+  # Boost, or ending with .dmp on Windows
+  return (($core_name =~ /^core/ and $core_name !~ /\.gz$|\.c$|\.log$/
+           and $core_path !~ /\/boost_/)
+          or (IS_WINDOWS and $core_name =~ /\.dmp$/));
+}
 
 sub main {
   # Default, verbosity on
@@ -719,6 +737,18 @@ sub main {
   remove_redundant_thread_id_file_locations();
   clean_unique_id_dir();
 
+  if ($opt_ctest) {
+    find({ wanted => sub {
+             my $core_file= $File::Find::name;
+
+             if (is_core_dump($core_file)) {
+               mtr_report(" - found '$core_file'");
+
+               My::CoreDump->show($core_file, "", 1);
+             }
+       }}, $bindir);
+  }
+
   print_total_times($opt_parallel) if $opt_report_times;
 
   mtr_report_stats("Completed", $completed);
@@ -851,10 +881,7 @@ sub run_test_server ($$$) {
                       my $core_file = $File::Find::name;
                       my $core_name = basename($core_file);
 
-                      # Name beginning with core, not ending in .gz
-                      if (($core_name =~ /^core/ and $core_name !~ /\.gz$/) or
-                          (IS_WINDOWS and $core_name =~ /\.dmp$/)) {
-                        # Ending with .dmp
+                      if (is_core_dump($core_name)) {
                         mtr_report(" - found '$core_name'",
                                    "($num_saved_cores/$opt_max_save_core)");
 
@@ -1419,6 +1446,8 @@ sub command_line_setup {
     'debug-server'       => \$opt_debug_server,
     'debugger=s'         => \$opt_debugger,
     'gdb'                => \$opt_gdb,
+    # For using gnome-terminal when using --gdb option
+    'gterm'              => \$opt_gterm,
     'lldb'               => \$opt_lldb,
     'manual-boot-gdb'    => \$opt_manual_boot_gdb,
     'manual-dbx'         => \$opt_manual_dbx,
@@ -1824,6 +1853,7 @@ sub command_line_setup {
       $opt_ddd             ||
       $opt_client_ddd      ||
       $opt_manual_gdb      ||
+      $opt_lldb            ||
       $opt_manual_lldb     ||
       $opt_manual_ddd      ||
       $opt_manual_debug    ||
@@ -1963,7 +1993,7 @@ sub command_line_setup {
   if ($opt_valgrind) {
     # Default to --tool=memcheck if no other tool has been explicitly
     # specified. From >= 2.1.2, this option is needed
-    if (!@valgrind_args or !grep(/^--tool=/, @valgrind_args)) {
+    if ((!@valgrind_args and !$opt_helgrind) or !grep(/^--tool=/, @valgrind_args)) {
       # Set default valgrind options for memcheck, can be overriden by user
       unshift(@valgrind_args,
               ("--tool=memcheck", "--num-callers=16", "--show-reachable=yes"));
@@ -2130,6 +2160,7 @@ sub collect_mysqld_features {
   my $args;
   mtr_init_args(\$args);
   mtr_add_arg($args, "--no-defaults");
+  mtr_add_arg($args, "--basedir=%s", $basedir);
   mtr_add_arg($args, "--datadir=%s", mixed_path($tmpdir));
   mtr_add_arg($args, "--log-syslog=0");
   mtr_add_arg($args, "--secure-file-priv=\"\"");
@@ -2140,6 +2171,12 @@ sub collect_mysqld_features {
   # Need --user=root if running as *nix root user
   if (!IS_WINDOWS and $> == 0) {
     mtr_add_arg($args, "--user=root");
+  }
+
+  foreach my $extra_opt (@opt_extra_mysqld_opt) {
+    if ($extra_opt =~ /--plugin-load/) {
+      mtr_add_arg($args, $extra_opt);
+    }
   }
 
   my $exe_mysqld = find_mysqld($basedir);
@@ -2545,15 +2582,18 @@ sub read_plugin_defs($) {
       if ($plug_names) {
         my $lib_name     = basename($plugin);
         my $load_var     = "--plugin_load=";
+	my $early_load_var = "--early-plugin_load=";
         my $load_add_var = "--plugin_load_add=";
         my $semi         = '';
 
         foreach my $plug_name (split(',', $plug_names)) {
           $load_var     .= $semi . "$plug_name=$lib_name";
+	  $early_load_var .= $semi . "$plug_name=$lib_name";
           $load_add_var .= $semi . "$plug_name=$lib_name";
           $semi = ';';
         }
 
+	$ENV{ $plug_var . '_EARLY_LOAD'} = $early_load_var;
         $ENV{ $plug_var . '_LOAD' }     = $load_var;
         $ENV{ $plug_var . '_LOAD_ADD' } = $load_add_var;
       }
@@ -2782,6 +2822,26 @@ sub environment_setup {
     valgrind_client_arguments($args, \$exe_ibd2sdi);
     $ENV{'IBD2SDI'} = mtr_args2str($exe_ibd2sdi, @$args);
   }
+
+  # ----------------------------------------------------
+  # sst_dump
+  # ----------------------------------------------------
+  my $exe_sst_dump=
+    mtr_exe_maybe_exists(
+           vs_config_dirs('storage/rocksdb', 'sst_dump'),
+           "$path_client_bindir/sst_dump",
+           "$basedir/storage/rocksdb/sst_dump");
+  $ENV{'MYSQL_SST_DUMP'}= native_path($exe_sst_dump);
+
+  # ----------------------------------------------------
+  # tokuft_dump
+  # ----------------------------------------------------
+  my $exe_tokuftdump=
+    mtr_exe_maybe_exists(
+           vs_config_dirs('storage/tokudb/PerconaFT/tools', 'tokuftdump'),
+           "$path_client_bindir/tokuftdump",
+           "$basedir/storage/tokudb/PerconaFT/tools/tokuftdump");
+  $ENV{'MYSQL_TOKUFTDUMP'}= native_path($exe_tokuftdump);
 
   # Setup env so childs can execute myisampack and myisamchk
   $ENV{'MYISAMCHK'} =
@@ -3948,6 +4008,7 @@ sub run_query {
 sub do_before_run_mysqltest($) {
   my $tinfo = shift;
 
+  $ENV{'MYSQL_CURRENT_TEST_DIR'} = dirname($tinfo->{'path'});
   # Remove old files produced by mysqltest
   my $base_file =
     mtr_match_extension($tinfo->{result_file}, "result");    # Trim extension
@@ -4258,6 +4319,15 @@ sub resfile_report_test ($) {
   resfile_test_info("variation", $tinfo->{combination})
     if $tinfo->{combination};
   resfile_test_info("start_time", isotime time);
+}
+
+sub error_logs_to_comment {
+  my $tinfo= shift;
+  foreach my $mysqld (mysqlds())
+  {
+    $tinfo->{comment}.= "\nServer " . $mysqld->{proc} . " log: ".
+      get_log_from_proc($mysqld->{proc}, $tinfo->{name});
+  }
 }
 
 # Search the opt file for '--bootstrap' key word. For each instance of
@@ -4619,6 +4689,8 @@ sub run_testcase ($) {
           goto SRVDIED;
         }
 
+        error_logs_to_comment($tinfo);
+
         # Test case failure reported by mysqltest
         report_failure_and_restart($tinfo);
       } else {
@@ -4723,8 +4795,9 @@ sub run_testcase ($) {
       if (-e $log_file_name) {
         $tinfo->{comment} .=
           "== $log_file_name == \n" .
-          mtr_lastlinesfromfile($log_file_name, 20) . "\n";
+          mtr_lastlinesfromfile($log_file_name, 500) . "\n";
       }
+      error_logs_to_comment($tinfo);
 
       # Mark as timeout
       $tinfo->{'timeout'} = testcase_timeout($tinfo);
@@ -5392,7 +5465,7 @@ sub report_failure_and_restart ($) {
           if (-e $log_file_name) {
             $tinfo->{comment} .=
               "The result from queries just before the failure was:" .
-              "\n< snip >\n" . mtr_lastlinesfromfile($log_file_name, 20) . "\n";
+              "\n< snip >\n" . mtr_lastlinesfromfile($log_file_name, 500) . "\n";
           }
         }
       } else {
@@ -6295,7 +6368,7 @@ sub start_mysqltest ($) {
   mtr_add_arg($args, "--test-file=%s", $tinfo->{'path'});
 
   # Number of lines of resut to include in failure report
-  mtr_add_arg($args, "--tail-lines=20");
+  mtr_add_arg($args, "--tail-lines=500");
 
   if (defined $tinfo->{'result_file'}) {
     mtr_add_arg($args, "--result-file=%s", $tinfo->{'result_file'});
@@ -6345,8 +6418,10 @@ sub start_mysqltest ($) {
 }
 
 sub create_debug_statement {
+  my $run = shift;
   my $args  = shift;
   my $input = shift;
+  my @params_to_quote = ("--plugin_load=", "--plugin_load_add=");
 
   # Put arguments into a single string and enclose values which
   # contain metacharacters in quotes
@@ -6374,7 +6449,7 @@ sub gdb_arguments {
   # Remove the old gdbinit file
   unlink($gdb_init_file);
 
-  my $runline = create_debug_statement($args, $input);
+  my $runline = create_debug_statement("run", $args, $input);
 
   # write init file for mysqld or client
   mtr_tofile($gdb_init_file, "break main\n" . $runline);
@@ -6389,9 +6464,16 @@ sub gdb_arguments {
   }
 
   $$args = [];
-  mtr_add_arg($$args, "-title");
-  mtr_add_arg($$args, "$type");
-  mtr_add_arg($$args, "-e");
+  if ($opt_gterm) {
+    mtr_add_arg($$args, "--title");
+    mtr_add_arg($$args, "$type");
+    mtr_add_arg($$args, "--wait");
+    mtr_add_arg($$args, "--");
+  } else {
+    mtr_add_arg($$args, "-title");
+    mtr_add_arg($$args, "$type");
+    mtr_add_arg($$args, "-e");
+  }
 
   if ($exe_libtool) {
     mtr_add_arg($$args, $exe_libtool);
@@ -6403,7 +6485,11 @@ sub gdb_arguments {
   mtr_add_arg($$args, "$gdb_init_file");
   mtr_add_arg($$args, "$$exe");
 
-  $$exe = "xterm";
+  if ($opt_gterm) {
+    $$exe = "gnome-terminal";
+  } else {
+    $$exe = "xterm";
+  }
 }
 
 # Modify the exe and args so that program is run in lldb
@@ -6455,7 +6541,7 @@ sub ddd_arguments {
   # Remove the old gdbinit file
   unlink($gdb_init_file);
 
-  my $runline = create_debug_statement($args, $input);
+  my $runline = create_debug_statement("run", $args, $input);
 
   # Write init file for mysqld or client
   mtr_tofile($gdb_init_file, "file $$exe\n" . "break main\n" . $runline);
@@ -6586,12 +6672,11 @@ sub valgrind_arguments {
   my $exe           = shift;
   my $report_prefix = shift;
 
-  my @tool_list = grep(/^--tool=(memcheck|callgrind|massif)/, @valgrind_args);
-
+  my @tool_list = grep(/^--tool=(memcheck|callgrind|massif|helgrind)/, @valgrind_args);
   if (@tool_list) {
     # Get the value of the last specified --tool=<> argument to valgrind
-    my ($tool_name) = $tool_list[-1] =~ /(memcheck|callgrind|massif)$/;
-    if ($tool_name =~ /memcheck/) {
+    my ($tool_name)= $tool_list[-1] =~ /(memcheck|callgrind|massif|helgrind)$/;
+    if ($tool_name=~ /memcheck/) {
       $daemonize_mysqld ? mtr_add_arg($args, "--leak-check=no") :
         mtr_add_arg($args, "--leak-check=yes");
     } else {
@@ -6601,6 +6686,9 @@ sub valgrind_arguments {
                   "--$tool_name-out-file=$opt_vardir/log/" .
                     "$report_prefix" . "_$tool_name.out.%%p");
     }
+    # Support statically-linked malloc libraries and
+    # dynamically-linked jemalloc
+    mtr_add_arg($args, "--soname-synonyms=somalloc=NONE,somalloc=*jemalloc*");
   }
 
   # Add valgrind options, can be overriden by user
@@ -6706,6 +6794,7 @@ sub valgrind_exit_reports() {
 }
 
 sub run_ctest() {
+  $ENV{'MYSQL_TEST_DIR'} = $glob_mysql_test_dir;
   my $olddir = getcwd();
   chdir($bindir) or die("Could not chdir to $bindir");
 
