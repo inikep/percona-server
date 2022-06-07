@@ -5213,29 +5213,27 @@ int ha_tokudb::fill_range_query_buf(bool need_val,
         enum icp_result result =
             toku_handler_index_cond_check(toku_pushed_idx_cond);
 
-        // If we have reason to stop, we set icp_went_out_of_range and get out
-        // otherwise, if we simply see that the current key is no match,
-        // we tell the cursor to continue and don't store
-        // the key locally
-        if (result == ICP_OUT_OF_RANGE || thd_killed(thd)) {
-            icp_went_out_of_range = true;
-            error = 0;
-            DEBUG_SYNC(ha_thd(), "tokudb_icp_asc_scan_out_of_range");
-            goto cleanup;
-        } else if (result == ICP_NO_MATCH) {
-            // Optimizer change for MyRocks also benefits us here in TokuDB as
-            // opt_range.cc QUICK_SELECT::get_next now sets end_range during
-            // descending scan. We should not ever hit this condition, but
-            // leaving this code in to prevent any possibility of a descending
-            // scan to the beginning of an index and catch any possibility
-            // in debug builds with an assertion
-            assert_debug(!(!end_range && direction < 0));
-            if (!end_range && direction < 0) {
-                cancel_pushed_idx_cond();
-            }
-            error = TOKUDB_CURSOR_CONTINUE;
-            goto cleanup;
-        }
+    // If we have reason to stop, we set icp_went_out_of_range and get out
+    // otherwise, if we simply see that the current key is no match,
+    // we tell the cursor to continue and don't store
+    // the key locally
+    if (result == ICP_OUT_OF_RANGE || thd_killed(thd)) {
+      icp_went_out_of_range = true;
+      error = 0;
+      DEBUG_SYNC(ha_thd(), "tokudb_icp_asc_scan_out_of_range");
+      goto cleanup;
+    } else if (result == ICP_NO_MATCH) {
+      // if we are performing a DESC ICP scan and have no end_range
+      // to compare to stop using ICP filtering as there isn't much more
+      // that we can do without going through contortions with remembering
+      // and comparing key parts.
+      if (!end_range && direction < 0) {
+        cancel_pushed_idx_cond();
+        DEBUG_SYNC(ha_thd(), "tokudb_icp_desc_scan_invalidate");
+      }
+
+      error = TOKUDB_CURSOR_CONTINUE;
+      goto cleanup;
     }
 
     // at this point, if ICP is on, we have verified that the key is one
