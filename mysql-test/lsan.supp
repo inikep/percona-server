@@ -29,6 +29,9 @@ leak:Perl_Slab_Alloc
 leak:Perl_newUNOP_AUX
 leak:/usr/bin/perl
 leak:/bin/bash
+leak:/usr/bin/sed
+leak:/usr/bin/python2.7
+
 # OpenLDAP bug 9081
 # Fixed in 2.4.49, we build with 2.4.48
 leak:ldap_initialize

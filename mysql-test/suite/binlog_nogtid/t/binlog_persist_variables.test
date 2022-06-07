@@ -49,8 +49,7 @@ INSERT INTO rplvars (varname, varvalue)
         VARIABLE_NAME LIKE '%rpl%' OR
         VARIABLE_NAME LIKE '%semi_sync%' OR
         VARIABLE_NAME LIKE '%slave%') AND
-       (VARIABLE_NAME NOT IN ('innodb_api_enable_binlog',
-        'innodb_master_thread_disabled_debug'))
+       (VARIABLE_NAME NOT LIKE 'innodb%')
        ORDER BY VARIABLE_NAME;
 --enable_warnings
 --let $countvars= `SELECT COUNT(*) FROM rplvars;`
@@ -58,7 +57,7 @@ INSERT INTO rplvars (varname, varvalue)
 # If this count differs, it means a variable has been added or removed.
 # In that case, this testcase needs to be updated accordingly.
 --echo
---let $expected=85
+--let $expected=88
 --let $assert_text= 'Expect $expected variables in the table.'
 --let $assert_cond= [SELECT COUNT(*) as count FROM rplvars, count, 1] = $expected
 --source include/assert.inc
@@ -71,7 +70,7 @@ while ( $varid <= $countvars )
   --let $varnames= `SELECT varname FROM rplvars WHERE id=$varid;`
 
   # Following variables are either non persistent or read only variables.
-  if (`SELECT '$varnames' IN ('binlog_row_event_max_size', 'binlog_gtid_simple_recovery', 'gtid_executed', 'gtid_next', 'gtid_owned', 'log_bin', 'log_bin_basename', 'log_bin_index', 'log_slave_updates', 'relay_log', 'relay_log_basename', 'relay_log_index', 'relay_log_index', 'relay_log_info_file', 'relay_log_recovery', 'relay_log_space_limit', 'slave_load_tmpdir', 'slave_load_tmpdir', 'slave_skip_errors', 'log_bin_use_v1_row_events', 'binlog_rotate_encryption_master_key_at_startup')`)
+  if (`SELECT '$varnames' IN ('binlog_row_event_max_size', 'binlog_gtid_simple_recovery', 'binlog_space_limit', 'gtid_executed', 'gtid_next', 'gtid_owned', 'have_backup_safe_binlog_info', 'log_bin', 'log_bin_basename', 'log_bin_index', 'log_slave_updates', 'relay_log', 'relay_log_basename', 'relay_log_index', 'relay_log_index', 'relay_log_info_file', 'relay_log_recovery', 'relay_log_space_limit', 'slave_load_tmpdir', 'slave_load_tmpdir', 'slave_skip_errors', 'log_bin_use_v1_row_events', 'binlog_rotate_encryption_master_key_at_startup')`)
   {
     --error ER_INCORRECT_GLOBAL_LOCAL_VAR
   }
@@ -81,7 +80,7 @@ while ( $varid <= $countvars )
 }
 
 --echo
---let $expected=67
+--let $expected=68
 --let $assert_text= 'Expect $expected persisted variables in persisted_variables table.'
 --let $assert_cond= [SELECT COUNT(*) as count FROM performance_schema.persisted_variables, count, 1] = $expected
 --source include/assert.inc
