@@ -66,7 +66,8 @@ TEST_F(FatalSignalDeathTest, Segfault) {
 #elif defined(HAVE_ASAN)
 /* gcc 4.8.1 with '-fsanitize=address -O1' */
 /* Newer versions of ASAN give other error message, disable it */
-// EXPECT_DEATH_IF_SUPPORTED(*pint= 42, ".*ASAN:SIGSEGV.*");
+  int *pint = nullptr;
+  EXPECT_DEATH_IF_SUPPORTED(*pint= 42, ".*(AddressSanitizer|ASAN):(DEADLYSIGNAL|SIGSEGV).*");
 #elif defined(HANDLE_FATAL_SIGNALS)
   int *pint = nullptr;
   /*
