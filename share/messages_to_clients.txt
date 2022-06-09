@@ -9295,9 +9295,21 @@ ER_DEPENDENT_BY_CHECK_CONSTRAINT
 # them for other error messages.
 ################################################################################
 
-
 reserved-error-section 5000 5999
 
+#
+# Start of Percona Server 8.0 server error log messages
+#
+start-error-number 48000
+
+ER_RPL_FAILED_TO_RECREATE_CACHE_FOR_INFO_FILE
+  eng "Failed to recreate a cache on info file (file '%s')"
+
+ER_XB_MSG_0
+  eng "%s"
+
+ER_XB_MSG_1
+  eng "%s"
 
 ################################################################################
 # DO NOT add messages for the error-log to this file;
