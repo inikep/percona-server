@@ -1008,8 +1008,8 @@ select 1 as "some new text";
 some new text
 1
 set names latin1;
-select 0 as "will lower case å";
-will lower case å
+select 0 as "will lower case ï¿½";
+will lower case ï¿½
 0
 set names utf8mb4;
 CREATE TABLE t1(
