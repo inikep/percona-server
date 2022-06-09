@@ -1400,7 +1400,6 @@ static char *cover_definer_clause(char *stmt_str, size_t stmt_length,
 
   char *query_str = nullptr;
   char *query_ptr;
-  LEX_CSTRING comment = {STRING_WITH_LEN("*/ /*!")};
 
   if (!definer_begin) return nullptr;
 
