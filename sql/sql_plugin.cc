@@ -1793,8 +1793,10 @@ static bool plugin_load_list(MEM_ROOT *tmp_root, int *argc, char **argv,
               name.length = strlen(name.str);
 
               free_root(tmp_root, MYF(MY_MARK_BLOCKS_FREE));
-              if (plugin_add(tmp_root, &name, &dl, argc, argv, REPORT_TO_LOG))
+              if (plugin_add(tmp_root, &name, &dl, argc, argv, REPORT_TO_LOG)) {
+                mysql_rwlock_unlock(&LOCK_system_variables_hash);
                 goto error;
+              }
             }
             plugin_dl_del(&dl);  // reduce ref count
           } else
@@ -1808,8 +1810,10 @@ static bool plugin_load_list(MEM_ROOT *tmp_root, int *argc, char **argv,
           */
           mysql_mutex_lock(&LOCK_plugin);
           mysql_rwlock_wrlock(&LOCK_system_variables_hash);
-          if (plugin_add(tmp_root, &name, &dl, argc, argv, REPORT_TO_LOG))
+          if (plugin_add(tmp_root, &name, &dl, argc, argv, REPORT_TO_LOG)) {
+            mysql_rwlock_unlock(&LOCK_system_variables_hash);
             goto error;
+          }
         }
         mysql_rwlock_unlock(&LOCK_system_variables_hash);
         mysql_mutex_unlock(&LOCK_plugin);
