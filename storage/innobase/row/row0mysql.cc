@@ -78,6 +78,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0undo.h"
 #include "ut0cpu_cache.h"
 #include "ut0new.h"
+#include "zlib.h"
 
 #include "current_thd.h"
 #include "my_dbug.h"
@@ -91,6 +92,17 @@ static const char *MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY =
 /** Provide optional 4.x backwards compatibility for 5.0 and above */
 ibool row_rollback_on_timeout = FALSE;
 
+/**
+Determine if zlib needs to compute adler32 value for the compressed data.
+This variables is similar to page_zip_zlib_wrap, but only used by
+compressed blob columns.
+*/
+const bool srv_compressed_columns_zlib_wrap = true;
+/**
+Determine if zlib will use custom memory allocation functions based on
+InnoDB memory heap routines (mem_heap_t*).
+*/
+const bool srv_compressed_columns_zlib_use_heap = false;
 /** Chain node of the list of tables to drop in the background. */
 struct row_mysql_drop_t {
   char *table_name; /*!< table name */
@@ -534,6 +546,7 @@ byte *row_mysql_store_col_in_innobase_format(
     we need do nothing here. */
   } else if (type == DATA_BLOB) {
     ptr = row_mysql_read_blob_ref(&col_len, mysql_data, col_len);
+
   } else if (DATA_GEOMETRY_MTYPE(type)) {
     /* We use blob to store geometry data except DATA_POINT
     internally, but in MySQL Layer the datatype is always blob. */
@@ -4252,7 +4265,8 @@ dberr_t row_rename_table_for_mysql(const char *old_name, const char *new_name,
 
   err = DB_SUCCESS;
 
-  if (dict_table_has_fts_index(table) &&
+  if ((dict_table_has_fts_index(table) ||
+       DICT_TF2_FLAG_IS_SET(table, DICT_TF2_FTS_HAS_DOC_ID)) &&
       !dict_tables_have_same_db(old_name, new_name)) {
     err = fts_rename_aux_tables(table, new_name, trx, replay);
   }
@@ -4741,7 +4755,8 @@ loop:
                                   " table "
                                << index->table->name << " returned " << ret;
     }
-    /* fall through (this error is ignored by CHECK TABLE) */
+      /* Fall through */
+      /* (this error is ignored by CHECK TABLE) */
     case DB_END_OF_INDEX:
       ret = DB_SUCCESS;
     func_exit:

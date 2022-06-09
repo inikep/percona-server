@@ -48,6 +48,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <stddef.h>
 #include <sys/types.h>
 
+#include "btr0types.h"
 #include "dict0dict.h"
 #include "ha_prototypes.h"
 #include "row0mysql.h"
@@ -187,6 +188,7 @@ static dberr_t srv_conc_enter_innodb_with_atomics(
     }
 
     os_thread_sleep(sleep_in_us);
+    trx->stats.bump_innodb_enter_wait(*trx, sleep_in_us);
 
     trx->op_info = "";
 

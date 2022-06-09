@@ -44,7 +44,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "handler0alter.h"
 #include "lob0lob.h"
 #include "lock0lock.h"
+#include "my_aes.h"
 #include "my_psi_config.h"
+#include "os0file.h"
 #include "pars0pars.h"
 #include "row0ext.h"
 #include "row0ftsort.h"
@@ -768,7 +770,11 @@ add_next:
     }
 
     ut_ad(len <= col->len || DATA_LARGE_MTYPE(col->mtype) ||
-          (col->mtype == DATA_POINT && len == DATA_MBR_LEN));
+          (col->mtype == DATA_POINT && len == DATA_MBR_LEN) ||
+          ((col->mtype == DATA_VARCHAR || col->mtype == DATA_BINARY ||
+            col->mtype == DATA_VARMYSQL) &&
+           (col->len == 0 ||
+            len <= col->len + prtype_get_compression_extra(col->prtype))));
 
     fixed_len = ifield->fixed_len;
     if (fixed_len && !dict_table_is_comp(index->table) &&
@@ -1896,6 +1902,11 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t
 
     rec = page_cur_get_rec(cur);
 
+    SRV_CORRUPT_TABLE_CHECK(rec, {
+      err = DB_CORRUPTION;
+      goto func_exit;
+    });
+
     offsets =
         rec_get_offsets(rec, clust_index, nullptr, ULINT_UNDEFINED, &row_heap);
 
@@ -2360,10 +2371,11 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t
         that the buffer has been written out
         and emptied. */
 
-        if (UNIV_UNLIKELY(!(rows_added = row_merge_buf_add(
-                                buf, fts_index, old_table, new_table,
-                                psort_info, row, ext, &doc_id, conv_heap, &err,
-                                &v_heap, table, trx, &multi_val_added)))) {
+        if (UNIV_UNLIKELY(
+                !(rows_added = row_merge_buf_add(
+                      buf, fts_index, old_table, new_table, psort_info, row,
+                      ext, &doc_id, conv_heap, &err, &v_heap, table, trx,
+                      &multi_val_added)))) {
           /* An empty buffer should have enough
           room for at least one record. */
           ut_error;
@@ -3672,7 +3684,7 @@ dberr_t row_merge_build_indexes(
 
   /* This will allocate "3 * srv_sort_buf_size" elements of type
   row_merge_block_t. The latter is defined as byte. */
-  block = alloc.allocate_large(3 * srv_sort_buf_size, &block_pfx);
+  block = alloc.allocate_large(3 * srv_sort_buf_size, &block_pfx, false);
 
   if (block == nullptr) {
     return DB_OUT_OF_MEMORY;

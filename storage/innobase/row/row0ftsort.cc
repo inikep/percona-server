@@ -487,14 +487,15 @@ static ibool row_merge_fts_doc_tokenize(
     } else {
       inc = innobase_mysql_fts_get_token(
           doc->charset, doc->text.f_str + t_ctx->processed_len,
-          doc->text.f_str + doc->text.f_len, &str);
+          doc->text.f_str + doc->text.f_len, false, &str);
 
       ut_a(inc > 0);
     }
 
     /* Ignore string whose character number is less than
     "fts_min_token_size" or more than "fts_max_token_size" */
-    if (!fts_check_token(&str, nullptr, is_ngram, nullptr)) {
+    if (!fts_check_token(&str, nullptr, is_ngram, nullptr,
+                         t_ctx->ignore_stopwords)) {
       if (parser != nullptr) {
         UT_LIST_REMOVE(t_ctx->fts_token_list, fts_token);
         ut_free(fts_token);
@@ -513,8 +514,8 @@ static ibool row_merge_fts_doc_tokenize(
 
     /* if "cached_stopword" is defined, ignore words in the
     stopword list */
-    if (!fts_check_token(&str, t_ctx->cached_stopword, is_ngram,
-                         doc->charset)) {
+    if (!fts_check_token(&str, t_ctx->cached_stopword, is_ngram, doc->charset,
+                         t_ctx->ignore_stopwords)) {
       if (parser != nullptr) {
         UT_LIST_REMOVE(t_ctx->fts_token_list, fts_token);
         ut_free(fts_token);
@@ -703,10 +704,10 @@ static void fts_parallel_tokenization_thread(fts_psort_t *psort_info) {
   fts_tokenize_ctx_t t_ctx;
   ulint retried = 0;
   dberr_t error = DB_SUCCESS;
+  THD *thd = psort_info->psort_common->trx->mysql_thd;
 
-  ut_ad(psort_info->psort_common->trx->mysql_thd != nullptr);
-  const char *path =
-      thd_innodb_tmpdir(psort_info->psort_common->trx->mysql_thd);
+  ut_ad(thd != nullptr);
+  const char *path = thd_innodb_tmpdir(thd);
 
   ut_ad(psort_info);
 
@@ -731,6 +732,7 @@ static void fts_parallel_tokenization_thread(fts_psort_t *psort_info) {
   row_merge_fts_get_next_doc_item(psort_info, &doc_item);
 
   t_ctx.cached_stopword = table->fts->cache->stopword_info.cached_stopword;
+  t_ctx.ignore_stopwords = thd_has_ft_ignore_stopwords(thd);
   processed = TRUE;
 loop:
   while (doc_item) {

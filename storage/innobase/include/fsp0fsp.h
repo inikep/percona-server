@@ -36,6 +36,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "univ.i"
 
 #include "fsp0space.h"
+#include "fsp0sysspace.h"
 #include "fut0lst.h"
 #include "mtr0mtr.h"
 #include "mysql/components/services/mysql_cond_bits.h"
@@ -679,8 +680,11 @@ void fseg_print(fseg_header_t *header, /*!< in: segment header */
 @return true if it is undo tablespace else false. */
 bool fsp_is_undo_tablespace(space_id_t space_id);
 
+/** Check if the space_id is for a shared system tablespace.
+@param[in]	space_id	tablespace ID
+@return true if id is a system tablespace, false if not. */
 UNIV_INLINE
-bool fsp_is_system_tablespace(space_id_t space_id) {
+bool fsp_is_system_tablespace(space_id_t space_id) noexcept {
   return (space_id == TRX_SYS_SPACE);
 }
 
