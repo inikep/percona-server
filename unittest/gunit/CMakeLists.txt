@@ -561,5 +561,6 @@ ADD_SUBDIRECTORY(components/mysql_server)
 ADD_SUBDIRECTORY(xplugin)
 ADD_SUBDIRECTORY(group_replication)
 ADD_SUBDIRECTORY(libmysqlgcs)
+ADD_SUBDIRECTORY(keyring_vault)
 ADD_SUBDIRECTORY(temptable)
 
