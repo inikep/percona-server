@@ -101,7 +101,7 @@ TARGET_LINK_LIBRARIES(${XPL_UNIT_TESTS}
   ${GCOV_LDFLAGS}
   ${MYSQLX_CLIENT_LIB}
   mysqlx
-  mysqlclient
+  perconaserverclient
   gtest
   gmock
 )
@@ -146,7 +146,7 @@ TARGET_LINK_LIBRARIES(${XCL_UNIT_TESTS}
   ${MYSQLX_CLIENT_FULL_LIB}
   ${MYSQLX_PROTOCOL_FULL_LIB}
   ${PROTOBUF_LIBRARY}
-  mysqlclient
+  perconaserverclient
   gtest
   gmock
 )
