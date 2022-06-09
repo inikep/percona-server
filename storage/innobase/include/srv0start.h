@@ -141,6 +141,9 @@ void srv_get_encryption_data_filename(dict_table_t *table, char *filename,
                                       ulint max_len);
 #endif /* !UNIV_HOTBACKUP */
 
+/** Initializes the log tracking subsystem and starts its thread.  */
+void srv_init_log_online();
+
 /** true if the server is being started */
 extern bool srv_is_being_started;
 /** true if SYS_TABLESPACES is available for lookups */
@@ -151,9 +154,5 @@ extern bool srv_startup_is_before_trx_rollback_phase;
 
 /** TRUE if a raw partition is in use */
 extern ibool srv_start_raw_disk_in_use;
-
-/** true if shared MDL is taken by background thread for all tablespaces, for
- *  which (un)encryption is to be rolled forward*/
-extern bool shared_mdl_is_taken;
 
 #endif

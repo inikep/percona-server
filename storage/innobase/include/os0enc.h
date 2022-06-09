@@ -176,7 +176,7 @@ class Encryption {
   static const char *to_string(Type type) noexcept
       MY_ATTRIBUTE((warn_unused_result));
 
-  /** Check if the string is "empty" or "none".
+  /** Check if the string is "" or "n".
   @param[in]  algorithm  Encryption algorithm to check
   @return true if no algorithm requested */
   static bool is_none(const char *algorithm) noexcept
@@ -299,7 +299,7 @@ class Encryption {
                   ulint dst_len) noexcept MY_ATTRIBUTE((warn_unused_result));
 
   /** Check if keyring plugin loaded. */
-  static bool check_keyring() noexcept;
+  MY_NODISCARD static bool check_keyring() noexcept;
 
   /** Get encryption type
   @return encryption type **/

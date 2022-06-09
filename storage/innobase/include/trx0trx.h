@@ -36,6 +36,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <atomic>
 #include <set>
 
+#include "mysql/plugin.h"
+
 #include "ha_prototypes.h"
 
 #include "dict0types.h"
@@ -241,6 +243,15 @@ ReadView *trx_get_read_view(trx_t *trx);
 /** @return the transaction's read view or NULL if one not assigned. */
 UNIV_INLINE
 const ReadView *trx_get_read_view(const trx_t *trx);
+
+/** Clones the read view from another transaction. All the consistent reads
+within the receiver transaction will get the same read view as the donor
+transaction.
+@param[in]	trx	receiver transaction
+@param[in]	from_trx	donor transaction
+@return read view clone */
+MY_NODISCARD
+ReadView *trx_clone_read_view(trx_t *trx, trx_t *from_trx);
 
 /** Prepares a transaction for commit/rollback. */
 void trx_commit_or_rollback_prepare(trx_t *trx); /*!< in/out: transaction */
@@ -833,6 +844,133 @@ enum trx_rseg_type_t {
   TRX_RSEG_TYPE_NOREDO    /*!< non-redo rollback segment. */
 };
 
+/** Utility class to collect and report slow query log InnoDB extension
+stats */
+class trx_stats final {
+ public:
+  trx_stats() {
+    /* Always created in a zeroed memory block */
+#ifdef UNIV_DEBUG
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic ignored "-Wuninitialized"
+    ut_ad(lock_que_wait_ustarted == 0);
+    ut_ad(take_stats == false);
+#pragma GCC diagnostic pop
+#endif
+  }
+
+  /**
+  Register, if needed, start of an I/O read or wait.
+
+  @param	trx	transaction to account I/O to or NULL
+  @param	bytes	number of bytes to read or 0 if this is a wait for an
+   already posted read in progress
+  @return value to be passed to end_io_read
+  */
+  MY_NODISCARD
+  static ib_time_monotonic_us_t start_io_read(trx_t *trx, ulint bytes) noexcept;
+
+  /**
+  Register start of an I/O read or wait.
+
+  @param	trx	transaction to account I/O to
+  @param	bytes	number of bytes to read or 0 if this is a wait for an
+   already posted read in progress
+  @return value to be passed to end_io_read
+  */
+  MY_NODISCARD
+  static ib_time_monotonic_us_t start_io_read(const trx_t &trx,
+                                              ulint bytes) noexcept;
+
+  /**
+  Register, if needed, end of an I/O read or wait.
+
+  @param	trx		transaction to account I/O to or NULL
+  @param	start_time	return value of start_io_read
+  */
+  static void end_io_read(trx_t *trx,
+                          ib_time_monotonic_us_t start_time) noexcept;
+
+  /**
+  Register end of an I/O read or wait.
+
+  @param	trx		transaction to account I/O to
+  @param	start_time	return value of start_io_read*/
+  static void end_io_read(const trx_t &trx,
+                          ib_time_monotonic_us_t start_time) noexcept;
+
+  /**
+  Register, if needed, a single untimed I/O read.
+
+  @param	trx	transaction to account I/O to or NULL
+  @param	bytes	number of bytes read
+  */
+  static void bump_io_read(trx_t *trx, ulint bytes) noexcept;
+
+  /**
+  Register a single untimed I/O read.
+
+  @param	trx	transaction to account I/O to
+  @param	bytes	number of bytes read
+  */
+  static void bump_io_read(const trx_t &trx, ulint bytes) noexcept;
+
+  /**
+  Register, if needed, a start of lock wait */
+  void start_lock_wait() noexcept {
+    if (UNIV_LIKELY(!take_stats)) return;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic ignored "-Wuninitialized"
+    ut_ad(lock_que_wait_ustarted == 0);
+#pragma GCC diagnostic pop
+    lock_que_wait_ustarted = ut_time_monotonic_us();
+  }
+
+  /**
+  Register, if needed, a finished lock wait.
+
+  @param	trx	transaction to account to, if needed */
+  void stop_lock_wait(const trx_t &trx) noexcept;
+
+  /**
+  Register, if needed, a wait to enter InnoDB.
+
+  @param	trx	transaction to register to, if needed
+  @	us	wait time in microseconds */
+  void bump_innodb_enter_wait(const trx_t &trx, ulint us) const noexcept;
+
+  /**
+  Register, if needed, a data page access.
+
+  @param	trx		transaction to register to, or NULL
+  @param	page_id_fold	result of page_id_t::fold */
+  static void inc_page_get(trx_t *trx, ulint page_id_fold) noexcept;
+
+  /**
+  Register a data page access.
+
+  @param	trx		transaction to register to
+  @param	page_id_fold	result of page_id_t::fold */
+  static void inc_page_get(const trx_t &trx, ulint page_id_fold) noexcept;
+
+  MY_NODISCARD
+  bool enabled() const noexcept { return take_stats; }
+
+  void set(bool take) noexcept { take_stats = take; }
+
+ private:
+  // FIXME: only used for reclock-waiting threads, thus could be moved to
+  // e.g. que_thr_t if there's benefit
+  ib_time_monotonic_us_t lock_que_wait_ustarted;
+  bool take_stats;
+};
+
 struct trx_t {
   enum isolation_level_t {
 
@@ -883,6 +1021,12 @@ struct trx_t {
               it can */
 
   trx_id_t id; /*!< transaction id */
+
+  trx_id_t preallocated_id; /*!< preallocated transaction id for a
+                            RO transaction whose read view was
+                            cloned. If this transaction is promoted
+                            to RW, it will become the transaction
+                            id. */
 
   trx_id_t no; /*!< transaction serialization number:
                max trx id shortly before the
@@ -1086,6 +1230,8 @@ struct trx_t {
   /*!< if MySQL binlog is used, this
   field contains the end offset of the
   binlog entry */
+  time_t idle_start;
+  ib_uint64_t last_stmt_start;
   /*------------------------------*/
   ib_uint32_t n_mysql_tables_in_use; /*!< number of Innobase tables
                               used in the processing of the current
@@ -1246,6 +1392,7 @@ struct trx_t {
                   doing Non-locking Read-only Read
                   Committed on DD tables */
 #endif            /* UNIV_DEBUG */
+  trx_stats stats;
   ulint magic_n;
 
   bool is_read_uncommitted() const {
@@ -1282,6 +1429,74 @@ Check if transaction is started.
 inline bool trx_is_started(const trx_t *trx) {
   return (trx->state != TRX_STATE_NOT_STARTED &&
           trx->state != TRX_STATE_FORCED_ROLLBACK);
+}
+
+inline ib_time_monotonic_us_t trx_stats::start_io_read(const trx_t &trx,
+                                                       ulint bytes) noexcept {
+  if (bytes) {
+    thd_report_innodb_stat(trx.mysql_thd, trx.id, MYSQL_TRX_STAT_IO_READ_BYTES,
+                           bytes);
+  }
+  return ut_time_monotonic_us();
+}
+
+inline ib_time_monotonic_us_t trx_stats::start_io_read(trx_t *trx,
+                                                       ulint bytes) noexcept {
+  if (UNIV_LIKELY_NULL(trx)) return start_io_read(*trx, bytes);
+  return 0;
+}
+
+inline void trx_stats::end_io_read(const trx_t &trx,
+                                   ib_time_monotonic_us_t start_time) noexcept {
+  const auto finish_time = ut_time_monotonic_us();
+  thd_report_innodb_stat(trx.mysql_thd, trx.id,
+                         MYSQL_TRX_STAT_IO_READ_WAIT_USECS,
+                         finish_time - start_time);
+}
+
+inline void trx_stats::end_io_read(trx_t *trx,
+                                   ib_time_monotonic_us_t start_time) noexcept {
+  if (UNIV_UNLIKELY(start_time != 0)) end_io_read(*trx, start_time);
+}
+
+inline void trx_stats::bump_io_read(const trx_t &trx, ulint n) noexcept {
+  thd_report_innodb_stat(trx.mysql_thd, trx.id, MYSQL_TRX_STAT_IO_READ_BYTES,
+                         n);
+}
+
+inline void trx_stats::bump_io_read(trx_t *trx, ulint n) noexcept {
+  if (UNIV_LIKELY_NULL(trx)) bump_io_read(*trx, n);
+}
+
+inline void trx_stats::bump_innodb_enter_wait(const trx_t &trx, ulint us) const
+    noexcept {
+  if (UNIV_LIKELY(!take_stats)) return;
+  thd_report_innodb_stat(trx.mysql_thd, trx.id,
+                         MYSQL_TRX_STAT_INNODB_QUEUE_WAIT_USECS, us);
+}
+
+inline void trx_stats::stop_lock_wait(const trx_t &trx) noexcept {
+  if (UNIV_LIKELY(!take_stats)) return;
+  const auto now = ut_time_monotonic_us();
+  thd_report_innodb_stat(trx.mysql_thd, trx.id, MYSQL_TRX_STAT_LOCK_WAIT_USECS,
+                         now - lock_que_wait_ustarted);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic ignored "-Wuninitialized"
+  ut_d(lock_que_wait_ustarted = 0);
+#pragma GCC diagnostic pop
+}
+
+inline void trx_stats::inc_page_get(trx_t *trx, ulint page_id_fold) noexcept {
+  if (UNIV_LIKELY_NULL(trx)) inc_page_get(*trx, page_id_fold);
+}
+
+inline void trx_stats::inc_page_get(const trx_t &trx,
+                                    ulint page_id_fold) noexcept {
+  thd_report_innodb_stat(trx.mysql_thd, trx.id, MYSQL_TRX_STAT_ACCESS_PAGE_ID,
+                         page_id_fold);
 }
 
 /** Commit node states */

@@ -42,6 +42,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #ifndef UNIV_HOTBACKUP
 #include "ibuf0types.h"
 #endif /* !UNIV_HOTBACKUP */
+#include "trx0types.h"
 #include "ut0new.h"
 
 #include "m_ctype.h"
@@ -474,6 +475,8 @@ struct fil_space_t {
 
   /** true if this space is currently in unflushed_spaces */
   bool is_in_unflushed_spaces{};
+
+  bool is_corrupt;
 
   /** Compression algorithm */
   Compression::Type compression_type;
@@ -1565,6 +1568,13 @@ bool fil_system_get_file_by_space_num(space_id_t space_num,
 bool fil_truncate_tablespace(space_id_t space_id, page_no_t size_in_pages)
     MY_ATTRIBUTE((warn_unused_result));
 
+/** Truncate the tablespace to needed size.
+@param[in]	space_id	Id of tablespace to truncate
+@param[in]	size_in_pages	Truncate size.
+@return true if truncate was successful. */
+bool fil_truncate_tablespace(space_id_t space_id, page_no_t size_in_pages)
+    MY_ATTRIBUTE((warn_unused_result));
+
 /** Drop and create an UNDO tablespace.
 @param[in]  old_space_id   Tablespace ID to truncate
 @param[in]  new_space_id   Tablespace ID to for the new file
@@ -1766,12 +1776,19 @@ dberr_t fil_redo_io(const IORequest &type, const page_id_t &page_id,
                                 to write; in AIO this must be appropriately
                                 aligned
 @param[in]	message		message for AIO handler if !sync, else ignored
+@param[in]	should_buffer	whether to buffer an AIO request. Only used by
+                                AIO read ahead
 @return error code
 @retval DB_SUCCESS on success
 @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-dberr_t fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
-               const page_size_t &page_size, ulint byte_offset, ulint len,
-               void *buf, void *message) MY_ATTRIBUTE((warn_unused_result));
+dberr_t _fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
+                const page_size_t &page_size, ulint byte_offset, ulint len,
+                void *buf, void *message, trx_t *trx, bool should_buffer)
+    MY_ATTRIBUTE((warn_unused_result));
+
+#define fil_io(type, sync, page_id, page_size, byte_offset, len, buf, message) \
+  _fil_io(type, sync, page_id, page_size, byte_offset, len, buf, message,      \
+          NULL, false)
 
 /** Waits for an AIO operation to complete. This function is used to write the
 handler for completed requests. The aio array of pending requests is divided
@@ -2283,6 +2300,10 @@ void fil_space_update_name(fil_space_t *space, const char *name);
 @param[in]	extn	file extension */
 void fil_adjust_name_import(dict_table_t *table, const char *path,
                             ib_file_suffix extn);
+
+/** Mark space as corrupt
+@param space_id	space id */
+void fil_space_set_corrupt(space_id_t space_id);
 
 #ifndef UNIV_HOTBACKUP
 
