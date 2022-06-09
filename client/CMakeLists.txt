@@ -25,6 +25,8 @@ ADD_WSHADOW_WARNING()
 # We are not interesting in profiling clients.
 DISABLE_MISSING_PROFILE_WARNING()
 
+INCLUDE_DIRECTORIES(SYSTEM ${READLINE_INCLUDE_DIR})
+
 ## Subdirectory with common client code.
 
 ADD_SUBDIRECTORY(base)
@@ -37,7 +39,7 @@ MYSQL_ADD_EXECUTABLE(mysql
   mysql.cc
   pattern_matcher.cc
   readline.cc
-  LINK_LIBRARIES perconaserverclient client_base ${EDITLINE_LIBRARY}
+  LINK_LIBRARIES perconaserverclient client_base ${MY_READLINE_LIBRARY}
   )
 
 IF(NOT WITHOUT_SERVER)
