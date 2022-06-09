@@ -55,7 +55,7 @@ FOREACH(test ${TESTS})
     gr_unit_test_resource
     gunit_large
     server_unittest_library
-    mysqlclient
+    perconaserverclient
     mysqlgcs
     )
 ENDFOREACH()
