@@ -191,7 +191,7 @@ size_t Key::get_key_pod_size() const {
 void Key::xor_data() {
   if (key == nullptr) return;
   static const char *obfuscate_str = "*305=Ljt0*!@$Hnm(*-9-w;:";
-  for (size_t i = 0, l = 0; i < key_len;
+  for (uint i = 0, l = 0; i < key_len;
        ++i, l = ((l + 1) % strlen(obfuscate_str)))
     key.get()[i] ^= obfuscate_str[l];
 }
