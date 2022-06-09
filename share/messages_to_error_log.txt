@@ -11063,6 +11063,24 @@ ER_IB_MSG_UNDO_INJECT_FAILURE
 # End of 8.0 error messages intended to be written to the server error log.
 #
 
+#
+# Start of Percona Server 8.0 server error log messages
+#
+start-error-number 48000
+
+ER_RPL_FAILED_TO_RECREATE_CACHE_FOR_INFO_FILE
+  eng "Failed to recreate a cache on info file (file '%s')"
+
+ER_XB_MSG_0
+  eng "%s"
+
+ER_XB_MSG_1
+  eng "%s"
+
+#
+# End of Percona Server 8.0 server error log messages
+#
+
 ################################################################################
 # Error numbers 50000 to 51999 are reserved. Please do not use them for
 # other error messages.

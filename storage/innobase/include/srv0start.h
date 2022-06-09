@@ -148,6 +148,9 @@ void srv_get_encryption_data_filename(dict_table_t *table, char *filename,
                                       ulint max_len);
 #endif /* !UNIV_HOTBACKUP */
 
+/** Initializes the log tracking subsystem and starts its thread.  */
+void srv_init_log_online();
+
 /** true if the server is being started */
 extern bool srv_is_being_started;
 /** true if SYS_TABLESPACES is available for lookups */
@@ -195,6 +198,7 @@ enum srv_shutdown_t {
     - the master thread,
     - redo log threads,
     - page cleaner threads,
+    - LRU manager threads,
     - archiver threads.
   List of threads being stopped within this phase:
     - lock_wait_timeout thread,

@@ -198,28 +198,9 @@ is bigger than the lsn we are able to scan up to, that is an indication that
 the recovery failed and the database may be corrupt. */
 static lsn_t recv_max_page_lsn;
 
-#ifndef UNIV_HOTBACKUP
-#ifdef UNIV_PFS_THREAD
-mysql_pfs_key_t recv_writer_thread_key;
-#endif /* UNIV_PFS_THREAD */
-
-static bool recv_writer_is_active() {
-  return (srv_thread_is_active(srv_threads.m_recv_writer));
-}
-
-#endif /* !UNIV_HOTBACKUP */
-
 /* prototypes */
 
 #ifndef UNIV_HOTBACKUP
-
-/** Reads a specified log segment to a buffer.
-@param[in,out]	log		redo log
-@param[in,out]	buf		buffer where to read
-@param[in]	start_lsn	read area start
-@param[in]	end_lsn		read area end */
-static void recv_read_log_seg(log_t &log, byte *buf, lsn_t start_lsn,
-                              lsn_t end_lsn);
 
 /** Initialize crash recovery environment. Can be called iff
 recv_needed_recovery == false. */
@@ -394,7 +375,6 @@ void recv_sys_create() {
   recv_sys = static_cast<recv_sys_t *>(ut_zalloc_nokey(sizeof(*recv_sys)));
 
   mutex_create(LATCH_ID_RECV_SYS, &recv_sys->mutex);
-  mutex_create(LATCH_ID_RECV_WRITER, &recv_sys->writer_mutex);
 
   recv_sys->spaces = nullptr;
 }
@@ -484,7 +464,6 @@ void recv_sys_close() {
   if (recv_sys->flush_end != nullptr) {
     os_event_destroy(recv_sys->flush_end);
   }
-
 #endif /* !UNIV_HOTBACKUP */
 
   UT_DELETE(recv_sys->dblwr);
@@ -493,9 +472,6 @@ void recv_sys_close() {
   call_destructor(&recv_sys->missing_ids);
 
   mutex_free(&recv_sys->mutex);
-
-  ut_ad(!recv_writer_is_active());
-  mutex_free(&recv_sys->writer_mutex);
 
   ut_free(recv_sys);
   recv_sys = nullptr;
@@ -685,11 +661,7 @@ static
 block.
 @param[in]	block	pointer to a log block
 @return whether the checksum matches */
-#ifndef UNIV_HOTBACKUP
-static
-#endif /* !UNIV_HOTBACKUP */
-    bool
-    log_block_checksum_is_ok(const byte *block) {
+bool log_block_checksum_is_ok(const byte *block) {
   return (!srv_log_checksums ||
           log_block_get_checksum(block) == log_block_calc_checksum(block));
 }
@@ -774,58 +746,6 @@ void MetadataRecover::store() {
   mutex_exit(&dict_persist->mutex);
 }
 
-/** recv_writer thread tasked with flushing dirty pages from the buffer
-pools. */
-static void recv_writer_thread() {
-  ut_ad(!srv_read_only_mode);
-
-  /* The code flow is as follows:
-  Step 1: In recv_recovery_from_checkpoint_start().
-  Step 2: This recv_writer thread is started.
-  Step 3: In recv_recovery_from_checkpoint_finish().
-  Step 4: Wait for recv_writer thread to complete.
-  Step 5: Assert that recv_writer thread is not active anymore.
-
-  It is possible that the thread that is started in step 2,
-  becomes active only after step 4 and hence the assert in
-  step 5 fails.  So mark this thread active only if necessary. */
-  mutex_enter(&recv_sys->writer_mutex);
-
-  if (!recv_recovery_on) {
-    mutex_exit(&recv_sys->writer_mutex);
-    return;
-  }
-  mutex_exit(&recv_sys->writer_mutex);
-
-  while (srv_shutdown_state.load() == SRV_SHUTDOWN_NONE) {
-    ut_a(srv_shutdown_state_matches([](auto state) {
-      return state == SRV_SHUTDOWN_NONE || state == SRV_SHUTDOWN_EXIT_THREADS;
-    }));
-
-    os_thread_sleep(100000);
-
-    mutex_enter(&recv_sys->writer_mutex);
-
-    if (!recv_recovery_on) {
-      mutex_exit(&recv_sys->writer_mutex);
-      break;
-    }
-
-    if (log_test != nullptr) {
-      mutex_exit(&recv_sys->writer_mutex);
-      continue;
-    }
-
-    /* Flush pages from end of LRU if required */
-    os_event_reset(recv_sys->flush_end);
-    recv_sys->flush_type = BUF_FLUSH_LRU;
-    os_event_set(recv_sys->flush_start);
-    os_event_wait(recv_sys->flush_end);
-
-    mutex_exit(&recv_sys->writer_mutex);
-  }
-}
-
 /** Frees the recovery system. */
 void recv_sys_free() {
   mutex_enter(&recv_sys->mutex);
@@ -835,7 +755,6 @@ void recv_sys_free() {
   /* wake page cleaner up to progress */
   if (!srv_read_only_mode) {
     ut_ad(!recv_recovery_on);
-    ut_ad(!recv_writer_is_active());
     if (buf_flush_event != nullptr) {
       os_event_reset(buf_flush_event);
     }
@@ -1309,25 +1228,16 @@ void recv_apply_hashed_log_recs(log_t &log, bool allow_ibuf) {
 
     mutex_exit(&recv_sys->mutex);
 
-    /* Stop the recv_writer thread from issuing any LRU
-    flush batches. */
-    mutex_enter(&recv_sys->writer_mutex);
-
-    /* Wait for any currently run batch to end. */
-    buf_flush_wait_LRU_batch_end();
-
     os_event_reset(recv_sys->flush_end);
-
-    recv_sys->flush_type = BUF_FLUSH_LIST;
 
     os_event_set(recv_sys->flush_start);
 
     os_event_wait(recv_sys->flush_end);
 
-    buf_pool_invalidate();
+    /* Wait for any currently running batch to end. */
+    buf_flush_wait_LRU_batch_end();
 
-    /* Allow batches from recv_writer thread. */
-    mutex_exit(&recv_sys->writer_mutex);
+    buf_pool_invalidate();
 
     ut_d(log.disable_redo_writes = false);
 
@@ -1609,6 +1519,7 @@ specified.
 @param[in]	end_ptr		end of buffer
 @param[in]	space_id	tablespace identifier
 @param[in]	page_no		page number
+@param[in]	apply		Whether to apply the record
 @param[in,out]	block		buffer block, or nullptr if
                                 a page log record should not be applied
                                 or if it is a MLOG_FILE_ operation
@@ -1616,9 +1527,12 @@ specified.
                                 a page log record should not be applied
 @param[in]	parsed_bytes	Number of bytes parsed so far
 @return log record end, nullptr if not a complete record */
-static byte *recv_parse_or_apply_log_rec_body(
-    mlog_id_t type, byte *ptr, byte *end_ptr, space_id_t space_id,
-    page_no_t page_no, buf_block_t *block, mtr_t *mtr, ulint parsed_bytes) {
+static byte *recv_parse_or_apply_log_rec_body(mlog_id_t type, byte *ptr,
+                                              byte *end_ptr,
+                                              space_id_t space_id,
+                                              page_no_t page_no, bool apply,
+                                              buf_block_t *block, mtr_t *mtr,
+                                              ulint parsed_bytes) {
   bool applying_redo = (block != nullptr);
 
   switch (type) {
@@ -1694,7 +1608,8 @@ static byte *recv_parse_or_apply_log_rec_body(
             !fsp_is_system_or_temp_tablespace(space_id) &&
             /* For cloned db header page has the encryption information. */
             !recv_sys->is_cloned_db) {
-          return (fil_tablespace_redo_encryption(ptr, end_ptr, space_id));
+          return (
+              fil_tablespace_redo_encryption(ptr, end_ptr, space_id, apply));
         }
 #ifdef UNIV_HOTBACKUP
       }
@@ -2580,7 +2495,7 @@ void recv_recover_page_func(
 
       recv_parse_or_apply_log_rec_body(recv->type, buf, buf + recv->len,
                                        recv_addr->space, recv_addr->page_no,
-                                       block, &mtr, ULINT_UNDEFINED);
+                                       true, block, &mtr, ULINT_UNDEFINED);
 
       end_lsn = recv->start_lsn + recv->len;
 
@@ -2651,11 +2566,12 @@ void recv_recover_page_func(
 @param[in]	end_ptr		end of the buffer
 @param[out]	space_id	tablespace identifier
 @param[out]	page_no		page number
+@param[in]	apply		whether to apply the record
 @param[out]	body		start of log record body
 @return length of the record, or 0 if the record was not complete */
-static ulint recv_parse_log_rec(mlog_id_t *type, byte *ptr, byte *end_ptr,
-                                space_id_t *space_id, page_no_t *page_no,
-                                byte **body) {
+ulint recv_parse_log_rec(mlog_id_t *type, byte *ptr, byte *end_ptr,
+                         space_id_t *space_id, page_no_t *page_no, bool apply,
+                         byte **body) {
   byte *new_ptr;
 
   *body = nullptr;
@@ -2729,7 +2645,7 @@ static ulint recv_parse_log_rec(mlog_id_t *type, byte *ptr, byte *end_ptr,
   }
 
   new_ptr = recv_parse_or_apply_log_rec_body(*type, new_ptr, end_ptr, *space_id,
-                                             *page_no, nullptr, nullptr,
+                                             *page_no, apply, nullptr, nullptr,
                                              new_ptr - ptr);
 
   if (new_ptr == nullptr) {
@@ -2812,7 +2728,7 @@ static bool recv_single_rec(byte *ptr, byte *end_ptr) {
   space_id_t space_id;
 
   ulint len =
-      recv_parse_log_rec(&type, ptr, end_ptr, &space_id, &page_no, &body);
+      recv_parse_log_rec(&type, ptr, end_ptr, &space_id, &page_no, true, &body);
 
   if (recv_sys->found_corrupt_log) {
     recv_report_corrupt_log(ptr, type, space_id, page_no);
@@ -2920,8 +2836,8 @@ static bool recv_multi_rec(byte *ptr, byte *end_ptr) {
     page_no_t page_no = 0;
     space_id_t space_id = 0;
 
-    ulint len =
-        recv_parse_log_rec(&type, ptr, end_ptr, &space_id, &page_no, &body);
+    ulint len = recv_parse_log_rec(&type, ptr, end_ptr, &space_id, &page_no,
+                                   true, &body);
 
     if (recv_sys->found_corrupt_log) {
       recv_report_corrupt_log(ptr, type, space_id, page_no);
@@ -2991,8 +2907,8 @@ static bool recv_multi_rec(byte *ptr, byte *end_ptr) {
     page_no_t page_no = 0;
     space_id_t space_id = 0;
 
-    ulint len =
-        recv_parse_log_rec(&type, ptr, end_ptr, &space_id, &page_no, &body);
+    ulint len = recv_parse_log_rec(&type, ptr, end_ptr, &space_id, &page_no,
+                                   true, &body);
 
     if (recv_sys->found_corrupt_log &&
         !recv_report_corrupt_log(ptr, type, space_id, page_no)) {
@@ -3498,15 +3414,19 @@ bool meb_read_log_encryption(IORequest &encryption_request,
 @param[in,out]	log		redo log
 @param[in,out]	buf		buffer where to read
 @param[in]	start_lsn	read area start
-@param[in]	end_lsn		read area end */
-static void recv_read_log_seg(log_t &log, byte *buf, lsn_t start_lsn,
-                              lsn_t end_lsn) {
-  log_background_threads_inactive_validate(log);
+@param[in]	end_lsn		read area end
+@param[in]	online		whether the read is for the changed page
+                                tracking */
+void recv_read_log_seg(log_t &log, byte *buf, lsn_t start_lsn, lsn_t end_lsn,
+                       bool online) {
+  if (!online) log_background_threads_inactive_validate(log);
 
   do {
     lsn_t source_offset;
 
+    if (online) log_writer_mutex_enter(log);
     source_offset = log_files_real_offset_for_lsn(log, start_lsn);
+    if (online) log_writer_mutex_exit(log);
 
     ut_a(end_lsn - start_lsn <= ULINT_MAX);
 
@@ -3601,7 +3521,7 @@ static void recv_recovery_begin(log_t &log, lsn_t *contiguous_lsn) {
   while (!finished) {
     lsn_t end_lsn = start_lsn + RECV_SCAN_SIZE;
 
-    recv_read_log_seg(log, log.buf, start_lsn, end_lsn);
+    recv_read_log_seg(log, log.buf, start_lsn, end_lsn, false);
 
     finished = recv_scan_log_recs(log, max_mem, log.buf, RECV_SCAN_SIZE,
                                   checkpoint_lsn, start_lsn, contiguous_lsn,
@@ -3625,16 +3545,6 @@ static void recv_init_crash_recovery() {
   ib::info(ER_IB_MSG_727);
 
   recv_sys->dblwr->recover();
-
-  if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO) {
-    /* Spawn the background thread to flush dirty pages
-    from the buffer pools. */
-
-    srv_threads.m_recv_writer =
-        os_thread_create(recv_writer_thread_key, recv_writer_thread);
-
-    srv_threads.m_recv_writer.start();
-  }
 }
 #endif /* !UNIV_HOTBACKUP */
 
@@ -3656,6 +3566,8 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
     /* We leave redo log not started and this is read-only mode. */
     ut_a(log.sn == 0);
     ut_a(srv_read_only_mode);
+
+    srv_init_log_online();
 
     return (DB_SUCCESS);
   }
@@ -3780,9 +3692,7 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
 
       /* Check if the redo log from an older known redo log
       version is from a clean shutdown. */
-      err = recv_log_recover_pre_8_0_4(log, checkpoint_no, checkpoint_lsn);
-
-      return (err);
+      return (recv_log_recover_pre_8_0_4(log, checkpoint_no, checkpoint_lsn));
 
     default:
       ib::error(ER_IB_MSG_733, ulong{log.format},
@@ -3822,6 +3732,7 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
   lsn_t recovered_lsn;
 
   recovered_lsn = recv_sys->recovered_lsn;
+
 
   ut_a(recv_needed_recovery || checkpoint_lsn == recovered_lsn);
 
@@ -3864,7 +3775,7 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
   ut_a(start_lsn < end_lsn);
   ut_a(start_lsn % log.buf_size + OS_FILE_LOG_BLOCK_SIZE <= log.buf_size);
 
-  recv_read_log_seg(log, recv_sys->last_block, start_lsn, end_lsn);
+  recv_read_log_seg(log, recv_sys->last_block, start_lsn, end_lsn, false);
 
   byte *log_buf_block = log.buf + start_lsn % log.buf_size;
 
@@ -3906,6 +3817,8 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
 
   log_start(log, checkpoint_no + 1, checkpoint_lsn, recovered_lsn);
 
+  srv_init_log_online();
+
   /* Copy the checkpoint info to the log; remember that we have
   incremented checkpoint_no by one, and the info will not be written
   over the max checkpoint info, thus making the preservation of max
@@ -3932,34 +3845,11 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
 @return recovered persistent metadata or nullptr if aborting*/
 MetadataRecover *recv_recovery_from_checkpoint_finish(log_t &log,
                                                       bool aborting) {
-  /* Make sure that the recv_writer thread is done. This is
-  required because it grabs various mutexes and we want to
-  ensure that when we enable sync_order_checks there is no
-  mutex currently held by any thread. */
-  mutex_enter(&recv_sys->writer_mutex);
-
   /* Free the resources of the recovery system */
   recv_recovery_on = false;
 
-  /* By acquiring the mutex we ensure that the recv_writer thread
-  won't trigger any more LRU batches. Now wait for currently
-  in progress batches to finish. */
+  /* Now wait for currently in progress batches to finish. */
   buf_flush_wait_LRU_batch_end();
-
-  mutex_exit(&recv_sys->writer_mutex);
-
-  ulint count = 0;
-
-  while (recv_writer_is_active()) {
-    ++count;
-
-    os_thread_sleep(100000);
-
-    if (count >= 600) {
-      ib::info(ER_IB_MSG_738);
-      count = 0;
-    }
-  }
 
   MetadataRecover *metadata;
 
