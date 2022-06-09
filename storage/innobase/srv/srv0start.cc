@@ -2,7 +2,7 @@
 
 Copyright (c) 1996, 2018, Oracle and/or its affiliates. All rights reserved.
 Copyright (c) 2008, Google Inc.
-Copyright (c) 2009, Percona Inc.
+Copyright (c) 2009, 2016, Percona Inc.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -65,6 +65,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_prototypes.h"
 #include "ibuf0ibuf.h"
 #include "log0log.h"
+#include "log0online.h"
 #include "log0recv.h"
 #include "mem0mem.h"
 #include "mtr0mtr.h"
@@ -193,6 +194,7 @@ mysql_pfs_key_t srv_lock_timeout_thread_key;
 mysql_pfs_key_t srv_master_thread_key;
 mysql_pfs_key_t srv_monitor_thread_key;
 mysql_pfs_key_t srv_purge_thread_key;
+mysql_pfs_key_t srv_log_tracking_thread_key;
 mysql_pfs_key_t srv_worker_thread_key;
 mysql_pfs_key_t trx_recovery_rollback_thread_key;
 mysql_pfs_key_t srv_ts_alter_encrypt_thread_key;
@@ -259,9 +261,21 @@ static bool srv_file_check_mode(const char *name) /*!< in: filename to check */
   return (true);
 }
 
+static std::atomic<ulint> io_tid_i(0);
+
 /** I/o-handler thread function.
 @param[in]	segment		The AIO segment the thread will work on */
 static void io_handler_thread(ulint segment) {
+  const ulint tid_i = io_tid_i.fetch_add(1, std::memory_order_relaxed);
+  ut_ad(tid_i < srv_n_file_io_threads);
+  srv_io_tids[tid_i] = os_thread_get_tid();
+  const auto actual_priority =
+      os_thread_set_priority(srv_io_tids[tid_i], srv_sched_priority_io);
+  if (UNIV_UNLIKELY(actual_priority != srv_sched_priority_purge))
+    ib::warn() << "Failed to set I/O thread priority to "
+               << srv_sched_priority_master << " the current priority is "
+               << actual_priority;
+
   while (srv_shutdown_state != SRV_SHUTDOWN_EXIT_THREADS ||
          buf_page_cleaner_is_active || !os_aio_all_slots_free()) {
     fil_aio_wait(segment);
@@ -1303,6 +1317,22 @@ static void srv_start_wait_for_purge_to_start() {
   }
 }
 
+/** Initializes the log tracking subsystem and starts its thread.  */
+void srv_init_log_online(void) {
+  if (UNIV_UNLIKELY(srv_force_recovery > 0 || srv_read_only_mode)) {
+    srv_track_changed_pages = false;
+    return;
+  }
+
+  if (srv_track_changed_pages) {
+    log_online_read_init();
+
+    /* Create the thread that follows the redo log to output the
+       changed page bitmap */
+    os_thread_create(srv_log_tracking_thread_key, srv_redo_log_follow_thread);
+  }
+}
+
 /** Create the temporary file tablespace.
 @param[in]	create_new_db	whether we are creating a new database
 @param[in,out]	tmp_space	Shared Temporary SysTablespace
@@ -1348,6 +1378,22 @@ static dberr_t srv_open_tmp_tablespace(bool create_new_db,
     /* Open this shared temp tablespace in the fil_system so that
     it stays open until shutdown. */
     if (fil_space_open(tmp_space->space_id())) {
+      if (srv_tmp_tablespace_encrypt) {
+        /* Make sure the keyring is loaded. */
+        if (!Encryption::check_keyring()) {
+          srv_tmp_tablespace_encrypt = false;
+          ib::error() << "Can't set temporary"
+                      << " tablespace to be encrypted"
+                      << " because keyring plugin is"
+                      << " not available.";
+          return (DB_ERROR);
+        }
+        fil_space_t *const space = fil_space_get(dict_sys_t::s_temp_space_id);
+        err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
+        tmp_space->set_flags(space->flags);
+        ut_a(err == DB_SUCCESS);
+      }
+
       /* Initialize the header page */
       mtr_start(&mtr);
       mtr_set_log_mode(&mtr, MTR_LOG_NO_REDO);
@@ -1589,6 +1635,56 @@ static lsn_t srv_prepare_to_delete_redo_log_files(ulint n_files) {
   return (flushed_lsn);
 }
 
+/** Enable encryption of system tablespace if requested. At
+startup load the encryption information from first datafile
+to tablespace object
+@return DB_SUCCESS on succes, others on failure */
+static dberr_t srv_sys_enable_encryption(bool create_new_db) {
+  fil_space_t *space = fil_space_get(TRX_SYS_SPACE);
+  dberr_t err = DB_SUCCESS;
+
+  if (create_new_db && srv_sys_tablespace_encrypt) {
+    space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+    srv_sys_space.set_flags(space->flags);
+
+    err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
+    ut_ad(err == DB_SUCCESS);
+  } else {
+    const ulint fsp_flags = srv_sys_space.m_files.begin()->flags();
+    const bool is_encrypted = FSP_FLAGS_GET_ENCRYPTION(fsp_flags);
+
+    if (is_encrypted && !srv_sys_tablespace_encrypt) {
+      ib::error() << "The system tablespace is encrypted but"
+                  << " --innodb_sys_tablespace_encrypt is"
+                  << " OFF. Enable the option and start server";
+      return (DB_ERROR);
+    }
+
+    if (!is_encrypted && srv_sys_tablespace_encrypt) {
+      ib::error() << "The system tablespace is not encrypted but"
+                  << " --innodb_sys_tablespace_encrypt is"
+                  << " ON. This instance was not bootstrapped"
+                  << " with --innodb_sys_tablespace_encrypt=ON."
+                  << " Disable this option and start server";
+      return (DB_ERROR);
+    }
+
+    if (is_encrypted) {
+      space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+      srv_sys_space.set_flags(space->flags);
+
+      err = fil_set_encryption(space->id, Encryption::AES,
+                               srv_sys_space.m_files.begin()->m_encryption_key,
+                               srv_sys_space.m_files.begin()->m_encryption_iv);
+      ut_ad(err == DB_SUCCESS);
+
+      recv_sys->dblwr.decrypt_sys_dblwr_pages();
+    }
+  }
+
+  return (err);
+}
+
 /** Start InnoDB.
 @param[in]	create_new_db		Whether to create a new database
 @param[in]	scan_directories	Scan directories for .ibd files for
@@ -1816,7 +1912,8 @@ dberr_t srv_start(bool create_new_db, const std::string &scan_directories) {
   ib::info(ER_IB_MSG_1130, size, unit, srv_buf_pool_instances, chunk_size,
            chunk_unit);
 
-  err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
+  err = buf_pool_init(srv_buf_pool_size, static_cast<bool>(srv_numa_interleave),
+                      srv_buf_pool_instances);
 
   if (err != DB_SUCCESS) {
     ib::error(ER_IB_MSG_1131);
@@ -1839,6 +1936,7 @@ dberr_t srv_start(bool create_new_db, const std::string &scan_directories) {
   pars_init();
   clone_init();
   arch_init();
+  log_online_init();
 
   recv_sys_create();
   recv_sys_init(buf_pool_get_curr_size());
@@ -1895,6 +1993,8 @@ dberr_t srv_start(bool create_new_db, const std::string &scan_directories) {
 
   switch (err) {
     case DB_SUCCESS:
+      err = srv_sys_enable_encryption(create_new_db);
+      if (err != DB_SUCCESS) return (srv_init_abort(err));
       break;
     case DB_CANNOT_OPEN_FILE:
       ib::error(ER_IB_MSG_1134);
@@ -2067,6 +2167,8 @@ files_checked:
 
     log_start_background_threads(*log_sys);
 
+    srv_init_log_online();
+
     err = srv_undo_tablespaces_init(true);
 
     if (err != DB_SUCCESS) {
@@ -2090,6 +2192,10 @@ files_checked:
     trx_sys_create_sys_pages();
 
     purge_queue = trx_sys_init_at_db_start();
+
+    /* Create the per-buffer pool instance doublewrite buffers */
+    err = buf_parallel_dblwr_create();
+    if (err != DB_SUCCESS) return (srv_init_abort(err));
 
     /* The purge system needs to create the purge view and
     therefore requires that the trx_sys is inited. */
@@ -2132,12 +2238,29 @@ files_checked:
     and there must be no page in the buf_flush list. */
     buf_pool_invalidate();
 
+    /* Start monitor thread early enough so that e.g. crash recovery failing to
+    find free pages in the buffer pool is diagnosed. */
+    if (!srv_read_only_mode) {
+      /* Create the thread which prints InnoDB monitor info */
+      os_thread_create(srv_monitor_thread_key, srv_monitor_thread);
+      srv_start_state_set(SRV_START_STATE_MONITOR);
+    }
+
     /* We always try to do a recovery, even if the database had
     been shut down normally: this is the normal startup path */
 
     err = recv_recovery_from_checkpoint_start(*log_sys, flushed_lsn);
 
-    recv_sys->dblwr.pages.clear();
+    /* Doublewrite-recovered pages should have been either
+    processed, either it should have been impossible to process
+    them due to a missing tablespace or innodb_force_recovery
+    setting, or server being read-only, or instance being
+    corrupted. */
+    ut_ad(
+        recv_sys->dblwr.pages.empty() || err == DB_TABLESPACE_NOT_FOUND ||
+        (err == DB_SUCCESS && (srv_force_recovery >= SRV_FORCE_NO_LOG_REDO)) ||
+        err == DB_ERROR || err == DB_CORRUPTION || err == DB_READ_ONLY);
+    buf_parallel_dblwr_finish_recovery();
 
     if (err == DB_SUCCESS) {
       /* Initialize the change buffer. */
@@ -2162,6 +2285,9 @@ files_checked:
     if (!srv_read_only_mode) {
       log_start_background_threads(*log_sys);
     }
+
+    err = buf_parallel_dblwr_create();
+    if (err != DB_SUCCESS) return (srv_init_abort(err));
 
     if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO) {
       /* Apply the hashed log records to the
@@ -2286,6 +2412,20 @@ files_checked:
 
       RECOVERY_CRASH(4);
 
+      /* If log tracking is enabled, make it catch up with
+      the old logs synchronously. */
+      bool saved_srv_track_changed_pages = srv_track_changed_pages;
+      if (srv_track_changed_pages) {
+        const lsn_t checkpoint_lsn = log_sys->last_checkpoint_lsn;
+        ib::info() << "Tracking redo log synchronously "
+                      "until "
+                   << checkpoint_lsn;
+        if (!log_online_follow_redo_log()) {
+          return (srv_init_abort(DB_ERROR));
+        }
+        srv_track_changed_pages = false;
+      }
+
       /* Close and free the redo log files, so that
       we can replace them. */
       fil_close_log_files(true);
@@ -2304,6 +2444,25 @@ files_checked:
       if (err != DB_SUCCESS) {
         return (srv_init_abort(err));
       }
+
+      if (saved_srv_track_changed_pages) {
+        const lsn_t checkpoint_lsn = log_sys->last_checkpoint_lsn;
+        log_sys->last_checkpoint_lsn = log_get_lsn(*log_sys);
+        ib::info() << "Tracking redo log synchronously until "
+                   << checkpoint_lsn;
+        srv_track_changed_pages = true;
+        if (!log_online_follow_redo_log()) {
+          return (srv_init_abort(DB_ERROR));
+        }
+        srv_track_changed_pages = false;
+      }
+
+      /* create_log_files() can increase system lsn that is
+      why FIL_PAGE_FILE_FLUSH_LSN have to be updated */
+      flushed_lsn = log_get_lsn(*log_sys);
+      err = fil_write_flushed_lsn(flushed_lsn);
+      if (err != DB_SUCCESS) return (srv_init_abort(err));
+      fil_flush_file_spaces(FIL_TYPE_TABLESPACE);
 
       create_log_files_rename(logfilename, dirnamelen, new_checkpoint_lsn,
                               logfile0);
@@ -2454,11 +2613,16 @@ files_checked:
     os_thread_create(srv_error_monitor_thread_key, srv_error_monitor_thread);
 
     /* Create the thread which prints InnoDB monitor info */
-    srv_threads.m_monitor_thread_active = true;
-    os_thread_create(srv_monitor_thread_key, srv_monitor_thread);
+    if (!srv_start_state_is_set(SRV_START_STATE_MONITOR)) {
+      srv_threads.m_monitor_thread_active = true;
+      os_thread_create(srv_monitor_thread_key, srv_monitor_thread);
+    }
 
     srv_start_state_set(SRV_START_STATE_MONITOR);
   }
+
+  /* wake main loop of page cleaner up */
+  os_event_set(buf_flush_event);
 
   srv_sys_tablespaces_open = true;
 
@@ -2473,12 +2637,16 @@ files_checked:
     }
   }
 
+// Percona commented out to be removed for the new DD
+#if 0
+  /* Create the SYS_ZIP_DICT system table */
+  err = dict_create_or_check_sys_zip_dict();
+  if (err != DB_SUCCESS) return(err);
+#endif
+
   srv_is_being_started = false;
 
   ut_a(trx_purge_state() == PURGE_STATE_INIT);
-
-  /* wake main loop of page cleaner up */
-  os_event_set(buf_flush_event);
 
   sum_of_data_file_sizes = srv_sys_space.get_sum_of_sizes();
   ut_a(sum_of_new_sizes != FIL_NULL);
@@ -2513,7 +2681,14 @@ files_checked:
     }
   }
 
-  ib::info(ER_IB_MSG_1151, INNODB_VERSION_STR, log_get_lsn(*log_sys));
+  if (!srv_file_per_table && srv_pass_corrupt_table) {
+    ib::warn() << "The option innodb_file_per_table is disabled, so using the "
+                  "option innodb_pass_corrupt_table doesn't make sense.";
+  }
+
+  ib::info(ER_IB_MSG_1151,
+           "Percona XtraDB (http://www.percona.com) " INNODB_VERSION_STR,
+           log_get_lsn(*log_sys));
 
   return (DB_SUCCESS);
 }
@@ -2640,6 +2815,9 @@ void srv_start_threads(bool bootstrap) {
   os_thread_create(srv_master_thread_key, srv_master_thread);
 
   srv_start_state_set(SRV_START_STATE_MASTER);
+
+  /* Enable row log encryption if it is set */
+  log_tmp_enable_encryption_if_set();
 
   if (srv_force_recovery == 0) {
     /* In the insert buffer we may have even bigger tablespace
@@ -2895,13 +3073,17 @@ static lsn_t srv_shutdown_log() {
   /* At this point only page_cleaner should be active. We wait
   here to let it complete the flushing of the buffer pools
   before proceeding further. */
+  ut_ad(buf_lru_manager_running_threads == srv_buf_pool_instances ||
+        buf_lru_manager_running_threads == 0);
+
   srv_shutdown_state = SRV_SHUTDOWN_FLUSH_PHASE;
 
-  for (uint32_t count = 0; buf_page_cleaner_is_active; ++count) {
-    if (count >= 600) {
+  for (uint32_t count = 0;
+       buf_page_cleaner_is_active || buf_lru_manager_running_threads > 0;
+       ++count) {
+    if (count % 600 == 0) {
       ib::info(ER_IB_MSG_1251) << "Waiting for page_cleaner to"
                                << " finish flushing of buffer pool.";
-      count = 0;
     }
     os_thread_sleep(100000);
   }
@@ -2959,6 +3141,13 @@ static lsn_t srv_shutdown_log() {
 
     srv_shutdown_state = SRV_SHUTDOWN_LAST_PHASE;
 
+    /* Wake the log tracking thread which will then immediatelly quit because
+    of srv_shutdown_state value */
+    if (srv_redo_log_thread_started) {
+      os_event_reset(srv_redo_log_tracked_event);
+      os_event_set(srv_checkpoint_completed_event);
+    }
+
     fil_close_all_files();
 
     /* Stop Archiver background thread. */
@@ -2996,6 +3185,13 @@ static lsn_t srv_shutdown_log() {
   }
 
   srv_shutdown_state = SRV_SHUTDOWN_LAST_PHASE;
+
+  /* Wake the log tracking thread which will then immediatelly quit because of
+  srv_shutdown_state value */
+  if (srv_redo_log_thread_started) {
+    os_event_reset(srv_redo_log_tracked_event);
+    os_event_set(srv_checkpoint_completed_event);
+  }
 
   if (srv_downgrade_logs) {
     ut_a(!srv_read_only_mode);
@@ -3092,6 +3288,7 @@ void srv_shutdown() {
 
   ibuf_close();
   clone_free();
+  log_online_shutdown();
   arch_free();
   ddl_log_close();
   log_sys_close();

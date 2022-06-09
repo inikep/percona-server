@@ -3831,7 +3831,8 @@ dberr_t row_import_for_mysql(dict_table_t *table, dd::Table *table_def,
       return (row_import_error(prebuilt, trx, DB_TABLESPACE_NOT_FOUND));
     }
   } else {
-    ut_ad(space->flags == space_flags_from_disk);
+    ut_ad((space->flags & ~FSP_FLAGS_MASK_DATA_DIR) ==
+          (space_flags_from_disk & ~FSP_FLAGS_MASK_DATA_DIR));
   }
 
   if (dd_is_table_in_encrypted_tablespace(table)) {
