@@ -342,9 +342,9 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t
     ut_ad(thr->prebuilt->trx == thr_get_trx(thr));
   }
 
-  update =
-      row_upd_build_difference_binary(cursor->index, entry, rec, NULL, true,
-                                      thr_get_trx(thr), heap, mysql_table);
+  update = row_upd_build_difference_binary(cursor->index, entry, rec, NULL,
+                                           true, thr_get_trx(thr), heap,
+                                           mysql_table, thr->prebuilt);
   if (mode != BTR_MODIFY_TREE) {
     ut_ad((mode & ~BTR_ALREADY_S_LATCHED) == BTR_MODIFY_LEAF);
 
@@ -848,6 +848,8 @@ static void row_ins_foreign_fill_virtual(trx_t *trx, upd_node_t *cascade,
   ulint n_diff;
   upd_field_t *upd_field;
   dict_vcol_set *v_cols = foreign->v_cols;
+  row_prebuilt_t *prebuilt =
+      static_cast<que_thr_t *>(node->common.parent)->prebuilt;
 
   update->old_vrow = row_build(ROW_COPY_POINTERS, index, rec, offsets,
                                index->table, NULL, NULL, &ext, cascade->heap);
@@ -870,9 +872,9 @@ static void row_ins_foreign_fill_virtual(trx_t *trx, upd_node_t *cascade,
       continue;
     }
 
-    dfield_t *vfield = innobase_get_computed_value(update->old_vrow, col, index,
-                                                   &v_heap, update->heap, NULL,
-                                                   thd, NULL, NULL, NULL, NULL);
+    dfield_t *vfield = innobase_get_computed_value(
+        update->old_vrow, col, index, &v_heap, update->heap, NULL, thd, NULL,
+        NULL, NULL, NULL, prebuilt);
 
     if (vfield == NULL) {
       *err = DB_COMPUTE_VALUE_FAILED;
@@ -896,7 +898,7 @@ static void row_ins_foreign_fill_virtual(trx_t *trx, upd_node_t *cascade,
     if (!node->is_delete && (foreign->type & DICT_FOREIGN_ON_UPDATE_CASCADE)) {
       dfield_t *new_vfield = innobase_get_computed_value(
           update->old_vrow, col, index, &v_heap, update->heap, NULL, thd, NULL,
-          NULL, node->update, foreign);
+          NULL, node->update, foreign, prebuilt);
 
       if (new_vfield == NULL) {
         *err = DB_COMPUTE_VALUE_FAILED;
@@ -1543,6 +1545,11 @@ dberr_t row_ins_check_foreign_constraint(
     const rec_t *rec = btr_pcur_get_rec(&pcur);
     const buf_block_t *block = btr_pcur_get_block(&pcur);
 
+    SRV_CORRUPT_TABLE_CHECK(block, {
+      err = DB_CORRUPTION;
+      goto exit_loop;
+    });
+
     if (page_rec_is_infimum(rec)) {
       continue;
     }
@@ -1669,6 +1676,7 @@ dberr_t row_ins_check_foreign_constraint(
     }
   } while (btr_pcur_move_to_next(&pcur, &mtr));
 
+exit_loop:
   if (check_ref) {
     row_ins_foreign_report_add_err(trx, foreign, btr_pcur_get_rec(&pcur),
                                    entry);

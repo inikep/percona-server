@@ -409,6 +409,7 @@ SET(SERVER_TESTS
   log_throttle
   make_sortkey
   mdl_sync
+  mf_iocache
   my_decimal
   opt_costconstants
   opt_costmodel

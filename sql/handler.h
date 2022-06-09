@@ -472,6 +472,12 @@ enum enum_alter_inplace_result {
 */
 #define HA_SUPPORTS_DEFAULT_EXPRESSION (1LL << 51)
 
+/**
+  There is no need to evict the table from the table definition cache having
+  run ANALYZE TABLE on it
+*/
+#define HA_ONLINE_ANALYZE (1LL << 52)
+
 /*
   Bits in index_flags(index_number) for what you can do with index.
   If you do not implement indexes, just return zero here.
@@ -633,7 +639,15 @@ enum row_type : int {
   ROW_TYPE_REDUNDANT,
   ROW_TYPE_COMPACT,
   /** Unused. Reserved for future versions. */
-  ROW_TYPE_PAGED
+  ROW_TYPE_PAGED,
+  ROW_TYPE_TOKU_UNCOMPRESSED,
+  ROW_TYPE_TOKU_ZLIB,
+  ROW_TYPE_TOKU_SNAPPY,
+  ROW_TYPE_TOKU_QUICKLZ,
+  ROW_TYPE_TOKU_LZMA,
+  ROW_TYPE_TOKU_FAST,
+  ROW_TYPE_TOKU_SMALL,
+  ROW_TYPE_TOKU_DEFAULT
 };
 
 enum enum_binlog_func {
@@ -795,6 +809,8 @@ class st_alter_tablespace {
   uint nodegroup_id = UNDEF_NODEGROUP;
   bool wait_until_completed = true;
   const char *ts_comment = nullptr;
+  bool encrypt;
+  LEX_STRING encrypt_type;
 
   bool is_tablespace_command() {
     return ts_cmd_type == CREATE_TABLESPACE ||
@@ -848,6 +864,39 @@ enum enum_schema_tables {
 
 enum ha_stat_type { HA_ENGINE_STATUS, HA_ENGINE_LOGS, HA_ENGINE_MUTEX };
 enum ha_notification_type : int { HA_NOTIFY_PRE_EVENT, HA_NOTIFY_POST_EVENT };
+
+/** Create compression dictionary result type. */
+enum class ha_create_zip_dict_result {
+  OK,             /*!< zip_dict successfully created */
+  ALREADY_EXISTS, /*!< zip dict with such name already
+                                       exists */
+  NAME_TOO_LONG,  /*!< zip dict name is too long */
+  DATA_TOO_LONG,  /*!< zip dict data is too long */
+  READ_ONLY,      /*!< cannot create in read-only mode */
+  OUT_OF_MEMORY,  /*!< out of memory */
+  OUT_OF_FILE_SPACE,
+  /*!< out of disk space */
+  TOO_MANY_CONCURRENT_TRXS,
+  /*!< too many concurrent transactions */
+  UNKNOWN_ERROR /*!< unknown error during zip_dict
+                                     creation */
+};
+
+/** Drop compression dictionary result type. */
+enum class ha_drop_zip_dict_result {
+  OK,             /*!< zip_dict successfully dropped */
+  DOES_NOT_EXIST, /*!< zip dict with such name does not
+                                     exist */
+  IS_REFERENCED,  /*!< zip dict is in use */
+  READ_ONLY,      /*!< cannot drop in read-only mode */
+  OUT_OF_MEMORY,  /*!< out of memory */
+  OUT_OF_FILE_SPACE,
+  /*!< out of disk space */
+  TOO_MANY_CONCURRENT_TRXS,
+  /*!< too many concurrent transactions */
+  UNKNOWN_ERROR /*!< unknown error during zip_dict
+                                   removal */
+};
 
 /** Clone operation types. */
 enum Ha_clone_type {
@@ -1080,6 +1129,11 @@ typedef int (*rollback_t)(handlerton *hton, THD *thd, bool all);
 
 typedef int (*prepare_t)(handlerton *hton, THD *thd, bool all);
 
+typedef int (*clone_consistent_snapshot_t)(handlerton *hton, THD *thd,
+                                           THD *from_thd);
+
+typedef int (*store_binlog_info_t)(handlerton *hton, THD *thd);
+
 typedef int (*recover_t)(handlerton *hton, XA_recover_txn *xid_list, uint len,
                          MEM_ROOT *mem_root);
 
@@ -1232,6 +1286,10 @@ typedef int (*alter_tablespace_t)(handlerton *hton, THD *thd,
                                   const dd::Tablespace *old_ts_def,
                                   dd::Tablespace *new_ts_def);
 
+using flush_changed_page_bitmaps_t = bool (*)(void);
+
+using purge_changed_page_bitmaps_t = bool (*)(ulonglong lsn);
+
 /**
   Get the tablespace data from SE and insert it into Data dictionary
 
@@ -1343,6 +1401,40 @@ typedef int (*make_pushed_join_t)(handlerton *hton, THD *thd,
 typedef bool (*is_supported_system_table_t)(const char *db,
                                             const char *table_name,
                                             bool is_sql_layer_system_table);
+
+/**
+   Creates a new compression dictionary with the specified data for this SE.
+
+   @param hton                       handlerton object.
+   @param thd                        thread descriptor.
+   @param name                       compression dictionary name
+   @param name_len                   compression dictionary name length
+   @param data                       compression dictionary data
+   @param data_len                   compression dictionary data length
+
+   @return a valid #ha_create_zip_dict_result value.
+
+   This interface is optional, so not every SE needs to implement it.
+*/
+using create_zip_dict_t = ha_create_zip_dict_result (*)(
+    handlerton *hton, THD *thd, const char *name, ulong *name_len,
+    const char *data, ulong *data_len);
+
+/**
+   Deletes a compression dictionary for this SE.
+
+   @param hton                       handlerton object.
+   @param thd                        thread descriptor.
+   @param name                       compression dictionary name
+   @param name_len                   compression dictionary name length
+
+   @return a valid #ha_drop_zip_dict_result value.
+
+   This interface is optional, so not every SE needs to implement it.
+*/
+using drop_zip_dict_t = ha_drop_zip_dict_result (*)(handlerton *hton, THD *thd,
+                                                    const char *name,
+                                                    ulong *name_len);
 
 /**
   Create SDI in a tablespace. This API should be used when upgrading
@@ -1866,12 +1958,16 @@ struct handlerton {
   drop_database_t drop_database;
   panic_t panic;
   start_consistent_snapshot_t start_consistent_snapshot;
+  clone_consistent_snapshot_t clone_consistent_snapshot;
   flush_logs_t flush_logs;
+  store_binlog_info_t store_binlog_info;
   show_status_t show_status;
   partition_flags_t partition_flags;
   is_valid_tablespace_name_t is_valid_tablespace_name;
   get_tablespace_t get_tablespace;
   alter_tablespace_t alter_tablespace;
+  flush_changed_page_bitmaps_t flush_changed_page_bitmaps;
+  purge_changed_page_bitmaps_t purge_changed_page_bitmaps;
   upgrade_tablespace_t upgrade_tablespace;
   upgrade_space_version_t upgrade_space_version;
   get_tablespace_type_t get_tablespace_type;
@@ -1901,6 +1997,8 @@ struct handlerton {
   table_exists_in_engine_t table_exists_in_engine;
   make_pushed_join_t make_pushed_join;
   is_supported_system_table_t is_supported_system_table;
+  create_zip_dict_t create_zip_dict;
+  drop_zip_dict_t drop_zip_dict;
 
   /*
     APIs for retrieving Serialized Dictionary Information by tablespace id
@@ -2035,6 +2133,16 @@ struct handlerton {
    affected by an active LOCK TABLES FOR BACKUP.
 */
 #define HTON_SUPPORTS_ONLINE_BACKUPS (1 << 15)
+
+/**
+  Engine supports secondary clustered keys.
+*/
+#define HTON_SUPPORTS_CLUSTERED_KEYS (1 << 16)
+
+/**
+  Engine supports compressed columns.
+*/
+#define HTON_SUPPORTS_COMPRESSED_COLUMNS (1 << 17)
 
 inline bool ddl_is_atomic(const handlerton *hton) {
   return (hton->flags & HTON_SUPPORTS_ATOMIC_DDL) != 0;

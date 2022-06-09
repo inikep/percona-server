@@ -36,6 +36,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "univ.i"
 
 #include "fsp0space.h"
+#include "fsp0sysspace.h"
 #include "fut0lst.h"
 #include "mtr0mtr.h"
 #include "page0types.h"
@@ -749,6 +750,12 @@ dict_table_t::flags |     0     |    1    |     1      |    1
 @param[in]	compact		true if not Redundant row format
 @return tablespace flags (fil_space_t::flags) */
 ulint fsp_flags_to_dict_tf(ulint fsp_flags, bool compact);
+
+/** Enable encryption for already existing tablespace.
+@param[in,out]	space	tablespace object
+@return true if success, else false */
+MY_NODISCARD
+bool fsp_enable_encryption(fil_space_t *space);
 
 /** Calculates the descriptor index within a descriptor page.
 @param[in]	page_size	page size
