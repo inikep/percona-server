@@ -45,7 +45,7 @@ MYSQL_ADD_EXECUTABLE(atrt
   command.cpp
   test_execution_resources.cpp
   DESTINATION mysql-test/ndb
-  LINK_LIBRARIES ndbNDBT ndbclient_static mysqlclient
+  LINK_LIBRARIES ndbNDBT ndbclient_static perconaserverclient
   )
 
 FILE(GLOB testcase_files RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*-tests.txt")

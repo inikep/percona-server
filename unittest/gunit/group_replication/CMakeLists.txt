@@ -38,6 +38,6 @@ FOREACH(test ${TESTS})
   TARGET_LINK_LIBRARIES(${test}-t
     gr_unit_test_resource gunit_small ${GCS_LIBRARY})
   SET_TARGET_PROPERTIES(${test}-t PROPERTIES ENABLE_EXPORTS TRUE)
-  TARGET_LINK_LIBRARIES(${test}-t mysqlclient)
+  TARGET_LINK_LIBRARIES(${test}-t perconaserverclient)
 ENDFOREACH()
 
