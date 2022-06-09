@@ -516,11 +516,14 @@ enum ha_base_keytype {
 #define HA_USES_COMMENT (1 << 12)
 /** Key was automatically created to support Foreign Key constraint. */
 #define HA_GENERATED_KEY (1 << 13)
+/** TokuDB CLUSTERING key */
+#define HA_CLUSTERING (1 << 31)
 
 /* The combination of the above can be used for key type comparison. */
 #define HA_KEYFLAG_MASK                                                       \
   (HA_NOSAME | HA_PACK_KEY | HA_AUTO_KEY | HA_BINARY_PACK_KEY | HA_FULLTEXT | \
-   HA_UNIQUE_CHECK | HA_SPATIAL | HA_NULL_ARE_EQUAL | HA_GENERATED_KEY)
+   HA_UNIQUE_CHECK | HA_SPATIAL | HA_NULL_ARE_EQUAL | HA_GENERATED_KEY |      \
+   HA_CLUSTERING)
 
 /** Fulltext index uses [pre]parser */
 #define HA_USES_PARSER (1 << 14)
@@ -989,8 +992,10 @@ Information in the data-dictionary needs to be updated. */
 #define HA_ERR_TOO_LONG_PATH 207
 /** Histogram sampling initialization failed */
 #define HA_ERR_SAMPLING_INIT_FAILED 208
+/** Destination schema does not exist */
+#define HA_ERR_DEST_SCHEMA_NOT_EXIST 209
 /** Copy of last error number */
-#define HA_ERR_LAST 208
+#define HA_ERR_LAST 209
 
 /* Number of different errors */
 #define HA_ERR_ERRORS (HA_ERR_LAST - HA_ERR_FIRST + 1)
