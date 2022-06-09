@@ -508,7 +508,7 @@ inline bool my_b_inited(const IO_CACHE *info) {
 constexpr int my_b_EOF = INT_MIN;
 
 inline int my_b_read(IO_CACHE *info, uchar *buffer, size_t count) {
-  if (info->read_pos + count <= info->read_end) {
+  if ((size_t)(info->read_end - info->read_pos) >= count) {
     memcpy(buffer, info->read_pos, count);
     info->read_pos += count;
     return 0;
@@ -517,7 +517,7 @@ inline int my_b_read(IO_CACHE *info, uchar *buffer, size_t count) {
 }
 
 inline int my_b_write(IO_CACHE *info, const uchar *buffer, size_t count) {
-  if (info->write_pos + count <= info->write_end) {
+  if ((size_t)(info->write_end - info->write_pos) >= count) {
     memcpy(info->write_pos, buffer, count);
     info->write_pos += count;
     return 0;
@@ -587,6 +587,9 @@ extern void my_once_free(void);
 extern char *my_once_strdup(const char *src, myf myflags);
 extern void *my_once_memdup(const void *src, size_t len, myf myflags);
 extern File my_open(const char *FileName, int Flags, myf MyFlags);
+#ifndef __WIN__
+extern File my_unix_socket_connect(const char *FileName, myf MyFlags) noexcept;
+#endif
 extern File my_register_filename(File fd, const char *FileName,
                                  enum file_type type_of_file,
                                  uint error_message_number, myf MyFlags);
@@ -829,6 +832,8 @@ void my_free_open_file_info(void);
 
 extern bool my_gethwaddr(uchar *to);
 
+#define my_microsecond_getsystime() (my_getsystime() / 10)
+
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 
@@ -1047,4 +1052,31 @@ size_t mysql_encryption_file_read(IO_CACHE *cache, uchar *buffer, size_t count,
 */
 size_t mysql_encryption_file_write(IO_CACHE *cache, const uchar *buffer,
                                    size_t count, myf flags);
+
+/**
+   This is a wrapper around mysql_file_pread. Read data from the specified
+   offset in a file and take care of decrypting the data if encryption is on.
+
+   @param cache The handler of a file cache to read.
+   @param[out] buffer The memory buffer to write to.
+   @param count The length of data in the file to be read in bytes.
+   @param offset The offset in the file to read from.
+   @param flags The bitmap of different flags
+                MY_WME | MY_FAE | MY_NABP | MY_FNABP |
+                MY_DONT_CHECK_FILESIZE and so on.
+
+   if (flags & (MY_NABP | MY_FNABP)) {
+     @retval 0 if count == 0
+     @retval 0 success
+     @retval MY_FILE_ERROR error
+   } else {
+     @retval 0 if count == 0
+     @retval The number of bytes read.
+     @retval MY_FILE_ERROR error
+   }
+*/
+
+size_t mysql_encryption_file_pread(IO_CACHE *cache, uchar *buffer, size_t count,
+                                   my_off_t offset, myf flags);
+
 #endif /* _my_sys_h */
