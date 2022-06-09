@@ -135,6 +135,7 @@
 #cmakedefine HAVE_MEMALIGN 1
 #cmakedefine HAVE_NL_LANGINFO 1
 #cmakedefine HAVE_HTONLL 1
+#cmakedefine HAVE_MEMSET_S 1
 #cmakedefine HAVE_EPOLL 1
 /* #cmakedefine HAVE_EVENT_PORTS 1 */
 #cmakedefine HAVE_INET_NTOP 1
@@ -143,6 +144,8 @@
 #cmakedefine HAVE_TIMERCLEAR 1
 #cmakedefine HAVE_TIMERCMP 1
 #cmakedefine HAVE_TIMERISSET 1
+#cmakedefine HAVE_X509_CHECK_HOST 1
+#cmakedefine HAVE_X509_CHECK_IP 1
 
 /* WL2373 */
 #cmakedefine HAVE_SYS_TIME_H 1
@@ -254,7 +257,8 @@
 #cmakedefine HAVE_NCURSES_H 1
 #cmakedefine USE_LIBEDIT_INTERFACE 1
 #cmakedefine HAVE_HIST_ENTRY 1
-#cmakedefine USE_NEW_EDITLINE_INTERFACE 1
+#cmakedefine USE_NEW_XLINE_INTERFACE 1
+#cmakedefine HAVE_READLINE_HISTORY_H 1
 
 /*
  * Libedit
