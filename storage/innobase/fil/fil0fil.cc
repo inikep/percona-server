@@ -734,6 +734,9 @@ class Fil_shard {
 
     auto it = m_spaces.find(space_id);
 
+    /* The system tablespace must always be found */
+    ut_ad(it != m_spaces.end() || space_id != 0 || srv_is_being_started);
+
     if (it == m_spaces.end()) {
       return (nullptr);
     }
@@ -1116,12 +1119,18 @@ class Fil_shard {
                                   this must be appropriately aligned
   @param[in]	message		message for AIO handler if !sync,
                                   else ignored
+  @param[in]	should_buffer   whether to buffer an aio request. AIO read
+                                  ahead uses this. If you plan to use this
+                                  parameter, make sure you remember to call
+                                  os_aio_dispatch_read_array_submit() when
+                                  you're ready to commit all your requests.
   @return error code
   @retval DB_SUCCESS on success
   @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
   dberr_t do_io(const IORequest &type, bool sync, const page_id_t &page_id,
                 const page_size_t &page_size, ulint byte_offset, ulint len,
-                void *buf, void *message) MY_ATTRIBUTE((warn_unused_result));
+                void *buf, void *message, trx_t *trx, bool should_buffer)
+      MY_ATTRIBUTE((warn_unused_result));
 
   /** Iterate through all persistent tablespace files (FIL_TYPE_TABLESPACE)
   returning the nodes via callback function cbk.
@@ -1850,6 +1859,9 @@ class Fil_system {
   Fil_system &operator=(const Fil_system &) = delete;
 
   friend class Fil_shard;
+
+  /** Wait for redo log tracker to catch up, if enabled */
+  static void wait_for_changed_page_tracker() noexcept;
 };
 
 /** The tablespace memory cache. This variable is nullptr before the module is
@@ -2670,21 +2682,21 @@ dberr_t Fil_shard::get_file_size(fil_node_t *file, bool read_only_mode) {
   uint32_t header_fsp_flags = flags;
 
   /* If a crash occurs while an UNDO space is being truncated,
-  it will be created new at startup. In that case, the fil_space_t
-  object will have the ENCRYPTION flag set, but the header page will
-  not be marked until the srv_master_thread gets around to it.
-  The opposite can occur where the header page contains the encryption
-  flag but the fil_space_t does not.  It could happen that undo
-  encryption was turned off just before the crash or shutdown so that
-  the srv_master_thread did not yet have time to apply it.
-  So don't compare the encryption flag for undo tablespaces. */
+     it will be created new at startup. In that case, the fil_space_t
+     object will have the ENCRYPTION flag set, but the header page will
+     not be marked until the srv_master_thread gets around to it.
+     The opposite can occur where the header page contains the encryption
+     flag but the fil_space_t does not.  It could happen that undo
+     encryption was turned off just before the crash or shutdown so that
+     the srv_master_thread did not yet have time to apply it.
+     So don't compare the encryption flag for undo tablespaces. */
   if (fsp_is_undo_tablespace(space->id)) {
     fsp_flags_unset_encryption(fil_space_flags);
     fsp_flags_unset_encryption(header_fsp_flags);
   }
 
   /* Make sure the space_flags are the same as the header page flags. */
-  if (fil_space_flags != header_fsp_flags) {
+  if (UNIV_UNLIKELY(fil_space_flags != header_fsp_flags)) {
     ib::error(ER_IB_MSG_272, ulong{space->flags}, file->name, ulonglong{flags});
     ut_error;
   }
@@ -3276,6 +3288,7 @@ fil_space_t *Fil_shard::space_create(const char *name, space_id_t space_id,
       }
     }
 
+    ut_ad(space->id != space_id);
     ib::info(ER_IB_MSG_281)
         << "Trying to add tablespace '" << name << "'"
         << " with id " << space_id << " to the tablespace"
@@ -3314,6 +3327,8 @@ fil_space_t *Fil_shard::space_create(const char *name, space_id_t space_id,
   space->encryption_type = Encryption::NONE;
 
   rw_lock_create(fil_space_latch_key, &space->latch, SYNC_FSP);
+
+  space->is_corrupt = false;
 
 #ifndef UNIV_HOTBACKUP
   if (space->purpose == FIL_TYPE_TEMPORARY) {
@@ -3711,6 +3726,16 @@ void fil_open_log_and_system_tablespace_files() {
   fil_system->open_all_system_tablespaces();
 }
 
+/** Wait for redo log tracker to catch up, if enabled */
+void Fil_system::wait_for_changed_page_tracker() noexcept {
+  // Must check both flags as it's possible for this to be called during
+  // server startup with srv_track_changed_pages == true but
+  // srv_thread_is_active(srv_threads.m_changed_page_tracker) == false
+  if (srv_track_changed_pages &&
+      srv_thread_is_active(srv_threads.m_changed_page_tracker))
+    os_event_wait(srv_redo_log_tracked_event);
+}
+
 /** Close all open files. */
 void Fil_shard::close_all_files() {
   ut_ad(mutex_owned());
@@ -3744,6 +3769,8 @@ void Fil_shard::close_all_files() {
 
 /** Close all open files. */
 void Fil_system::close_all_files() {
+  Fil_system::wait_for_changed_page_tracker();
+
   for (auto shard : m_shards) {
     shard->mutex_acquire();
 
@@ -3811,6 +3838,7 @@ void Fil_shard::close_log_files(bool free_all) {
 /** Close all log files in all shards.
 @param[in]	free_all	If set then free all instances */
 void Fil_system::close_all_log_files(bool free_all) {
+  Fil_system::wait_for_changed_page_tracker();
   for (auto shard : m_shards) {
     shard->close_log_files(free_all);
   }
@@ -5419,7 +5447,6 @@ static dberr_t fil_create_tablespace(space_id_t space_id, const char *name,
   fil_space_t *space = nullptr;
 
   ut_ad(!fsp_is_system_tablespace(space_id));
-  ut_ad(!fsp_is_global_temporary(space_id));
   ut_a(fsp_flags_is_valid(flags));
   ut_a(type == FIL_TYPE_TEMPORARY || type == FIL_TYPE_TABLESPACE);
 
@@ -6476,7 +6503,8 @@ static dberr_t fil_write_zeros(const fil_node_t *file, ulint page_size,
         os_file_write(request, file->name, file->handle, buf, offset, n_bytes);
 #else  /* UNIV_HOTBACKUP */
     err = os_aio_func(request, AIO_mode::SYNC, file->name, file->handle, buf,
-                      offset, n_bytes, read_only_mode, nullptr, nullptr);
+                      offset, n_bytes, read_only_mode, nullptr, nullptr,
+                      file->space->id, nullptr, false);
 #endif /* UNIV_HOTBACKUP */
 
     if (err != DB_SUCCESS) {
@@ -7771,8 +7799,8 @@ dberr_t Fil_shard::do_redo_io(const IORequest &type, const page_id_t &page_id,
 
 dberr_t Fil_shard::do_io(const IORequest &type, bool sync,
                          const page_id_t &page_id, const page_size_t &page_size,
-                         ulint byte_offset, ulint len, void *buf,
-                         void *message) {
+                         ulint byte_offset, ulint len, void *buf, void *message,
+                         trx_t *trx, bool should_buffer) {
   IORequest req_type(type);
 
   ut_ad(req_type.validate());
@@ -7883,6 +7911,24 @@ dberr_t Fil_shard::do_io(const IORequest &type, bool sync,
                                    space->name, byte_offset, len,
                                    req_type.is_read());
   }
+
+#ifndef UNIV_HOTBACKUP
+  if (UNIV_UNLIKELY(space->is_corrupt && srv_pass_corrupt_table)) {
+    /* should ignore i/o for the crashed space */
+    if (srv_pass_corrupt_table == 1 || req_type.is_write()) {
+      complete_io(file, type);
+      if (aio_mode == AIO_mode::NORMAL) {
+        ut_a(space->purpose == FIL_TYPE_TABLESPACE);
+        buf_page_io_complete(static_cast<buf_page_t *>(message), false);
+      }
+    }
+
+    if (srv_pass_corrupt_table == 1 && req_type.is_read())
+      return (DB_TABLESPACE_DELETED);
+    else if (req_type.is_write())
+      return (DB_SUCCESS);
+  }
+#endif
 
   bool opened = prepare_file_for_io(file, false);
 
@@ -8000,7 +8046,7 @@ dberr_t Fil_shard::do_io(const IORequest &type, bool sync,
   err = os_aio(
       req_type, aio_mode, file->name, file->handle, buf, offset, len,
       fsp_is_system_temporary(page_id.space()) ? false : srv_read_only_mode,
-      file, message);
+      file, message, page_id.space(), trx, should_buffer);
 
 #endif /* UNIV_HOTBACKUP */
 
@@ -8138,16 +8184,21 @@ void fil_aio_wait(ulint segment) {
                                 to write; in AIO this must be appropriately
                                 aligned
 @param[in]	message		message for AIO handler if !sync, else ignored
+@param[in]	should_buffer   whether to buffer an aio request. AIO read
+                                ahead uses this. If you plan to use this
+                                parameter, make sure you remember to call
+                                os_aio_dispatch_read_array_submit() when you're
+                                ready to commit all your requests.
 @return error code
 @retval DB_SUCCESS on success
 @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-dberr_t fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
-               const page_size_t &page_size, ulint byte_offset, ulint len,
-               void *buf, void *message) {
+dberr_t _fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
+                const page_size_t &page_size, ulint byte_offset, ulint len,
+                void *buf, void *message, trx_t *trx, bool should_buffer) {
   auto shard = fil_system->shard_by_id(page_id.space());
 
   return (shard->do_io(type, sync, page_id, page_size, byte_offset, len, buf,
-                       message));
+                       message, trx, should_buffer));
 }
 
 /** If the tablespace is on the unflushed list and there are no pending
@@ -9209,12 +9260,6 @@ Compression::Type fil_get_compression(space_id_t space_id) {
 @return DB_SUCCESS or error code */
 dberr_t fil_set_encryption(space_id_t space_id, Encryption::Type algorithm,
                            byte *key, byte *iv) {
-  ut_ad(space_id != TRX_SYS_SPACE);
-
-  if (fsp_is_system_or_temp_tablespace(space_id)) {
-    return (DB_IO_NO_ENCRYPT_TABLESPACE);
-  }
-
   auto shard = fil_system->shard_by_id(space_id);
 
   shard->mutex_acquire();
@@ -9298,13 +9343,6 @@ bool Fil_shard::needs_encryption_rotate(fil_space_t *space) {
   tablespaces is handled in function log_rotate_encryption. */
   if (fsp_is_system_or_temp_tablespace(space->id) ||
       space->purpose == FIL_TYPE_LOG) {
-    return false;
-  }
-
-  /* Skip the tablespace when it's in default key status,
-  since it's the first server startup after bootstrap,
-  and the server uuid is not ready yet. */
-  if (Encryption::get_master_key_id() == Encryption::DEFAULT_MASTER_KEY_ID) {
     return false;
   }
 
@@ -10413,6 +10451,16 @@ byte *fil_tablespace_redo_create(byte *ptr, const byte *end,
 
 #else  /* !UNIV_HOTBACKUP */
 
+  /* The first condition is true during normal server operation, the
+  second one during server startup after
+  recv_recovery_from_checkpoint_start has completed. */
+  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
+    /* We are being called from online log tracking, file name
+    processing is a no-op, and specifically do not cause any DD
+    changes. */
+    return (ptr);
+  }
+
   const auto result =
       fil_system->get_scanned_filename_by_space_id(page_id.space());
 
@@ -10789,6 +10837,16 @@ byte *fil_tablespace_redo_delete(byte *ptr, const byte *end,
 
 #else  /* !UNIV_HOTBACKUP */
 
+  /* The first condition is true during normal server operation, the
+  second one during server startup after
+  recv_recovery_from_checkpoint_start has completed. */
+  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
+    /* We are being called from online log tracking, file name
+    processing is a no-op, and specifically do not cause any DD
+    changes. */
+    return (ptr);
+  }
+
   const auto result =
       fil_system->get_scanned_filename_by_space_id(page_id.space());
 
@@ -10824,6 +10882,7 @@ byte *fil_tablespace_redo_delete(byte *ptr, const byte *end,
 @param[in]	ptr		redo log record
 @param[in]	end		end of the redo log buffer
 @param[in]	space_id	the tablespace ID
+@param[in]	apply		whether to apply the record
 @return log record end, nullptr if not a complete record */
 byte *fil_tablespace_redo_encryption(byte *ptr, const byte *end,
                                      space_id_t space_id) {
@@ -11868,6 +11927,20 @@ void Fil_path::convert_to_lower_case(std::string &path) {
   innobase_casedn_path(lc_path);
 
   path.assign(lc_path);
+}
+
+/** Mark space as corrupt
+@param space_id	space id */
+void fil_space_set_corrupt(space_id_t space_id) {
+  auto *const shard = fil_system->shard_by_id(space_id);
+
+  shard->mutex_acquire();
+
+  auto *const space = shard->get_space_by_id(space_id);
+
+  if (space) space->is_corrupt = true;
+
+  shard->mutex_release();
 }
 
 void fil_checkpoint(lsn_t lwm) { fil_system->checkpoint(lwm); }

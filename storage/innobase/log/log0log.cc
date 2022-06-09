@@ -2,6 +2,7 @@
 
 Copyright (c) 1995, 2020, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2009, Google Inc.
+Copyright (c) 2016, Percona Inc. All Rights Reserved.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -978,6 +979,16 @@ void log_print(const log_t &log, FILE *file) {
           flush_lsn, dirty_pages_added_up_to_lsn, oldest_lsn,
           last_checkpoint_lsn);
 
+  fprintf(file,
+          "Checkpoint age target " LSN_PF
+          "\n"
+          "Modified age no less than " LSN_PF
+          "\n"
+          "Checkpoint age        " LSN_PF "\n",
+          log_sys->max_checkpoint_age_async,
+          current_lsn - buf_pool_get_oldest_modification_lwm(),
+          current_lsn - log_sys->last_checkpoint_lsn);
+
   time_t current_time = time(nullptr);
 
   double time_elapsed = difftime(current_time, log.last_printout_time);
@@ -990,6 +1001,15 @@ void log_print(const log_t &log, FILE *file) {
       file, ULINTPF " log i/o's done, %.2f log i/o's/second\n",
       ulint(log.n_log_ios),
       static_cast<double>(log.n_log_ios - log.n_log_ios_old) / time_elapsed);
+
+  if (srv_track_changed_pages) {
+    /* The maximum tracked LSN age is equal to the maximum
+    checkpoint age */
+    fprintf(file,
+            "Log tracking enabled\n"
+            "Log tracked up to   " LSN_PF "\n",
+            log_sys->tracked_lsn.load());
+  }
 
   log.n_log_ios_old = log.n_log_ios;
   log.last_printout_time = current_time;
