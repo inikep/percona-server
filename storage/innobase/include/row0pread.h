@@ -362,6 +362,9 @@ class Parallel_reader {
   /** Number of threads currently doing parallel reads. */
   static std::atomic_size_t s_active_threads;
 
+  /** Covering transaction for slow query log. */
+  trx_t *m_trx_for_slow_log;
+
   friend class Ctx;
   friend class Scan_ctx;
 };
@@ -574,7 +577,7 @@ class Parallel_reader::Scan_ctx {
   Config m_config;
 
   /** Covering transaction. */
-  const trx_t *m_trx{};
+  trx_t *m_trx{};
 
   /** Callback function. */
   F m_f;
