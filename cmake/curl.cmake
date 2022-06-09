@@ -37,6 +37,11 @@ MACRO(GET_CURL_VERSION)
 ENDMACRO()
 
 MACRO(MYSQL_CHECK_CURL)
+  IF(NOT WITH_CURL)
+    SET(WITH_CURL "system"
+      CACHE STRING "By default use system curl on this platform")
+  ENDIF()
+
   IF(WITH_CURL STREQUAL "system")
     #  FindCURL.cmake will set
     #  CURL_INCLUDE_DIRS   - where to find curl/curl.h, etc.
@@ -74,6 +79,13 @@ MACRO(MYSQL_CHECK_CURL)
       NO_CMAKE_ENVIRONMENT_PATH
       NO_SYSTEM_ENVIRONMENT_PATH
       )
+    CHECK_INCLUDE_FILE_CXX(${WITH_CURL}/include/curl/curl.h HAVE_CURL_HEADERS)
+    IF (CURL_LIBRARY AND HAVE_CURL_HEADERS)
+      SET(CURL_FOUND TRUE)
+      SET(CURL_INCLUDE_DIRS ${WITH_CURL}/include)
+    ELSE()  
+      SET(CURL_FOUND FALSE)
+    ENDIF()
     LIST(REVERSE CMAKE_FIND_LIBRARY_SUFFIXES)
     IF(CURL_LIBRARY MATCHES "CURL_LIBRARY-NOTFOUND")
       MESSAGE(FATAL_ERROR "CURL library not found under '${WITH_CURL}'")
