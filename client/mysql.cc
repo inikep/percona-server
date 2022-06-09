@@ -81,6 +81,9 @@
 #include <readline.h>
 #include <syslog.h>
 
+#if defined(HAVE_READLINE_HISTORY_H)
+#include <history.h>
+#endif
 #define HAVE_READLINE
 #define USE_POPEN
 #endif
@@ -1147,11 +1150,13 @@ typedef struct _hist_entry {
 } HIST_ENTRY;
 #endif
 
+#if !defined(HAVE_READLINE_HISTORY_H)
 extern "C" int add_history(const char *command); /* From readline directory */
 extern "C" int read_history(const char *command);
 extern "C" int write_history(const char *command);
 extern "C" HIST_ENTRY *history_get(int num);
 extern "C" int history_length;
+#endif
 static int not_in_history(const char *line);
 static void initialize_readline(char *name);
 #endif /* HAVE_READLINE */
@@ -2674,9 +2679,9 @@ static char **new_mysql_completion(const char *text, int start, int end);
   if not.
 */
 
-#if defined(EDITLINE_HAVE_COMPLETION_CHAR)
+#if defined(XLINE_HAVE_COMPLETION_CHAR)
 char *no_completion(const char *, int)
-#elif defined(EDITLINE_HAVE_COMPLETION_INT)
+#elif defined(XLINE_HAVE_COMPLETION_INT)
 int no_completion(const char *, int)
 #else
 char *no_completion()
@@ -2697,7 +2702,7 @@ static int not_in_history(const char *line) {
   return 1;
 }
 
-#if defined(USE_NEW_EDITLINE_INTERFACE)
+#if defined(USE_NEW_XLINE_INTERFACE)
 static int fake_magic_space(int, int)
 #else
 static int fake_magic_space(const char *, int)
@@ -2712,12 +2717,12 @@ static void initialize_readline(char *name) {
   rl_readline_name = name;
 
   /* Tell the completer that we want a crack first. */
-#if defined(EDITLINE_HAVE_COMPLETION_CHAR)
+#if defined(XLINE_HAVE_COMPLETION_CHAR)
   rl_attempted_completion_function = &new_mysql_completion;
   rl_completion_entry_function = &no_completion;
 
   rl_add_defun("magic-space", &fake_magic_space, -1);
-#elif defined(EDITLINE_HAVE_COMPLETION_INT)
+#elif defined(XLINE_HAVE_COMPLETION_INT)
   setlocale(LC_ALL, ""); /* so as libedit use isprint */
   rl_attempted_completion_function = &new_mysql_completion;
   rl_completion_entry_function = &no_completion;
@@ -2739,7 +2744,7 @@ static char **new_mysql_completion(const char *text,
                                    int start MY_ATTRIBUTE((unused)),
                                    int end MY_ATTRIBUTE((unused))) {
   if (!status.batch && !quick)
-#if defined(USE_NEW_EDITLINE_INTERFACE)
+#if defined(USE_NEW_XLINE_INTERFACE)
     return rl_completion_matches(text, new_command_generator);
 #else
     return completion_matches(const_cast<char *>(text), new_command_generator);
