@@ -30,6 +30,8 @@ IF(SOLARIS_INTEL AND MY_COMPILER_IS_SUNPRO)
   TARGET_COMPILE_OPTIONS(mytime_objlib PRIVATE $<$<CONFIG:RelWithDebInfo>:-xO1>)
 ENDIF()
 
+INCLUDE_DIRECTORIES(SYSTEM ${BOOST_PATCHES_DIR} ${BOOST_INCLUDE_DIR})
+
 SET(MYSYS_SOURCES
   array.cc
   base64.cc
@@ -107,6 +109,7 @@ SET(MYSYS_SOURCES
   ptr_cmp.cc
   sql_chars.cc
   stacktrace.cc
+  system_key.cc
   thr_cond.cc
   thr_lock.cc
   thr_mutex.cc
