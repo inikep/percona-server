@@ -144,6 +144,9 @@ ELSEIF(MAX_INDEXES LESS 64)
   SET(MAX_INDEXES 64U)
 ENDIF()
 
+# PAM build Handling
+OPTION(WITH_PAM "Build with Percona PAM plugin" OFF)
+
 # We choose to provide WITH_DEBUG as alias to standard CMAKE_BUILD_TYPE=Debug
 # which turns out to be not trivial, as this involves synchronization 
 # between CMAKE_BUILD_TYPE and WITH_DEBUG. Besides, we have to deal with cases
@@ -500,6 +503,7 @@ INCLUDE(install_layout)
 INCLUDE(mysql_add_executable)
 INCLUDE(mysqlgcs)
 INCLUDE(curl)
+INCLUDE(prepend_append_cflags_if_supported)
 INCLUDE(rapidjson)
 
 OPTION(WITH_JEMALLOC "Use jemalloc rather than builtin malloc/free etc." OFF)
@@ -521,6 +525,9 @@ OPTION(ENABLED_PROFILING "Enable profiling" ON)
 OPTION(WITHOUT_SERVER OFF)
 IF(UNIX)
   OPTION(WITH_VALGRIND "Valgrind instrumentation" OFF)
+  IF (WITH_VALGRIND)
+    ADD_DEFINITIONS(-DUSE_VALGRIND)
+  ENDIF()
 ENDIF()
 IF(WIN32)
   OPTION(WITH_MSCRT_DEBUG "MS Visual Studio Debug CRT instrumentation" OFF)
@@ -687,8 +694,8 @@ ENDIF()
 
 OPTION(WITH_MSAN "Enable memory sanitizer" OFF)
 IF(WITH_MSAN)
-  MY_SANITIZER_CHECK("-fsanitize=memory -fsanitize-memory-track-origins"
-    TRUE WITH_MSAN_OK)
+  MY_SANITIZER_CHECK("-fsanitize=memory -fsanitize-memory-track-origins -fsanitize-blacklist=${CMAKE_CURRENT_SOURCE_DIR}/cmake/msan-blacklist.txt"
+                     TRUE WITH_MSAN_OK)
   IF(NOT WITH_MSAN_OK)
     MESSAGE(FATAL_ERROR "Do not know how to enable memory sanitizer")
   ELSE()
@@ -924,10 +931,10 @@ IF(WITH_TEST_TRACE_PLUGIN AND NOT CMAKE_BUILD_TYPE_UPPER STREQUAL "DEBUG")
      debug binaries. Set WITH_TEST_TRACE_PLUGIN to OFF or WITH_DEBUG to ON.")
 ENDIF()
 
-# Set DBUG_OFF for non-debug project types.
+# Set DBUG_OFF, NDEBUG, and FORTIFY_SOURCE for non-debug project types.
 FOREACH(BUILD_TYPE RELEASE RELWITHDEBINFO MINSIZEREL)
   FOREACH(LANG C CXX)
-    STRING_PREPEND(CMAKE_${LANG}_FLAGS_${BUILD_TYPE} "-DDBUG_OFF ")
+    STRING_PREPEND(CMAKE_${LANG}_FLAGS_${BUILD_TYPE} "-DDBUG_OFF -DNDEBUG -D_FORTIFY_SOURCE=2 ")
   ENDFOREACH()
 ENDFOREACH()
 
@@ -1119,7 +1126,6 @@ ENDIF()
 # version has the necessary patches to make it work.
 SET(SYSTEM_LIBRARIES
   CURL
-  EDITLINE
   ICU
   LIBEVENT
   LZ4
