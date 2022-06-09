@@ -40,7 +40,7 @@ FOREACH(test ${TESTS})
     LINK_LIBRARIES
     gr_unit_test_resource
     gunit_small
-    mysqlclient
+    perconaserverclient
     mysqlgcs
     )
 ENDFOREACH()
