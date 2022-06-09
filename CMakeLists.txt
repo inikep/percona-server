@@ -156,6 +156,9 @@ ELSEIF(MAX_INDEXES LESS 64)
   SET(MAX_INDEXES 64U)
 ENDIF()
 
+# PAM build Handling
+OPTION(WITH_PAM "Build with Percona PAM plugin" OFF)
+
 # We choose to provide WITH_DEBUG as alias to standard CMAKE_BUILD_TYPE=Debug
 # which turns out to be not trivial, as this involves synchronization 
 # between CMAKE_BUILD_TYPE and WITH_DEBUG. Besides, we have to deal with cases
@@ -261,6 +264,12 @@ IF(NOT LINUX_RHEL AND MY_HOST_SYSTEM_NAME MATCHES "Linux")
     FILE(READ "/etc/os-release" MY_OS_RELEASE)
     IF(MY_OS_RELEASE MATCHES "Debian")
       SET(LINUX_DEBIAN 1)
+      IF(MY_OS_RELEASE MATCHES "jessie")
+        SET(LINUX_DEBIAN_8 1)
+      ENDIF()
+      IF(MY_OS_RELEASE MATCHES "stretch")
+        SET(LINUX_DEBIAN_9 1)
+      ENDIF()
     ELSEIF(MY_OS_RELEASE MATCHES "Ubuntu")
       SET(LINUX_UBUNTU 1)
       IF(MY_OS_RELEASE MATCHES "16.04")
@@ -812,7 +821,12 @@ ENDIF()
 
 OPTION(ENABLED_PROFILING "Enable profiling" ON)
 OPTION(WITHOUT_SERVER OFF)
-
+IF(UNIX)
+  OPTION(WITH_VALGRIND "Valgrind instrumentation" OFF)
+  IF (WITH_VALGRIND)
+    ADD_DEFINITIONS(-DUSE_VALGRIND)
+  ENDIF()
+ENDIF()
 IF(WIN32)
   OPTION(WITH_MSCRT_DEBUG "MS Visual Studio Debug CRT instrumentation" OFF)
 ENDIF()
@@ -837,7 +851,7 @@ IF(NOT DEFINED WITH_INTERNAL)
 ENDIF()
 
 # On windows we need a non-standard package for SASL.
-IF(WITH_INTERNAL AND (NOT WIN32 OR WITH_SASL))
+IF(NOT WIN32 OR WITH_SASL)
   SET(WITH_AUTHENTICATION_LDAP_DEFAULT ON)
 ELSE()
   SET(WITH_AUTHENTICATION_LDAP_DEFAULT OFF)
@@ -848,7 +862,7 @@ OPTION(WITH_AUTHENTICATION_LDAP
   ${WITH_AUTHENTICATION_LDAP_DEFAULT})
 
 # Currently only supported on Linux
-IF(WITH_INTERNAL AND LINUX)
+IF(LINUX)
   SET(WITH_AUTHENTICATION_KERBEROS_DEFAULT ON)
 ELSE()
   SET(WITH_AUTHENTICATION_KERBEROS_DEFAULT OFF)
@@ -891,7 +905,7 @@ OPTION(WITH_AUTHENTICATION_CLIENT_PLUGINS
   ${WITH_AUTHENTICATION_CLIENT_PLUGINS_DEFAULT})
 
 # On windows we need a non-standard package for CURL.
-IF(WITH_INTERNAL AND UNIX)
+IF(UNIX)
   SET(WITH_CURL_DEFAULT "system")
 ELSE()
   SET(WITH_CURL_DEFAULT "none")
@@ -1080,8 +1094,8 @@ ENDIF()
 
 OPTION(WITH_MSAN "Enable memory sanitizer" OFF)
 IF(WITH_MSAN)
-  MY_SANITIZER_CHECK("-fsanitize=memory -fsanitize-memory-track-origins"
-    TRUE WITH_MSAN_OK)
+  MY_SANITIZER_CHECK("-fsanitize=memory -fsanitize-memory-track-origins -fsanitize-blacklist=${CMAKE_CURRENT_SOURCE_DIR}/cmake/msan-blacklist.txt"
+                     TRUE WITH_MSAN_OK)
   IF(NOT WITH_MSAN_OK)
     MESSAGE(FATAL_ERROR "Do not know how to enable memory sanitizer")
   ELSE()
@@ -1292,10 +1306,10 @@ IF (USE_LD_GOLD AND NOT (C_LD_LLD_RESULT AND CXX_LD_LLD_RESULT))
   CMAKE_POP_CHECK_STATE()
 ENDIF()
 
-# Linker/binutils bug in Fedora 28, undefined reference to symbol '__bss_start'
-# Similar bug on 32bit Ubuntu.
+# Linker/binutils bug in Fedora 28, Ubuntu 16.04, Debian 8 and Debian 9,
+# undefined reference to symbol '__bss_start'
 # Fedora 34: undefined reference to symbol 'crc32_z@@ZLIB_1.2.9'
-IF(LINUX_FEDORA_28 OR LINUX_FEDORA_34 OR LINUX_UBUNTU_16_04)
+IF(LINUX_FEDORA_28 OR LINUX_FEDORA_34 OR LINUX_UBUNTU_16_04 OR LINUX_DEBIAN_8 OR LINUX_DEBIAN_9)
   IF(NOT CMAKE_CXX_LINK_FLAGS MATCHES "-fuse-ld=lld" AND
       NOT CMAKE_CXX_LINK_FLAGS MATCHES "-fuse-ld=gold")
     STRING_APPEND(CMAKE_CXX_LINK_FLAGS " -Wl,--copy-dt-needed-entries")
@@ -1413,6 +1427,13 @@ IF(WITH_TEST_TRACE_PLUGIN AND NOT CMAKE_BUILD_TYPE_UPPER STREQUAL "DEBUG")
     "Test trace plugin was selected but it can be included only in
      debug binaries. Set WITH_TEST_TRACE_PLUGIN to OFF or WITH_DEBUG to ON.")
 ENDIF()
+
+# Set NDEBUG, and FORTIFY_SOURCE for non-debug project types.
+FOREACH(BUILD_TYPE RELEASE RELWITHDEBINFO MINSIZEREL)
+  FOREACH(LANG C CXX)
+    STRING_PREPEND(CMAKE_${LANG}_FLAGS_${BUILD_TYPE} "-DNDEBUG -D_FORTIFY_SOURCE=2 ")
+  ENDFOREACH()
+ENDFOREACH()
 
 # Add safemutex for debug configurations
 # Enable debug sync for debug builds.
@@ -1600,7 +1621,6 @@ ENDIF(WITH_LTO)
 # To get all the Homebrew libraries, do 'brew install' <name of lib>.
 SET(SYSTEM_LIBRARIES
   CURL      # Xcode
-  EDITLINE  # Xcode
   ICU       # Homebrew  icu4c
   LIBEVENT  # Homebrew  libevent
   LZ4       # Homebrew  lz4
@@ -2266,7 +2286,7 @@ ENDIF()
 #
 IF(NOT INSTALL_LAYOUT MATCHES "RPM")
   INSTALL(FILES
-    README
+    README.md
     LICENSE
     DESTINATION ${INSTALL_DOCREADMEDIR} COMPONENT Readme)
   INSTALL(FILES
