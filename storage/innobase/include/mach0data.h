@@ -119,6 +119,7 @@ static inline uint32_t mach_get_compressed_size(ulint n);
 @param[in,out]	b	pointer to memory where to read;
 advanced by the number of bytes consumed
 @return unsigned value */
+MY_NODISCARD
 static inline ib_uint32_t mach_read_next_compressed(const byte **b);
 
 /** The following function is used to store data in 6 consecutive
@@ -167,6 +168,7 @@ static inline ulint mach_u64_write_compressed(byte *b, ib_uint64_t n);
 @param[in,out]	b	pointer to memory where to read;
 advanced by the number of bytes consumed
 @return unsigned value */
+MY_NODISCARD
 static inline ib_uint64_t mach_u64_read_next_compressed(const byte **b);
 
 /** Writes a 64-bit integer in a compressed form (1..11 bytes).

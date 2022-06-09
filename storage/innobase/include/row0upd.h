@@ -335,6 +335,7 @@ void row_upd_store_row(trx_t *trx, upd_node_t *node, THD *thd,
  in SQL execution graphs.
  @return query thread to run next or NULL */
 que_thr_t *row_upd_step(que_thr_t *thr); /*!< in: query thread */
+
 /** Parses the log data of system field values.
  @return log data end or NULL */
 byte *row_upd_parse_sys_vals(const byte *ptr,     /*!< in: buffer */
