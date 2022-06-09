@@ -111,6 +111,7 @@ SET(INNOBASE_SOURCES
 	handler/handler0alter.cc
 	handler/i_s.cc
 	handler/p_s.cc
+	handler/xtradb_i_s.cc
 	ibuf/ibuf0ibuf.cc
         lob/lob0first.cc
         lob/lob0index.cc
@@ -136,6 +137,7 @@ SET(INNOBASE_SOURCES
 	log/log0chkp.cc
 	log/log0ddl.cc
 	log/log0log.cc
+	log/log0online.cc
 	log/log0recv.cc
 	log/log0test.cc
 	log/log0write.cc
@@ -198,6 +200,7 @@ SET(INNOBASE_SOURCES
 	ut/ut0rnd.cc
 	ut/ut0ut.cc
 	ut/ut0vec.cc
+  ../../mysys_ssl/my_crypt.cc
 	ut/ut0wqueue.cc)
 
 IF(WITH_INNODB)
