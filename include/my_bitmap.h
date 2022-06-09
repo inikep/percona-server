@@ -35,6 +35,7 @@
 
 #include "my_dbug.h"
 #include "my_inttypes.h"
+#include "mysql/psi/mysql_mutex.h" /* mysql_mutex_t */
 
 typedef uint32 my_bitmap_map;
 
@@ -43,10 +44,17 @@ struct MY_BITMAP {
   uint n_bits{0}; /* number of bits occupied by the above */
   my_bitmap_map last_word_mask{0};
   my_bitmap_map *last_word_ptr{nullptr};
+  /*
+     mutex will be acquired for the duration of each bitmap operation if
+     thread_safe flag in bitmap_init was set.  Otherwise, we optimize by not
+     acquiring the mutex
+   */
+  mysql_mutex_t *mutex{nullptr};
 };
 
 extern void create_last_word_mask(MY_BITMAP *map);
-extern bool bitmap_init(MY_BITMAP *map, my_bitmap_map *buf, uint n_bits);
+extern bool bitmap_init(MY_BITMAP *map, my_bitmap_map *buf, uint n_bits,
+                        bool thread_safe = false);
 extern bool bitmap_is_clear_all(const MY_BITMAP *map);
 extern bool bitmap_is_prefix(const MY_BITMAP *map, uint prefix_size);
 extern bool bitmap_is_set_all(const MY_BITMAP *map);
@@ -59,7 +67,7 @@ extern uint bitmap_get_first_set(const MY_BITMAP *map);
 extern uint bitmap_get_next_set(const MY_BITMAP *map, uint bitmap_bit);
 extern uint bitmap_bits_set(const MY_BITMAP *map);
 extern void bitmap_free(MY_BITMAP *map);
-extern void bitmap_set_above(MY_BITMAP *map, uint from_byte, bool use_bit);
+extern void bitmap_set_above(MY_BITMAP *map, uint from_byte, uint use_bit);
 extern void bitmap_set_prefix(MY_BITMAP *map, uint prefix_size);
 extern void bitmap_intersect(MY_BITMAP *to, const MY_BITMAP *from);
 extern void bitmap_subtract(MY_BITMAP *map, const MY_BITMAP *map2);
