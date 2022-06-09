@@ -290,13 +290,13 @@ type, counter, and some flags. */
       format or later */
 
 /** The mutex used to block pessimistic inserts to ibuf trees */
-static ib_mutex_t ibuf_pessimistic_insert_mutex;
+static ib_uninitialized_mutex_t ibuf_pessimistic_insert_mutex;
 
 /** The mutex protecting the insert buffer structs */
-static ib_mutex_t ibuf_mutex;
+static ib_uninitialized_mutex_t ibuf_mutex;
 
 /** The mutex protecting the insert buffer bitmaps */
-static ib_mutex_t ibuf_bitmap_mutex;
+static ib_uninitialized_mutex_t ibuf_bitmap_mutex;
 
 /** The area in pages from which contract looks for page numbers for merge */
 const ulint IBUF_MERGE_AREA = 8;
@@ -445,6 +445,12 @@ void ibuf_close(void) {
 
   ut_free(ibuf);
   ibuf = NULL;
+}
+
+/** Function to pass ibuf status variables */
+void ibuf_export_ibuf_status(ulint *free_list, ulint *segment_size) {
+  *free_list = ibuf->free_list_len;
+  *segment_size = ibuf->seg_size;
 }
 
 /** Updates the size information of the ibuf, assuming the segment size has not
@@ -2498,6 +2504,8 @@ ulint ibuf_merge_in_background(bool full) {
 
     sum_bytes += n_bytes;
     sum_pages += n_pag2;
+
+    srv_inc_activity_count(true);
   }
 
   return (sum_bytes);
