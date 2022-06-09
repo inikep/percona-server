@@ -1,3 +1,4 @@
+
 /*
    Copyright (c) 2000, 2018, Oracle and/or its affiliates. All rights reserved.
 
@@ -82,6 +83,8 @@ sys_var *trg_new_row_fake_var = (sys_var *)0x01;
 */
 const LEX_STRING null_lex_str = {NULL, 0};
 const LEX_STRING empty_lex_str = {(char *)"", 0};
+const LEX_CSTRING null_lex_cstr = {nullptr, 0};
+const LEX_CSTRING empty_lex_cstr = {"", 0};
 /**
   Mapping from enum values in enum_binlog_stmt_unsafe to error codes.
 
@@ -470,6 +473,7 @@ void LEX::reset() {
   option_type = OPT_DEFAULT;
 
   clear_privileges();
+  donor_transaction_id = nullptr;
 }
 
 /**
@@ -1684,6 +1688,7 @@ static int lex_one_token(YYSTYPE *yylval, THD *thd) {
           state = MY_LEX_USER_VARIABLE_DELIMITER;
           break;
         }
+      // fallthrough
         /* " used for strings */
         // Fall through.
       case MY_LEX_STRING:  // Incomplete text string
