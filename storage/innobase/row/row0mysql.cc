@@ -77,6 +77,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0undo.h"
 #include "ut0mpmcbq.h"
 #include "ut0new.h"
+#include "zlib.h"
 
 #include "current_thd.h"
 #include "my_dbug.h"
@@ -90,6 +91,48 @@ static const char *MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY =
 /** Provide optional 4.x backwards compatibility for 5.0 and above */
 ibool row_rollback_on_timeout = FALSE;
 
+/**
+Z_NO_COMPRESSION = 0
+Z_BEST_SPEED = 1
+Z_BEST_COMPRESSION = 9
+Z_DEFAULT_COMPRESSION = -1
+Compression level to be used by zlib for compressed-blob columns.
+Settable by user.
+*/
+uint srv_compressed_columns_zip_level = DEFAULT_COMPRESSION_LEVEL;
+/**
+(Z_FILTERED | Z_HUFFMAN_ONLY | Z_RLE | Z_FIXED | Z_DEFAULT_STRATEGY)
+
+The strategy parameter is used to tune the compression algorithm. Use the
+value Z_DEFAULT_STRATEGY for normal data, Z_FILTERED for data produced by a
+filter (or predictor), Z_HUFFMAN_ONLY to force Huffman encoding only
+(no string match), or Z_RLE to limit match distances to one
+(run-length encoding). Filtered data consists mostly of small values with a
+somewhat random distribution. In this case, the compression algorithm is
+tuned to compress them better.
+The effect of Z_FILTERED is to force more Huffman coding and less string
+matching; it is somewhat intermediate between Z_DEFAULT_STRATEGY and
+Z_HUFFMAN_ONLY. Z_RLE is designed to be almost as fast as Z_HUFFMAN_ONLY,
+but give better compression for PNG image data. The strategy parameter only
+affects the compression ratio but not the correctness of the compressed
+output even if it is not set appropriately. Z_FIXED prevents the use of
+dynamic Huffman codes, allowing for a simpler decoder for special
+applications.
+*/
+const uint srv_compressed_columns_zlib_strategy = Z_DEFAULT_STRATEGY;
+/** Compress the column if the data length exceeds this value. */
+ulong srv_compressed_columns_threshold = 96;
+/**
+Determine if zlib needs to compute adler32 value for the compressed data.
+This variables is similar to page_zip_zlib_wrap, but only used by
+compressed blob columns.
+*/
+const bool srv_compressed_columns_zlib_wrap = true;
+/**
+Determine if zlib will use custom memory allocation functions based on
+InnoDB memory heap routines (mem_heap_t*).
+*/
+const bool srv_compressed_columns_zlib_use_heap = false;
 /** Chain node of the list of tables to drop in the background. */
 struct row_mysql_drop_t {
   char *table_name; /*!< table name */
@@ -154,6 +197,14 @@ void row_mysql_prebuilt_free_blob_heap(
   mem_heap_free(prebuilt->blob_heap);
   prebuilt->blob_heap = NULL;
   DBUG_VOID_RETURN;
+}
+
+/** Frees the compress heap in prebuilt when no longer needed.
+@param[in]      prebuilt        prebuilt struct of a ha_innobase::table
+                                handle  */
+void row_mysql_prebuilt_free_compress_heap(row_prebuilt_t *prebuilt) noexcept {
+  mem_heap_free(prebuilt->compress_heap);
+  prebuilt->compress_heap = nullptr;
 }
 
 /** Stores a >= 5.0.3 format true VARCHAR length to dest, in the MySQL row
@@ -547,6 +598,7 @@ byte *row_mysql_store_col_in_innobase_format(
     we need do nothing here. */
   } else if (type == DATA_BLOB) {
     ptr = row_mysql_read_blob_ref(&col_len, mysql_data, col_len);
+
   } else if (DATA_GEOMETRY_MTYPE(type)) {
     /* We use blob to store geometry data except DATA_POINT
     internally, but in MySQL Layer the datatype is always blob. */
@@ -940,6 +992,10 @@ void row_prebuilt_free(
 
   if (prebuilt->blob_heap) {
     row_mysql_prebuilt_free_blob_heap(prebuilt);
+  }
+
+  if (prebuilt->compress_heap) {
+    mem_heap_free(prebuilt->compress_heap);
   }
 
   if (prebuilt->old_vers_heap) {
@@ -1525,6 +1581,9 @@ static dberr_t row_insert_for_mysql_using_ins_graph(const byte *mysql_rec,
     ib::error(ER_IB_MSG_979) << "Table " << table->name << " is corrupt.";
     return (DB_TABLE_CORRUPT);
   }
+
+  if (UNIV_LIKELY_NULL(prebuilt->compress_heap))
+    mem_heap_empty(prebuilt->compress_heap);
 
   trx->op_info = "inserting";
 
@@ -4187,7 +4246,8 @@ dberr_t row_rename_table_for_mysql(const char *old_name, const char *new_name,
 
   err = DB_SUCCESS;
 
-  if (dict_table_has_fts_index(table) &&
+  if ((dict_table_has_fts_index(table) ||
+       DICT_TF2_FLAG_IS_SET(table, DICT_TF2_FTS_HAS_DOC_ID)) &&
       !dict_tables_have_same_db(old_name, new_name)) {
     err = fts_rename_aux_tables(table, new_name, trx, replay);
   }
@@ -4580,7 +4640,8 @@ loop:
                                   " table "
                                << index->table->name << " returned " << ret;
     }
-    /* fall through (this error is ignored by CHECK TABLE) */
+      /* Fall through */
+      /* (this error is ignored by CHECK TABLE) */
     case DB_END_OF_INDEX:
       ret = DB_SUCCESS;
     func_exit:
