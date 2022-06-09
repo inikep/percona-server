@@ -492,12 +492,6 @@ int set_fips_mode(const uint fips_mode, char err_string[OPENSSL_ERROR_LENGTH]) {
 EXIT:
   return rc;
 }
-
-/**
-  Get fips mode from openssl library,
-
-  @returns openssl current fips mode
-*/
 uint get_fips_mode() {
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
   return EVP_default_properties_is_fips_enabled(NULL) &&
@@ -506,8 +500,28 @@ uint get_fips_mode() {
   return FIPS_mode();
 #endif
 }
+#endif
 
-#endif // #ifndef HAVE_WOLFSSL
+/**
+  Toggle FIPS mode, to see whether it is available with the current SSL library.
+  @retval 0 FIPS is not supported.
+  @retval non-zero: FIPS is supported.
+*/
+int test_ssl_fips_mode(char *err_string) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  int ret = EVP_default_properties_enable_fips(
+      NULL, !(EVP_default_properties_is_fips_enabled(NULL) &&
+              OSSL_PROVIDER_available(NULL, "fips")));
+#else
+  int ret = FIPS_mode_set(FIPS_mode() == 0 ? 1 : 0);
+#endif
+  unsigned long err = (ret == 0) ? ERR_get_error() : 0;
+
+  if (err != 0) {
+    ERR_error_string_n(err, err_string, OPENSSL_ERROR_LENGTH - 1);
+  }
+  return ret;
+}
 
 long process_tls_version(const char *tls_version) {
   const char *separator = ",";
@@ -726,6 +740,42 @@ static struct st_VioSSLFd *new_VioSSLFd(
   wolfSSL_SetIORecv(ssl_fd->ssl_context, wolfssl_recv);
   wolfSSL_SetIOSend(ssl_fd->ssl_context, wolfssl_send);
 #endif
+
+#if !defined(HAVE_WOLFSSL)
+#if OPENSSL_VERSION_NUMBER < 0x10002000L
+  const auto ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+  if (!ecdh) {
+    *error = SSL_INITERR_DHFAIL;
+    DBUG_PRINT("error", ("%s", sslGetErrString(*error)));
+    report_errors();
+    SSL_CTX_free(ssl_fd->ssl_context);
+    my_free(ssl_fd);
+    DBUG_RETURN(nullptr);
+  }
+
+  if (SSL_CTX_set_tmp_ecdh(ssl_fd->ssl_context, ecdh) != 1) {
+    *error = SSL_INITERR_DHFAIL;
+    DBUG_PRINT("error", ("%s", sslGetErrString(*error)));
+    report_errors();
+    EC_KEY_free(ecdh);
+    SSL_CTX_free(ssl_fd->ssl_context);
+    my_free(ssl_fd);
+    DBUG_RETURN(nullptr);
+  }
+  EC_KEY_free(ecdh);
+
+#else  /* OPENSSL_VERSION_NUMBER < 0x10002000L */
+
+  if (SSL_CTX_set_ecdh_auto(ssl_fd->ssl_context, 1) != 1) {
+    *error = SSL_INITERR_DHFAIL;
+    DBUG_PRINT("error", ("%s", sslGetErrString(*error)));
+    report_errors();
+    SSL_CTX_free(ssl_fd->ssl_context);
+    my_free(ssl_fd);
+    DBUG_RETURN(nullptr);
+  }
+#endif /* OPENSSL_VERSION_NUMBER < 0x10002000L */
+#endif /* !defined(HAVE_WOLFSSL) */
 
   DBUG_PRINT("exit", ("OK 1"));
 
