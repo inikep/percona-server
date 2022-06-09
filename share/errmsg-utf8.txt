@@ -18852,8 +18852,23 @@ ER_INVALID_NAMED_PIPE_FULL_ACCESS_GROUP
 # End of 8.0 error messages intended to be logged to the server error log.
 #
 
+#
+# Start of Percona Server 8.0 server error log messages
+#
+start-error-number 48000
+
+ER_RPL_FAILED_TO_RECREATE_CACHE_FOR_INFO_FILE
+  eng "Failed to recreate a cache on info file (file '%s')"
+
+ER_XB_MSG_0
+  eng "%s"
+
+ER_XB_MSG_1
+  eng "%s"
+
+
 ################################################################################
-# Error numbers 50000 to 51999 are reserved. Please do not use them for the
+# Error numbers 50018 to 51999 are reserved. Please do not use them for the
 # other error messages.
 ################################################################################
-reserved-error-section 50000 51999
+reserved-error-section 50018 51999
