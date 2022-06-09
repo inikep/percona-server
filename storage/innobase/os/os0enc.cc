@@ -603,6 +603,12 @@ byte *Encryption::get_master_key_from_info(byte *encrypt_info, Version version,
   return (ptr);
 }
 
+/** Decoding the encryption info from the first page of a tablespace.
+@param[in,out]	space_id		space_id
+@param[in,out]	e_key		e_key
+@param[in]	encryption_info	encryption info
+@param[in]	decrypt_key	decrypt_key
+@return true if success */
 bool Encryption::decode_encryption_info(space_id_t space_id,
                                         Encryption_key &e_key,
                                         byte *encryption_info,

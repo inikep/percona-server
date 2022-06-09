@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2014, 2021, Oracle and/or its affiliates.
+Copyright (c) 2016, Percona Inc. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -135,6 +136,7 @@ InnoDB:
 #include <map>
 #include <type_traits> /* std::is_trivially_default_constructible */
 #include <unordered_set>
+#include <utility>
 
 #include "my_basename.h"
 #include "mysql/components/services/bits/psi_bits.h"
@@ -190,6 +192,12 @@ extern PSI_memory_key mem_key_trx_sys_t_rw_trx_ids;
 extern PSI_memory_key mem_key_undo_spaces;
 extern PSI_memory_key mem_key_ut_lock_free_hash_t;
 /* Please obey alphabetical order in the definitions above. */
+
+extern PSI_memory_key mem_key_log_online_modified_pages;
+extern PSI_memory_key mem_key_log_online_sys;
+extern PSI_memory_key mem_key_log_online_read_buf;
+extern PSI_memory_key mem_key_log_online_iterator_files;
+extern PSI_memory_key mem_key_log_online_iterator_page;
 
 /** Setup the internal objects needed for UT_NEW() to operate.
 This must be called before the first call to UT_NEW(). */
@@ -706,6 +714,12 @@ class ut_allocator {
 #endif /* UNIV_PFS_MEMORY */
   }
 
+  /** Construct an object. */
+  template <typename... Args>
+  void construct(T *p, Args &&...args) {
+    ::new ((void *)p) T(std::forward<Args>(args)...);
+  }
+
   /** Destroy an object pointed by 'p'. */
   void destroy(pointer p) { p->~T(); }
 
@@ -840,14 +854,14 @@ class ut_allocator {
   objects of type 'T' and trace the allocation.
   @param[in]	n_elements	number of elements
   @return pointer to the allocated memory or NULL */
-  pointer allocate_large(size_type n_elements) {
+  pointer allocate_large(size_type n_elements, bool populate) {
     if (n_elements == 0 || n_elements > max_size()) {
       return (nullptr);
     }
 
     ulint n_bytes = n_elements * sizeof(T) + CPU_PAGE_SIZE;
 
-    auto ptr = os_mem_alloc_large(&n_bytes);
+    auto ptr = os_mem_alloc_large(&n_bytes, populate);
     if (unlikely(!ptr)) return nullptr;
 
 #ifdef UNIV_PFS_MEMORY
@@ -939,7 +953,7 @@ class ut_allocator {
 
 #ifdef UNIV_PFS_MEMORY
   /** Performance schema key. */
-  const PSI_memory_key m_key;
+  PSI_memory_key m_key;
 #endif /* UNIV_PFS_MEMORY */
 };
 
