@@ -123,7 +123,8 @@ static const char *handler_error_messages[] = {
     "Invalid table name",
     "Path is too long for the OS",
     "Histogram sampling initialization failed",
-    "Too many nested sub-expressions in a full-text search"};
+    "Too many nested sub-expressions in a full-text search",
+    "Destination schema does not exist"};
 
 extern void my_handler_error_register(void);
 extern void my_handler_error_unregister(void);
