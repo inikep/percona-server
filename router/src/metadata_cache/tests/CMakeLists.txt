@@ -55,7 +55,7 @@ IF(WIN32)
   TARGET_LINK_LIBRARIES(metadata_cache_tests
     router_lib
     metadata_cache
-    mysqlclient
+    perconaserverclient
     mysqlxclient_lite
     mysqlxmessages_lite
     ${PROTOBUF_LITE_LIBRARY}
@@ -68,7 +68,7 @@ ELSE()
   ADD_LIBRARY(metadata_cache_tests SHARED ${METADATA_CACHE_TESTS_HELPER})
   TARGET_LINK_LIBRARIES(metadata_cache_tests
     router_lib
-    mysqlclient
+    perconaserverclient
     mysqlxclient_lite
     mysqlxmessages_lite
     ${PROTOBUF_LITE_LIBRARY}
