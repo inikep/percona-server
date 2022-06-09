@@ -1927,7 +1927,7 @@ void THD::shutdown_active_vio() {
   DBUG_TRACE;
   mysql_mutex_assert_owner(&LOCK_thd_data);
   if (active_vio) {
-    vio_shutdown(active_vio);
+    vio_shutdown(active_vio, SHUT_RDWR);
     active_vio = nullptr;
     m_SSL = nullptr;
   }
@@ -1937,7 +1937,7 @@ void THD::shutdown_clone_vio() {
   DBUG_TRACE;
   mysql_mutex_assert_owner(&LOCK_thd_data);
   if (clone_vio != nullptr) {
-    vio_shutdown(clone_vio);
+    vio_shutdown(clone_vio, SHUT_RDWR);
     clone_vio = nullptr;
   }
 }
