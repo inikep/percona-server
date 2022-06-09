@@ -24,6 +24,8 @@ INCLUDE_DIRECTORIES(
   ${CMAKE_SOURCE_DIR}/libbinlogevents/include
 )
 
+INCLUDE_DIRECTORIES(SYSTEM ${READLINE_INCLUDE_DIR})
+
 INCLUDE(${MYSQL_CMAKE_SCRIPT_DIR}/compile_flags.cmake)
 
 ## Subdirectory with common client code.
@@ -36,7 +38,7 @@ INCLUDE(${MYSQL_CMAKE_SCRIPT_DIR}/compile_flags.cmake)
 MYSQL_ADD_EXECUTABLE(mysql completion_hash.cc mysql.cc readline.cc ../sql-common/sql_string.cc pattern_matcher.cc)
 TARGET_LINK_LIBRARIES(mysql perconaserverclient)
 IF(UNIX)
-  TARGET_LINK_LIBRARIES(mysql ${EDITLINE_LIBRARY})
+  TARGET_LINK_LIBRARIES(mysql ${MY_READLINE_LIBRARY})
 ENDIF(UNIX)
 
 IF(NOT WITHOUT_SERVER)
