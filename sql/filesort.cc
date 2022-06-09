@@ -1153,7 +1153,8 @@ static int write_keys(Sort_param *param, Filesort_info *fs_info, uint count,
       DBUG_RETURN(1); /* purecov: inspected */
   }
 
-  if (my_b_write(chunk_file, &merge_chunk, sizeof(merge_chunk)))
+  if (my_b_write(chunk_file, reinterpret_cast<uchar *>(&merge_chunk),
+                 sizeof(merge_chunk)))
     DBUG_RETURN(1); /* purecov: inspected */
 
   DBUG_RETURN(0);
