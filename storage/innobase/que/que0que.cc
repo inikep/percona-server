@@ -209,6 +209,8 @@ que_thr_t *que_thr_end_lock_wait(
 
   que_thr_move_to_run_state(thr);
 
+  trx->stats.stop_lock_wait(*trx);
+
   trx->lock.que_state = TRX_QUE_RUNNING;
 
   trx->lock.wait_thr = NULL;
