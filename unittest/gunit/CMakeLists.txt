@@ -125,7 +125,6 @@ SET(TESTS
   byteorder
   calloc
   cost_estimate
-  dbug
   decimal
   dphyp
   dynarray
