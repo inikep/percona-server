@@ -71,7 +71,7 @@ TARGET_LINK_LIBRARIES(router_lib
   ${CMAKE_DL_LIBS}
   harness-library
   harness_stdx
-  mysqlclient
+  perconaserverclient
   ${SSL_LIBRARIES}
   io_component
   )

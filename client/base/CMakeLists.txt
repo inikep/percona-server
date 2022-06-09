@@ -46,4 +46,4 @@ ADD_LIBRARY(client_base STATIC
   ${CMAKE_SOURCE_DIR}/sql-common/sql_string.cc
 )
 
-TARGET_LINK_LIBRARIES(client_base mysqlclient)
+TARGET_LINK_LIBRARIES(client_base perconaserverclient)
