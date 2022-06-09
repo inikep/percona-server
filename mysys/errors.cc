@@ -137,7 +137,9 @@ const char *globerrs[GLOBERRS] = {
     "Failed to reset before a territory ignorable character %s.",
     "Shift character out of range: %s.",
     "Reset character out of range: %s.",
-    "Unknown LDML tag: '%.*s'."};
+    "Unknown LDML tag: '%.*s'.",
+    "Can't create socket '%s' (Errcode: %d)",
+    "File name '%s' is too long (max: %d)"};
 
 /*
  We cannot call my_error/my_printf_error here in this function.
