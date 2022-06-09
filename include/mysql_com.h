@@ -72,6 +72,7 @@
 
 #define SERVER_VERSION_LENGTH 60
 #define SQLSTATE_LENGTH 5
+#define LIST_PROCESS_HOST_LEN 64
 
 /**
   Maximum length of comments
@@ -185,6 +186,8 @@
 /** Field will not be loaded in secondary engine. */
 #define NOT_SECONDARY_FLAG (1 << 29)
 
+#define CLUSTERING_FLAG (1U << 30)
+
 /** @}*/
 
 /**
@@ -237,6 +240,15 @@
 #define REFRESH_FOR_EXPORT 0x100000L      /** FLUSH TABLES ... FOR EXPORT */
 #define REFRESH_OPTIMIZER_COSTS 0x200000L /** FLUSH OPTIMIZER_COSTS */
 #define REFRESH_PERSIST 0x400000L         /** RESET PERSIST */
+#define REFRESH_TABLE_STATS 0x800000L     /** Refresh table stats */
+#define REFRESH_INDEX_STATS 0x1000000L    /** Refresh index stats */
+#define REFRESH_USER_STATS 0x2000000L     /** Refresh user stats */
+#define REFRESH_CLIENT_STATS 0x4000000L   /** Refresh client stats */
+#define REFRESH_THREAD_STATS 0x8000000L   /** Refresh thread stats */
+#define REFRESH_FLUSH_PAGE_BITMAPS 0x10000000L
+#define REFRESH_RESET_PAGE_BITMAPS 0x20000000L
+
+static const int PURGE_BITMAPS_TO_LSN = 1;
 
 /** @}*/
 
