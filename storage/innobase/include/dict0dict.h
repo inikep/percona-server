@@ -180,7 +180,7 @@ ulint dict_col_get_clust_pos(
 @return position of column in the given index. */
 UNIV_INLINE
 ulint dict_col_get_index_pos(const dict_col_t *col, const dict_index_t *index)
-    MY_ATTRIBUTE((nonnull, warn_unused_result));
+    MY_ATTRIBUTE((warn_unused_result));
 
 /** If the given column name is reserved for InnoDB system columns, return
  TRUE.
@@ -1696,6 +1696,10 @@ void dict_table_change_id_sys_tables();
 @return the data directory */
 std::string dict_table_get_datadir(const dict_table_t *table)
     MY_ATTRIBUTE((warn_unused_result));
+
+/** Set is_corrupt flag by space_id */
+void dict_table_set_corrupt_by_space(space_id_t space_id,
+                                     bool need_mutex) noexcept;
 
 /** Set the compression type for the tablespace of a table
 @param[in]  table         The table that should be compressed
