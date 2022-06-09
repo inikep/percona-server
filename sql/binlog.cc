@@ -1251,7 +1251,7 @@ class Binlog_event_writer {
       if (*event_len_p == 0) {
         char checksum_buf[BINLOG_CHECKSUM_LEN];
         int4store(checksum_buf, checksum);
-        if (my_b_write(output_cache, checksum_buf, BINLOG_CHECKSUM_LEN))
+        if (my_b_write(output_cache, reinterpret_cast<const uchar *>(checksum_buf), BINLOG_CHECKSUM_LEN))
           DBUG_RETURN(true);
         checksum = initial_checksum;
       }
