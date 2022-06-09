@@ -148,8 +148,4 @@ extern bool srv_startup_is_before_trx_rollback_phase;
 /** TRUE if a raw partition is in use */
 extern ibool srv_start_raw_disk_in_use;
 
-/** true if shared MDL is taken by background thread for all tablespaces, for
- *  which (un)encryption is to be rolled forward*/
-extern bool shared_mdl_is_taken;
-
 #endif
