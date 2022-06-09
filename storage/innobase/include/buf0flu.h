@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2018, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2016, Percona Inc. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -38,9 +39,14 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "univ.i"
 #include "ut0byte.h"
 
+#include <atomic>
+
 #ifndef UNIV_HOTBACKUP
 /** Flag indicating if the page_cleaner is in active state. */
 extern bool buf_page_cleaner_is_active;
+
+/** The number of running LRU manager threads. 0 if LRU manager is inactive. */
+extern std::atomic<ulint> buf_lru_manager_running_threads;
 
 #ifdef UNIV_DEBUG
 
@@ -108,21 +114,6 @@ passed back to caller. Ignored if NULL
 @retval false	if another batch of same type was already running. */
 bool buf_flush_do_batch(buf_pool_t *buf_pool, buf_flush_t type, ulint min_n,
                         lsn_t lsn_limit, ulint *n_processed);
-
-/** This utility flushes dirty blocks from the end of the flush list of all
-buffer pool instances.
-NOTE: The calling thread is not allowed to own any latches on pages!
-@param[in]	min_n		wished minimum mumber of blocks flushed (it is
-not guaranteed that the actual number is that big, though)
-@param[in]	lsn_limit	in the case BUF_FLUSH_LIST all blocks whose
-oldest_modification is smaller than this should be flushed (if their number
-does not exceed min_n), otherwise ignored
-@param[out]	n_processed	the number of pages which were processed is
-passed back to caller. Ignored if NULL.
-@return true if a batch was queued successfully for each buffer pool
-instance. false if another batch of same type was already running in
-at least one of the buffer pool instance */
-bool buf_flush_lists(ulint min_n, lsn_t lsn_limit, ulint *n_processed);
 
 /** This function picks up a single page from the tail of the LRU
 list, flushes it (if it is dirty), removes it from page_hash and LRU
@@ -230,6 +221,7 @@ ibool buf_flush_page(buf_pool_t *buf_pool, buf_page_t *bpage,
 bool buf_flush_ready_for_flush(buf_page_t *bpage, buf_flush_t flush_type)
     MY_ATTRIBUTE((warn_unused_result));
 
+#ifdef UNIV_DEBUG
 /** Check if there are any dirty pages that belong to a space id in the flush
  list in a particular buffer pool.
  @return number of dirty pages present in a single buffer pool */
@@ -237,10 +229,10 @@ ulint buf_pool_get_dirty_pages_count(
     buf_pool_t *buf_pool,     /*!< in: buffer pool */
     space_id_t id,            /*!< in: space id to check */
     FlushObserver *observer); /*!< in: flush observer to check */
+#endif
 
-/** Synchronously flush dirty blocks from the end of the flush list of all
- buffer pool instances. NOTE: The calling thread is not allowed to own any
- latches on pages! */
+/** Signal the page cleaner to flush and wait until it and the LRU
+manager clean the buffer pool. */
 void buf_flush_sync_all_buf_pools(void);
 
 /** Request IO burst and wake page_cleaner up.
@@ -302,6 +294,15 @@ class FlushObserver {
   @param[in]	bpage		buffer page flushed */
   void notify_remove(buf_pool_t *buf_pool, buf_page_t *bpage);
 
+  /** Increase the estimate of dirty pages by this observer
+  @param[in]	block		buffer pool block */
+  void inc_estimate(const buf_block_t &block) noexcept;
+
+  /** @return estimate of dirty pages to be flushed */
+  ulint get_estimate() const noexcept {
+    return (m_estimate.load(std::memory_order_relaxed));
+  }
+
  private:
   /** Table space id */
   space_id_t m_space_id;
@@ -324,9 +325,22 @@ class FlushObserver {
 
   /* True if the operation was interrupted. */
   bool m_interrupted;
+
+  /* Estimate of pages to be flushed */
+  std::atomic<ulint> m_estimate;
+
+  /** LSN at which observer started observing. This is
+  used to find the dirty blocks that are dirtied before Observer */
+  const lsn_t m_lsn;
 };
 
 #endif /* !UNIV_HOTBACKUP */
+
+/** If LRU list of a buf_pool is less than this size then LRU eviction
+should not happen. This is because when we do LRU flushing we also put
+the blocks on free list. If LRU list is very small then we can end up
+in thrashing. */
+static constexpr auto BUF_LRU_MIN_LEN = 256;
 
 #include "buf0flu.ic"
 
