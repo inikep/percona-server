@@ -35,6 +35,7 @@
 #include <sys/types.h>
 
 #include "my_inttypes.h"
+#include "mysql/psi/mysql_mutex.h" /* mysql_mutex_t */
 
 typedef uint32 my_bitmap_map;
 
@@ -61,7 +62,7 @@ extern uint bitmap_bits_set(const MY_BITMAP *map);
 extern void bitmap_free(MY_BITMAP *map);
 extern void bitmap_set_above(MY_BITMAP *map, uint from_byte, bool use_bit);
 extern void bitmap_set_prefix(MY_BITMAP *map, uint prefix_size);
-extern void bitmap_intersect(MY_BITMAP *to, const MY_BITMAP *from);
+extern void bitmap_intersect(MY_BITMAP *map, const MY_BITMAP *map2);
 extern void bitmap_subtract(MY_BITMAP *map, const MY_BITMAP *map2);
 extern void bitmap_union(MY_BITMAP *map, const MY_BITMAP *map2);
 extern void bitmap_xor(MY_BITMAP *map, const MY_BITMAP *map2);
@@ -124,4 +125,4 @@ static inline void bitmap_set_all(MY_BITMAP *map) {
   memset(map->bitmap, 0xFF, 4 * no_words_in_map(map));
 }
 
-#endif  // MY_BITMAP_INCLUDED
+#endif /* MY_BITMAP_INCLUDED */
