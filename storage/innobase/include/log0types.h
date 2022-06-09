@@ -703,6 +703,8 @@ struct alignas(ut::INNODB_CACHE_LINE_SIZE) log_t {
   Used by (private): log_checkpointer, recovery code */
   ut::aligned_array_pointer<byte, OS_FILE_LOG_BLOCK_SIZE> checkpoint_buf;
 
+  /** Log tracking, if enabled, has advanced to this LSN */
+  atomic_lsn_t tracked_lsn;
   /** @} */
 
   /**************************************************/ /**

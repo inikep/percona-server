@@ -1,3 +1,4 @@
+
 /*
    Copyright (c) 2000, 2021, Oracle and/or its affiliates.
 
@@ -93,6 +94,8 @@ sys_var *trg_new_row_fake_var = (sys_var *)0x01;
   LEX_STRING constant for null-string to be used in parser and other places.
 */
 const LEX_STRING null_lex_str = {nullptr, 0};
+const LEX_CSTRING null_lex_cstr = {nullptr, 0};
+const LEX_CSTRING empty_lex_cstr = {"", 0};
 /**
   Mapping from enum values in enum_binlog_stmt_unsafe to error codes.
 
@@ -491,6 +494,7 @@ void LEX::reset() {
 
   clear_privileges();
   grant_as.cleanup();
+  donor_transaction_id = nullptr;
   alter_user_attribute = enum_alter_user_attribute::ALTER_USER_COMMENT_NOT_USED;
   m_is_replication_deprecated_syntax_used = false;
   m_was_replication_command_executed = false;
@@ -1776,6 +1780,7 @@ static int lex_one_token(Lexer_yystype *yylval, THD *thd) {
           state = MY_LEX_USER_VARIABLE_DELIMITER;
           break;
         }
+      // fallthrough
         /* " used for strings */
         [[fallthrough]];
       case MY_LEX_STRING:  // Incomplete text string

@@ -924,7 +924,7 @@ static void row_ins_foreign_fill_virtual(trx_t *trx, upd_node_t *cascade,
     if (!node->is_delete && (foreign->type & DICT_FOREIGN_ON_UPDATE_CASCADE)) {
       dfield_t *new_vfield = innobase_get_computed_value(
           update->old_vrow, col, index, &v_heap, update->heap, nullptr, thd,
-          nullptr, nullptr, node->update, foreign);
+                  nullptr, nullptr, node->update, foreign);
 
       if (new_vfield == nullptr) {
         *err = DB_COMPUTE_VALUE_FAILED;
@@ -1557,6 +1557,11 @@ dberr_t row_ins_check_foreign_constraint(
     const rec_t *rec = btr_pcur_get_rec(&pcur);
     const buf_block_t *block = btr_pcur_get_block(&pcur);
 
+    SRV_CORRUPT_TABLE_CHECK(block, {
+      err = DB_CORRUPTION;
+      goto exit_loop;
+    });
+
     if (page_rec_is_infimum(rec)) {
       continue;
     }
@@ -1683,6 +1688,7 @@ dberr_t row_ins_check_foreign_constraint(
     }
   } while (btr_pcur_move_to_next(&pcur, &mtr));
 
+exit_loop:
   if (check_ref) {
     row_ins_foreign_report_add_err(trx, foreign, btr_pcur_get_rec(&pcur),
                                    entry);

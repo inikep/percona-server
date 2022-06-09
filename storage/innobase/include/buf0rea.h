@@ -50,22 +50,32 @@ flag is cleared and the x-lock released by an i/o-handler thread.
 @param[in]	page_id		page id
 @param[in]	page_size	page size
 @param[in]	unzip		true=request uncompressed page
+@param[in]	should_buffer	whether to buffer an aio request. AIO read
+                                ahead uses this. If you plan to use this
+                                parameter, make sure you remember to call
+                                os_aio_dispatch_read_array_submit() when you're
+                                ready to commit all your requests.
 @return 1 if a read request was queued, 0 if the page already resided in
 buf_pool, or if the page is in the doublewrite buffer blocks in which case it
 is never read into the pool, or if the tablespace does not exist or is being
 dropped */
 ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
                         const page_id_t &page_id, const page_size_t &page_size,
-                        bool unzip);
+                        bool unzip, trx_t *trx, bool should_buffer);
 
 /** High-level function which reads a page asynchronously from a file to the
 buffer buf_pool if it is not already there. Sets the io_fix flag and sets
 an exclusive lock on the buffer frame. The flag is cleared and the x-lock
 released by the i/o-handler thread.
-@param[in]	page_id		page id
-@param[in]	page_size	page size
-@return true if page has been read in, false in case of failure */
-bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size);
+@param[in]  page_id     page id
+@param[in]  page_size   page size
+@retval DB_SUCCESS if the page was read and is not corrupted,
+@retval DB_PAGE_CORRUPTED if page based on checksum check is corrupted,
+@retval DB_IO_DECRYPT_FAIL if page post encryption checksum matches but
+after decryption normal page checksum does not match.
+@retval DB_TABLESPACE_DELETED if tablespace .ibd file is missing */
+dberr_t buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
+                      trx_t *trx);
 
 /** High-level function which reads a page asynchronously from a file to the
 buffer buf_pool if it is not already there. Sets the io_fix flag and sets
@@ -95,7 +105,8 @@ wants to access
 pages, it may happen that the page at the given page number does not
 get read even if we return a positive value! */
 ulint buf_read_ahead_random(const page_id_t &page_id,
-                            const page_size_t &page_size, bool inside_ibuf);
+                            const page_size_t &page_size, bool inside_ibuf,
+                            trx_t *trx);
 
 /** Applies linear read-ahead if in the buf_pool the page is a border page of
 a linear read-ahead area and all the pages in the area have been accessed.
@@ -124,7 +135,8 @@ which could result in a deadlock if the OS does not support asynchronous io.
 @param[in]	inside_ibuf	TRUE if we are inside ibuf routine
 @return number of page read requests issued */
 ulint buf_read_ahead_linear(const page_id_t &page_id,
-                            const page_size_t &page_size, bool inside_ibuf);
+                            const page_size_t &page_size, bool inside_ibuf,
+                            trx_t *trx);
 
 /** Issues read requests for pages which the ibuf module wants to read in, in
 order to contract the insert buffer tree. Technically, this function is like

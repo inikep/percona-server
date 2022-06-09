@@ -292,7 +292,7 @@ static bool log_test_recovery() {
     EXPECT_EQ(nullptr, ret);
 
   } else {
-    srv_shutdown_state = SRV_SHUTDOWN_FLUSH_PHASE;
+    srv_shutdown_state.store(SRV_SHUTDOWN_FLUSH_PHASE);
   }
 
   recv_sys_close();
@@ -544,7 +544,7 @@ static void log_test_general_close() {
 
   os_event_global_destroy();
 
-  srv_shutdown_state = SRV_SHUTDOWN_NONE;
+  srv_shutdown_state.store(SRV_SHUTDOWN_NONE);
 
   free(srv_log_group_home_dir);
   srv_log_group_home_dir = nullptr;

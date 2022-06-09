@@ -821,6 +821,7 @@ dberr_t lock_trx_handle_wait(trx_t *trx); /*!< in/out: trx lock state */
 
 /** Set the lock system timeout event. */
 void lock_set_timeout_event();
+
 #ifdef UNIV_DEBUG
 /** Checks that a transaction id is sensible, i.e., not in the future.
  @return true if ok */

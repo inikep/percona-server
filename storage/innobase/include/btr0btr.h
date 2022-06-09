@@ -176,13 +176,9 @@ page_t *btr_root_get(const dict_index_t *index, /*!< in: index tree */
 @param[in]	page_size	Page size
 @param[in]	mode		Latch mode
 @param[in]	file		File name
-@param[in]	line		Line where called */
-#ifdef UNIV_DEBUG
-/**
+@param[in]	line		Line where called
 @param[in]	index		Index tree, may be NULL if it is not an insert
-                                buffer tree */
-#endif /* UNIV_DEBUG */
-/**
+                    buffer tree
 @param[in,out]	mtr		Mini-transaction
 @return block */
 static inline buf_block_t *btr_block_get_func(const page_id_t &page_id,
@@ -206,6 +202,7 @@ static inline buf_block_t *btr_block_get_func(const page_id_t &page_id,
 #define btr_block_get(page_id, page_size, mode, index, mtr) \
   btr_block_get_func(page_id, page_size, mode, __FILE__, __LINE__, index, mtr)
 #else /* UNIV_DEBUG */
+
 /** Gets a buffer page and declares its latching order level.
 @param page_id Tablespace/page identifier
 @param page_size Page size
@@ -583,6 +580,7 @@ void btr_print_index(dict_index_t *index, /*!< in: index */
                               should print hex dump of
                               record and page on error */
 /** Checks the consistency of an index tree.
+=======
  @return true if ok */
 [[nodiscard]] bool btr_validate_index(
     dict_index_t *index, /*!< in: index */
