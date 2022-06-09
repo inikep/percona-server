@@ -70,7 +70,7 @@ ELSE()
   ADD_LIBRARY(router_lib STATIC ${lib_source_files})
 ENDIF()
 TARGET_LINK_LIBRARIES(router_lib
-  ${CMAKE_DL_LIBS} harness-library mysqlclient ${SSL_LIBRARIES}
+  ${CMAKE_DL_LIBS} harness-library perconaserverclient ${SSL_LIBRARIES}
   )
 TARGET_INCLUDE_DIRECTORIES(router_lib PUBLIC ../include)
 
