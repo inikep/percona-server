@@ -1,4 +1,6 @@
 /* Copyright (c) 2000, 2019, Oracle and/or its affiliates. All rights reserved.
+   Copyright (c) 2018, Percona and/or its affiliates. All rights reserved.
+   Copyright (c) 2010, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -116,6 +118,7 @@ struct MEM_ROOT;
 #define MY_IGNORE_BADFD 32 /* my_sync: ignore 'bad descriptor' errors */
 #define MY_SYNC_DIR 8192   /* my_create/delete/rename: sync directory */
 #define MY_REPORT_WAITING_IF_FULL 64 /* my_write: set status as waiting */
+#define MY_ENCRYPT 256               /* Encrypt IO_CACHE temporary files */
 #define MY_FULL_IO 512 /* For my_read - loop intil I/O is complete */
 #define MY_DONT_CHECK_FILESIZE 128  /* Option to init_io_cache() */
 #define MY_LINK_WARNING 32          /* my_redel() gives warning if links */
@@ -278,8 +281,7 @@ enum cache_type {
   WRITE_CACHE,
   SEQ_READ_APPEND /* sequential read or append */,
   READ_FIFO,
-  READ_NET,
-  WRITE_NET
+  READ_NET
 };
 
 enum flush_type {
@@ -485,8 +487,13 @@ typedef void (*my_error_reporter)(enum loglevel level, uint ecode, ...);
 
 extern my_error_reporter my_charset_error_reporter;
 
-/* defines for mf_iocache */
 extern PSI_file_key key_file_io_cache;
+
+MY_NODISCARD
+extern int _my_b_read(IO_CACHE *info, uchar *Buffer, size_t Count);
+
+MY_NODISCARD
+extern int _my_b_write(IO_CACHE *info, const uchar *Buffer, size_t Count);
 
 /* Test if buffer is inited */
 inline void my_b_clear(IO_CACHE *info) { info->buffer = nullptr; }
@@ -498,25 +505,27 @@ inline bool my_b_inited(const IO_CACHE *info) {
 constexpr int my_b_EOF = INT_MIN;
 
 inline int my_b_read(IO_CACHE *info, uchar *buffer, size_t count) {
-  if (info->read_pos + count <= info->read_end) {
+  if ((size_t)(info->read_end - info->read_pos) >= count) {
     memcpy(buffer, info->read_pos, count);
     info->read_pos += count;
     return 0;
   }
-  return (*info->read_function)(info, buffer, count);
+  return _my_b_read(info, buffer, count);
 }
 
 inline int my_b_write(IO_CACHE *info, const uchar *buffer, size_t count) {
-  if (info->write_pos + count <= info->write_end) {
+  if ((size_t)(info->write_end - info->write_pos) >= count) {
     memcpy(info->write_pos, buffer, count);
     info->write_pos += count;
     return 0;
   }
-  return (*info->write_function)(info, buffer, count);
+  return _my_b_write(info, buffer, count);
 }
 
+MY_NODISCARD
 extern int _my_b_get(IO_CACHE *info);
 
+MY_NODISCARD
 inline int my_b_get(IO_CACHE *info) {
   if (info->read_pos != info->read_end) {
     info->read_pos++;
@@ -525,18 +534,25 @@ inline int my_b_get(IO_CACHE *info) {
   return _my_b_get(info);
 }
 
+MY_NODISCARD
+int my_b_pread(IO_CACHE *info, uchar *Buffer, size_t Count, my_off_t pos);
+
+MY_NODISCARD
 inline my_off_t my_b_tell(const IO_CACHE *info) {
   return info->pos_in_file + *info->current_pos - info->request_pos;
 }
 
+MY_NODISCARD
 inline uchar *my_b_get_buffer_start(const IO_CACHE *info) {
   return info->request_pos;
 }
 
+MY_NODISCARD
 inline size_t my_b_get_bytes_in_buffer(const IO_CACHE *info) {
   return info->read_end - my_b_get_buffer_start(info);
 }
 
+MY_NODISCARD
 inline my_off_t my_b_get_pos_in_file(const IO_CACHE *info) {
   return info->pos_in_file;
 }
@@ -544,6 +560,7 @@ inline my_off_t my_b_get_pos_in_file(const IO_CACHE *info) {
 /* tell write offset in the SEQ_APPEND cache */
 int my_b_copy_to_file(IO_CACHE *cache, FILE *file);
 
+MY_NODISCARD
 inline size_t my_b_bytes_in_cache(const IO_CACHE *info) {
   return *info->current_end - *info->current_pos;
 }
@@ -577,6 +594,9 @@ extern void my_once_free(void);
 extern char *my_once_strdup(const char *src, myf myflags);
 extern void *my_once_memdup(const void *src, size_t len, myf myflags);
 extern File my_open(const char *FileName, int Flags, myf MyFlags);
+#ifndef __WIN__
+extern File my_unix_socket_connect(const char *FileName, myf MyFlags) noexcept;
+#endif
 extern File my_register_filename(File fd, const char *FileName,
                                  enum file_type type_of_file,
                                  uint error_message_number, myf MyFlags);
@@ -727,25 +747,31 @@ extern bool array_append_string_unique(const char *str, const char **array,
 
 void my_store_ptr(uchar *buff, size_t pack_length, my_off_t pos);
 my_off_t my_get_ptr(uchar *ptr, size_t pack_length);
+typedef int (*io_cache_encr_read_function)(IO_CACHE *, uchar *, size_t);
+typedef int (*io_cache_encr_write_function)(IO_CACHE *, const uchar *, size_t);
+extern void init_io_cache_encryption_ext(
+    io_cache_encr_read_function read_function,
+    io_cache_encr_write_function write_function, size_t encr_block_size,
+    size_t encr_header_size);
+extern void init_io_cache_encryption(bool enable);
+MY_NODISCARD
 extern int init_io_cache_ext(IO_CACHE *info, File file, size_t cachesize,
                              enum cache_type type, my_off_t seek_offset,
                              bool use_async_io, myf cache_myflags,
                              PSI_file_key file_key);
+MY_NODISCARD
 extern int init_io_cache(IO_CACHE *info, File file, size_t cachesize,
                          enum cache_type type, my_off_t seek_offset,
                          bool use_async_io, myf cache_myflags);
+MY_NODISCARD
 extern bool reinit_io_cache(IO_CACHE *info, enum cache_type type,
                             my_off_t seek_offset, bool use_async_io,
                             bool clear_cache);
 extern void setup_io_cache(IO_CACHE *info);
-extern int _my_b_read(IO_CACHE *info, uchar *Buffer, size_t Count);
-extern int _my_b_read_r(IO_CACHE *info, uchar *Buffer, size_t Count);
 extern void init_io_cache_share(IO_CACHE *read_cache, IO_CACHE_SHARE *cshare,
                                 IO_CACHE *write_cache, uint num_threads);
 extern void remove_io_thread(IO_CACHE *info);
-extern int _my_b_seq_read(IO_CACHE *info, uchar *Buffer, size_t Count);
 extern int _my_b_net_read(IO_CACHE *info, uchar *Buffer, size_t Count);
-extern int _my_b_write(IO_CACHE *info, const uchar *Buffer, size_t Count);
 extern int my_b_append(IO_CACHE *info, const uchar *Buffer, size_t Count);
 extern int my_b_safe_write(IO_CACHE *info, const uchar *Buffer, size_t Count);
 
@@ -815,6 +841,8 @@ extern uint my_set_max_open_files(uint files);
 void my_free_open_file_info(void);
 
 extern bool my_gethwaddr(uchar *to);
+
+#define my_microsecond_getsystime() (my_getsystime() / 10)
 
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
