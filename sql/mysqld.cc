@@ -1514,8 +1514,8 @@ ulong sql_rnd_with_mutex() {
   return tmp;
 }
 
-struct System_status_var *get_thd_status_var(THD *thd) {
-  return &thd->status_var;
+std::pair<struct System_status_var *, bool> get_thd_status_var(THD *thd) {
+  return std::make_pair(&thd->status_var, thd->status_var_aggregated);
 }
 
 static void option_error_reporter(enum loglevel level, uint ecode, ...) {
