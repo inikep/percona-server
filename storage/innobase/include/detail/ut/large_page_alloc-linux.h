@@ -36,6 +36,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "mysqld_error.h"
 #include "storage/innobase/include/detail/ut/helper.h"
+#include "storage/innobase/include/os0populate.h"
 #include "storage/innobase/include/ut0log.h"
 
 extern const size_t large_page_default_size;
@@ -48,18 +49,24 @@ namespace detail {
     @param[in] n_bytes Size of storage (in bytes) requested to be allocated.
     @return Pointer to the allocated storage. nullptr if allocation failed.
 */
-inline void *large_page_aligned_alloc(size_t n_bytes) {
+inline void *large_page_aligned_alloc(size_t n_bytes, bool populate) {
   // mmap will internally round n_bytes to the multiple of huge-page size if it
   // is not already
-  void *ptr = mmap(nullptr, n_bytes, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANON | MAP_HUGETLB, -1, 0);
+  void *ptr = mmap(
+      nullptr, n_bytes, PROT_READ | PROT_WRITE,
+      MAP_PRIVATE | MAP_ANON | MAP_HUGETLB | (populate ? OS_MAP_POPULATE : 0),
+      -1, 0);
   if (unlikely(ptr == (void *)-1)) {
     ib::log_warn(ER_IB_MSG_856) << "large_page_aligned_alloc mmap(" << n_bytes
                                 << " bytes) failed;"
                                    " errno "
                                 << errno;
+    return nullptr;
   }
-  return (ptr != (void *)-1) ? ptr : nullptr;
+
+  if (populate) prefault_if_not_map_populate(ptr, n_bytes);
+
+  return ptr;
 }
 
 /** Releases memory backed by large (huge) pages.
