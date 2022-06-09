@@ -41,6 +41,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "data0data.h"
 #include "handler0alter.h"
 #include "lob0lob.h"
+#include "my_rnd.h"
 #include "que0que.h"
 #include "row0ext.h"
 #include "row0ins.h"
@@ -48,6 +49,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0row.h"
 #include "row0upd.h"
 #include "srv0mon.h"
+#include "srv0start.h"
 #include "trx0rec.h"
 #include "ut0new.h"
 #include "ut0stage.h"
@@ -184,6 +186,7 @@ struct row_log_t {
   dict_table_t *table; /*!< table that is being rebuilt,
                        or NULL when this is a secondary
                        index that is being created online */
+  dict_index_t *index; /*!< index to be built */
   bool same_pk;        /*!< whether the definition of the PRIMARY KEY
                        has remained the same */
   const dtuple_t *add_cols;
@@ -199,8 +202,14 @@ struct row_log_t {
   row_log_buf_t tail;   /*!< writer context;
                         protected by mutex and index->lock S-latch,
                         or by index->lock X-latch only */
+  byte *crypt_tail;     /*!< writer context;
+                    temporary buffer used in encryption,
+                    decryption or NULL*/
   row_log_buf_t head;   /*!< reader context; protected by MDL only;
                         modifiable by row_log_apply_ops() */
+  byte *crypt_head;     /*!< reader context;
+                    temporary buffer used in encryption,
+                    decryption or NULL */
   ulint n_old_col;
   /*!< number of non-virtual column in
   old table */
@@ -237,8 +246,9 @@ static MY_ATTRIBUTE((warn_unused_result)) bool row_log_block_allocate(
   if (log_buf.block == nullptr) {
     DBUG_EXECUTE_IF("simulate_row_log_allocation_failure", return false;);
 
-    log_buf.block = ut_allocator<byte>(mem_key_row_log_buf)
-                        .allocate_large(srv_sort_buf_size, &log_buf.block_pfx);
+    log_buf.block =
+        ut_allocator<byte>(mem_key_row_log_buf)
+            .allocate_large(srv_sort_buf_size, &log_buf.block_pfx, false);
 
     if (log_buf.block == nullptr) {
       return false;
@@ -343,6 +353,7 @@ void row_log_online_op(
     IORequest request(IORequest::WRITE);
     const os_offset_t byte_offset =
         (os_offset_t)log->tail.blocks * srv_sort_buf_size;
+    byte *buf = log->tail.block;
 
     if (byte_offset + srv_sort_buf_size >= srv_online_max_size) {
       goto write_failed;
@@ -362,8 +373,8 @@ void row_log_online_op(
       goto err_exit;
     }
 
-    err = os_file_write_int_fd(request, "(modification log)", log->fd,
-                               log->tail.block, byte_offset, srv_sort_buf_size);
+    err = os_file_write_int_fd(request, "(modification log)", log->fd, buf,
+                               byte_offset, srv_sort_buf_size);
 
     log->tail.blocks++;
     if (err != DB_SUCCESS) {
@@ -2779,9 +2790,10 @@ next_block:
 
     IORequest request;
 
+    byte *buf = index->online_log->head.block;
+
     err = os_file_read_no_error_handling_int_fd(
-        request, index->online_log->path, index->online_log->fd,
-        index->online_log->head.block, ofs, srv_sort_buf_size, nullptr);
+        request, index->online_log->path, index->online_log->fd, buf, ofs, srv_sort_buf_size, nullptr);
 
     if (err != DB_SUCCESS) {
       ib::error(ER_IB_MSG_961) << "Unable to read temporary file"
@@ -3074,6 +3086,8 @@ bool row_log_allocate(
   log->path = path;
   log->n_old_col = index->table->n_cols;
   log->n_old_vcol = index->table->n_v_cols;
+  log->crypt_tail = log->crypt_head = nullptr;
+  log->index = index;
 
   dict_index_set_online_status(index, ONLINE_INDEX_CREATION);
   index->online_log = log;
@@ -3095,6 +3109,15 @@ void row_log_free(row_log_t *&log) /*!< in,own: row log */
   row_log_block_free(log->tail);
   row_log_block_free(log->head);
   row_merge_file_destroy_low(log->fd);
+
+  if (log->crypt_head) {
+    os_mem_free_large(log->crypt_head, srv_sort_buf_size);
+  }
+
+  if (log->crypt_tail) {
+    os_mem_free_large(log->crypt_tail, srv_sort_buf_size);
+  }
+
   mutex_free(&log->mutex);
   ut_free(log);
   log = nullptr;
@@ -3542,9 +3565,11 @@ next_block:
     }
 
     IORequest request;
+
+    byte *buf = index->online_log->head.block;
+
     dberr_t err = os_file_read_no_error_handling_int_fd(
-        request, index->online_log->path, index->online_log->fd,
-        index->online_log->head.block, ofs, srv_sort_buf_size, nullptr);
+        request, index->online_log->path, index->online_log->fd, buf, ofs, srv_sort_buf_size, nullptr);
 
     if (err != DB_SUCCESS) {
       ib::error(ER_IB_MSG_963) << "Unable to read temporary file"

@@ -72,6 +72,10 @@ dberr_t PageBulk::init() {
     the allocation order, and we will always generate redo log
     for page allocation, even when creating a new tablespace. */
     mtr_start(&alloc_mtr);
+    if (m_index->table->is_temporary()) {
+      // We are bulk loading a temporary table index. No need to redo-log it.
+      alloc_mtr.set_log_mode(MTR_LOG_NO_REDO);
+    }
 
     ulint n_reserved;
     bool success = fsp_reserve_free_extents(&n_reserved, m_index->space, 1,
@@ -964,7 +968,6 @@ dberr_t BtrBulk::insert(dtuple_t *tuple, ulint level) {
       return (err);
     }
 
-    DEBUG_SYNC_C("bulk_load_insert");
     m_page_bulks->push_back(new_page_bulk);
     ut_ad(level + 1 == m_page_bulks->size());
     m_root_level = level;
@@ -1061,7 +1064,6 @@ if no error occurs.
 @return error code  */
 dberr_t BtrBulk::finish(dberr_t err) {
   ut_ad(m_page_bulks);
-  ut_ad(!m_index->table->is_temporary());
 
 #ifdef UNIV_DEBUG
   /* Assert that the index online status has not changed */
@@ -1089,6 +1091,10 @@ dberr_t BtrBulk::finish(dberr_t err) {
 
     mtr_t mtr;
     mtr_start(&mtr);
+    if (m_index->table->is_temporary()) {
+      // We are bulk loading a temporary table index. No need to redo-log it.
+      mtr.set_log_mode(MTR_LOG_NO_REDO);
+    }
     mtr_x_lock(dict_index_get_lock(m_index), &mtr);
 
     buf_block_t *last_block =
