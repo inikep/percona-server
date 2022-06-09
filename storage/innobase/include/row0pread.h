@@ -437,6 +437,9 @@ class Parallel_reader {
   /** If the caller wants to wait for the parallel_read to finish it's run */
   bool m_sync;
 
+  /** Covering transaction for slow query log. */
+  trx_t *m_trx_for_slow_log;
+
   friend class Ctx;
   friend class Scan_ctx;
 };
@@ -647,7 +650,7 @@ class Parallel_reader::Scan_ctx {
   Config m_config;
 
   /** Covering transaction. */
-  const trx_t *m_trx{};
+  trx_t *m_trx{};
 
   /** Callback function. */
   F m_f;
