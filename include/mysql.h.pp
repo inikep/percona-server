@@ -86,6 +86,7 @@ enum enum_server_command {
   COM_CLONE,
   COM_END
 };
+static const int PURGE_BITMAPS_TO_LSN = 1;
 enum SERVER_STATUS_flags_enum {
   SERVER_STATUS_IN_TRANS = 1,
   SERVER_STATUS_AUTOCOMMIT = 2,
@@ -324,6 +325,7 @@ typedef struct MYSQL_TIME {
 void init_client_errs(void);
 void finish_client_errs(void);
 extern const char *client_errors[];
+extern const char **mysql_client_errors;
 static inline const char *ER_CLIENT(int client_errno) {
   if (client_errno >= 2000 && client_errno <= 2065)
     return client_errors[client_errno - 2000];
