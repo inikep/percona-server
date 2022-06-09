@@ -95,7 +95,7 @@ INCLUDE(cmake/packaging.cmake)
 INCLUDE(cmake/Plugin.cmake)
 
 # Set the proper paths for the mysqlclient library
-SET(MySQL_CLIENT_LIB mysqlclient)
+SET(MySQL_CLIENT_LIB perconaserverclient)
 SET(MySQL_VERSION_HEADER ${CMAKE_BINARY_DIR}/include/mysql_version.h)
 SET(MySQL_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include)
 LIST(APPEND MySQL_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/libbinlogevents/export)
