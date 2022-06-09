@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2022, Oracle and/or its affiliates.
+Copyright (c) 2016, Percona Inc. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -1441,6 +1442,12 @@ bool Double_write::create_v1(page_no_t &page_no1,
 dberr_t Double_write::load(dblwr::File &file, recv::Pages *pages) noexcept {
   os_offset_t size = os_file_get_size(file.m_pfs);
 
+  if (srv_read_only_mode) {
+    ib::info() << "Skipping doublewrite buffer processing due to "
+                  "InnoDB running in read only mode";
+    return (DB_SUCCESS);
+  }
+
   if (size == 0) {
     /* Double write buffer is empty. */
     ib::info(ER_IB_MSG_DBLWR_1285, file.m_name.c_str());
@@ -1661,6 +1668,10 @@ file::Block *dblwr::get_encrypted_frame(buf_page_t *bpage) noexcept {
   if (page_no == 0) {
     /* The first page of any tablespace is never encrypted.
     So return early. */
+    return nullptr;
+  }
+
+  if (space_id == TRX_SYS_SPACE && page_no == TRX_SYS_PAGE_NO) {
     return nullptr;
   }
 

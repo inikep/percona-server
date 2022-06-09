@@ -602,6 +602,12 @@ byte *Encryption::get_master_key_from_info(byte *encrypt_info, Version version,
   return (ptr);
 }
 
+/** Decoding the encryption info from the first page of a tablespace.
+@param[in,out]	space_id		space_id
+@param[in,out]	e_key		e_key
+@param[in]	encryption_info	encryption info
+@param[in]	decrypt_key	decrypt_key
+@return true if success */
 bool Encryption::decode_encryption_info(space_id_t space_id,
                                         Encryption_key &e_key,
                                         byte *encryption_info,
@@ -842,7 +848,7 @@ bool Encryption::encrypt_log_block(const IORequest &, byte *src_ptr,
 
       msg.seekp(0);
       ut_print_buf_hex(msg, check_buf, OS_FILE_LOG_BLOCK_SIZE);
-      ib::fatal() << msg.str();
+      ib::fatal(UT_LOCATION_HERE) << msg.str();
     }
     ut::free(buf2);
     ut::free(check_buf);

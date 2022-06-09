@@ -38,6 +38,11 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <sql_time.h>
 #include <sys/types.h>
 #include <time.h>
+#include "sql/debug_sync.h"
+#include "sql/item.h"
+#include "sql/item_cmpfunc.h"
+#include "sql/item_func.h"
+#include "sql/item_sum.h"
 
 #include "auth_acls.h"
 #include "btr0btr.h"
@@ -64,6 +69,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "pars0pars.h"
 #include "sql/sql_class.h" /* For THD */
 #include "srv0mon.h"
+#include "srv0srv.h"
 #include "srv0start.h"
 #include "srv0tmp.h"
 #include "trx0i_s.h"
@@ -6850,6 +6856,17 @@ static int i_s_dict_fill_innodb_tablespaces(
     space_type = "Single";
   }
 
+  /* Temporary tablespace encryption flags are not updated in DD. It is not
+  necessary because bootstrap doesn't check temporary tablespace from DD.
+  Temporary tablespace has to be ready before DD validation can take place */
+  if (fsp_is_global_temporary(space_id)) {
+    fil_space_t *space = fil_space_acquire_silent(space_id);
+    if (space != nullptr) {
+      is_encrypted = FSP_FLAGS_GET_ENCRYPTION(space->flags);
+      fil_space_release(space);
+    }
+  }
+
   fields = table_to_fill->field;
 
   OK(fields[INNODB_TABLESPACES_SPACE]->store(space_id, true));
@@ -7484,3 +7501,153 @@ struct st_mysql_plugin i_s_innodb_session_temp_tablespaces = {
     /* unsigned long */
     STRUCT_FLD(flags, 0UL),
 };
+
+/**
+  This function implements ICP for I_S.INNODB_CHANGED_PAGES by parsing a
+  condition and getting lower and upper bounds for start and end LSNs if the
+  condition corresponds to a certain pattern.
+
+  In the most general form, we understand queries like
+
+  SELECT * FROM INNODB_CHANGED_PAGES
+      WHERE START_LSN > num1 AND START_LSN < num2
+            AND END_LSN > num3 AND END_LSN < num4;
+
+  That's why the pattern syntax is:
+
+  pattern:  comp | and_comp;
+  comp:     lsn <  int_num | lsn <= int_num | int_num > lsn  | int_num >= lsn;
+  lsn:	    start_lsn | end_lsn;
+  and_comp: expression AND expression | expression AND and_comp;
+  expression: comp | any_other_expression;
+
+  The two bounds are handled differently: the lower bound is used to find the
+  correct starting _file_, the upper bound the last _block_ that needs reading.
+
+  Lower bound conditions are handled in the following way: start_lsn >= X
+  specifies that the reading must start from the file that has the highest
+  starting LSN less than or equal to X. start_lsn > X is equivalent to
+  start_lsn >= X + 1.  For end_lsn, end_lsn >= X is treated as
+  start_lsn >= X - 1 and end_lsn > X as start_lsn >= X.
+
+  For the upper bound, suppose the condition is start_lsn < 100, this means we
+  have to read all blocks with start_lsn < 100. Which is equivalent to reading
+  all the blocks with end_lsn <= 99, or just end_lsn < 100. That's why it's
+  enough to find maximum lsn value, doesn't matter if this is start or end lsn
+  and compare it with "start_lsn" field. LSN <= 100 is treated as LSN < 101.
+
+  Example:
+
+  SELECT * FROM INNODB_CHANGED_PAGES
+    WHERE
+    start_lsn > 10  AND
+    end_lsn <= 1111 AND
+    555 > end_lsn   AND
+    page_id = 100;
+
+  end_lsn will be set to 555, start_lsn will be set 11.
+
+  Support for other functions (equal, NULL-safe equal, BETWEEN, IN, etc.) will
+  be added on demand.
+
+@param[in]	table		table
+@param[in]	cond		condition
+@param[out]	start_lsn	minimum LSN
+@param[out[	end_lsn		maximum LSN */
+static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
+                                           lsn_t *start_lsn, lsn_t *end_lsn) {
+  if (cond->type() != Item::COND_ITEM && cond->type() != Item::FUNC_ITEM)
+    return;
+
+  const enum Item_func::Functype func_type = ((Item_func *)cond)->functype();
+
+  switch (func_type) {
+    case Item_func::COND_AND_FUNC: {
+      List_iterator<Item> li(*((Item_cond *)cond)->argument_list());
+      Item *item;
+
+      while ((item = li++)) {
+        limit_lsn_range_from_condition(table, item, start_lsn, end_lsn);
+      }
+      break;
+    }
+    case Item_func::LT_FUNC:
+    case Item_func::LE_FUNC:
+    case Item_func::GT_FUNC:
+    case Item_func::GE_FUNC: {
+      /* a <= b equals to b >= a that's why we just exchange "left"
+      and "right" in the case of ">" or ">=" function.  We don't
+      touch the operation itself.  */
+      Item *left;
+      Item *right;
+      if (((Item_func *)cond)->functype() == Item_func::LT_FUNC ||
+          ((Item_func *)cond)->functype() == Item_func::LE_FUNC) {
+        left = ((Item_func *)cond)->arguments()[0];
+        right = ((Item_func *)cond)->arguments()[1];
+      } else {
+        left = ((Item_func *)cond)->arguments()[1];
+        right = ((Item_func *)cond)->arguments()[0];
+      }
+
+      Item_field *item_field;
+      if (left->type() == Item::FIELD_ITEM) {
+        item_field = (Item_field *)left;
+      } else if (right->type() == Item::FIELD_ITEM) {
+        item_field = (Item_field *)right;
+      } else {
+        return;
+      }
+
+      /* Check if the current field belongs to our table */
+      if (table != item_field->field->table) {
+        return;
+      }
+
+      /* Check if the field is START_LSN or END_LSN */
+      /* END_LSN */
+      const bool is_end_lsn = table->field[3]->eq(item_field->field);
+
+      if (/* START_LSN */ !table->field[2]->eq(item_field->field) &&
+          !is_end_lsn) {
+        return;
+      }
+
+      uint64_t tmp_result;
+      if (left->type() == Item::FIELD_ITEM && right->type() == Item::INT_ITEM) {
+        /* The case of start_lsn|end_lsn <|<= const, i.e. the
+        upper bound.  */
+
+        tmp_result = right->val_int();
+        if (((func_type == Item_func::LE_FUNC) ||
+             (func_type == Item_func::GE_FUNC)) &&
+            (tmp_result != std::numeric_limits<uint64_t>::max())) {
+          tmp_result++;
+        }
+        if (tmp_result < *end_lsn) {
+          *end_lsn = tmp_result;
+        }
+
+      } else if (left->type() == Item::INT_ITEM &&
+                 right->type() == Item::FIELD_ITEM) {
+        /* The case of const <|<= start_lsn|end_lsn, i.e. the
+        lower bound */
+
+        tmp_result = left->val_int();
+        if (is_end_lsn && tmp_result != 0) {
+          tmp_result--;
+        }
+        if (((func_type == Item_func::LT_FUNC) ||
+             (func_type == Item_func::GT_FUNC)) &&
+            (tmp_result != std::numeric_limits<uint64_t>::max())) {
+          tmp_result++;
+        }
+        if (tmp_result > *start_lsn) {
+          *start_lsn = tmp_result;
+        }
+      }
+
+      break;
+    }
+    default:;
+  }
+}

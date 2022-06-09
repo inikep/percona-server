@@ -52,6 +52,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fsp0sysspace.h"
 #include "fts0priv.h"
 #include "ha_prototypes.h"
+#include "lob0lob.h"
 #include "mach0data.h"
 
 #include "my_dbug.h"
@@ -61,15 +62,16 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "mysql_version.h"
 #include "page0page.h"
 #include "rem0cmp.h"
+#include "scope_guard.h"
 #include "srv0srv.h"
 #include "srv0start.h"
 
 /** Following are the InnoDB system tables. The positions in
 this array are referenced by enum dict_system_table_id. */
 const char *SYSTEM_TABLE_NAME[] = {
-    "SYS_TABLES",      "SYS_INDEXES",   "SYS_COLUMNS",
-    "SYS_FIELDS",      "SYS_FOREIGN",   "SYS_FOREIGN_COLS",
-    "SYS_TABLESPACES", "SYS_DATAFILES", "SYS_VIRTUAL"};
+    "SYS_TABLES",  "SYS_INDEXES",      "SYS_COLUMNS",      "SYS_FIELDS",
+    "SYS_FOREIGN", "SYS_FOREIGN_COLS", "SYS_TABLESPACES",  "SYS_DATAFILES",
+    "SYS_VIRTUAL", "SYS_ZIP_DICT",     "SYS_ZIP_DICT_COLS"};
 
 /** This variant is based on name comparision and is used because
 system table id array is not built yet.
@@ -1453,6 +1455,8 @@ static inline space_id_t dict_check_sys_tables(bool validate) {
   mtr_t mtr;
 
   DBUG_TRACE;
+
+  auto guard = create_scope_guard([&pcur]() { pcur.close(); });
 
   ut_ad(dict_sys_mutex_own());
 

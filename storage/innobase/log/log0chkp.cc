@@ -702,6 +702,7 @@ void log_create_first_checkpoint(log_t &log, lsn_t lsn) {
   log_files_write_checkpoint(log, lsn);
 
   /* Note, that checkpoint was responsible for fsync of all log files. */
+  log.tracked_lsn.store(lsn);
 }
 
 static void log_request_checkpoint_low(log_t &log, lsn_t requested_lsn) {
