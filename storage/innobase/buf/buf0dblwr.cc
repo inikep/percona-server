@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2026, Oracle and/or its affiliates.
+Copyright (c) 2016, Percona Inc. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -455,6 +456,7 @@ bool Pages::is_actual_page_corrupted(const fil_space_t &space,
       fil_io(IORequest::Type::READ | IORequest::Type::DBLWR, true, page_id,
              page_size, page_size.physical(), buffer.begin(), nullptr, false);
 
+<<<<<<< HEAD
   if (err != DB_SUCCESS && err != DB_IO_DECRYPT_FAIL &&
       err != DB_IO_DECOMPRESS_FAIL) {
     /* We must be able to read a page. We are running this for a known
@@ -464,6 +466,33 @@ bool Pages::is_actual_page_corrupted(const fil_space_t &space,
     ib::fatal(UT_LOCATION_HERE, ER_IB_MSG_DBLWR_1314,
               page_id.to_string().c_str(), node_and_page.first.c_str(),
               ulong{node_and_page.second}, ut_strerr(err));
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  IORequest request;
+
+  request.dblwr();
+
+  /* Read in the page from the data file to compare. */
+  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
+                    buffer.begin(), nullptr);
+
+  if (err != DB_SUCCESS) {
+    ib::warn(ER_IB_MSG_DBLWR_1314)
+        << "Double write fle recovery: " << page_id << " read failed with "
+        << "error: " << ut_strerr(err);
+=======
+  IORequest request;
+
+  request.dblwr();
+
+  /* Read in the page from the data file to compare. */
+  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
+                    buffer.begin(), nullptr, nullptr, false);
+
+  if (err != DB_SUCCESS) {
+    ib::warn(ER_IB_MSG_DBLWR_1314)
+        << "Double write fle recovery: " << page_id << " read failed with "
+        << "error: " << ut_strerr(err);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 
   /* Is the page read from the data file corrupt? */
@@ -1655,11 +1684,6 @@ void Double_write::check_block(const buf_block_t *block) noexcept {
 
       /* TODO: validate also non-index pages */
       return;
-
-    case FIL_PAGE_TYPE_ALLOCATED:
-      /* Empty pages should never be flushed. Unless we are creating the
-      legacy doublewrite buffer.  */
-      break;
   }
 
   croak(block);
@@ -1702,8 +1726,24 @@ dberr_t Double_write::write_to_datafile(
   auto err = fil_io(type, sync, bpage->id, bpage->size, len, frame, bpage, sync,
                     pre_io_complete_callback);
 
+<<<<<<< HEAD
   /* When a tablespace is deleted, fil_io() might return DB_PAGE_IS_STALE or
   DB_TABLESPACE_DELETED. */
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  io_request.set_original_size(bpage->size.physical());
+  auto err =
+      fil_io(io_request, sync, bpage->id, bpage->size, 0, len, frame, bpage);
+
+  /* When a tablespace is deleted with BUF_REMOVE_NONE, fil_io() might
+  return DB_PAGE_IS_STALE or DB_TABLESPACE_DELETED. */
+=======
+  io_request.set_original_size(bpage->size.physical());
+  auto err = fil_io(io_request, sync, bpage->id, bpage->size, 0, len, frame,
+                    bpage, nullptr, false);
+
+  /* When a tablespace is deleted with BUF_REMOVE_NONE, fil_io() might
+  return DB_PAGE_IS_STALE or DB_TABLESPACE_DELETED. */
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   ut_a(err == DB_SUCCESS || err == DB_TABLESPACE_DELETED ||
        err == DB_PAGE_IS_STALE);
 
@@ -2041,6 +2081,12 @@ bool Double_write::create_v1(page_no_t &page_no1,
 
 dberr_t Double_write::load(dblwr::File &file, recv::Pages *pages) noexcept {
   os_offset_t size = os_file_get_size(file.m_pfs);
+
+  if (srv_read_only_mode) {
+    ib::info() << "Skipping doublewrite buffer processing due to "
+                  "InnoDB running in read only mode";
+    return (DB_SUCCESS);
+  }
 
   if (size == 0) {
     /* Double write buffer is empty. */
@@ -2530,6 +2576,10 @@ file::Block *dblwr::get_encrypted_frame(buf_page_t *bpage,
   if (page_no == 0) {
     /* The first page of any tablespace is never encrypted.
     So return early. */
+    return nullptr;
+  }
+
+  if (space_id == TRX_SYS_SPACE && page_no == TRX_SYS_PAGE_NO) {
     return nullptr;
   }
 
@@ -3131,9 +3181,51 @@ void recv::Pages::dblwr_recover_page(const fil_space_t &space,
     return;
   }
 
+<<<<<<< HEAD
   if (!is_actual_page_corrupted(space, page_id)) {
     /* Database page is fine. No need to restore from dblwr. */
     return;
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  const page_size_t page_size(space->flags);
+  const page_id_t page_id(space->id, page_no);
+
+  /* We want to ensure that for partial reads the
+  unread portion of the page is NUL. */
+  memset(buffer.begin(), 0x0, page_size.physical());
+
+  IORequest request;
+
+  request.dblwr();
+
+  /* Read in the page from the data file to compare. */
+  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
+                    buffer.begin(), nullptr);
+
+  if (err != DB_SUCCESS) {
+    ib::warn(ER_IB_MSG_DBLWR_1314)
+        << "Double write file recovery: " << page_id << " read failed with "
+        << "error: " << ut_strerr(err);
+=======
+  const page_size_t page_size(space->flags);
+  const page_id_t page_id(space->id, page_no);
+
+  /* We want to ensure that for partial reads the
+  unread portion of the page is NUL. */
+  memset(buffer.begin(), 0x0, page_size.physical());
+
+  IORequest request;
+
+  request.dblwr();
+
+  /* Read in the page from the data file to compare. */
+  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
+                    buffer.begin(), nullptr, nullptr, false);
+
+  if (err != DB_SUCCESS) {
+    ib::warn(ER_IB_MSG_DBLWR_1314)
+        << "Double write file recovery: " << page_id << " read failed with "
+        << "error: " << ut_strerr(err);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 
   ib::info(ER_IB_MSG_DBLWR_1315)
@@ -3167,7 +3259,25 @@ void recv::Pages::dblwr_recover_page(const fil_space_t &space,
                           true, page_id, page_size, page_size.physical(),
                           const_cast<byte *>(dblwr_page), nullptr, false);
 
+<<<<<<< HEAD
   ut_a(err == DB_SUCCESS);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  /* Write the good page from the doublewrite buffer to the
+  intended position. */
+
+  err = fil_io(write_request, true, page_id, page_size, 0, page_size.physical(),
+               const_cast<byte *>(page), nullptr);
+
+  ut_a(err == DB_SUCCESS || err == DB_TABLESPACE_DELETED);
+=======
+  /* Write the good page from the doublewrite buffer to the
+  intended position. */
+
+  err = fil_io(write_request, true, page_id, page_size, 0, page_size.physical(),
+               const_cast<byte *>(page), nullptr, nullptr, false);
+
+  ut_a(err == DB_SUCCESS || err == DB_TABLESPACE_DELETED);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   ib::info(ER_IB_MSG_DBLWR_1308)
       << "Recovered page " << page_id << " from the doublewrite buffer.";

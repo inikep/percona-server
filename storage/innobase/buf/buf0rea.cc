@@ -63,9 +63,19 @@ read-ahead is not done: this is to prevent flooding the buffer pool with
 i/o-fixed buffer blocks */
 static constexpr uint32_t BUF_READ_AHEAD_PEND_LIMIT = 2;
 
+<<<<<<< HEAD
 ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
                         ulint mode, const page_id_t &page_id,
                         const page_size_t &page_size, bool unzip) {
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
+                        const page_id_t &page_id, const page_size_t &page_size,
+                        bool unzip) {
+=======
+ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
+                        const page_id_t &page_id, const page_size_t &page_size,
+                        bool unzip, trx_t *trx, bool should_buffer) {
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   buf_page_t *bpage;
 
   *err = DB_SUCCESS;
@@ -121,6 +131,7 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
   *err = fil_io(type | IORequest::Type::READ, sync, page_id, page_size,
                 page_size.physical(), dst, bpage, false);
 
+<<<<<<< HEAD
   /* The DB_INDEX_CORRUPT is returned from fil_io's callback that is running
   buf_page_io_complete. */
   if (*err != DB_SUCCESS && *err != DB_INDEX_CORRUPT) {
@@ -129,18 +140,40 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
     if ((type & IORequest::Type::IGNORE_MISSING) ==
             IORequest::Type::IGNORE_MISSING ||
         *err == DB_TABLESPACE_DELETED) {
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  *err = fil_io(request, sync, page_id, page_size, 0, page_size.physical(), dst,
+                bpage);
+
+  if (sync) {
+    thd_wait_end(nullptr);
+  }
+
+  if (*err != DB_SUCCESS) {
+    if (IORequest::ignore_missing(type) || *err == DB_TABLESPACE_DELETED) {
+=======
+  *err = fil_io(request, sync, page_id, page_size, 0, page_size.physical(), dst,
+                bpage, trx, should_buffer);
+
+  if (sync) {
+    thd_wait_end(nullptr);
+  }
+
+  if (*err != DB_SUCCESS) {
+    if (IORequest::ignore_missing(type) || *err == DB_TABLESPACE_DELETED) {
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
       buf_read_page_handle_error(bpage);
       return (0);
     }
 
-    ut_error;
+    SRV_CORRUPT_TABLE_CHECK(*err == DB_SUCCESS, bpage->is_corrupt = true;);
   }
 
   return *err == DB_SUCCESS;
 }
 
 ulint buf_read_ahead_random(const page_id_t &page_id,
-                            const page_size_t &page_size, bool inside_ibuf) {
+                            const page_size_t &page_size, bool inside_ibuf,
+                            trx_t *trx) {
   buf_pool_t *buf_pool = buf_pool_get(page_id);
   ulint recent_blocks = 0;
   ulint ibuf_mode;
@@ -238,8 +271,16 @@ read_ahead:
     const page_id_t cur_page_id(page_id.space(), i);
 
     if (!ibuf_bitmap_page(cur_page_id, page_size)) {
+<<<<<<< HEAD
       count += buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
                                  ibuf_mode, cur_page_id, page_size, false);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
+                                 cur_page_id, page_size, false);
+=======
+      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
+                                 cur_page_id, page_size, false, trx, false);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
       if (err == DB_TABLESPACE_DELETED) {
         ib::warn(ER_IB_MSG_140) << "Random readahead trying to"
@@ -272,12 +313,21 @@ read_ahead:
   return (count);
 }
 
-bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size) {
+bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
+                   trx_t *trx) {
   ulint count;
   dberr_t err;
 
+<<<<<<< HEAD
   count = buf_read_page_low(&err, true, IORequest::Type::UNSET,
                             BUF_READ_ANY_PAGE, page_id, page_size, false);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  count = buf_read_page_low(&err, true, 0, BUF_READ_ANY_PAGE, page_id,
+                            page_size, false);
+=======
+  count = buf_read_page_low(&err, true, 0, BUF_READ_ANY_PAGE, page_id,
+                            page_size, false, trx, false);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   srv_stats.buf_pool_reads.add(count);
 
@@ -297,10 +347,20 @@ bool buf_read_page_background(const page_id_t &page_id,
   ulint count;
   dberr_t err;
 
+<<<<<<< HEAD
   count = buf_read_page_low(
       &err, sync,
       IORequest::Type::DO_NOT_WAKE | IORequest::Type::IGNORE_MISSING,
       BUF_READ_ANY_PAGE, page_id, page_size, false);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  count = buf_read_page_low(&err, sync,
+                            IORequest::DO_NOT_WAKE | IORequest::IGNORE_MISSING,
+                            BUF_READ_ANY_PAGE, page_id, page_size, false);
+=======
+  count = buf_read_page_low(
+      &err, sync, IORequest::DO_NOT_WAKE | IORequest::IGNORE_MISSING,
+      BUF_READ_ANY_PAGE, page_id, page_size, false, nullptr, false);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   srv_stats.buf_pool_reads.add(count);
 
@@ -315,7 +375,8 @@ bool buf_read_page_background(const page_id_t &page_id,
 }
 
 ulint buf_read_ahead_linear(const page_id_t &page_id,
-                            const page_size_t &page_size, bool inside_ibuf) {
+                            const page_size_t &page_size, bool inside_ibuf,
+                            trx_t *trx) {
   buf_pool_t *buf_pool = buf_pool_get(page_id);
   buf_page_t *bpage;
   buf_frame_t *frame;
@@ -541,8 +602,16 @@ ulint buf_read_ahead_linear(const page_id_t &page_id,
     const page_id_t cur_page_id(page_id.space(), i);
 
     if (!ibuf_bitmap_page(cur_page_id, page_size)) {
+<<<<<<< HEAD
       count += buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
                                  ibuf_mode, cur_page_id, page_size, false);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
+                                 cur_page_id, page_size, false);
+=======
+      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
+                                 cur_page_id, page_size, false, trx, true);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
       if (err == DB_TABLESPACE_DELETED) {
         ib::warn(ER_IB_MSG_142) << "linear readahead trying to"
@@ -553,6 +622,7 @@ ulint buf_read_ahead_linear(const page_id_t &page_id,
       }
     }
   }
+  os_aio_dispatch_read_array_submit();
 
   /* In simulated aio we wake the aio handler threads only after
   queuing all aio requests. */
@@ -617,8 +687,16 @@ void buf_read_ibuf_merge_pages(bool sync, const space_id_t *space_ids,
     dberr_t err;
 
     buf_read_page_low(&err, sync && (i + 1 == n_stored),
+<<<<<<< HEAD
                       IORequest::Type::IGNORE_MISSING, BUF_READ_ANY_PAGE,
                       page_id, page_size, true);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+                      IORequest::IGNORE_MISSING, BUF_READ_ANY_PAGE, page_id,
+                      page_size, true);
+=======
+                      IORequest::IGNORE_MISSING, BUF_READ_ANY_PAGE, page_id,
+                      page_size, true, nullptr, false);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
     if (err == DB_TABLESPACE_DELETED) {
       /* We have deleted or are deleting the single-table
@@ -679,9 +757,17 @@ void buf_read_recv_pages(space_id_t space_id, const page_no_t *page_nos,
 
   for (ulint i = 0; i < n_stored; i++) {
     dberr_t err;
+<<<<<<< HEAD
     buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
                       BUF_READ_ANY_PAGE, {space_id, page_nos[i]}, page_size,
                       true);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+    buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, BUF_READ_ANY_PAGE,
+                      {space_id, page_nos[i]}, page_size, true);
+=======
+    buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, BUF_READ_ANY_PAGE,
+                      {space_id, page_nos[i]}, page_size, true, nullptr, false);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 
   os_aio_simulated_wake_handler_threads();

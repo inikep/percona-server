@@ -157,10 +157,6 @@ static uint64_t srv_start_state = SRV_START_STATE_NONE;
 
 std::atomic<enum srv_shutdown_t> srv_shutdown_state{SRV_SHUTDOWN_NONE};
 
-/** true if shared MDL is taken by background thread for all tablespaces, for
- *  which (un)encryption is to be rolled forward*/
-bool shared_mdl_is_taken = false;
-
 /** Name of srv_monitor_file */
 static char *srv_monitor_file_name;
 
@@ -898,6 +894,7 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
     }
   }
 
+<<<<<<< HEAD
   log_free_check();
 
   mtr_t mtr;
@@ -923,6 +920,13 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
 
   if (srv_undo_log_encrypt && enable_undo_encryption) {
     ut_d(bool ret =) srv_enable_undo_encryption();
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  if (srv_undo_log_encrypt) {
+    ut_d(bool ret =) srv_enable_undo_encryption();
+=======
+  if (srv_undo_log_encrypt) {
+    ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     ut_ad(!ret);
   }
 
@@ -1601,8 +1605,19 @@ dberr_t srv_start(bool create_new_db) {
   ib::info(ER_IB_MSG_1130, size, unit, srv_buf_pool_instances, chunk_size,
            chunk_unit);
 
+<<<<<<< HEAD
   if (const auto err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
       err != DB_SUCCESS) {
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
+
+  if (err != DB_SUCCESS) {
+=======
+  err = buf_pool_init(srv_buf_pool_size, static_cast<bool>(srv_numa_interleave),
+                      srv_buf_pool_instances);
+
+  if (err != DB_SUCCESS) {
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     ib::error(ER_IB_MSG_1131);
 
     return srv_init_abort(DB_ERROR);
@@ -1621,6 +1636,7 @@ dberr_t srv_start(bool create_new_db) {
 
   fsp_init();
   pars_init();
+
   recv_sys_create();
   recv_sys_init();
   trx_sys_create();
@@ -1714,6 +1730,8 @@ dberr_t srv_start(bool create_new_db) {
   }
 
   srv_start_state_set(SRV_START_STATE_IO);
+
+  bool srv_monitor_thread_created = false;
 
   if (create_new_db) {
     /* There are no pages to be recovered. */
@@ -1812,12 +1830,70 @@ dberr_t srv_start(bool create_new_db) {
     and there must be no page in the buf_flush list. */
     buf_pool_invalidate();
 
+<<<<<<< HEAD
     auto recovered_lsn = flushed_lsn;
     /* Do the recovery and persist all the changes to tablespace pages found in
     REDO. Also create undo number to space id mapping for UNDO tablespaces. */
     {
       const auto space_ids = pages_persistence->recover_pages(recovered_lsn);
       if (!space_ids.has_value()) {
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+    /* Open all data files in the system tablespace:
+    we keep them open until database shutdown. */
+    fil_open_system_tablespace_files();
+
+    /* We always try to do a recovery, even if the database had
+    been shut down normally: this is the normal startup path */
+    RECOVERY_CRASH(1);
+
+    if (new_files_lsn != 0) {
+      /* This means that either no log files have been found
+      or the existing log files were marked as uninitialized. */
+      flushed_lsn = new_files_lsn;
+    }
+
+    ut_a(log_sys->m_format <= Log_format::CURRENT);
+
+    const bool log_upgrade = log_sys->m_format < Log_format::CURRENT;
+
+    if (log_upgrade) {
+      if (srv_read_only_mode) {
+        ib::error(ER_IB_MSG_LOG_UPGRADE_IN_READ_ONLY_MODE,
+                  ulong{to_int(log_sys->m_format)});
+=======
+    /* Start monitor thread early enough so that e.g. crash recovery failing to
+    find free pages in the buffer pool is diagnosed. */
+    if (!srv_read_only_mode) {
+      /* Create the thread which prints InnoDB monitor info */
+      srv_threads.m_monitor =
+          os_thread_create(srv_monitor_thread_key, 0, srv_monitor_thread);
+      srv_threads.m_monitor.start();
+      srv_monitor_thread_created = true;
+    }
+
+    /* Open all data files in the system tablespace:
+    we keep them open until database shutdown. */
+    fil_open_system_tablespace_files();
+
+    /* We always try to do a recovery, even if the database had
+    been shut down normally: this is the normal startup path */
+    RECOVERY_CRASH(1);
+
+    if (new_files_lsn != 0) {
+      /* This means that either no log files have been found
+      or the existing log files were marked as uninitialized. */
+      flushed_lsn = new_files_lsn;
+    }
+
+    ut_a(log_sys->m_format <= Log_format::CURRENT);
+
+    const bool log_upgrade = log_sys->m_format < Log_format::CURRENT;
+
+    if (log_upgrade) {
+      if (srv_read_only_mode) {
+        ib::error(ER_IB_MSG_LOG_UPGRADE_IN_READ_ONLY_MODE,
+                  ulong{to_int(log_sys->m_format)});
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
         return srv_init_abort(DB_ERROR);
       }
 
@@ -1856,6 +1932,7 @@ dberr_t srv_start(bool create_new_db) {
     /* We should not start checkpointer before persisted metadata is stored. */
     ut_a(!log_checkpointer_is_active());
 
+<<<<<<< HEAD
     /* We have to call dict_boot() either before setting recv_lsn_checks_on,
     or after ib::redo::handler->start_writing(), as it will read pages from
     disc. dict_boot() also initializes the change buffer which is needed for any
@@ -1863,6 +1940,115 @@ dberr_t srv_start(bool create_new_db) {
     can access dict_table_t and dict_index_t objects. */
     if (const auto err = dict_boot(); err != DB_SUCCESS) {
       return srv_init_abort(err);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+    if (srv_force_recovery == 0 && fil_check_missing_tablespaces()) {
+      ib::error(ER_IB_MSG_1139);
+      RECOVERY_CRASH(3);
+
+      /* Set the abort flag to true. */
+      auto p = recv_recovery_from_checkpoint_finish(true);
+
+      ut_a(p == nullptr);
+
+      return (srv_init_abort(DB_ERROR));
+    }
+
+    /* We have successfully recovered from the redo log. The
+    data dictionary should now be readable. */
+
+    if (recv_sys->found_corrupt_log) {
+      ib::warn(ER_IB_MSG_RECOVERY_CORRUPT);
+    }
+
+    if (!srv_force_recovery && !srv_read_only_mode) {
+      buf_flush_sync_all_buf_pools();
+    }
+
+    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
+    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
+    RECOVERY_CRASH(3);
+
+    auto *dict_metadata = recv_recovery_from_checkpoint_finish(false);
+    ut_a(dict_metadata != nullptr);
+
+    /* We need to save the dynamic metadata collected from redo log to DD
+    buffer table here. This is to make sure that the dynamic metadata is not
+    lost by any future checkpoint. Since DD and data dictionary in memory
+    objects are not fully initialized at this point, the usual mechanism to
+    persist dynamic metadata at checkpoint wouldn't work. */
+    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
+    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
+
+    /* We must start the log threads because we might need to write out the dict
+    persistent data into redolog, if the server is not in read-only mode. */
+    if (!srv_read_only_mode) {
+      log_start_background_threads(*log_sys);
+    }
+
+    /* We could possibly execute it much later if not the current dict_persist
+    functionality implementation, which requires it to work properly. */
+    err = dict_boot();
+
+    if (err != DB_SUCCESS) {
+      return (srv_init_abort(err));
+=======
+    if (srv_force_recovery == 0 && fil_check_missing_tablespaces()) {
+      ib::error(ER_IB_MSG_1139);
+      RECOVERY_CRASH(3);
+
+      /* Set the abort flag to true. */
+      auto p = recv_recovery_from_checkpoint_finish(true);
+
+      ut_a(p == nullptr);
+
+      return (srv_init_abort(DB_ERROR));
+    }
+
+    /* We have successfully recovered from the redo log. The
+    data dictionary should now be readable. */
+
+    DBUG_EXECUTE_IF(
+        "ib_recovery_print_mysql_binlog_offset",
+        if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO &&
+            recv_needed_recovery) { trx_sys_print_mysql_binlog_offset(); });
+
+    if (recv_sys->found_corrupt_log) {
+      ib::warn(ER_IB_MSG_RECOVERY_CORRUPT);
+    }
+
+    if (!srv_force_recovery && !srv_read_only_mode) {
+      buf_flush_sync_all_buf_pools();
+    }
+
+    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
+    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
+    RECOVERY_CRASH(3);
+
+    auto *dict_metadata = recv_recovery_from_checkpoint_finish(false);
+    ut_a(dict_metadata != nullptr);
+
+    /* We need to save the dynamic metadata collected from redo log to DD
+    buffer table here. This is to make sure that the dynamic metadata is not
+    lost by any future checkpoint. Since DD and data dictionary in memory
+    objects are not fully initialized at this point, the usual mechanism to
+    persist dynamic metadata at checkpoint wouldn't work. */
+    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
+    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
+
+    /* We must start the log threads because we might need to write out the dict
+    persistent data into redolog, if the server is not in read-only mode. */
+    if (!srv_read_only_mode) {
+      log_start_background_threads(*log_sys);
+    }
+
+    /* We could possibly execute it much later if not the current dict_persist
+    functionality implementation, which requires it to work properly. */
+    err = dict_boot();
+    DBUG_EXECUTE_IF("ib_dic_boot_error", err = DB_ERROR;);
+
+    if (err != DB_SUCCESS) {
+      return (srv_init_abort(err));
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     }
 
     DBUG_EXECUTE_IF("log_first_rec_group_test", {
@@ -2025,11 +2211,17 @@ dberr_t srv_start(bool create_new_db) {
     srv_threads.m_error_monitor.start();
 
     /* Create the thread which prints InnoDB monitor info */
-    srv_threads.m_monitor =
-        os_thread_create(srv_monitor_thread_key, 0, srv_monitor_thread);
+    if (!srv_monitor_thread_created) {
+      srv_threads.m_monitor =
+          os_thread_create(srv_monitor_thread_key, 0, srv_monitor_thread);
 
-    srv_threads.m_monitor.start();
+      srv_threads.m_monitor.start();
+      srv_monitor_thread_created = true;
+    }
   }
+
+  /* wake main loop of page cleaner up */
+  os_event_set(buf_flush_event);
 
   srv_sys_tablespaces_open = true;
 
@@ -2051,11 +2243,22 @@ dberr_t srv_start(bool create_new_db) {
 
   ut_a(trx_purge_state() == PURGE_STATE_INIT);
 
+<<<<<<< HEAD
   /* wake main loop of page cleaner up */
   os_event_set(buf_flush_event);
 
   const auto sum_of_data_file_sizes_in_pages =
       fil_space_get_size(TRX_SYS_SPACE);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  /* wake main loop of page cleaner up */
+  os_event_set(buf_flush_event);
+
+  sum_of_data_file_sizes = srv_sys_space.get_sum_of_sizes();
+  ut_a(sum_of_new_sizes != FIL_NULL);
+=======
+  sum_of_data_file_sizes = srv_sys_space.get_sum_of_sizes();
+  ut_a(sum_of_new_sizes != FIL_NULL);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   const auto tablespace_size_in_header = fsp_header_get_tablespace_size();
 
@@ -2087,13 +2290,35 @@ dberr_t srv_start(bool create_new_db) {
     }
   }
 
+<<<<<<< HEAD
   /* Finish clone files recovery. */
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  /* Finish clone files recovery. This call is idempotent and is no op
+  if it is already done before creating new log files. */
+=======
+  if (!srv_file_per_table && srv_pass_corrupt_table) {
+    ib::warn() << "The option innodb_file_per_table is disabled, so using the "
+                  "option innodb_pass_corrupt_table doesn't make sense.";
+  }
+
+  /* Finish clone files recovery. This call is idempotent and is no op
+  if it is already done before creating new log files. */
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   clone_files_recovery(true);
 
+<<<<<<< HEAD
   ib::info(ER_IB_MSG_1151, INNODB_VERSION_STR,
            ulonglong{srv_force_recovery < SRV_FORCE_NO_LOG_REDO
                          ? ib::redo::handler->peek_first_unassigned_lsn()
                          : 0});
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  ib::info(ER_IB_MSG_1151, INNODB_VERSION_STR,
+           ulonglong{log_get_lsn(*log_sys)});
+=======
+  ib::info(ER_IB_MSG_1151,
+           "Percona XtraDB (http://www.percona.com) " INNODB_VERSION_STR,
+           ulonglong{log_get_lsn(*log_sys)});
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   return DB_SUCCESS;
 }
@@ -2305,8 +2530,7 @@ void srv_start_threads_after_ddl_recovery() {
     srv_threads.m_ts_alter_encrypt.start();
     /* Wait till shared MDL is taken by background thread for all tablespaces,
     for which (un)encryption is to be rolled forward. */
-    while (!shared_mdl_is_taken)
-      mysql_cond_wait(&resume_encryption_cond, &resume_encryption_cond_m);
+    mysql_cond_wait(&resume_encryption_cond, &resume_encryption_cond_m);
     mysql_mutex_unlock(&resume_encryption_cond_m);
   }
 
@@ -2359,6 +2583,7 @@ void srv_pre_dd_shutdown() {
     ib::warn(ER_IB_MSG_1154, threads_count);
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+
   /* Crash if some query threads are still alive. */
   ut_a(srv_conc_get_active_threads() == 0);
 

@@ -61,6 +61,7 @@ class MVCC : public MVCC_interface {
   Free all the views in the m_free list */
   ~MVCC() override;
 
+<<<<<<< HEAD
   void initialize(trx_id_t max_committed_trx_id, trx_ids_t active_ids) override;
   void view_open(Read_view_interface *&view, trx_t *trx) override;
   void view_close(Read_view_interface *&view, bool own_mutex) override;
@@ -81,6 +82,21 @@ class MVCC : public MVCC_interface {
   falls back to the slow path, which requires a trx_sys mutex to (re)initialize
   the view.
   @see view_open(Read_view_interface*&,trx_t*) */
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  /** Allocate and create a view.
+  @param view   View owned by this class created for the caller. Must be
+  freed by calling view_close()
+  @param trx    Transaction instance of caller */
+=======
+  /** Insert the view in the proper order into the view list.
+  @param	view	view to add */
+  void view_add(const ReadView *view);
+
+  /** Allocate and create a view.
+  @param view   View owned by this class created for the caller. Must be
+  freed by calling view_close()
+  @param trx    Transaction instance of caller */
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   void view_open(ReadView *&view, trx_t *trx);
 
   /** A helper for the interface method with the same name, which makes it
@@ -133,12 +149,49 @@ class MVCC : public MVCC_interface {
   /** Asserts the read view list is sorted. */
   void validate() const;
 
+<<<<<<< HEAD
   /** Get a view from the free list, or allocate a new one if it's empty.
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  /**
+  Find a free view from the active list, if none found then allocate
+  a new view. This function will also attempt to move delete marked
+  views from the active list to the freed list.
+=======
+  friend class ReadView;
+
+  /**
+  Find a free view from the active list, if none found then allocate
+  a new view. This function will also attempt to move delete marked
+  views from the active list to the freed list.
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   @return a view to use */
   inline ReadView *get_view();
 
+<<<<<<< HEAD
   MVCC(const MVCC &) = delete;
   MVCC &operator=(const MVCC &) = delete;
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+ private:
+  // Prevent copying
+  MVCC(const MVCC &);
+  MVCC &operator=(const MVCC &);
+=======
+ public:
+  /**
+  Get the oldest view in the system for statistical purposes.
+
+  @note This method should be used for statistical purposes only, purge needs
+  to use more strict condition (see clone_oldest_view()) when selecting the
+  oldest view.
+
+  @return oldest view if found or NULL */
+  const ReadView *get_oldest_view_stats() const;
+
+ private:
+  // Prevent copying
+  MVCC(const MVCC &);
+  MVCC &operator=(const MVCC &);
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
  private:
   typedef UT_LIST_BASE_NODE_T(ReadView, m_view_list) view_list_t;

@@ -251,5 +251,12 @@ class SysTablespace : public Tablespace<SysTablespace_node> {
 extern ib::fsp::SysTablespace srv_sys_space;
 
 /** The control info of a temporary table shared tablespace. */
+<<<<<<< HEAD
 extern ib::fsp::SysTablespace srv_tmp_space;
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+extern SysTablespace srv_tmp_space;
+=======
+extern SysTablespace srv_tmp_space;
+
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #endif /* fsp0sysspace_h */

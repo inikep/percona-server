@@ -1715,10 +1715,304 @@ void recv_recover_page_func(
 #endif /* UNIV_HOTBACKUP */
 }
 
+<<<<<<< HEAD
 void recv_track_changes_of_recovered_lsn() {
   log_track_changes_of_recovered_lsn(recv_sys->previous_recovered_lsn,
                                      recv_sys->recovered_lsn,
                                      recv_sys->last_block_first_mtr_boundary);
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+/** Tries to parse a single log record.
+@param[out]     type            log record type
+@param[in]      ptr             pointer to a buffer
+@param[in]      end_ptr         end of the buffer
+@param[out]     space_id        tablespace identifier
+@param[out]     page_no         page number
+@param[out]     body            start of log record body
+@return length of the record, or 0 if the record was not complete */
+static ulint recv_parse_log_rec(mlog_id_t *type, const byte *ptr,
+                                const byte *end_ptr, space_id_t *space_id,
+                                page_no_t *page_no, const byte **body) {
+  const byte *new_ptr;
+
+  *body = nullptr;
+
+  UNIV_MEM_INVALID(type, sizeof *type);
+  UNIV_MEM_INVALID(space_id, sizeof *space_id);
+  UNIV_MEM_INVALID(page_no, sizeof *page_no);
+  UNIV_MEM_INVALID(body, sizeof *body);
+
+  if (ptr == end_ptr) {
+    return 0;
+  }
+
+  switch (*ptr) {
+#ifdef UNIV_LOG_LSN_DEBUG
+    case MLOG_LSN | MLOG_SINGLE_REC_FLAG:
+    case MLOG_LSN:
+
+      new_ptr =
+          mlog_parse_initial_log_record(ptr, end_ptr, type, space_id, page_no);
+
+      if (new_ptr != nullptr) {
+        const lsn_t lsn = static_cast<lsn_t>(*space_id) << 32 | *page_no;
+
+        ut_a(lsn == recv_sys->recovered_lsn);
+      }
+
+      *type = MLOG_LSN;
+      return new_ptr == nullptr ? 0 : new_ptr - ptr;
+#endif /* UNIV_LOG_LSN_DEBUG */
+
+    case MLOG_MULTI_REC_END:
+    case MLOG_DUMMY_RECORD:
+      *page_no = FIL_NULL;
+      *space_id = SPACE_UNKNOWN;
+      *type = static_cast<mlog_id_t>(*ptr);
+      return 1;
+
+    case MLOG_MULTI_REC_END | MLOG_SINGLE_REC_FLAG:
+    case MLOG_DUMMY_RECORD | MLOG_SINGLE_REC_FLAG:
+      recv_sys->found_corrupt_log = true;
+      return 0;
+
+    case MLOG_TABLE_DYNAMIC_META:
+    case MLOG_TABLE_DYNAMIC_META | MLOG_SINGLE_REC_FLAG:
+
+      table_id_t id;
+      uint64_t version;
+
+      *page_no = FIL_NULL;
+      *space_id = SPACE_UNKNOWN;
+
+      new_ptr =
+          mlog_parse_initial_dict_log_record(ptr, end_ptr, type, &id, &version);
+
+      if (new_ptr != nullptr) {
+        new_ptr = recv_sys->metadata_recover->parseMetadataLog(
+            id, version, new_ptr, end_ptr);
+      }
+
+      return new_ptr == nullptr ? 0 : new_ptr - ptr;
+  }
+
+  new_ptr =
+      mlog_parse_initial_log_record(ptr, end_ptr, type, space_id, page_no);
+
+  *body = new_ptr;
+
+  if (new_ptr == nullptr) {
+    return 0;
+  }
+
+  new_ptr = recv_parse_or_apply_log_rec_body(
+      *type, new_ptr, end_ptr, *space_id, *page_no, nullptr, nullptr,
+      new_ptr - ptr, recv_sys->recovered_lsn);
+
+  if (new_ptr == nullptr) {
+    return 0;
+  }
+
+  return new_ptr - ptr;
+}
+
+/** Subtracts next number of bytes to ignore before we reach the checkpoint
+or returns information that there was nothing more to skip.
+@param[in]      next_parsed_bytes       number of next bytes that were parsed,
+which are supposed to be subtracted from bytes to ignore before checkpoint
+@retval true    there were still bytes to ignore
+@retval false   there was already 0 bytes to ignore, nothing changed. */
+static bool recv_update_bytes_to_ignore_before_checkpoint(
+    size_t next_parsed_bytes) {
+  auto &to_ignore = recv_sys->bytes_to_ignore_before_checkpoint;
+
+  if (to_ignore != 0) {
+    if (to_ignore >= next_parsed_bytes) {
+      to_ignore -= next_parsed_bytes;
+    } else {
+      to_ignore = 0;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/** Tracks changes of recovered_lsn and tracks proper values for what
+first_rec_group should be for consecutive blocks. Must be called when
+recv_sys->recovered_lsn is changed to next lsn pointing at boundary
+between consecutive parsed mini-transactions. */
+static void recv_track_changes_of_recovered_lsn() {
+  if (recv_sys->parse_start_lsn == 0) {
+    return;
+  }
+  /* If we have already found the first block with mtr beginning there,
+  we started to track boundaries between blocks. Since then we track
+  all proper values of first_rec_group for consecutive blocks.
+  The reason for that is to ensure that the first_rec_group of the last
+  block is correct. Even though we do not depend during this recovery
+  on that value, it would become important if we crashed later, because
+  the last recovered block would become the first used block in redo and
+  since then we would depend on a proper value of first_rec_group there.
+  The checksums of log blocks should detect if it was incorrect, but the
+  checksums might be disabled in the configuration. */
+  const auto old_block =
+      recv_sys->previous_recovered_lsn / OS_FILE_LOG_BLOCK_SIZE;
+
+  const auto new_block = recv_sys->recovered_lsn / OS_FILE_LOG_BLOCK_SIZE;
+
+  if (old_block != new_block) {
+    ut_a(new_block > old_block);
+
+    recv_sys->last_block_first_mtr_boundary = recv_sys->recovered_lsn;
+  }
+
+=======
+/** Tries to parse a single log record.
+@param[out]     type            log record type
+@param[in]      ptr             pointer to a buffer
+@param[in]      end_ptr         end of the buffer
+@param[out]     space_id        tablespace identifier
+@param[out]     page_no         page number
+@param[out]     body            start of log record body
+@return length of the record, or 0 if the record was not complete */
+ulint recv_parse_log_rec(mlog_id_t *type, const byte *ptr,
+                         const byte *end_ptr, space_id_t *space_id,
+                         page_no_t *page_no, const byte **body) {
+  const byte *new_ptr;
+
+  *body = nullptr;
+
+  UNIV_MEM_INVALID(type, sizeof *type);
+  UNIV_MEM_INVALID(space_id, sizeof *space_id);
+  UNIV_MEM_INVALID(page_no, sizeof *page_no);
+  UNIV_MEM_INVALID(body, sizeof *body);
+
+  if (ptr == end_ptr) {
+    return 0;
+  }
+
+  switch (*ptr) {
+#ifdef UNIV_LOG_LSN_DEBUG
+    case MLOG_LSN | MLOG_SINGLE_REC_FLAG:
+    case MLOG_LSN:
+
+      new_ptr =
+          mlog_parse_initial_log_record(ptr, end_ptr, type, space_id, page_no);
+
+      if (new_ptr != nullptr) {
+        const lsn_t lsn = static_cast<lsn_t>(*space_id) << 32 | *page_no;
+
+        ut_a(lsn == recv_sys->recovered_lsn);
+      }
+
+      *type = MLOG_LSN;
+      return new_ptr == nullptr ? 0 : new_ptr - ptr;
+#endif /* UNIV_LOG_LSN_DEBUG */
+
+    case MLOG_MULTI_REC_END:
+    case MLOG_DUMMY_RECORD:
+      *page_no = FIL_NULL;
+      *space_id = SPACE_UNKNOWN;
+      *type = static_cast<mlog_id_t>(*ptr);
+      return 1;
+
+    case MLOG_MULTI_REC_END | MLOG_SINGLE_REC_FLAG:
+    case MLOG_DUMMY_RECORD | MLOG_SINGLE_REC_FLAG:
+      recv_sys->found_corrupt_log = true;
+      return 0;
+
+    case MLOG_TABLE_DYNAMIC_META:
+    case MLOG_TABLE_DYNAMIC_META | MLOG_SINGLE_REC_FLAG:
+
+      table_id_t id;
+      uint64_t version;
+
+      *page_no = FIL_NULL;
+      *space_id = SPACE_UNKNOWN;
+
+      new_ptr =
+          mlog_parse_initial_dict_log_record(ptr, end_ptr, type, &id, &version);
+
+      if (new_ptr != nullptr) {
+        new_ptr = recv_sys->metadata_recover->parseMetadataLog(
+            id, version, new_ptr, end_ptr);
+      }
+
+      return new_ptr == nullptr ? 0 : new_ptr - ptr;
+  }
+
+  new_ptr =
+      mlog_parse_initial_log_record(ptr, end_ptr, type, space_id, page_no);
+
+  *body = new_ptr;
+
+  if (new_ptr == nullptr) {
+    return 0;
+  }
+
+  new_ptr = recv_parse_or_apply_log_rec_body(
+      *type, new_ptr, end_ptr, *space_id, *page_no, nullptr, nullptr,
+      new_ptr - ptr, recv_sys->recovered_lsn);
+
+  if (new_ptr == nullptr) {
+    return 0;
+  }
+
+  return new_ptr - ptr;
+}
+
+/** Subtracts next number of bytes to ignore before we reach the checkpoint
+or returns information that there was nothing more to skip.
+@param[in]      next_parsed_bytes       number of next bytes that were parsed,
+which are supposed to be subtracted from bytes to ignore before checkpoint
+@retval true    there were still bytes to ignore
+@retval false   there was already 0 bytes to ignore, nothing changed. */
+static bool recv_update_bytes_to_ignore_before_checkpoint(
+    size_t next_parsed_bytes) {
+  auto &to_ignore = recv_sys->bytes_to_ignore_before_checkpoint;
+
+  if (to_ignore != 0) {
+    if (to_ignore >= next_parsed_bytes) {
+      to_ignore -= next_parsed_bytes;
+    } else {
+      to_ignore = 0;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/** Tracks changes of recovered_lsn and tracks proper values for what
+first_rec_group should be for consecutive blocks. Must be called when
+recv_sys->recovered_lsn is changed to next lsn pointing at boundary
+between consecutive parsed mini-transactions. */
+static void recv_track_changes_of_recovered_lsn() {
+  if (recv_sys->parse_start_lsn == 0) {
+    return;
+  }
+  /* If we have already found the first block with mtr beginning there,
+  we started to track boundaries between blocks. Since then we track
+  all proper values of first_rec_group for consecutive blocks.
+  The reason for that is to ensure that the first_rec_group of the last
+  block is correct. Even though we do not depend during this recovery
+  on that value, it would become important if we crashed later, because
+  the last recovered block would become the first used block in redo and
+  since then we would depend on a proper value of first_rec_group there.
+  The checksums of log blocks should detect if it was incorrect, but the
+  checksums might be disabled in the configuration. */
+  const auto old_block =
+      recv_sys->previous_recovered_lsn / OS_FILE_LOG_BLOCK_SIZE;
+
+  const auto new_block = recv_sys->recovered_lsn / OS_FILE_LOG_BLOCK_SIZE;
+
+  if (old_block != new_block) {
+    ut_a(new_block > old_block);
+
+    recv_sys->last_block_first_mtr_boundary = recv_sys->recovered_lsn;
+  }
+
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   recv_sys->previous_recovered_lsn = recv_sys->recovered_lsn;
 }
 

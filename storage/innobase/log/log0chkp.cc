@@ -66,9 +66,15 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 /* recv_recovery_is_on() */
 #include "log0recv.h"
 
+<<<<<<< HEAD
 /* ib::redo::handler */
 #include "log0handler_interface.h"
 
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+=======
+#include "mysqld.h"
+
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 /* log_t::X */
 #include "log0sys.h"
 

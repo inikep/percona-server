@@ -54,8 +54,15 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "my_inttypes.h"
 #include "os0thread.h"
 #include "que0que.h"
+<<<<<<< HEAD
 #include "read0mvcc_interface.h"
 #include "read0read_view_interface.h"
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+#include "read0read.h"
+=======
+#include "read0read.h"
+#include "row0mysql.h"
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #include "row0purge.h"
 #include "row0upd.h"
 #include "srv0mon.h"
@@ -205,8 +212,10 @@ static que_t *trx_purge_graph_build(trx_t *trx, ulint n_purge_threads) {
 
   for (i = 0; i < n_purge_threads; ++i) {
     que_thr_t *thr;
+    row_prebuilt_t *const prebuilt =
+        static_cast<row_prebuilt_t *>(mem_heap_zalloc(heap, sizeof(*prebuilt)));
 
-    thr = que_thr_create(fork, heap, nullptr);
+    thr = que_thr_create(fork, heap, prebuilt);
 
     thr->child = row_purge_node_create(thr, heap);
   }

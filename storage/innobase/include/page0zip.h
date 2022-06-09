@@ -118,6 +118,7 @@ void page_zip_set_alloc(void *stream, mem_heap_t *heap);
 /** Compress a page.
  @return true on success, false on failure; page_zip will be left
  intact on failure. */
+<<<<<<< HEAD
 bool page_zip_compress(page_zip_des_t *page_zip, /*!< in: size; out: data,
                                                   n_blobs, m_start, m_end */
                        const page_t *page,       /*!< in: uncompressed page */
@@ -125,6 +126,26 @@ bool page_zip_compress(page_zip_des_t *page_zip, /*!< in: size; out: data,
                        ulint level,              /*!< in: compression level */
                        mtr_t *mtr);              /*!< in/out: mini-transaction,
                                                  or NULL */
+||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+bool page_zip_compress(page_zip_des_t *page_zip, /*!< in: size; out: data,
+                                                  n_blobs, m_start, m_end,
+                                                  m_nonempty */
+                       const page_t *page,       /*!< in: uncompressed page */
+                       dict_index_t *index,      /*!< in: index tree */
+                       ulint level,              /*!< in: compression level */
+                       mtr_t *mtr);              /*!< in/out: mini-transaction,
+                                                 or NULL */
+=======
+[[nodiscard]] bool page_zip_compress(
+    page_zip_des_t *page_zip, /*!< in: size; out: data,
+                               n_blobs, m_start, m_end,
+                               m_nonempty */
+    const page_t *page,       /*!< in: uncompressed page */
+    dict_index_t *index,      /*!< in: index tree */
+    ulint level,              /*!< in: compression level */
+    mtr_t *mtr);              /*!< in/out: mini-transaction,
+                              or NULL */
+>>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
 /** Write the index information for the compressed page.
  @return used size of buf */
@@ -336,7 +357,7 @@ void page_zip_copy_recs(
 
 /** Parses a log record of compressing an index page.
  @return end of log record or NULL */
-const byte *page_zip_parse_compress(
+[[nodiscard]] const byte *page_zip_parse_compress(
     const byte *ptr,           /*!< in: buffer */
     const byte *end_ptr,       /*!< in: buffer end */
     page_t *page,              /*!< out: uncompressed page */
