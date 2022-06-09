@@ -682,11 +682,11 @@ enum_alter_inplace_result ha_innobase::check_if_supported_inplace_alter(
 
   /* We don't support change encryption attribute with
   inplace algorithm. */
-  char *old_encryption = this->table->s->encrypt_type.str;
+  const bool currently_encrypted =
+      m_prebuilt->table->flags2 & DICT_TF2_ENCRYPTION_FILE_PER_TABLE;
   char *new_encryption = altered_table->s->encrypt_type.str;
 
-  if (Encryption::is_none(old_encryption) !=
-      Encryption::is_none(new_encryption)) {
+  if (currently_encrypted == Encryption::is_none(new_encryption)) {
     ha_alter_info->unsupported_reason =
         innobase_get_err_msg(ER_UNSUPPORTED_ALTER_ENCRYPTION_INPLACE);
     DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
@@ -1948,7 +1948,7 @@ void innobase_rec_to_mysql(struct TABLE *table, /*!< in/out: MySQL table */
 
     field->reset();
 
-    ipos = index->get_col_pos(i, true, false);
+    ipos = index->get_col_pos(i, true, false, nullptr);
 
     if (ipos == ULINT_UNDEFINED || rec_offs_nth_extern(offsets, ipos)) {
     null_field:
@@ -1998,7 +1998,7 @@ void innobase_fields_to_mysql(
       col_n = i - num_v;
     }
 
-    ipos = index->get_col_pos(col_n, true, innobase_is_v_fld(field));
+    ipos = index->get_col_pos(col_n, true, innobase_is_v_fld(field), nullptr);
 
     if (ipos == ULINT_UNDEFINED || dfield_is_ext(&fields[ipos]) ||
         dfield_is_null(&fields[ipos])) {
@@ -2890,7 +2890,8 @@ inline MY_ATTRIBUTE((warn_unused_result)) bool innobase_dropping_foreign(
 @param field MySQL value for the column
 @param comp nonzero if in compact format */
 static void innobase_build_col_map_add(mem_heap_t *heap, dfield_t *dfield,
-                                       const Field *field, ulint comp) {
+                                       const Field *field, ulint comp,
+                                       row_prebuilt_t *prebuilt) {
   if (field->is_real_null()) {
     dfield_set_null(dfield);
     return;
@@ -2902,8 +2903,8 @@ static void innobase_build_col_map_add(mem_heap_t *heap, dfield_t *dfield,
 
   const byte *mysql_data = field->ptr;
 
-  row_mysql_store_col_in_innobase_format(dfield, buf, true, mysql_data, size,
-                                         comp);
+  row_mysql_store_col_in_innobase_format(
+      dfield, buf, true, mysql_data, size, comp);
 }
 
 /** Construct the translation table for reordering, dropping or
@@ -2921,7 +2922,8 @@ to column numbers in altered_table */
 static MY_ATTRIBUTE((warn_unused_result)) const ulint *innobase_build_col_map(
     Alter_inplace_info *ha_alter_info, const TABLE *altered_table,
     const TABLE *table, const dict_table_t *new_table,
-    const dict_table_t *old_table, dtuple_t *add_cols, mem_heap_t *heap) {
+    const dict_table_t *old_table, dtuple_t *add_cols, mem_heap_t *heap,
+    row_prebuilt_t *prebuilt) {
   DBUG_ENTER("innobase_build_col_map");
   DBUG_ASSERT(altered_table != table);
   DBUG_ASSERT(new_table != old_table);
@@ -2981,7 +2983,7 @@ static MY_ATTRIBUTE((warn_unused_result)) const ulint *innobase_build_col_map(
     ut_ad(!is_v);
     innobase_build_col_map_add(heap, dtuple_get_nth_field(add_cols, i),
                                altered_table->field[i + num_v],
-                               dict_table_is_comp(new_table));
+                               dict_table_is_comp(new_table), prebuilt);
   found_col:
     if (is_v) {
       num_v++;
@@ -4073,7 +4075,7 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
     Alter_inplace_info *ha_alter_info, const TABLE *altered_table,
     const TABLE *old_table, const Table *old_dd_tab, Table *new_dd_tab,
     const char *table_name, ulint flags, ulint flags2, ulint fts_doc_id_col,
-    bool add_fts_doc_id, bool add_fts_doc_id_idx) {
+    bool add_fts_doc_id, bool add_fts_doc_id_idx, row_prebuilt_t *prebuilt) {
   bool dict_locked = false;
   ulint *add_key_nums;     /* MySQL key numbers */
   index_def_t *index_defs; /* index definitions */
@@ -4526,9 +4528,9 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
       add_cols = NULL;
     }
 
-    ctx->col_map =
-        innobase_build_col_map(ha_alter_info, altered_table, old_table,
-                               ctx->new_table, user_table, add_cols, ctx->heap);
+    ctx->col_map = innobase_build_col_map(ha_alter_info, altered_table,
+                                          old_table, ctx->new_table, user_table,
+                                          add_cols, ctx->heap, prebuilt);
     ctx->add_cols = add_cols;
   } else {
     DBUG_ASSERT(!innobase_need_rebuild(ha_alter_info));
@@ -4760,6 +4762,8 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
       }
     }
   }
+
+  DBUG_EXECUTE_IF("crash_innodb_add_index_after", DBUG_SUICIDE(););
 
 error_handling:
 
@@ -5083,6 +5087,7 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
   bool add_fts_idx = false;
   dict_s_col_list *s_cols = NULL;
   mem_heap_t *s_heap = NULL;
+  ulint encrypt_flag = 0;
 
   DBUG_ENTER("ha_innobase::prepare_inplace_alter_table_impl");
   DBUG_ASSERT(!ha_alter_info->handler_ctx);
@@ -5261,6 +5266,27 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
 
   if (!info.innobase_table_flags()) {
     goto err_exit_no_heap;
+  }
+
+  /* create_table_info_t::innobase_table_flags does not set encryption
+  flags. There are places where it is done afterwards, there are places
+  where it isn't done. We need to inspect all code paths and check if
+  encryption flag can be set in one place. */
+  if (!Encryption::is_none(ha_alter_info->create_info->encrypt_type.str)) {
+    /* Set the encryption flag. */
+    byte *master_key = nullptr;
+    ulint master_key_id;
+
+    /* Check if keyring is ready. */
+    Encryption::get_master_key(&master_key_id, &master_key);
+
+    if (master_key == nullptr) {
+      goto err_exit_no_heap;
+    } else {
+      my_free(master_key);
+      // TODO laurynas: assert file-per-table?
+      encrypt_flag = DICT_TF2_ENCRYPTION_FILE_PER_TABLE;
+    }
   }
 
   max_col_len = DICT_MAX_FIELD_LEN_BY_FORMAT_FLAG(info.flags());
@@ -5700,8 +5726,8 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
 
   DBUG_RETURN(prepare_inplace_alter_table_dict(
       ha_alter_info, altered_table, table, old_dd_tab, new_dd_tab,
-      table_share->table_name.str, info.flags(), info.flags2(), fts_doc_col_no,
-      add_fts_doc_id, add_fts_doc_id_idx));
+      table_share->table_name.str, info.flags(), info.flags2() | encrypt_flag,
+      fts_doc_col_no, add_fts_doc_id, add_fts_doc_id_idx, m_prebuilt));
 }
 
 /** Check that the column is part of a virtual index(index contains
@@ -5908,7 +5934,8 @@ bool ha_innobase::inplace_alter_table_impl(TABLE *altered_table,
       m_prebuilt->trx, m_prebuilt->table, ctx->new_table, ctx->online,
       ctx->add_index, ctx->add_key_numbers, ctx->num_to_add_index,
       altered_table, ctx->add_cols, ctx->col_map, ctx->add_autoinc,
-      ctx->sequence, ctx->skip_pk_sort, ctx->m_stage, add_v, eval_table);
+      ctx->sequence, ctx->skip_pk_sort, ctx->m_stage, add_v, eval_table,
+      m_prebuilt);
 
 #ifdef UNIV_DEBUG
 oom:
@@ -6772,6 +6799,8 @@ inline void commit_cache_rebuild(ha_innobase_inplace_ctx *ctx) {
   error = dict_table_rename_in_cache(ctx->old_table, ctx->tmp_name, FALSE);
   ut_a(error == DB_SUCCESS);
 
+  DEBUG_SYNC_C("commit_cache_rebuild_middle");
+
   error = dict_table_rename_in_cache(ctx->new_table, old_name, FALSE);
   ut_a(error == DB_SUCCESS);
 
@@ -7634,6 +7663,21 @@ rollback_trx:
   }
 
   DBUG_EXECUTE_IF("ib_ddl_crash_before_update_stats", DBUG_SUICIDE(););
+
+  /* Rebuild index translation table now for temporary tables if we are
+  restoring secondary keys, as ha_innobase::open will not be called for
+  the next access.  */
+  if (DICT_TF2_FLAG_IS_SET(ctx0->new_table, DICT_TF2_TEMPORARY) &&
+      ctx0->num_to_add_index) {
+    ut_ad(!ctx0->num_to_drop_index);
+    ut_ad(!ctx0->num_to_rename);
+    ut_ad(!ctx0->num_to_drop_fk);
+    if (!innobase_build_index_translation(altered_table, ctx0->new_table,
+                                          m_share)) {
+      MONITOR_ATOMIC_DEC(MONITOR_PENDING_ALTER_TABLE);
+      DBUG_RETURN(true);
+    }
+  }
 
   /* TODO: The following code could be executed
   while allowing concurrent access to the table
