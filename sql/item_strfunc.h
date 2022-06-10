@@ -707,7 +707,7 @@ class Item_func_make_set final : public Item_str_func {
     assert(fixed == 0);
     bool res = ((!item->fixed && item->fix_fields(thd, &item)) ||
                 item->check_cols(1) || Item_func::fix_fields(thd, ref));
-    set_nullable(is_nullable() | item->is_nullable());
+    set_nullable(is_nullable() || item->is_nullable());
     return res;
   }
   void split_sum_func(THD *thd, Ref_item_array ref_item_array,
@@ -1053,6 +1053,9 @@ class Item_load_file final : public Item_str_func {
     func_arg->banned_function_name = func_name();
     return true;
   }
+
+  // prevent caching of the item value in Item_func_isnull
+  table_map used_tables() const override { return (table_map)1L; }
 };
 
 class Item_func_export_set final : public Item_str_func {

@@ -436,7 +436,7 @@ bool Item_func::fix_func_arg(THD *thd, Item **arg) {
     assert(allowed_arg_cols);  // Can't be 0 any more
   }
 
-  set_nullable(is_nullable() | item->is_nullable());
+  set_nullable(is_nullable() || item->is_nullable());
   used_tables_cache |= item->used_tables();
   if (null_on_null) not_null_tables_cache |= item->not_null_tables();
   add_accum_properties(item);
@@ -5945,6 +5945,8 @@ longlong Item_func_sleep::val_int() {
   mysql_mutex_lock(&LOCK_item_func_sleep);
 
   thd->ENTER_COND(&cond, &LOCK_item_func_sleep, &stage_user_sleep, nullptr);
+
+  DEBUG_SYNC(current_thd, "func_sleep_before_sleep");
 
   error = 0;
   thd_wait_begin(thd, THD_WAIT_SLEEP);
