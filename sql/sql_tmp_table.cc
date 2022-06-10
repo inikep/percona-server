@@ -442,6 +442,13 @@ Field *create_tmp_field(THD *thd, TABLE *table, Item *item, Item::Type type,
       DBUG_ASSERT(false);
       break;
   }
+
+  /* Make sure temporary fields are never compressed */
+  if (result->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED)
+    result->flags &= ~FIELD_FLAGS_COLUMN_FORMAT_MASK;
+  result->zip_dict_name = null_lex_cstr;
+  result->zip_dict_data = null_lex_cstr;
+
   DBUG_RETURN(result);
 }
 
@@ -2342,6 +2349,8 @@ static bool create_tmp_table_with_fallback(TABLE *table) {
   create_info.options |=
       HA_LEX_CREATE_TMP_TABLE | HA_LEX_CREATE_INTERNAL_TMP_TABLE;
 
+  table->file->adjust_create_info_for_dd(&create_info);
+
   /*
     INNODB's fixed length column size is restricted to 1024. Exceeding this can
     result in incorrect behavior.
@@ -2507,6 +2516,12 @@ void free_tmp_table(THD *thd, TABLE *entry) {
 
   save_proc_info = thd->proc_info;
   THD_STAGE_INFO(thd, stage_removing_tmp_table);
+
+  thd->tmp_tables_used++;
+  if (entry->file) {
+    thd->tmp_tables_size += entry->file->stats.data_file_length;
+    if (entry->file->ht->db_type != DB_TYPE_HEAP) thd->tmp_tables_disk_used++;
+  }
 
   filesort_free_buffers(entry, true);
 
