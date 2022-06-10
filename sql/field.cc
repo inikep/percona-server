@@ -70,9 +70,10 @@
 #include "sql/mysqld.h"  // log_10
 #include "sql/protocol.h"
 #include "sql/psi_memory_key.h"
-#include "sql/rpl_rli.h"          // Relay_log_info
-#include "sql/rpl_slave.h"        // rpl_master_has_bug
-#include "sql/spatial.h"          // Geometry
+#include "sql/rpl_rli.h"    // Relay_log_info
+#include "sql/rpl_slave.h"  // rpl_master_has_bug
+#include "sql/spatial.h"    // Geometry
+#include "sql/sql_base.h"
 #include "sql/sql_class.h"        // THD
 #include "sql/sql_join_buffer.h"  // CACHE_FIELD
 #include "sql/sql_lex.h"
@@ -1509,6 +1510,8 @@ Field::Field(uchar *ptr_arg, uint32 length_arg, uchar *null_ptr_arg,
       null_bit(null_bit_arg),
       auto_flags(auto_flags_arg),
       is_created_from_null_item(false),
+      zip_dict_name(null_lex_cstr),
+      zip_dict_data(null_lex_cstr),
       m_indexed(false),
       m_warnings_pushed(0),
       gcol_info(0),
@@ -1645,6 +1648,24 @@ bool Field::send_binary(Protocol *protocol) {
   if (is_null()) return protocol->store_null();
   String *res = val_str(&tmp);
   return res ? protocol->store(res) : protocol->store_null();
+}
+
+/**
+  Checks if the current field definition and provided create field
+  definition have different compression attributes.
+
+  @param   new_field   create field definition to compare with
+
+  @return
+    true  - if compression attributes are different
+    false - if compression attributes are identical.
+*/
+bool Field::has_different_compression_attributes_with(
+    const Create_field &new_field) const noexcept {
+  return (new_field.column_format() == COLUMN_FORMAT_TYPE_COMPRESSED ||
+          column_format() == COLUMN_FORMAT_TYPE_COMPRESSED) &&
+         (new_field.column_format() != column_format() ||
+          !::is_equal(&new_field.zip_dict_name, &zip_dict_name));
 }
 
 /**
@@ -2058,8 +2079,13 @@ Field *Field::new_field(MEM_ROOT *root, TABLE *new_table,
     sure which parts of the server will break.
   */
   tmp->auto_flags = Field::NONE;
+  /* COMPRESSED column format flag must not be cleared here */
+  const bool has_compressed_flag =
+      (tmp->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED);
   tmp->flags &= (NOT_NULL_FLAG | BLOB_FLAG | UNSIGNED_FLAG | ZEROFILL_FLAG |
                  BINARY_FLAG | ENUM_FLAG | SET_FLAG);
+  if (has_compressed_flag)
+    tmp->set_column_format(COLUMN_FORMAT_TYPE_COMPRESSED);
   tmp->reset_fields();
   return tmp;
 }
@@ -6827,8 +6853,13 @@ Field *Field_varstring::new_key_field(MEM_ROOT *root, TABLE *new_table,
 }
 
 uint Field_varstring::is_equal(const Create_field *new_field) {
+  /*
+    changing column format to/from compressed or changing associated
+    compression dictionary must result in table rebuild
+  */
   if (new_field->sql_type == real_type() &&
-      new_field->charset == field_charset) {
+      new_field->charset == field_charset &&
+      !has_different_compression_attributes_with(*new_field)) {
     if (new_field->length == max_display_length()) return IS_EQUAL_YES;
     DBUG_ASSERT(0 == (new_field->length % field_charset->mbmaxlen));
     DBUG_ASSERT(0 == (max_display_length() % field_charset->mbmaxlen));
@@ -7355,10 +7386,15 @@ uint Field_blob::max_packed_col_length() {
 }
 
 uint Field_blob::is_equal(const Create_field *new_field) {
+  /*
+    changing column format to/from compressed or changing associated
+    compression dictionary must result in table rebuild
+  */
   return (
       (new_field->sql_type == get_blob_type_from_length(max_data_length())) &&
       new_field->charset == field_charset &&
-      new_field->pack_length == pack_length());
+      new_field->pack_length == pack_length() &&
+      !has_different_compression_attributes_with(*new_field));
 }
 
 void Field_geom::sql_type(String &res) const {
@@ -9207,6 +9243,7 @@ void Create_field::init_for_tmp_table(enum_field_types sql_type_arg,
   @param fld_charset           Column charset.
   @param has_explicit_collation Column has an explicit COLLATE attribute.
   @param fld_geom_type         Column geometry type (if any.)
+  @param fld_zip_dict_name     Column compression dictionary.
   @param fld_gcol_info         Generated column data
   @param fld_default_val_expr  The expression for generating default values
   @param srid                  The SRID specification. This might be null
@@ -9225,9 +9262,9 @@ bool Create_field::init(
     Item *fld_default_value, Item *fld_on_update_value, LEX_STRING *fld_comment,
     const char *fld_change, List<String> *fld_interval_list,
     const CHARSET_INFO *fld_charset, bool has_explicit_collation,
-    uint fld_geom_type, Value_generator *fld_gcol_info,
-    Value_generator *fld_default_val_expr, Nullable<gis::srid_t> srid,
-    dd::Column::enum_hidden_type hidden) {
+    uint fld_geom_type, const LEX_CSTRING *fld_zip_dict_name,
+    Value_generator *fld_gcol_info, Value_generator *fld_default_val_expr,
+    Nullable<gis::srid_t> srid, dd::Column::enum_hidden_type hidden) {
   uint sign_len, allowed_type_modifier = 0;
   ulong max_field_charlength = MAX_FIELD_CHARLENGTH;
 
@@ -10049,7 +10086,7 @@ Field *make_field(const Create_field &create_field, TABLE_SHARE *share) {
     length
 */
 
-uint32 Field_blob::char_length() {
+uint32 Field_blob::char_length() const noexcept {
   switch (packlength) {
     case 1:
       return 255;

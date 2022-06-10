@@ -92,7 +92,8 @@
 #include "sql/log.h"
 #include "sql/log_event.h"  // Write_rows_log_event
 #include "sql/mdl.h"
-#include "sql/mysqld.h"                 // global_system_variables heap_hton ..
+#include "sql/mysqld.h"  // global_system_variables heap_hton ..
+#include "sql/mysqld_thd_manager.h"
 #include "sql/opt_costconstantcache.h"  // reload_optimizer_cost_constants
 #include "sql/opt_costmodel.h"
 #include "sql/opt_hints.h"
@@ -273,6 +274,14 @@ const char *ha_row_type[] = {"",
                              "REDUNDANT",
                              "COMPACT",
                              /* Reserved to be "PAGE" in future versions */ "?",
+                             "TOKUDB_UNCOMPRESSED",
+                             "TOKUDB_ZLIB",
+                             "TOKUDB_SNAPPY",
+                             "TOKUDB_QUICKLZ",
+                             "TOKUDB_LZMA",
+                             "TOKUDB_FAST",
+                             "TOKUDB_SMALL",
+                             "TOKUDB_DEFAULT",
                              "?",
                              "?",
                              "?"};
@@ -1349,6 +1358,7 @@ int ha_prepare(THD *thd) {
 
     while (ha_info) {
       handlerton *ht = ha_info->ht();
+      DBUG_ASSERT(!thd->status_var_aggregated);
       thd->status_var.ha_prepare_count++;
       if (ht->prepare) {
         DBUG_EXECUTE_IF("simulate_xa_failure_prepare", {
@@ -1818,6 +1828,7 @@ int ha_commit_low(THD *thd, bool all, bool run_after_commit) {
                  my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
         error = 1;
       }
+      DBUG_ASSERT(!thd->status_var_aggregated);
       thd->status_var.ha_commit_count++;
       ha_info_next = ha_info->next();
       if (restore_backup_ha_data) reattach_engine_ha_data_to_thd(thd, ht);
@@ -1878,6 +1889,7 @@ int ha_rollback_low(THD *thd, bool all) {
                  my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
         error = 1;
       }
+      DBUG_ASSERT(!thd->status_var_aggregated);
       thd->status_var.ha_rollback_count++;
       ha_info_next = ha_info->next();
       if (restore_backup_ha_data) reattach_engine_ha_data_to_thd(thd, ht);
@@ -1963,6 +1975,8 @@ int ha_rollback_trans(THD *thd, bool all) {
   }
 #endif
 
+  thd->diff_rollback_trans++;
+
   /* Always cleanup. Even if nht==0. There may be savepoints. */
   if (is_real_trans) {
     trn_ctx->cleanup();
@@ -2040,6 +2054,7 @@ int ha_commit_attachable(THD *thd) {
         DBUG_ASSERT(false);
         error = 1;
       }
+      DBUG_ASSERT(!thd->status_var_aggregated);
       thd->status_var.ha_commit_count++;
       ha_info_next = ha_info->next();
 
@@ -2128,6 +2143,7 @@ int ha_rollback_to_savepoint(THD *thd, SAVEPOINT *sv) {
                my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
       error = 1;
     }
+    DBUG_ASSERT(!thd->status_var_aggregated);
     thd->status_var.ha_savepoint_rollback_count++;
     if (ht->prepare == 0) trn_ctx->set_no_2pc(trx_scope, true);
   }
@@ -2146,6 +2162,7 @@ int ha_rollback_to_savepoint(THD *thd, SAVEPOINT *sv) {
                my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
       error = 1;
     }
+    DBUG_ASSERT(!thd->status_var_aggregated);
     thd->status_var.ha_rollback_count++;
     ha_info_next = ha_info->next();
     ha_info->reset(); /* keep it conveniently zero-filled */
@@ -2156,6 +2173,8 @@ int ha_rollback_to_savepoint(THD *thd, SAVEPOINT *sv) {
   if (thd->m_transaction_psi != NULL)
     MYSQL_INC_TRANSACTION_ROLLBACK_TO_SAVEPOINT(thd->m_transaction_psi, 1);
 #endif
+
+  thd->diff_rollback_trans++;
 
   DBUG_RETURN(error);
 }
@@ -2184,6 +2203,7 @@ int ha_prepare_low(THD *thd, bool all) {
                  my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
         error = 1;
       }
+      DBUG_ASSERT(!thd->status_var_aggregated);
       thd->status_var.ha_prepare_count++;
     }
     DBUG_EXECUTE_IF("crash_commit_after_prepare", DBUG_SUICIDE(););
@@ -2224,6 +2244,7 @@ int ha_savepoint(THD *thd, SAVEPOINT *sv) {
                my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
       error = 1;
     }
+    DBUG_ASSERT(!thd->status_var_aggregated);
     thd->status_var.ha_savepoint_count++;
   }
   /*
@@ -2272,8 +2293,73 @@ int ha_release_savepoint(THD *thd, SAVEPOINT *sv) {
   DBUG_RETURN(error);
 }
 
-static bool snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
-  handlerton *hton = plugin_data<handlerton *>(plugin);
+static bool clone_snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
+  handlerton *const hton = plugin_data<handlerton *>(plugin);
+
+  if (hton->state == SHOW_OPTION_YES && hton->clone_consistent_snapshot)
+    hton->clone_consistent_snapshot(hton, thd, static_cast<THD *>(arg));
+
+  return false;
+}
+
+static int ha_clone_consistent_snapshot(THD *thd) {
+  THD *from_thd;
+  ulong id;
+  Item *val = thd->lex->donor_transaction_id;
+  DBUG_ASSERT(val);
+
+  if (thd->lex->table_or_sp_used()) {
+    my_error(ER_NOT_SUPPORTED_YET, MYF(0),
+             "Usage of subqueries or stored "
+             "function calls as part of this statement");
+    goto error;
+  }
+
+  if ((!val->fixed && val->fix_fields(thd, &val)) || val->check_cols(1)) {
+    my_error(ER_SET_CONSTANTS_ONLY, MYF(0));
+    goto error;
+  }
+
+  id = val->val_int();
+  if (thd->thread_id() == id) {
+    my_error(ER_NO_SUCH_THREAD, MYF(0), id);
+    goto error;
+  }
+
+  {
+    Find_thd_with_id find_thd_with_id(id, true);
+    from_thd = Global_THD_manager::get_instance()->find_thd(&find_thd_with_id);
+
+    if (!from_thd) {
+      my_error(ER_NO_SUCH_THREAD, MYF(0), id);
+      goto error;
+    }
+  }
+
+  /*
+    Blocking commits and binlog updates ensures that we get the same snapshot
+    for all engines (including the binary log). This allows us among other
+    things to do backups with START TRANSACTION WITH CONSISTENT SNAPSHOT and
+    have a consistent binlog position.
+  */
+  tc_log->xlock();
+
+  plugin_foreach(thd, clone_snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                 from_thd);
+
+  tc_log->xunlock();
+
+  mysql_mutex_unlock(&from_thd->LOCK_thd_data);
+
+  return 0;
+
+error:
+
+  return 1;
+}
+
+static bool start_snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
+  handlerton *const hton = plugin_data<handlerton *>(plugin);
   if (hton->state == SHOW_OPTION_YES && hton->start_consistent_snapshot) {
     hton->start_consistent_snapshot(hton, thd);
     *((bool *)arg) = false;
@@ -2282,9 +2368,21 @@ static bool snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
 }
 
 int ha_start_consistent_snapshot(THD *thd) {
+  if (thd->lex->donor_transaction_id) return ha_clone_consistent_snapshot(thd);
   bool warn = true;
 
-  plugin_foreach(thd, snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN, &warn);
+  /*
+    Blocking commits and binlog updates ensures that we get the same snapshot
+    for all engines (including the binary log). This allows us among other
+    things to do backups with START TRANSACTION WITH CONSISTENT SNAPSHOT and
+    have a consistent binlog position.
+  */
+  tc_log->xlock();
+
+  plugin_foreach(thd, start_snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                 &warn);
+
+  tc_log->xunlock();
 
   /*
     Same idea as when one wants to CREATE TABLE in one engine which does not
@@ -2294,6 +2392,43 @@ int ha_start_consistent_snapshot(THD *thd) {
     push_warning(thd, Sql_condition::SL_WARNING, ER_UNKNOWN_ERROR,
                  "This MySQL server does not support any "
                  "consistent-read capable storage engine");
+  return 0;
+}
+
+static bool store_binlog_info_handlerton(THD *thd, plugin_ref plugin,
+                                         void *arg) {
+  handlerton *const hton = plugin_data<handlerton *>(plugin);
+
+  if (hton->state == SHOW_OPTION_YES && hton->store_binlog_info) {
+    hton->store_binlog_info(hton, thd);
+    *(static_cast<bool *>(arg)) = false;
+  }
+
+  return false;
+}
+
+int ha_store_binlog_info(THD *thd) {
+  if (!mysql_bin_log.is_open()) return 0;
+
+  DBUG_ASSERT(tc_log == &mysql_bin_log);
+
+  LOG_INFO li;
+  bool warn = true;
+
+  /* Block commits to get consistent binlog coordinates */
+  tc_log->xlock();
+
+  mysql_bin_log.raw_get_current_log(&li);
+  thd->set_trans_pos(li.log_file_name, li.pos);
+
+  plugin_foreach(thd, store_binlog_info_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                 &warn);
+
+  tc_log->xunlock();
+
+  if (warn)
+    push_warning(thd, Sql_condition::SL_WARNING, ER_UNKNOWN_ERROR,
+                 "No support for storing binlog coordinates in any storage");
   return 0;
 }
 
@@ -2520,7 +2655,9 @@ handler *handler::clone(const char *name, MEM_ROOT *mem_root) {
   DBUG_ENTER("handler::clone");
 
   handler *new_handler =
-      get_new_handler(table->s, (table->s->m_part_info != NULL), mem_root, ht);
+      table ? get_new_handler(table->s, (table->s->m_part_info != nullptr),
+                              mem_root, ht)
+            : nullptr;
 
   if (!new_handler) DBUG_RETURN(NULL);
   if (new_handler->set_ha_share_ref(ha_share)) goto err;
@@ -2533,6 +2670,9 @@ handler *handler::clone(const char *name, MEM_ROOT *mem_root) {
   if (!(new_handler->ref =
             (uchar *)alloc_root(mem_root, ALIGN_SIZE(ref_length) * 2)))
     goto err;
+
+  new_handler->cloned = true;
+
   /*
     TODO: Implement a more efficient way to have more than one index open for
     the same table instance. The ha_open call is not cachable for clone.
@@ -2550,10 +2690,14 @@ err:
 
 void handler::ha_statistic_increment(
     ulonglong System_status_var::*offset) const {
-  if (table && table->in_use) (table->in_use->status_var.*offset)++;
+  if (table && table->in_use) {
+    DBUG_ASSERT(!table->in_use->status_var_aggregated);
+    (table->in_use->status_var.*offset)++;
+  }
 }
 
 THD *handler::ha_thd(void) const {
+  if (unlikely(cloned)) return current_thd;
   DBUG_ASSERT(!table || !table->in_use || table->in_use == current_thd);
   return (table && table->in_use) ? table->in_use : current_thd;
 }
@@ -2651,6 +2795,8 @@ int handler::ha_open(TABLE *table_arg, const char *name, int mode,
                            : &table->mem_root;
   DBUG_ASSERT(alloc_root_inited(mem_root));
 
+  if (cloned) DEBUG_SYNC(ha_thd(), "start_handler_ha_open_cloned");
+
   if ((error = open(name, mode, test_if_locked, table_def))) {
     if ((error == EACCES || error == EROFS) && mode == O_RDWR &&
         (table->db_stat & HA_TRY_READ_ONLY)) {
@@ -2681,6 +2827,11 @@ int handler::ha_open(TABLE *table_arg, const char *name, int mode,
     } else
       dup_ref = ref + ALIGN_SIZE(ref_length);
     cached_table_flags = table_flags();
+  }
+
+  if (unlikely(opt_userstat)) {
+    rows_read = rows_changed = 0;
+    memset(index_rows_read, 0, sizeof(index_rows_read));
   }
 
   DBUG_RETURN(error);
@@ -2774,6 +2925,9 @@ int handler::ha_rnd_init(bool scan) {
   DBUG_ENTER("handler::ha_rnd_init");
   DBUG_ASSERT(table_share->tmp_table != NO_TMP_TABLE || m_lock_type != F_UNLCK);
   DBUG_ASSERT(inited == NONE || (inited == RND && scan));
+  if (scan && is_using_prohibited_gap_locks(table, false)) {
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
+  }
   inited = (result = rnd_init(scan)) ? NONE : RND;
   end_range = NULL;
   DBUG_RETURN(result);
@@ -2826,6 +2980,11 @@ int handler::ha_rnd_next(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -2917,6 +3076,10 @@ int handler::ha_sample_next(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
 
   DBUG_RETURN(result);
 }
@@ -3073,6 +3236,12 @@ int handler::ha_index_read_map(uchar *buf, const uchar *key,
   DBUG_ASSERT(inited == INDEX);
   DBUG_ASSERT(!pushed_idx_cond || buf == table->record[0]);
 
+  if (is_using_prohibited_gap_locks(
+          table,
+          is_using_full_unique_key(active_index, keypart_map, find_flag))) {
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
+  }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3084,6 +3253,11 @@ int handler::ha_index_read_map(uchar *buf, const uchar *key,
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -3095,6 +3269,10 @@ int handler::ha_index_read_last_map(uchar *buf, const uchar *key,
   DBUG_ASSERT(inited == INDEX);
   DBUG_ASSERT(!pushed_idx_cond || buf == table->record[0]);
 
+  if (is_using_prohibited_gap_locks(table, false)) {
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
+  }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3105,6 +3283,11 @@ int handler::ha_index_read_last_map(uchar *buf, const uchar *key,
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -3123,6 +3306,11 @@ int handler::ha_index_read_idx_map(uchar *buf, uint index, const uchar *key,
   DBUG_ASSERT(end_range == NULL);
   DBUG_ASSERT(!pushed_idx_cond || buf == table->record[0]);
 
+  if (is_using_prohibited_gap_locks(
+          table, is_using_full_unique_key(index, keypart_map, find_flag))) {
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
+  }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3134,6 +3322,9 @@ int handler::ha_index_read_idx_map(uchar *buf, uint index, const uchar *key,
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+  if (likely(!result)) {
+    update_index_stats(index);
+  }
   DBUG_RETURN(result);
 }
 
@@ -3165,7 +3356,29 @@ int handler::ha_index_next(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
+  DEBUG_SYNC(ha_thd(), "handler_ha_index_next_end");
+
   DBUG_RETURN(result);
+}
+
+bool handler::is_using_full_key(key_part_map keypart_map,
+                                uint actual_key_parts) noexcept {
+  return (keypart_map == HA_WHOLE_KEY) ||
+         (keypart_map == ((key_part_map(1) << actual_key_parts) - 1));
+}
+
+bool handler::is_using_full_unique_key(uint index, key_part_map keypart_map,
+                                       enum ha_rkey_function find_flag) const
+    noexcept {
+  return (
+      is_using_full_key(keypart_map, table->key_info[index].actual_key_parts) &&
+      find_flag == HA_READ_KEY_EXACT &&
+      (index == table->s->primary_key ||
+       (table->key_info[index].flags & HA_NOSAME)));
 }
 
 /**
@@ -3196,6 +3409,11 @@ int handler::ha_index_prev(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -3217,6 +3435,10 @@ int handler::ha_index_first(uchar *buf) {
   DBUG_ASSERT(inited == INDEX);
   DBUG_ASSERT(!pushed_idx_cond || buf == table->record[0]);
 
+  if (is_using_prohibited_gap_locks(table, false)) {
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
+  }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3227,6 +3449,11 @@ int handler::ha_index_first(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -3248,6 +3475,10 @@ int handler::ha_index_last(uchar *buf) {
   DBUG_ASSERT(inited == INDEX);
   DBUG_ASSERT(!pushed_idx_cond || buf == table->record[0]);
 
+  if (is_using_prohibited_gap_locks(table, false)) {
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
+  }
+
   // Set status for the need to update generated fields
   m_update_generated_read_fields = table->has_gcol();
 
@@ -3258,6 +3489,11 @@ int handler::ha_index_last(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -3291,6 +3527,11 @@ int handler::ha_index_next_same(uchar *buf, const uchar *key, uint keylen) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   DBUG_RETURN(result);
 }
 
@@ -4702,11 +4943,13 @@ bool handler::ha_commit_inplace_alter_table(TABLE *altered_table,
     The exception is if we're about to roll back changes (commit= false).
     In this case, we might be rolling back after a failed lock upgrade,
     so we could be holding the same lock level as for inplace_alter_table().
+     TABLE::mdl_ticket is 0 for temporary tables.
   */
-  DBUG_ASSERT(ha_thd()->mdl_context.owns_equal_or_stronger_lock(
-                  MDL_key::TABLE, table->s->db.str, table->s->table_name.str,
-                  MDL_EXCLUSIVE) ||
-              !commit);
+  DBUG_ASSERT((table->s->tmp_table != NO_TMP_TABLE && !table->mdl_ticket) ||
+              (ha_thd()->mdl_context.owns_equal_or_stronger_lock(
+                   MDL_key::TABLE, table->s->db.str, table->s->table_name.str,
+                   MDL_EXCLUSIVE) ||
+               !commit));
 
   return commit_inplace_alter_table(altered_table, ha_alter_info, commit,
                                     old_table_def, new_table_def);
@@ -4923,6 +5166,74 @@ int handler::index_next_same(uchar *buf, const uchar *key, uint keylen) {
   DBUG_RETURN(error);
 }
 
+// Updates the global table stats with the TABLE this handler represents.
+void handler::update_global_table_stats() {
+  if (!rows_read && !rows_changed) return;  // Nothing to update.
+  // table_cache_key is db_name + '\0' + table_name + '\0'.
+  if (!table->s || !table->s->table_cache_key.str || !table->s->table_name.str)
+    return;
+
+  char key[NAME_LEN * 2 + 2];
+  // [db] + '.' + [table]
+  sprintf(key, "%s.%s", table->s->table_cache_key.str,
+          table->s->table_name.str);
+
+  const ulonglong rows_changed_x_indexes =
+      rows_changed * (table->s->keys ? table->s->keys : 1);
+
+  mysql_mutex_lock(&LOCK_global_table_stats);
+  // Gets the global table stats, creating one if necessary.
+  const auto &it = global_table_stats->find(key);
+  if (it == global_table_stats->cend()) {
+    global_table_stats->emplace(
+        std::piecewise_construct, std::forward_as_tuple(key),
+        std::forward_as_tuple(key, strlen(key), static_cast<int>(ht->db_type),
+                              rows_read, rows_changed, rows_changed_x_indexes));
+  } else {
+    TABLE_STATS *const table_stats = &it->second;
+    table_stats->rows_read += rows_read;
+    table_stats->rows_changed += rows_changed;
+    table_stats->rows_changed_x_indexes += rows_changed_x_indexes;
+  }
+  mysql_mutex_unlock(&LOCK_global_table_stats);
+  ha_thd()->diff_total_read_rows += rows_read;
+  rows_read = rows_changed = 0;
+}
+
+// Updates the global index stats with this handler's accumulated index reads.
+void handler::update_global_index_stats() {
+  // table_cache_key is db_name + '\0' + table_name + '\0'.
+  if (!table || !table->s || !table->s->table_cache_key.str ||
+      !table->s->table_name.str)
+    return;
+
+  for (uint x = 0; x < table->s->keys; ++x) {
+    if (index_rows_read[x]) {
+      // Rows were read using this index.
+      KEY *key_info = &table->key_info[x];
+
+      if (!key_info->name) continue;
+
+      char key[NAME_LEN * 3 + 3];
+      // [db] + '.' + [table] + '.' + [index]
+      sprintf(key, "%s.%s.%s", table->s->table_cache_key.str,
+              table->s->table_name.str, key_info->name);
+
+      mysql_mutex_lock(&LOCK_global_index_stats);
+      const auto &it = global_index_stats->find(key);
+      if (it == global_index_stats->cend()) {
+        global_index_stats->emplace(
+            std::piecewise_construct, std::forward_as_tuple(key),
+            std::forward_as_tuple(key, strlen(key), index_rows_read[x]));
+      } else {
+        it->second.rows_read += index_rows_read[x];
+      }
+      mysql_mutex_unlock(&LOCK_global_index_stats);
+      index_rows_read[x] = 0;
+    }
+  }
+}
+
 /****************************************************************************
 ** Some general functions that isn't in the handler class
 ****************************************************************************/
@@ -4953,6 +5264,7 @@ int handler::index_next_same(uchar *buf, const uchar *key, uint keylen) {
 */
 int ha_create_table(THD *thd, const char *path, const char *db,
                     const char *table_name, HA_CREATE_INFO *create_info,
+                    const List<Create_field> *create_fields,
                     bool update_create_info, bool is_temp_table,
                     dd::Table *table_def) {
   int error = 1;
@@ -4987,6 +5299,14 @@ int ha_create_table(THD *thd, const char *path, const char *db,
   }
 
   if (update_create_info) update_create_info_from_table(create_info, &table);
+
+  /*
+    Updating field definitions in 'table' with zip_dict_name values
+    from 'create_fields'
+  */
+  if (create_fields != nullptr) {
+    table.update_compressed_columns_info(*create_fields);
+  }
 
   name = get_canonical_filename(table.file, share.path.str, name_buff);
 
@@ -5462,7 +5782,10 @@ static int ha_discover(THD *thd, const char *db, const char *name,
                      &args))
     error = 0;
 
-  if (!error) thd->status_var.ha_discover_count++;
+  if (!error) {
+    DBUG_ASSERT(!thd->status_var_aggregated);
+    thd->status_var.ha_discover_count++;
+  }
   DBUG_RETURN(error);
 }
 
@@ -6296,7 +6619,10 @@ int DsMrr_impl::dsmrr_init(RANGE_SEQ_IF *seq_funcs, void *seq_init_param,
 
   is_mrr_assoc = !(mode & HA_MRR_NO_ASSOCIATION);
 
-  if (is_mrr_assoc) table->in_use->status_var.ha_multi_range_read_init_count++;
+  if (is_mrr_assoc) {
+    DBUG_ASSERT(!thd->status_var_aggregated);
+    table->in_use->status_var.ha_multi_range_read_init_count++;
+  }
 
   rowids_buf_end = buf->buffer_end;
   elem_size = h->ref_length + (int)is_mrr_assoc * sizeof(void *);
@@ -7405,6 +7731,34 @@ bool ha_show_status(THD *thd, handlerton *db_type, enum ha_stat_type stat) {
   return result;
 }
 
+static bool flush_changed_page_bitmaps_handlerton(THD *, plugin_ref plugin,
+                                                  void *) {
+  handlerton *hton = plugin_data<handlerton *>(plugin);
+
+  if (hton->flush_changed_page_bitmaps == nullptr) return false;
+
+  return hton->flush_changed_page_bitmaps();
+}
+
+bool ha_flush_changed_page_bitmaps() {
+  return plugin_foreach(nullptr, flush_changed_page_bitmaps_handlerton,
+                        MYSQL_STORAGE_ENGINE_PLUGIN, nullptr);
+}
+
+static bool purge_changed_page_bitmaps_handlerton(THD *, plugin_ref plugin,
+                                                  void *lsn) {
+  handlerton *hton = plugin_data<handlerton *>(plugin);
+
+  if (hton->purge_changed_page_bitmaps == nullptr) return false;
+
+  return hton->purge_changed_page_bitmaps(*(ulonglong *)lsn);
+}
+
+bool ha_purge_changed_page_bitmaps(ulonglong lsn) {
+  return plugin_foreach(nullptr, purge_changed_page_bitmaps_handlerton,
+                        MYSQL_STORAGE_ENGINE_PLUGIN, &lsn);
+}
+
 /*
   Function to check if the conditions for row-based binlogging is
   correct for the table.
@@ -7625,6 +7979,7 @@ int handler::ha_write_row(uchar *buf) {
   DBUG_ASSERT(table_share->tmp_table != NO_TMP_TABLE || m_lock_type == F_WRLCK);
 
   DBUG_ENTER("handler::ha_write_row");
+  DEBUG_SYNC(ha_thd(), "start_ha_write_row");
   DBUG_EXECUTE_IF("inject_error_ha_write_row",
                   DBUG_RETURN(HA_ERR_INTERNAL_ERROR););
   DBUG_EXECUTE_IF("simulate_storage_engine_out_of_memory",
@@ -7643,6 +7998,8 @@ int handler::ha_write_row(uchar *buf) {
 
   if (unlikely((error = binlog_log_row(table, 0, buf, log_func))))
     DBUG_RETURN(error); /* purecov: inspected */
+
+  rows_changed++;
 
   DEBUG_SYNC_C("ha_write_row_end");
   DBUG_RETURN(0);
@@ -7673,6 +8030,7 @@ int handler::ha_update_row(const uchar *old_data, uchar *new_data) {
   if (unlikely(error)) return error;
   if (unlikely((error = binlog_log_row(table, old_data, new_data, log_func))))
     return error;
+  rows_changed++;
   return 0;
 }
 
@@ -7698,7 +8056,30 @@ int handler::ha_delete_row(const uchar *buf) {
 
   if (unlikely(error)) return error;
   if (unlikely((error = binlog_log_row(table, buf, 0, log_func)))) return error;
+  rows_changed++;
   return 0;
+}
+
+/**
+  @brief Offload an update to the storage engine. See handler::fast_update()
+  for details.
+*/
+int handler::ha_fast_update(THD *thd, List<Item> &update_fields,
+                            List<Item> &update_values, Item *conds) {
+  int error = fast_update(thd, update_fields, update_values, conds);
+  if (error == 0) mark_trx_read_write();
+  return error;
+}
+
+/**
+  @brief Offload an upsert to the storage engine. See handler::upsert()
+  for details.
+*/
+int handler::ha_upsert(THD *thd, List<Item> &update_fields,
+                       List<Item> &update_values) {
+  int error = upsert(thd, update_fields, update_values);
+  if (error == 0) mark_trx_read_write();
+  return error;
 }
 
 /** @brief
@@ -7875,6 +8256,32 @@ static void copy_blob_data(const TABLE *table, const MY_BITMAP *const fields,
       DBUG_ASSERT(num <= MAX_FIELDS);
     }
   }
+}
+
+bool handler::is_using_prohibited_gap_locks(TABLE *table,
+                                            bool using_full_primary_key) const
+    noexcept {
+  const THD *thd = table->in_use;
+  const thr_lock_type lock_type = table->reginfo.lock_type;
+
+  if (!using_full_primary_key && has_transactions() && !has_gap_locks() &&
+      thd_tx_isolation(thd) >= ISO_REPEATABLE_READ && !thd->rli_slave &&
+      (thd->lex->table_count >= 2 || thd->in_multi_stmt_transaction_mode()) &&
+      (lock_type >= TL_WRITE_ALLOW_WRITE ||
+       lock_type == TL_READ_WITH_SHARED_LOCKS ||
+       lock_type == TL_READ_NO_INSERT ||
+       (lock_type != TL_IGNORE && thd->lex->sql_command != SQLCOM_SELECT))) {
+    my_printf_error(ER_UNKNOWN_ERROR,
+                    "Using Gap Lock without full unique key in multi-table "
+                    "or multi-statement transactions is not "
+                    "allowed. You need to either rewrite queries to use "
+                    "all unique key columns in WHERE equal conditions, or "
+                    "rewrite to single-table, single-statement "
+                    "transaction.  Query: %s",
+                    MYF(0), thd->query().str);
+    return true;
+  }
+  return false;
 }
 
 /*
