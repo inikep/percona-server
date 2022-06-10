@@ -172,6 +172,7 @@ bool handle_query(THD *thd, LEX *lex, Query_result *result,
     goto err;
 
   if (single_query) {
+    DBUG_ASSERT(unit->cleaned == SELECT_LEX_UNIT::UC_DIRTY);
     if (unit->prepare_limit(thd, unit->global_parameters()))
       goto err; /* purecov: inspected */
 
@@ -1796,6 +1797,7 @@ void JOIN::cleanup_item_list(List<Item> &items) const {
 bool SELECT_LEX::optimize(THD *thd) {
   DBUG_TRACE;
 
+  DBUG_ASSERT(master_unit()->cleaned == SELECT_LEX_UNIT::UC_DIRTY);
   DBUG_ASSERT(join == nullptr);
   JOIN *const join_local = new (thd->mem_root) JOIN(thd, this);
   if (!join_local) return true; /* purecov: inspected */
@@ -4849,9 +4851,11 @@ bool test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER_with_src *order,
     if (usable_keys.is_set(nr) &&
         (direction = test_if_order_by_key(order, table, nr, &used_key_parts,
                                           &skip_quick))) {
-      bool is_covering = table->covering_keys.is_set(nr) ||
-                         (nr == table->s->primary_key &&
-                          table->file->primary_key_is_clustered());
+      bool is_covering =
+          table->covering_keys.is_set(nr) ||
+          (nr == table->s->primary_key &&
+           table->file->primary_key_is_clustered()) ||
+          (table->file->index_flags(nr, 0, 0) & HA_CLUSTERED_INDEX);
       // Don't allow backward scans on indexes with mixed ASC/DESC key parts
       if (skip_quick) table->quick_keys.clear_bit(nr);
 
@@ -4968,7 +4972,9 @@ bool test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER_with_src *order,
           if (best_key < 0 ||
               (select_limit <= min(quick_records, best_records)
                    ? keyinfo->user_defined_key_parts < best_key_parts
-                   : quick_records < best_records) ||
+                   : quick_records < best_records ||
+                         ((quick_records == best_records) &&
+                          !is_best_covering && is_covering)) ||
               // We assume forward scan is faster than backward even if the
               // key is longer. This should be taken into account in cost
               // calculation.

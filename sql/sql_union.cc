@@ -648,6 +648,7 @@ bool SELECT_LEX_UNIT::optimize(THD *thd, TABLE *materialize_destination) {
   double estimated_cost = 0.0;
 
   for (SELECT_LEX *sl = first_select(); sl; sl = sl->next_select()) {
+    DBUG_ASSERT(cleaned == UC_DIRTY);
     thd->lex->set_current_select(sl);
 
     // LIMIT is required for optimization
@@ -1251,7 +1252,14 @@ bool SELECT_LEX_UNIT::cleanup(THD *thd, bool full) {
 
   DBUG_ASSERT(thd == current_thd);
 
-  if (cleaned >= (full ? UC_CLEAN : UC_PART_CLEAN)) return false;
+  if (cleaned >= (full ? UC_CLEAN : UC_PART_CLEAN)) {
+#ifndef DBUG_OFF
+    if (cleaned == UC_CLEAN)
+      for (SELECT_LEX *sl = first_select(); sl; sl = sl->next_select())
+        DBUG_ASSERT(!sl->join);
+#endif
+    return false;
+  }
 
   cleaned = (full ? UC_CLEAN : UC_PART_CLEAN);
 
