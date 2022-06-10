@@ -77,6 +77,7 @@ class PT_column_attr_base : public Parse_tree_node_tmpl<Column_parse_context> {
     *has_explicit_collation = false;
     return false;
   }
+  virtual void apply_zip_dict(LEX_CSTRING *) const noexcept {}
 };
 
 /**
@@ -108,15 +109,22 @@ class PT_not_null_column_attr : public PT_column_attr_base {
 
   @ingroup ptn_column_attrs
 */
-class PT_unique_key_column_attr : public PT_column_attr_base {
+class PT_unique_combo_clustering_key_column_attr : public PT_column_attr_base {
  public:
-  virtual void apply_type_flags(ulong *type_flags) const {
-    *type_flags |= UNIQUE_FLAG;
+  PT_unique_combo_clustering_key_column_attr(enum keytype key_type) noexcept
+      : m_key_type(key_type) {}
+
+  virtual void apply_type_flags(ulong *type_flags) const noexcept {
+    if (m_key_type & KEYTYPE_UNIQUE) *type_flags |= UNIQUE_FLAG;
+    if (m_key_type & KEYTYPE_CLUSTERING) *type_flags |= CLUSTERING_FLAG;
   }
 
   virtual void apply_alter_info_flags(uint *flags) const {
     *flags |= Alter_info::ALTER_ADD_INDEX;
   }
+
+ private:
+  const enum keytype m_key_type;
 };
 
 /**
@@ -286,8 +294,9 @@ class PT_column_format_column_attr : public PT_column_attr_base {
   column_format_type format;
 
  public:
-  explicit PT_column_format_column_attr(column_format_type format)
-      : format(format) {}
+  explicit PT_column_format_column_attr(
+      column_format_type format, const LEX_CSTRING &zip_dict_name) noexcept
+      : format(format), m_zip_dict_name(zip_dict_name) {}
 
   virtual void apply_type_flags(ulong *type_flags) const {
     *type_flags &= ~(FIELD_FLAGS_COLUMN_FORMAT_MASK);
@@ -300,6 +309,12 @@ class PT_column_format_column_attr : public PT_column_attr_base {
     }
     return super::contextualize(pc);
   }
+  virtual void apply_zip_dict(LEX_CSTRING *to) const noexcept {
+    *to = m_zip_dict_name;
+  }
+
+ private:
+  const LEX_CSTRING m_zip_dict_name;
 };
 
 /**
@@ -722,6 +737,16 @@ class PT_field_def_base : public Parse_tree_node {
   /// Holds the expression to generate default values
   Value_generator *default_val_info;
   Nullable<gis::srid_t> m_srid;
+  /**
+    Compression dictionary name (in column definition)
+    CREATE TABLE t1(
+    ...
+    <column_name> BLOB COLUMN_FORMAT COMPRESSED
+    WITH COMPRESSION_DICTIONARY <dict>
+    ...
+    );
+  */
+  LEX_CSTRING m_zip_dict;
 
  protected:
   PT_type *type_node;
@@ -764,6 +789,7 @@ class PT_field_def_base : public Parse_tree_node {
         attr->apply_gen_default_value(&default_val_info);
         attr->apply_on_update_value(&on_update_value);
         attr->apply_srid_modifier(&m_srid);
+        attr->apply_zip_dict(&m_zip_dict);
         if (attr->apply_collation(&charset, &has_explicit_collation))
           return true;
       }

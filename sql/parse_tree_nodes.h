@@ -450,7 +450,9 @@ class PT_limit_clause : public Parse_tree_node {
     pc->select->offset_limit = limit_options.opt_offset;
     pc->select->explicit_limit = true;
 
-    pc->thd->lex->set_stmt_unsafe(LEX::BINLOG_STMT_UNSAFE_LIMIT);
+    if (pc->select->select_limit->fixed &&
+        pc->select->select_limit->val_int() != 0)
+      pc->thd->lex->set_stmt_unsafe(LEX::BINLOG_STMT_UNSAFE_LIMIT);
     return false;
   }
 };

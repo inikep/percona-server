@@ -110,6 +110,8 @@ struct TABLE_SHARE;
 struct TYPELIB;
 struct timeval;
 
+extern const LEX_CSTRING null_lex_cstr;
+
 using Mysql::Nullable;
 
 /*
@@ -1270,6 +1272,17 @@ class Field : public Proto_field {
   }
 
   /**
+    Checks if the field has COLUMN_FORMAT_TYPE_COMPRESSED flag and non-empty
+    associated compression dictionary.
+  */
+  bool has_associated_compression_dictionary() const noexcept {
+    DBUG_ASSERT(zip_dict_name.str == 0 ||
+                column_format() == COLUMN_FORMAT_TYPE_COMPRESSED);
+    return column_format() == COLUMN_FORMAT_TYPE_COMPRESSED &&
+           zip_dict_name.str != 0;
+  }
+
+  /**
     Check if the Field has value NULL or the record specified by argument
     has value NULL for this Field.
 
@@ -1610,7 +1623,9 @@ class Field : public Proto_field {
   longlong convert_decimal2longlong(const my_decimal *val, bool unsigned_flag,
                                     bool *has_overflow);
   /* The max. number of characters */
-  virtual uint32 char_length() { return field_length / charset()->mbmaxlen; }
+  virtual uint32 char_length() const {
+    return field_length / charset()->mbmaxlen;
+  }
 
   virtual geometry_type get_geometry_type() const {
     /* shouldn't get here. */
@@ -1648,6 +1663,7 @@ class Field : public Proto_field {
 
   void set_column_format(column_format_type column_format_arg) {
     DBUG_ASSERT(column_format() == COLUMN_FORMAT_TYPE_DEFAULT);
+    flags &= ~(FIELD_FLAGS_COLUMN_FORMAT_MASK);
     flags |= (column_format_arg << FIELD_FLAGS_COLUMN_FORMAT);
   }
 
@@ -1771,6 +1787,18 @@ class Field : public Proto_field {
 
   const uchar *unpack_int64(uchar *to, const uchar *from,
                             bool low_byte_first_from);
+  /**
+    Checks if the current field definition and provided create field
+    definition have different compression attributes.
+
+    @param   new_field   create field definition to compare with
+
+    @return
+      true  - if compression attributes are different
+      false - if compression attributes are identical.
+  */
+  bool has_different_compression_attributes_with(
+      const Create_field &new_field) const noexcept;
 };
 
 /**
@@ -3753,7 +3781,7 @@ class Field_blob : public Field_longstr {
     memcpy(ptr, length, packlength);
     memcpy(ptr + packlength, &data, sizeof(char *));
   }
-  void set_ptr_offset(my_ptrdiff_t ptr_diff, uint32 length, uchar *data) {
+  void set_ptr_offset(my_ptrdiff_t ptr_diff, uint32 length, const uchar *data) {
     uchar *ptr_ofs = ptr + ptr_diff;
     store_length(ptr_ofs, packlength, length);
     memcpy(ptr_ofs + packlength, &data, sizeof(char *));
@@ -3799,7 +3827,7 @@ class Field_blob : public Field_longstr {
     return charset() == &my_charset_bin ? false : true;
   }
   uint32 max_display_length() override;
-  uint32 char_length() override;
+  uint32 char_length() const noexcept override;
   bool copy_blob_value(MEM_ROOT *mem_root);
   uint is_equal(const Create_field *new_field) override;
   bool is_text_key_type() const override { return binary() ? false : true; }
@@ -4444,6 +4472,8 @@ class Create_field {
   */
   uint pack_length_override{0};
 
+  LEX_CSTRING zip_dict_name;  // Compression dictionary name
+
   /* Generated column expression information */
   Value_generator *gcol_info{nullptr};
   /*
@@ -4496,9 +4526,9 @@ class Create_field {
             Item *default_value, Item *on_update_value, LEX_STRING *comment,
             const char *change, List<String> *interval_list,
             const CHARSET_INFO *cs, bool has_explicit_collation,
-            uint uint_geom_type, Value_generator *gcol_info,
-            Value_generator *default_val_expr, Nullable<gis::srid_t> srid,
-            dd::Column::enum_hidden_type hidden);
+            uint uint_geom_type, const LEX_CSTRING *zip_dict_name,
+            Value_generator *gcol_info, Value_generator *default_val_expr,
+            Nullable<gis::srid_t> srid, dd::Column::enum_hidden_type hidden);
 
   ha_storage_media field_storage_type() const {
     return (ha_storage_media)((flags >> FIELD_FLAGS_STORAGE_MEDIA) & 3);
@@ -4506,6 +4536,11 @@ class Create_field {
 
   column_format_type column_format() const {
     return (column_format_type)((flags >> FIELD_FLAGS_COLUMN_FORMAT) & 3);
+  }
+
+  void set_column_format(column_format_type column_format_arg) noexcept {
+    flags &= ~(FIELD_FLAGS_COLUMN_FORMAT_MASK);
+    flags |= (column_format_arg << FIELD_FLAGS_COLUMN_FORMAT);
   }
 };
 

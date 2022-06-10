@@ -1156,9 +1156,10 @@ inline int Binlog_sender::read_event(File_reader *reader, uchar **event_ptr,
 
   /*
     As we pre-allocate the buffer to store the event at reset_transmit_packet,
-    the buffer should not be changed while calling read_log_event, even knowing
-    that it might call functions to replace the buffer by one with the size to
-    fit the event.
+    the buffer should not be changed while calling read_log_event (unless binlog
+    encryption is on), even knowing that it might call functions to replace the
+    buffer by one with the size to fit the event. When encryption is on - the
+    buffer will be replaced with memory allocated for storing decrypted data.
   */
   DBUG_ASSERT(encrypt_binlog || reinterpret_cast<char *>(*event_ptr) ==
                                     (m_packet.ptr() + event_offset));
