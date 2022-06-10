@@ -1477,7 +1477,7 @@ bool fix_partition_func(THD *thd, TABLE *table, bool is_create_table_ind) {
   thd->want_privilege = 0;
 
   if (!is_create_table_ind || thd->lex->sql_command != SQLCOM_CREATE_TABLE) {
-    Partition_handler *part_handler = table->file->get_partition_handler();
+    part_handler = table->file->get_partition_handler();
 
     if (!part_handler) {
       DBUG_ASSERT(0);

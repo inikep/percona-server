@@ -392,6 +392,23 @@ bool JOIN::optimize() {
     }
   }
 
+  if (thd->lex->sql_command == SQLCOM_INSERT_SELECT ||
+      thd->lex->sql_command == SQLCOM_REPLACE_SELECT) {
+    /*
+      Statement-based replication of INSERT ... SELECT ... LIMIT and
+      REPLACE ... SELECT is safe as order of row is defined with either
+      ORDER BY or other condition. However it is too late for it have
+      an impact to our decision to switch to row- based. We can only
+      suppress warning here.
+    */
+    if (select_lex->select_limit && select_lex->select_limit->fixed &&
+        select_lex->select_limit->val_int() &&
+        !is_order_deterministic(&select_lex->top_join_list, where_cond,
+                                order.order)) {
+      thd->order_deterministic = false;
+    }
+  }
+
   if (select_lex->partitioned_table_count && prune_table_partitions()) {
     error = 1;
     DBUG_PRINT("error", ("Error from prune_partitions"));
@@ -1758,13 +1775,14 @@ uint find_shortest_key(TABLE *table, const Key_map *usable_keys) {
   if (usable_clustered_pk != MAX_KEY) {
     /*
      If the primary key is clustered and found shorter key covers all table
-     fields then primary key scan normally would be faster because amount of
-     data to scan is the same but PK is clustered.
+     fields and is not clustering then primary key scan normally would be
+     faster because amount of data to scan is the same but PK is clustered.
      It's safe to compare key parts with table fields since duplicate key
      parts aren't allowed.
      */
     if (best == MAX_KEY ||
-        table->key_info[best].user_defined_key_parts >= table->s->fields)
+        ((table->key_info[best].user_defined_key_parts >= table->s->fields) &&
+         !(table->file->index_flags(best, 0, 0) & HA_CLUSTERED_INDEX)))
       best = usable_clustered_pk;
   }
   return best;
@@ -2292,6 +2310,7 @@ static bool test_if_skip_sort_order(JOIN_TAB *tab, ORDER_with_src &order,
       */
       DBUG_ASSERT(tab->quick() == save_quick || tab->quick() == nullptr);
       tab->set_quick(qck);
+      if (qck && !no_changes) tab->set_type(calc_join_type(qck->get_type()));
     }
     order_direction = best_key_direction;
     /*
@@ -2702,6 +2721,21 @@ void JOIN::adjust_access_methods() {
               find_shortest_key(tab->table(), &tab->table()->covering_keys));
         tab->set_type(JT_INDEX_SCAN);  // Read with index_first / index_next
         // From table scan to index scan, thus filter effect needs no recalc.
+      } else if (!tab->table()->no_keyread && !tl->uses_materialization()) {
+        DBUG_ASSERT(tab->table()->covering_keys.is_clear_all());
+        if (tab->position()->sj_strategy != SJ_OPT_LOOSE_SCAN) {
+          Key_map clustering_keys;
+          for (uint i2 = 0; i2 < tab->table()->s->keys; i2++) {
+            if (tab->keys().is_set(i2) &&
+                tab->table()->file->index_flags(i2, 0, 0) & HA_CLUSTERED_INDEX)
+              clustering_keys.set_bit(i2);
+          }
+          uint index = find_shortest_key(tab->table(), &clustering_keys);
+          if (index != MAX_KEY) {
+            tab->set_type(JT_INDEX_SCAN);
+            tab->set_index(index);
+          }
+        }
       }
     } else if (tab->type() == JT_REF) {
       if (can_switch_from_ref_to_range(thd, tab, ORDER_NOT_RELEVANT, false)) {
@@ -2990,7 +3024,8 @@ bool JOIN::get_best_combination() {
 
   // sjm is no longer needed, trash it. To reuse it, reset its members!
   for (TABLE_LIST *sj_nest : select_lex->sj_nests) {
-    TRASH(&sj_nest->nested_join->sjm, sizeof(sj_nest->nested_join->sjm));
+    TRASH(static_cast<void *>(&sj_nest->nested_join->sjm),
+          sizeof(sj_nest->nested_join->sjm));
   }
 
   return false;
