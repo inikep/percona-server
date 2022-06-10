@@ -2901,6 +2901,17 @@ bool Relay_log_info::is_time_for_mts_checkpoint() {
   return false;
 }
 
+void *Relay_log_info::operator new(size_t request MY_ATTRIBUTE((unused))) {
+  void *ptr;
+  if (posix_memalign(&ptr, __alignof__(Relay_log_info),
+                     sizeof(Relay_log_info))) {
+    throw std::bad_alloc();
+  }
+  return ptr;
+}
+
+void Relay_log_info::operator delete(void *ptr) { free(ptr); }
+
 bool operator!(Relay_log_info::enum_priv_checks_status status) {
   return status == Relay_log_info::enum_priv_checks_status::SUCCESS;
 }

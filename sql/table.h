@@ -982,6 +982,13 @@ struct TABLE_SHARE {
   */
   dd::Table *tmp_table_def{nullptr};
 
+  /**
+    True in the case if tokudb read-free-replication is used for the table
+    without explicit pk and corresponding warning was issued to disable
+    repeated warning.
+  */
+  bool rfr_lookup_warning{false};
+
   /// For materialized derived tables; @see add_derived_key().
   SELECT_LEX *owner_of_possible_tmp_keys{nullptr};
 
@@ -1989,6 +1996,7 @@ struct TABLE {
 #ifndef DBUG_OFF
   void set_tmp_table_seq_id(uint arg) { tmp_table_seq_id = arg; }
 #endif
+
   /**
     Update covering keys depending on max read key length.
 
@@ -3951,6 +3959,7 @@ void free_blob_buffers_and_reset(TABLE *table, uint32 size);
 int set_zone(int nr, int min_zone, int max_zone);
 void append_unescaped(String *res, const char *pos, size_t length);
 char *fn_rext(char *name);
+const char *fn_rext(const char *name);
 TABLE_CATEGORY get_table_category(const LEX_CSTRING &db,
                                   const LEX_CSTRING &name);
 
