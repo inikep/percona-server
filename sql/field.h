@@ -857,8 +857,6 @@ class Field : public Proto_field {
 
    */
   bool is_created_from_null_item;
-  LEX_CSTRING zip_dict_name;  // associated compression dictionary name
-  LEX_CSTRING zip_dict_data;  // associated compression dictionary data
   /**
      True if this field belongs to some index (unlike part_of_key, the index
      might have only a prefix).

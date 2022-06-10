@@ -3469,7 +3469,7 @@ static const char *thread_handling_names[] = {"one-thread-per-connection",
 static Sys_var_enum Sys_thread_handling(
     "thread_handling",
     "Define threads usage for handling queries, one of "
-    "one-thread-per-connection, no-threads, loaded-dynamically",
+    "one-thread-per-connection, no-threads, pool-of-threads",
     READ_ONLY GLOBAL_VAR(Connection_handler_manager::thread_handling),
     CMD_LINE(REQUIRED_ARG), thread_handling_names, DEFAULT(0));
 
@@ -4790,8 +4790,8 @@ static Sys_var_charptr Sys_version_suffix("version_suffix", "version_suffix",
 static char *server_version_comment_ptr;
 static Sys_var_charptr Sys_version_comment(
     "version_comment", "version_comment",
-    NON_PERSIST GLOBAL_VAR(server_version_comment_ptr), NO_CMD_LINE,
-    IN_SYSTEM_CHARSET, DEFAULT(MYSQL_COMPILATION_COMMENT_SERVER));
+    GLOBAL_VAR(server_version_comment_ptr), NO_CMD_LINE, IN_SYSTEM_CHARSET,
+    DEFAULT(MYSQL_COMPILATION_COMMENT_SERVER));
 
 static char *server_version_compile_machine_ptr;
 static Sys_var_charptr Sys_version_compile_machine(
@@ -5458,15 +5458,16 @@ static Sys_var_have Sys_have_profiling(
 
 static Sys_var_have Sys_have_backup_locks(
     "have_backup_locks", "have_backup_locks",
-    READ_ONLY GLOBAL_VAR(have_backup_locks), NO_CMD_LINE);
+    READ_ONLY NON_PERSIST GLOBAL_VAR(have_backup_locks), NO_CMD_LINE);
 
 static Sys_var_have Sys_have_backup_safe_binlog_info(
     "have_backup_safe_binlog_info", "have_backup_safe_binlog_info",
-    READ_ONLY GLOBAL_VAR(have_backup_safe_binlog_info), NO_CMD_LINE);
+    READ_ONLY NON_PERSIST GLOBAL_VAR(have_backup_safe_binlog_info),
+    NO_CMD_LINE);
 
 static Sys_var_have Sys_have_snapshot_cloning(
     "have_snapshot_cloning", "have_snapshot_cloning",
-    READ_ONLY GLOBAL_VAR(have_snapshot_cloning), NO_CMD_LINE);
+    READ_ONLY NON_PERSIST GLOBAL_VAR(have_snapshot_cloning), NO_CMD_LINE);
 
 static Sys_var_have Sys_have_query_cache(
     "have_query_cache",

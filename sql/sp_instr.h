@@ -264,10 +264,14 @@ class sp_lex_instr : public sp_instr {
   */
   bool validate_lex_and_execute_core(THD *thd, uint *nextp, bool open_tables);
 
-  int get_command() const { return m_lex ? m_lex->sql_command : -1; }
-
   virtual SQL_I_List<Item_trigger_field> *get_instr_trig_field_list() {
     return &m_trig_field_list;
+  }
+
+  int get_command() const { return m_lex ? m_lex->sql_command : -1; }
+
+  const LEX_CSTRING *get_prepared_stmt_name() const {
+    return m_lex ? &m_lex->prepared_stmt_name : nullptr;
   }
 
  private:

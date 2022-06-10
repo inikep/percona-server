@@ -297,8 +297,6 @@ my_thread_id thd_thread_id(const THD *thd) { return (thd->thread_id()); }
 
 /** Gets page fragmentation statistics. Assigns zeros to stats if thd is
 NULL.
-/** Gets page fragmentation statistics. Assigns zeros to stats if thd is
-NULL.
 @param[in]  thd   the calling thread
 @param[out] stats a pointer to fragmentation statistics to fill */
 void thd_get_fragmentation_stats(const THD *thd,

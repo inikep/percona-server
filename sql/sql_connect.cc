@@ -170,14 +170,11 @@ end:
 }
 
 /* Intialize an instance of USER_STATS */
-USER_STATS::USER_STATS(const char *user_, const char *priv_user_,
-                       uint total_ssl_connections_,
+USER_STATS::USER_STATS(const char *priv_user_, uint total_ssl_connections_,
                        ulonglong denied_connections_) noexcept
     : total_ssl_connections(total_ssl_connections_),
-      user_len(strlen(user_)),
       priv_user_len(strlen(priv_user_)),
       denied_connections(denied_connections_) {
-  strncpy(user, user_, sizeof(user));
   strncpy(priv_user, priv_user_, sizeof(priv_user));
 }
 
@@ -247,16 +244,17 @@ static const char *get_valid_user_string(const char *user) {
 // Increments the global stats connection count for an entry from
 // global_client_stats or global_user_stats. Returns false on success
 // and true on error.
-static void increment_count_by_name(const char *name, const char *role_name,
+static void increment_count_by_name(const std::string &name,
+                                    const char *role_name,
                                     user_stats_t *users_or_clients,
                                     const THD &thd) {
-  const auto ssl_connections = thd.get_ssl() ? 1 : 0;
+  const auto ssl_connections = thd.is_ssl() ? 1 : 0;
   const auto &it = users_or_clients->find(name);
   if (it == users_or_clients->cend()) {
     // First connection for this user or client
     users_or_clients->emplace(
         std::piecewise_construct, std::forward_as_tuple(name),
-        std::forward_as_tuple(name, role_name, ssl_connections,
+        std::forward_as_tuple(role_name, ssl_connections,
                               thd.diff_denied_connections));
   } else {
     it->second.total_connections++;
@@ -266,7 +264,7 @@ static void increment_count_by_name(const char *name, const char *role_name,
 
 static void increment_count_by_id(my_thread_id id, thread_stats_t *thread_stats,
                                   const THD &thd) {
-  const auto ssl_connections = thd.get_ssl() ? 1 : 0;
+  const auto ssl_connections = thd.is_ssl() ? 1 : 0;
   const auto &it = thread_stats->find(id);
   if (it == thread_stats->cend()) {
     // First connection for this user or client
@@ -373,9 +371,9 @@ void update_global_user_stats(THD *thd, bool create_user, time_t now) {
     const my_thread_id thread_id = thd->thread_id();
     const auto &thread_it = global_thread_stats->find(thread_id);
     if (thread_it != global_thread_stats->cend())
-      update_global_thread_stats_with_thread(thd, &thread_it->second, now);
+      update_global_thread_stats_with_thread(*thd, &thread_it->second, now);
     else if (create_user)
-      increment_count_by_id(thread_id, global_thread_stats, thd);
+      increment_count_by_id(thread_id, global_thread_stats, *thd);
   }
 
   thd->last_global_update_time = now;
@@ -389,7 +387,7 @@ static void clear_stats_concurrent_connections(user_stats_t *stats) noexcept {
 }
 
 static void inc_stats_concurrent_conn(user_stats_t *stats,
-                                      const char *user_string,
+                                      const std::string &user_string,
                                       int cnt) noexcept {
   auto it = stats->find(user_string);
   if (it != stats->end()) it->second.concurrent_connections += cnt;
@@ -415,6 +413,7 @@ void refresh_concurrent_conn_stats() noexcept {
                               it.second->connections);
     mysql_mutex_unlock(&LOCK_global_user_client_stats);
   }
+  mysql_mutex_unlock(&LOCK_user_conn);
 }
 
 /*
@@ -945,7 +944,7 @@ static bool login_connection(THD *thd) {
     thd->reset_stats();
 
     // Updates global user connection stats.
-    increment_connection_count(thd, true);
+    increment_connection_count(*thd, true);
   }
 
   DBUG_RETURN(0);
