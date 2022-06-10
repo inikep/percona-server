@@ -3675,6 +3675,7 @@ static inline bool check_restrictions_for_com_connect_command(THD *thd) {
             .first)) {
     if (!Connection_handler_manager::get_instance()
              ->valid_connection_count()) {  // too many connections
+      sql_print_warning("%s", ER_DEFAULT(ER_CON_COUNT_ERROR));
       my_error(ER_CON_COUNT_ERROR, MYF(0));
       return true;
     }
@@ -4656,7 +4657,7 @@ static int sha256_password_authenticate(MYSQL_PLUGIN_VIO *vio,
   int pkt_len;
   String scramble_response_packet;
   int cipher_length = 0;
-  unsigned char plain_text[MAX_CIPHER_LENGTH + 1];
+  unsigned char plain_text[MAX_CIPHER_LENGTH + 1] = "";
   RSA *private_key = nullptr;
   RSA *public_key = nullptr;
 
