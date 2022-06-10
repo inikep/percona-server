@@ -450,7 +450,8 @@ Key_use *Optimize_table_order::find_best_ref(
           // Limit the number of matched rows
           const double tmp_fanout =
               min(cur_fanout, (double)thd->variables.max_seeks_for_key);
-          if (table->covering_keys.is_set(key)) {
+          if (table->covering_keys.is_set(key) ||
+              (table->file->index_flags(key, 0, 0) & HA_CLUSTERED_INDEX)) {
             // We can use only index tree
             const Cost_estimate index_read_cost =
                 table->file->index_scan_cost(key, 1, tmp_fanout);
@@ -632,7 +633,8 @@ Key_use *Optimize_table_order::find_best_ref(
         // Limit the number of matched rows
         tmp_fanout =
             std::min(tmp_fanout, double(thd->variables.max_seeks_for_key));
-        if (table->covering_keys.is_set(key)) {
+        if (table->covering_keys.is_set(key) ||
+            (table->file->index_flags(key, 0, 0) & HA_CLUSTERED_INDEX)) {
           // We can use only index tree
           const Cost_estimate index_read_cost =
               table->file->index_scan_cost(key, 1, tmp_fanout);
@@ -878,10 +880,11 @@ double Optimize_table_order::calculate_scan_cost(
                                        tab->records() - *rows_after_filtering));
 
       trace_access_scan->add("using_join_cache", true);
-      trace_access_scan->add("buffers_needed",
-                             buffer_count >= std::numeric_limits<ulong>::max()
-                                 ? std::numeric_limits<ulong>::max()
-                                 : static_cast<ulong>(buffer_count));
+      trace_access_scan->add(
+          "buffers_needed",
+          buffer_count >= static_cast<double>(std::numeric_limits<ulong>::max())
+              ? std::numeric_limits<ulong>::max()
+              : static_cast<ulong>(buffer_count));
     }
   }
 
@@ -1934,7 +1937,7 @@ bool Optimize_table_order::choose_table_order() {
 
   /* Are there any tables to optimize? */
   if (join->const_tables == join->tables) {
-    memcpy(join->best_positions, join->positions,
+    memcpy(static_cast<void *>(join->best_positions), join->positions,
            sizeof(POSITION) * join->const_tables);
     join->best_read = 1.0;
     join->best_rowcount = 1;
@@ -2139,7 +2142,8 @@ void Optimize_table_order::optimize_straight_join(table_map join_tables) {
       join->sort_by_table != join->positions[join->const_tables].table->table())
     cost += rowcount;  // We have to make a temp table
 
-  memcpy(join->best_positions, join->positions, sizeof(POSITION) * idx);
+  memcpy(static_cast<void *>(join->best_positions), join->positions,
+         sizeof(POSITION) * idx);
 
   /**
    * If many plans have identical cost, which one will be used
@@ -2549,10 +2553,11 @@ bool Optimize_table_order::consider_plan(uint idx,
       (Similar code in best_extension_by_li...)
     */
     join->best_read = cost - 0.001;
-    join->best_rowcount = join->positions[idx].prefix_rowcount >=
-                                  std::numeric_limits<ha_rows>::max()
-                              ? std::numeric_limits<ha_rows>::max()
-                              : (ha_rows)join->positions[idx].prefix_rowcount;
+    join->best_rowcount =
+        join->positions[idx].prefix_rowcount >=
+                static_cast<double>(std::numeric_limits<ha_rows>::max())
+            ? std::numeric_limits<ha_rows>::max()
+            : (ha_rows)join->positions[idx].prefix_rowcount;
     join->sort_cost = sort_cost;
     join->windowing_cost = windowing_cost;
     found_plan_with_allowed_sj = plan_uses_allowed_sj;
@@ -3373,7 +3378,8 @@ bool Optimize_table_order::fix_semijoin_strategies() {
         setting it to SJ_OPT_NONE). But until then, pos->sj_strategy should
         not be read.
       */
-      memcpy(pos - table_count + 1, sjm_nest->nested_join->sjm.positions,
+      memcpy(static_cast<void *>(pos - table_count + 1),
+             sjm_nest->nested_join->sjm.positions,
              sizeof(POSITION) * table_count);
       first = tableno - table_count + 1;
       join->best_positions[first].n_sj_tables = table_count;
@@ -3390,7 +3396,8 @@ bool Optimize_table_order::fix_semijoin_strategies() {
       first = last_inner - table_count + 1;
       DBUG_ASSERT((join->best_positions + first)->table->emb_sj_nest ==
                   sjm_nest);
-      memcpy(join->best_positions + first,  // stale semijoin strategy here too
+      memcpy(static_cast<void *>(join->best_positions +
+                                 first),  // stale semijoin strategy here too
              sjm_nest->nested_join->sjm.positions,
              sizeof(POSITION) * table_count);
       join->best_positions[first].sj_strategy = SJ_OPT_MATERIALIZE_SCAN;

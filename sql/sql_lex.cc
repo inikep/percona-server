@@ -26,6 +26,11 @@
 
 #include "sql/sql_lex.h"
 
+#define LEX_TOKEN_WITH_DEFINITION
+#include "sql/lex_token.h"
+#include "sql/lex.h"
+
+
 #include <limits.h>
 #include <stdlib.h>
 #include <algorithm>  // find_if, iter_swap, reverse
@@ -86,7 +91,6 @@ sys_var *trg_new_row_fake_var = (sys_var *)0x01;
 */
 const LEX_STRING null_lex_str = {NULL, 0};
 const LEX_CSTRING null_lex_cstr = {nullptr, 0};
-const LEX_CSTRING empty_lex_cstr = {"", 0};
 /**
   Mapping from enum values in enum_binlog_stmt_unsafe to error codes.
 
@@ -373,7 +377,15 @@ void Lex_input_stream::body_utf8_append_literal(THD *thd, const LEX_STRING *txt,
 
 void Lex_input_stream::add_digest_token(uint token, Lexer_yystype *yylval) {
   if (m_digest != NULL) {
-    m_digest = digest_add_token(m_digest, token, yylval);
+    /*
+     * Adjust Percona's token value to avoid clash with hint tokens.
+     * See sql/lex.h for additonal info
+     */
+    if(lex_token_array[token].m_percona_token) {
+      m_digest = digest_add_token(m_digest, TOK_PERCONA_ADJUST(token), yylval);
+    } else {
+      m_digest = digest_add_token(m_digest, token, yylval);
+    }
   }
 }
 
@@ -1660,7 +1672,7 @@ static int lex_one_token(Lexer_yystype *yylval, THD *thd) {
           state = MY_LEX_USER_VARIABLE_DELIMITER;
           break;
         }
-      // fallthrough
+        // fallthrough
         /* " used for strings */
         // Fall through.
       case MY_LEX_STRING:  // Incomplete text string
