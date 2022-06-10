@@ -125,7 +125,9 @@ extern "C" void handle_fatal_signal(int sig) {
       "Attempting to collect some information that could help diagnose the "
       "problem.\n"
       "As this is a crash and something is definitely wrong, the information\n"
-      "collection process might fail.\n\n");
+      "collection process might fail.\n"
+      "Please help us make Percona Server better by reporting any\n"
+      "bugs at https://bugs.percona.com/\n\n");
 
   my_safe_printf_stderr("key_buffer_size=%lu\n",
                         (ulong)dflt_key_cache->key_cache_mem_size);
@@ -208,9 +210,10 @@ extern "C" void handle_fatal_signal(int sig) {
   }
   my_safe_printf_stderr(
       "%s",
-      "The manual page at "
-      "http://dev.mysql.com/doc/mysql/en/crashing.html contains\n"
-      "information that should help you find out what is causing the crash.\n");
+      "You may download the Percona Server operations manual by visiting\n"
+      "http://www.percona.com/software/percona-server/. You may find "
+      "information\n"
+      "in the manual which will help you identify the cause of the crash.\n");
 
 #endif /* HAVE_STACKTRACE */
 

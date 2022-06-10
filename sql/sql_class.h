@@ -44,6 +44,7 @@
 #include "m_ctype.h"
 #include "my_alloc.h"
 #include "my_compiler.h"
+#include "my_pointer_arithmetic.h"
 #include "mysql/components/services/mysql_cond_bits.h"
 #include "mysql/components/services/mysql_mutex_bits.h"
 #include "mysql/components/services/psi_idle_bits.h"
@@ -341,6 +342,15 @@ class Query_arena {
   void *mem_calloc(size_t size) {
     void *ptr;
     if ((ptr = alloc_root(mem_root, size))) memset(ptr, 0, size);
+    return ptr;
+  }
+  inline void *mem_aligned_calloc(size_t size, size_t alignment) {
+    size_t unaligned_size = size + alignment;
+    void *ptr = alloc_root(mem_root, unaligned_size);
+    if (!ptr) return nullptr;
+    ptr = reinterpret_cast<void *>(
+        MY_ALIGN(reinterpret_cast<std::uintptr_t>(ptr), alignment));
+    memset(ptr, 0, size);
     return ptr;
   }
   template <typename T>
@@ -1254,6 +1264,8 @@ class THD : public MDL_context_owner,
 #endif
     return m_SSL;
   }
+
+  bool is_ssl() const noexcept { return m_SSL != nullptr; }
 
   /**
     Asserts that the protocol is of type text or binary and then
