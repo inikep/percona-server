@@ -2676,10 +2676,7 @@ err:
 
 void handler::ha_statistic_increment(
     ulonglong System_status_var::*offset) const {
-  if (table && table->in_use) {
-    DBUG_ASSERT(!table->in_use->status_var_aggregated);
-    (table->in_use->status_var.*offset)++;
-  }
+  if (table && table->in_use) (table->in_use->status_var.*offset)++;
 }
 
 THD *handler::ha_thd(void) const {
@@ -5177,10 +5174,11 @@ void handler::update_global_table_stats() {
   if (!table->s || !table->s->table_cache_key.str || !table->s->table_name.str)
     return;
 
-  char key[NAME_LEN * 2 + 2];
   // [db] + '.' + [table]
-  sprintf(key, "%s.%s", table->s->table_cache_key.str,
-          table->s->table_name.str);
+  std::string key{table->s->table_cache_key.str};
+  key.append('.', 1);
+  key.append(table->s->table_name.str);
+  key.shrink_to_fit();
 
   const ulonglong rows_changed_x_indexes =
       rows_changed * (table->s->keys ? table->s->keys : 1);
@@ -5191,8 +5189,8 @@ void handler::update_global_table_stats() {
   if (it == global_table_stats->cend()) {
     global_table_stats->emplace(
         std::piecewise_construct, std::forward_as_tuple(key),
-        std::forward_as_tuple(key, strlen(key), static_cast<int>(ht->db_type),
-                              rows_read, rows_changed, rows_changed_x_indexes));
+        std::forward_as_tuple(static_cast<int>(ht->db_type), rows_read,
+                              rows_changed, rows_changed_x_indexes));
   } else {
     TABLE_STATS *const table_stats = &it->second;
     table_stats->rows_read += rows_read;
@@ -5218,19 +5216,20 @@ void handler::update_global_index_stats() {
 
       if (!key_info->name) continue;
 
-      char key[NAME_LEN * 3 + 3];
       // [db] + '.' + [table] + '.' + [index]
-      sprintf(key, "%s.%s.%s", table->s->table_cache_key.str,
-              table->s->table_name.str, key_info->name);
+      std::string key{table->s->table_cache_key.str};
+      key.append('.', 1);
+      key.append(table->s->table_name.str);
+      key.append('.', 1);
+      key.append(key_info->name);
+      key.shrink_to_fit();
 
       mysql_mutex_lock(&LOCK_global_index_stats);
       const auto &it = global_index_stats->find(key);
       if (it == global_index_stats->cend()) {
-        global_index_stats->emplace(
-            std::piecewise_construct, std::forward_as_tuple(key),
-            std::forward_as_tuple(key, strlen(key), index_rows_read[x]));
+        global_index_stats->emplace(key, index_rows_read[x]);
       } else {
-        it->second.rows_read += index_rows_read[x];
+        it->second += index_rows_read[x];
       }
       mysql_mutex_unlock(&LOCK_global_index_stats);
       index_rows_read[x] = 0;

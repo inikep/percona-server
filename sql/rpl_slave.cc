@@ -2955,8 +2955,6 @@ static bool wait_for_relay_log_space(Relay_log_info *rli) {
 
   @param thd pointer to I/O Thread's Thd.
   @param mi  point to I/O Thread metadata class.
-  @param force_mi_flush force mi flush independent of sync_master_info setting
-
   @param force_flush_mi_info when true, do not respect sync period and flush
                              information.
                              when false, flush will only happen if it is time to
@@ -3024,8 +3022,7 @@ static int write_rotate_to_master_pos_into_relay_log(THD *thd, Master_info *mi,
 
   @return 0 if everything went fine, 1 otherwise.
 */
-static int write_ignored_events_info_to_relay_log(THD *thd, Master_info *mi,
-                                                  bool force_mi_flush) {
+static int write_ignored_events_info_to_relay_log(THD *thd, Master_info *mi) {
   Relay_log_info *rli = mi->rli;
   mysql_mutex_t *end_pos_lock = rli->relay_log.get_binlog_end_pos_lock();
   int error = 0;
@@ -5595,7 +5592,7 @@ err:
     mysql_close(mysql);
     mi->mysql = 0;
   }
-  write_ignored_events_info_to_relay_log(thd, mi, true);
+  write_ignored_events_info_to_relay_log(thd, mi);
   THD_STAGE_INFO(thd, stage_waiting_for_slave_mutex_on_exit);
   mysql_mutex_lock(&mi->run_lock);
   /*
@@ -7448,7 +7445,6 @@ QUEUE_EVENT_RESULT queue_event(Master_info *mi, const char *buf,
       }
 
       new_fdle = dynamic_cast<Format_description_log_event *>(ev);
-
       new_fdle->copy_crypto_data(*(mi->get_mi_description_event()));
 
       if (new_fdle->common_footer->checksum_alg ==
