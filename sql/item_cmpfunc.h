@@ -984,6 +984,8 @@ struct interval_range {
   my_decimal dec;
 };
 
+#ifdef MYSQL_SERVER
+
 class Item_func_interval final : public Item_int_func {
   typedef Item_int_func super;
 
@@ -1920,6 +1922,8 @@ class Item_func_like final : public Item_bool_func2 {
   bool check_covering_prefix_keys(THD *thd);
 };
 
+#endif /* MYSQL_SERVER */
+
 class Item_cond : public Item_bool_func {
   typedef Item_bool_func super;
 
@@ -1983,6 +1987,8 @@ class Item_cond : public Item_bool_func {
   bool is_top_level_item() const { return abort_on_null; }
   bool equality_substitution_analyzer(uchar **) override { return true; }
 };
+
+#ifdef MYSQL_SERVER
 
 /*
   The class Item_equal is used to represent conjunctions of equality
@@ -2244,5 +2250,7 @@ extern Gt_creator gt_creator;
 extern Lt_creator lt_creator;
 extern Ge_creator ge_creator;
 extern Le_creator le_creator;
+
+#endif /* MYSQL_SERVER */
 
 #endif /* ITEM_CMPFUNC_INCLUDED */

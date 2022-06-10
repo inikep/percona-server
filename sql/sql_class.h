@@ -44,6 +44,7 @@
 #include "m_ctype.h"
 #include "my_alloc.h"
 #include "my_compiler.h"
+#include "my_pointer_arithmetic.h"
 #include "mysql/components/services/mysql_cond_bits.h"
 #include "mysql/components/services/mysql_mutex_bits.h"
 #include "mysql/components/services/psi_idle_bits.h"
@@ -341,6 +342,15 @@ class Query_arena {
   void *mem_calloc(size_t size) {
     void *ptr;
     if ((ptr = alloc_root(mem_root, size))) memset(ptr, 0, size);
+    return ptr;
+  }
+  inline void *mem_aligned_calloc(size_t size, size_t alignment) {
+    size_t unaligned_size = size + alignment;
+    void *ptr = alloc_root(mem_root, unaligned_size);
+    if (!ptr) return nullptr;
+    ptr = reinterpret_cast<void *>(
+        MY_ALIGN(reinterpret_cast<std::uintptr_t>(ptr), alignment));
+    memset(ptr, 0, size);
     return ptr;
   }
   template <typename T>
@@ -1255,6 +1265,8 @@ class THD : public MDL_context_owner,
     return m_SSL;
   }
 
+  bool is_ssl() const noexcept { return m_SSL != nullptr; }
+
   /**
     Asserts that the protocol is of type text or binary and then
     returns the m_protocol casted to Protocol_classic. This method
@@ -1482,13 +1494,13 @@ class THD : public MDL_context_owner,
   ulong innodb_page_access;
 
   void mark_innodb_used(ulonglong trx_id) noexcept {
-    DBUG_ASSERT(innodb_trx_id == 0 || innodb_trx_id == trx_id);
-    innodb_trx_id = trx_id;
+    DBUG_ASSERT(innodb_slow_log_enabled());
+    if (trx_id && !is_attachable_transaction_active()) innodb_trx_id = trx_id;
     innodb_was_used = true;
   }
 
   void access_distinct_page(ulong page_id) {
-    if (approx_distinct_pages.test_and_set(mem_root, page_id))
+    if (approx_distinct_pages.test_and_set(&main_mem_root, page_id))
       innodb_page_access++;
   }
 
@@ -1496,10 +1508,7 @@ class THD : public MDL_context_owner,
     return variables.log_slow_verbosity & (1ULL << SLOG_V_INNODB);
   }
 
-  bool innodb_slow_log_data_logged() const noexcept {
-    DBUG_ASSERT(!innodb_was_used || innodb_slow_log_enabled());
-    return innodb_was_used;
-  }
+  bool innodb_slow_log_data_logged() const noexcept { return innodb_was_used; }
 
   /*
     Variable query_plan_flags collects information about query plan entites
@@ -2717,7 +2726,7 @@ class THD : public MDL_context_owner,
   // We don't want to load/unload plugins for unit tests.
   bool m_enable_plugins;
 
-  THD(bool enable_plugins = true);
+  explicit THD(bool enable_plugins = true);
 
   /*
     The THD dtor is effectively split in two:
