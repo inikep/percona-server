@@ -2520,7 +2520,12 @@ int RefIterator<false>::Read() {  // Forward read.
       table()->set_no_row();
       return -1;
     }
-    int error = table()->file->ha_index_read_map(
+    int error = table()->file->prepare_index_key_scan_map(
+        m_ref->key_buff, make_prev_keypart_map(m_ref->key_parts));
+    if (error) {
+      return HandleError(error);
+    }
+    error = table()->file->ha_index_read_map(
         table()->record[0], m_ref->key_buff,
         make_prev_keypart_map(m_ref->key_parts), HA_READ_KEY_EXACT);
     if (error) {

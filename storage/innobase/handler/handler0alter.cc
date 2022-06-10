@@ -2904,10 +2904,7 @@ static void innobase_build_col_map_add(mem_heap_t *heap, dfield_t *dfield,
   const byte *mysql_data = field->ptr;
 
   row_mysql_store_col_in_innobase_format(
-      dfield, buf, true, mysql_data, size, comp,
-      field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED,
-      reinterpret_cast<const byte *>(field->zip_dict_data.str),
-      field->zip_dict_data.length, prebuilt);
+      dfield, buf, true, mysql_data, size, comp);
 }
 
 /** Construct the translation table for reordering, dropping or
@@ -4380,9 +4377,6 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
           field_type |= DATA_LONG_TRUE_VARCHAR;
         }
       }
-
-      if (field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED)
-        field_type |= DATA_COMPRESSED;
 
       if (col_type == DATA_POINT) {
         /* DATA_POINT should be of fixed length,

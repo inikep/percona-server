@@ -432,14 +432,14 @@ enum row_sel_match_mode {
 #ifdef UNIV_DEBUG
 /** Convert a non-SQL-NULL field from Innobase format to MySQL format. */
 #define row_sel_field_store_in_mysql_format(dest, templ, idx, field, src, len, \
-                                            prebuilt, sec)                     \
+                                            sec)                               \
   row_sel_field_store_in_mysql_format_func(dest, templ, idx, field, src, len,  \
-                                           prebuilt, sec)
+                                           sec)
 #else /* UNIV_DEBUG */
 /** Convert a non-SQL-NULL field from Innobase format to MySQL format. */
 #define row_sel_field_store_in_mysql_format(dest, templ, idx, field, src, len, \
-                                            prebuilt, sec)                     \
-  row_sel_field_store_in_mysql_format_func(dest, templ, src, len, prebuilt)
+                                            sec)                               \
+  row_sel_field_store_in_mysql_format_func(dest, templ, src, len)
 #endif /* UNIV_DEBUG */
 
 /** Stores a non-SQL-NULL field in the MySQL format. The counterpart of this
@@ -457,7 +457,6 @@ mysql_col_len, mbminlen, mbmaxlen
                                 or templ->icp_rec_field_no
 @param[in]	data		data to store
 @param[in]	len		length of the data
-@param[in]	prebuilt	use prebuilt->compress_heap only here
 @param[in]	sec_field	secondary index field no if the secondary index
                                 record but the prebuilt template is in
                                 clustered index format and used only for end
@@ -468,8 +467,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
                                               const dict_index_t *index,
                                               ulint field_no,
 #endif /* UNIV_DEBUG */
-                                              const byte *data, ulint len,
-                                              row_prebuilt_t *prebuilt
+                                              const byte *data, ulint len
 #ifdef UNIV_DEBUG
                                               ,
                                               ulint sec_field

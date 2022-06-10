@@ -429,6 +429,11 @@ class Load_log_processor {
           -1)
         return res;
     }
+    char errbuf[MYSYS_STRERROR_SIZE];
+    error(
+        "create_unique_file: "
+        "my_create failed on filename %s, my_errno %d (%s)",
+        filename, my_errno(), my_strerror(errbuf, sizeof(errbuf), my_errno()));
     return -1;
   }
 
@@ -492,6 +497,7 @@ class Load_log_processor {
                                   uint file_id);
 };
 
+static bool opt_compress = false;
 /**
   Process the first event in the sequence of events representing a
   LOAD DATA statement.
@@ -939,13 +945,15 @@ static Exit_status process_event(PRINT_EVENT_INFO *print_event_info,
   IO_CACHE *const head = &print_event_info->head_cache;
 
   /*
-    Format events are not concerned by --offset and such, we always need to
-    read them to be able to process the wanted events.
+    Format and Start encryptions events are not concerned by --offset and such,
+    we always need to read them to be able to process the wanted events.
   */
   if (((rec_count >= offset) &&
        ((my_time_t)(ev->common_header->when.tv_sec) >= start_datetime)) ||
-      (ev_type == binary_log::FORMAT_DESCRIPTION_EVENT)) {
-    if (ev_type != binary_log::FORMAT_DESCRIPTION_EVENT) {
+      (ev_type == binary_log::FORMAT_DESCRIPTION_EVENT) ||
+      (ev_type == binary_log::START_ENCRYPTION_EVENT)) {
+    if (ev_type != binary_log::FORMAT_DESCRIPTION_EVENT &&
+        ev_type != binary_log::START_ENCRYPTION_EVENT) {
       /*
         We have found an event after start_datetime, from now on print
         everything (in case the binlog has timestamps increasing and
@@ -1045,6 +1053,7 @@ static Exit_status process_event(PRINT_EVENT_INFO *print_event_info,
         if (head->error == -1) goto err;
         break;
       }
+        // fallthrough
 
       case binary_log::INTVAR_EVENT: {
         buff_event.event = ev;
@@ -1371,6 +1380,8 @@ static struct my_option my_long_options[] = {
     {"character-sets-dir", OPT_CHARSETS_DIR,
      "Directory for character set files.", &charsets_dir, &charsets_dir, 0,
      GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+    {"compress", 'C', "Use compression in server/client protocol.",
+     &opt_compress, &opt_compress, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
     {"database", 'd', "List entries for just this database (local log only).",
      &database, &database, 0, GET_STR_ALLOC, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
     {"rewrite-db", OPT_REWRITE_DB,
@@ -1838,7 +1849,7 @@ static Exit_status safe_connect() {
 
   if (opt_default_auth && *opt_default_auth)
     mysql_options(mysql, MYSQL_DEFAULT_AUTH, opt_default_auth);
-
+  if (opt_compress) mysql_options(mysql, MYSQL_OPT_COMPRESS, NullS);
   if (opt_protocol)
     mysql_options(mysql, MYSQL_OPT_PROTOCOL, (char *)&opt_protocol);
   if (opt_bind_addr) mysql_options(mysql, MYSQL_OPT_BIND, opt_bind_addr);
@@ -2197,7 +2208,7 @@ static Exit_status dump_remote_log_entries(PRINT_EVENT_INFO *print_event_info,
         (type == binary_log::FORMAT_DESCRIPTION_EVENT)) {
       Binlog_read_error read_error = binlog_event_deserialize(
           reinterpret_cast<unsigned char *>(event_buf), event_len,
-          &glob_description_event, opt_verify_binlog_checksum, &ev);
+          &glob_description_event, opt_verify_binlog_checksum, &ev, force_opt);
 
       if (read_error.has_error()) {
         error("Could not construct log event object: %s", read_error.get_str());
@@ -2495,6 +2506,9 @@ static Exit_status dump_local_log_entries(PRINT_EVENT_INFO *print_event_info,
   for (;;) {
     char llbuff[21];
     my_off_t old_off = mysqlbinlog_file_reader.position();
+
+    binary_log_debug::debug_expect_unknown_event =
+        DBUG_EVALUATE_IF("expect_Unknown_event", true, false);
 
     Log_event *ev = mysqlbinlog_file_reader.read_event_object();
     if (ev == NULL) {

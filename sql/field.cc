@@ -69,9 +69,10 @@
 #include "sql/mysqld.h"  // log_10
 #include "sql/protocol.h"
 #include "sql/psi_memory_key.h"
-#include "sql/rpl_rli.h"          // Relay_log_info
-#include "sql/rpl_slave.h"        // rpl_master_has_bug
-#include "sql/spatial.h"          // Geometry
+#include "sql/rpl_rli.h"    // Relay_log_info
+#include "sql/rpl_slave.h"  // rpl_master_has_bug
+#include "sql/spatial.h"    // Geometry
+#include "sql/sql_base.h"
 #include "sql/sql_class.h"        // THD
 #include "sql/sql_join_buffer.h"  // CACHE_FIELD
 #include "sql/sql_lex.h"
@@ -9603,7 +9604,7 @@ Field *make_field(const Create_field &create_field, TABLE_SHARE *share) {
     length
 */
 
-uint32 Field_blob::char_length() {
+uint32 Field_blob::char_length() const noexcept {
   switch (packlength) {
     case 1:
       return 255;
