@@ -1,7 +1,7 @@
 #include "event_crypt.h"
 
+#include "binlog.h"
 #include "my_byteorder.h"
-#include "sql/binlog_ostream.h"
 
 static bool encrypt_event(uint32 offs, int flags,
                           const Binlog_crypt_data &crypto, uchar *buf,
