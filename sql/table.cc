@@ -296,6 +296,12 @@ char *fn_rext(char *name) {
   return name + strlen(name);
 }
 
+const char *fn_rext(const char *name) {
+  const char *res = strrchr(name, '.');
+  if (res && !strcmp(res, reg_ext)) return res;
+  return name + strlen(name);
+}
+
 TABLE_CATEGORY get_table_category(const LEX_CSTRING &db,
                                   const LEX_CSTRING &name) {
   DBUG_ASSERT(db.str != nullptr);
@@ -725,12 +731,17 @@ void setup_key_part_field(TABLE_SHARE *share, handler *handler_file,
   KEY_PART_INFO *key_part = &keyinfo->key_part[key_part_n];
   Field *field = key_part->field;
 
-  /* Flag field as unique if it is the only keypart in a unique index */
-  if (key_part_n == 0 && key_n != primary_key_n)
+  /* Flag field as unique and/or clustering if it is the only keypart in a
+  unique/clustering index */
+  if (key_part_n == 0 && key_n != primary_key_n) {
     field->set_flag(
         ((keyinfo->flags & HA_NOSAME) && (keyinfo->user_defined_key_parts == 1))
             ? UNIQUE_KEY_FLAG
             : MULTIPLE_KEY_FLAG);
+    if (((keyinfo->flags & HA_CLUSTERING) &&
+         (keyinfo->user_defined_key_parts == 1)))
+      field->set_flag(CLUSTERING_FLAG);
+  }
   if (key_part_n == 0) field->key_start.set_bit(key_n);
   field->m_indexed = true;
 
@@ -1525,6 +1536,17 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
     keyinfo->table = nullptr;  // Updated in open_frm
     if (new_frm_ver >= 3) {
       keyinfo->flags = (uint)uint2korr(strpos) ^ HA_NOSAME;
+      /* Replace HA_FULLTEXT & HA_SPATIAL with HA_CLUSTERING. This way we
+         support TokuDB clustering key definitions without changing the FRM
+         format. */
+      if (keyinfo->flags & HA_SPATIAL && keyinfo->flags & HA_FULLTEXT) {
+        if (!ha_check_storage_engine_flag(share->db_type(),
+                                          HTON_SUPPORTS_CLUSTERED_KEYS))
+          goto err;
+        keyinfo->flags |= HA_CLUSTERING;
+        keyinfo->flags &= ~HA_SPATIAL;
+        keyinfo->flags &= ~HA_FULLTEXT;
+      }
       keyinfo->key_length = (uint)uint2korr(strpos + 2);
       keyinfo->user_defined_key_parts = (uint)strpos[4];
       keyinfo->algorithm = (enum ha_key_alg)strpos[5];
@@ -1998,6 +2020,16 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
     const int pk_off =
         find_type(primary_key_name, &share->keynames, FIND_TYPE_NO_PREFIX);
     uint primary_key = (pk_off > 0 ? pk_off - 1 : MAX_KEY);
+    /*
+      The following if-else is here for MyRocks:
+      set share->primary_key as early as possible, because the return value
+      of ha_rocksdb::index_flags(key, ...) (HA_KEYREAD_ONLY bit in particular)
+      depends on whether the key is the primary key.
+    */
+    if (primary_key < MAX_KEY && share->keys_in_use.is_set(primary_key))
+      share->primary_key = primary_key;
+    else
+      share->primary_key = MAX_KEY;
 
     longlong ha_option = handler_file->ha_table_flags();
     keyinfo = share->key_info;
@@ -2048,6 +2080,13 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
             break;
           }
         }
+
+        /*
+          The following is here for MyRocks. See the comment above
+          about "set share->primary_key as early as possible"
+        */
+        if (primary_key < MAX_KEY && share->keys_in_use.is_set(primary_key))
+          share->primary_key = primary_key;
       }
 
       for (i = 0; i < keyinfo->user_defined_key_parts; key_part++, i++) {
@@ -2150,8 +2189,35 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
         share->max_unique_length =
             std::max(share->max_unique_length, keyinfo->key_length);
     }
-    if (primary_key < MAX_KEY && (share->keys_in_use.is_set(primary_key))) {
-      share->primary_key = primary_key;
+
+    /*
+      The next call is here for MyRocks:  Now, we have filled in field and key
+      definitions, give the storage engine a chance to adjust its properties.
+
+      MyRocks may (and typically does) adjust HA_PRIMARY_KEY_IN_READ_INDEX
+      flag in this call.
+    */
+    if (handler_file->init_with_fields()) goto err;
+
+    if (primary_key < MAX_KEY &&
+        (handler_file->ha_table_flags() & HA_PRIMARY_KEY_IN_READ_INDEX)) {
+      keyinfo = &share->key_info[primary_key];
+      key_part = keyinfo->key_part;
+      for (i = 0; i < keyinfo->user_defined_key_parts; key_part++, i++) {
+        Field *field = key_part->field;
+        /*
+          If this field is part of the primary key and all keys contains
+          the primary key, then we can use any key to find this column
+        */
+        if (field->key_length() == key_part->length &&
+            !field->is_flag_set(BLOB_FLAG))
+          field->part_of_key = share->keys_in_use;
+        if (field->part_of_sortkey.is_set(primary_key))
+          field->part_of_sortkey = share->keys_in_use;
+      }
+    }
+
+    if (share->primary_key != MAX_KEY) {
       /*
         If we are using an integer as the primary key then allow the user to
         refer to it as '_rowid'
@@ -2164,8 +2230,7 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
               (share->key_info[primary_key].key_part[0].fieldnr);
         }
       }
-    } else
-      share->primary_key = MAX_KEY;  // we do not have a primary key
+    }
   } else
     share->primary_key = MAX_KEY;
   my_free(disk_buff);
@@ -2225,6 +2290,8 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
 err:
   my_free(disk_buff);
   my_free(extra_segment_buff);
+  share->fields = 0;
+  share->field = 0;
   destroy(handler_file);
   delete share->name_hash;
   share->name_hash = nullptr;
@@ -3059,6 +3126,10 @@ int open_table_from_share(THD *thd, TABLE_SHARE *share, const char *alias,
   bitmap_init(&outparam->pack_row_tmp_set,
               (my_bitmap_map *)(bitmaps + bitmap_size * 6), share->fields);
   outparam->default_column_bitmaps();
+
+  /* Fill record with default values */
+  if (outparam->record[0] != outparam->s->default_values)
+    restore_record(outparam, s->default_values);
 
   /*
     Process generated columns, if any.

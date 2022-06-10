@@ -2235,6 +2235,8 @@ static bool create_tmp_table_with_fallback(TABLE *table) {
   create_info.options |=
       HA_LEX_CREATE_TMP_TABLE | HA_LEX_CREATE_INTERNAL_TMP_TABLE;
 
+  table->file->adjust_create_info_for_dd(&create_info);
+
   /*
     INNODB's fixed length column size is restricted to 1024. Exceeding this can
     result in incorrect behavior.
@@ -2391,6 +2393,8 @@ void close_tmp_table(THD *thd, TABLE *entry) {
 
   const char *save_proc_info = thd->proc_info;
   THD_STAGE_INFO(thd, stage_removing_tmp_table);
+
+  if (entry->file) thd->tmp_tables_size += entry->file->stats.data_file_length;
 
   // Free blobs, even if no storage handler is assigned
   for (Field **ptr = entry->field; *ptr; ptr++) (*ptr)->mem_free();
