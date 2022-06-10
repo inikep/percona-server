@@ -98,7 +98,7 @@ static THD_timer_info *thd_timer_create(void) {
 */
 
 static bool timer_notify(THD_timer_info *thd_timer) {
-  Find_thd_with_id find_thd_with_id(thd_timer->thread_id);
+  Find_thd_with_id find_thd_with_id(thd_timer->thread_id, false);
   THD *thd = Global_THD_manager::get_instance()->find_thd(&find_thd_with_id);
 
   DBUG_ASSERT(!thd_timer->destroy || !thd_timer->thread_id);
@@ -161,7 +161,8 @@ THD_timer_info *thd_timer_set(THD *thd, THD_timer_info *thd_timer,
   if (thd_timer == nullptr && (thd_timer = thd_timer_create()) == nullptr)
     return nullptr;
 
-  DBUG_ASSERT(!thd_timer->destroy && !thd_timer->thread_id);
+  DBUG_ASSERT(!thd_timer->destroy);
+  DBUG_ASSERT(!thd_timer->thread_id);
 
   /* Mark the notification as pending. */
   thd_timer->thread_id = thd->thread_id();
