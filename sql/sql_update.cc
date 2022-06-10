@@ -831,6 +831,14 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
           error = 1;
           break;
         }
+        if (invoke_table_check_constraints(thd, table)) {
+          if (thd->is_error()) {
+            error = 1;
+            break;
+          }
+          // continue when IGNORE clause is used.
+          continue;
+        }
         found_rows++;
 
         if (!records_are_comparable(table) || compare_records(table)) {

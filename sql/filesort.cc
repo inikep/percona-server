@@ -419,6 +419,8 @@ bool filesort(THD *thd, Filesort *filesort, bool sort_positions,
   else
     thd->inc_status_sort_scan();
 
+  thd->query_plan_flags |= QPLAN_FILESORT;
+
   if (table->s->tmp_table)
     table->file->info(HA_STATUS_VARIABLE);  // Get record count
 
@@ -510,6 +512,8 @@ bool filesort(THD *thd, Filesort *filesort, bool sort_positions,
     ha_rows rows_in_chunk = param.using_pq ? pq.num_elements() : num_rows_found;
     if (save_index(&param, rows_in_chunk, &table->sort, sort_result)) goto err;
   } else {
+    thd->query_plan_flags |= QPLAN_FILESORT_DISK;
+
     // If deduplicating, we'll need to remember the previous key somehow.
     if (filesort->m_remove_duplicates) {
       param.m_last_key_seen =
@@ -2060,6 +2064,7 @@ static int merge_buffers(THD *thd, Sort_param *param, IO_CACHE *from_file,
   DBUG_ENTER("merge_buffers");
 
   thd->inc_status_sort_merge_passes();
+  thd->query_plan_fsort_passes++;
   if (param->not_killable) {
     killed = &not_killable;
     not_killable = THD::NOT_KILLED;
