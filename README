@@ -1,20 +1,21 @@
+Percona Server 8.0
 Copyright (c) 2000, 2021, Oracle and/or its affiliates.
 
-This is a release of MySQL, an SQL database server.
+Percona Server is a branch of MySQL 8.0 bringing higher performance,
+reliability and more features.
 
-License information can be found in the LICENSE file.
+https://www.percona.com/software/percona-server/
 
-In test packages where this file is renamed README-test, the license
-file is renamed LICENSE-test.
+Documentation: https://www.percona.com/doc/percona-server/8.0
 
-This distribution may include materials developed by third parties.
-For license and attribution notices for these materials,
-please refer to the LICENSE file.
+Contributing Guide for Documentation: https://github.com/percona/percona-server/blob/8.0/doc/source/contributing.md
 
-For further information on MySQL or additional documentation, visit
-  http://dev.mysql.com/doc/
+Bug Tracker: https://jira.percona.com/projects/PS
 
-For additional downloads and the source of MySQL, visit
-  http://dev.mysql.com/downloads/
+Sources: https://github.com/percona/percona-server
 
-MySQL is brought to you by the MySQL team at Oracle.
+Get Technical Forum Help: https://forums.percona.com/c/mysql-mariadb/percona-server-for-mysql-8-0/
+
+Release Notes: https://www.percona.com/doc/percona-server/LATEST/release-notes/release-notes_index.html
+
+Release Announcements:  https://forums.percona.com/c/percona-news/software-new-releases/
