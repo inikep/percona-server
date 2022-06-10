@@ -1576,7 +1576,7 @@ char *make_query_log_name(char *buff, enum_log_table_type log_type) {
                    MYF(MY_UNPACK_FILENAME | MY_REPLACE_EXT));
 }
 
-bool log_slow_applicable(THD *thd) {
+bool log_slow_applicable(THD *thd, int sp_sql_command) {
   DBUG_ENTER("log_slow_applicable");
 
   /*

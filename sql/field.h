@@ -190,7 +190,6 @@ enum column_format_type {
   COLUMN_FORMAT_TYPE_DEFAULT = 0,   /* Not specified (use engine default) */
   COLUMN_FORMAT_TYPE_FIXED = 1,     /* FIXED format */
   COLUMN_FORMAT_TYPE_DYNAMIC = 2,   /* DYNAMIC format */
-  COLUMN_FORMAT_TYPE_COMPRESSED = 3 /* COMPRESSED format*/
 };
 
 /**
@@ -1648,7 +1647,9 @@ class Field : public Proto_field {
   longlong convert_decimal2longlong(const my_decimal *val, bool unsigned_flag,
                                     bool *has_overflow);
   /* The max. number of characters */
-  virtual uint32 char_length() { return field_length / charset()->mbmaxlen; }
+  virtual uint32 char_length() const {
+    return field_length / charset()->mbmaxlen;
+  }
 
   virtual geometry_type get_geometry_type() const {
     /* shouldn't get here. */
@@ -1686,6 +1687,7 @@ class Field : public Proto_field {
 
   void set_column_format(column_format_type column_format_arg) {
     DBUG_ASSERT(column_format() == COLUMN_FORMAT_TYPE_DEFAULT);
+    flags &= ~(FIELD_FLAGS_COLUMN_FORMAT_MASK);
     flags |= (column_format_arg << FIELD_FLAGS_COLUMN_FORMAT);
   }
 
@@ -3808,7 +3810,7 @@ class Field_blob : public Field_longstr {
     memcpy(ptr, length, packlength);
     memcpy(ptr + packlength, &data, sizeof(char *));
   }
-  void set_ptr_offset(my_ptrdiff_t ptr_diff, uint32 length, uchar *data) {
+  void set_ptr_offset(my_ptrdiff_t ptr_diff, uint32 length, const uchar *data) {
     uchar *ptr_ofs = ptr + ptr_diff;
     store_length(ptr_ofs, packlength, length);
     memcpy(ptr_ofs + packlength, &data, sizeof(char *));
@@ -3854,7 +3856,7 @@ class Field_blob : public Field_longstr {
     return charset() == &my_charset_bin ? false : true;
   }
   uint32 max_display_length() const override;
-  uint32 char_length() override;
+  uint32 char_length() const noexcept override;
   bool copy_blob_value(MEM_ROOT *mem_root);
   uint is_equal(const Create_field *new_field) override;
   bool is_text_key_type() const override { return binary() ? false : true; }

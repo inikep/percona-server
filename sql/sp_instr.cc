@@ -891,7 +891,7 @@ bool sp_instr_stmt::execute(THD *thd, uint *nextp) {
     thd->send_statement_status();
   }
 
-  if (!rc && unlikely(log_slow_applicable(thd))) {
+  if (!rc && unlikely(log_slow_applicable(thd, get_command()))) {
     /*
       We actually need to write the slow log. Check whether we already
       called subst_spvars() above, otherwise, do it now.  In the highly
