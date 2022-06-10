@@ -1685,7 +1685,7 @@ static int lex_one_token(Lexer_yystype *yylval, THD *thd) {
           state = MY_LEX_USER_VARIABLE_DELIMITER;
           break;
         }
-      // fallthrough
+        // fallthrough
         /* " used for strings */
         // Fall through.
       case MY_LEX_STRING:  // Incomplete text string

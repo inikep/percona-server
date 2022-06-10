@@ -1,4 +1,4 @@
-/* Copyright (c) 2001, 2018, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2001, 2019, Oracle and/or its affiliates. All rights reserved.
    Copyright (c) 2018, Percona and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
@@ -663,7 +663,9 @@ void Unique::reset() {
   */
   if (elements) {
     file_ptrs.clear();
-    reinit_io_cache(&file, WRITE_CACHE, 0L, 0, 1);
+    MY_ATTRIBUTE((unused))
+    int reinit_res = reinit_io_cache(&file, WRITE_CACHE, 0L, 0, 1);
+    DBUG_ASSERT(reinit_res == 0);
   }
   /*
     If table is used - finish index access and delete all records.
