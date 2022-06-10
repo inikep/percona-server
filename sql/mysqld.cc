@@ -2340,10 +2340,8 @@ static void set_proxy() {
     memset(&net, 0, sizeof(net));
     net.family = AF_INET;
     vio_proxy_protocol_add(net);
-#ifdef HAVE_IPV6
     net.family = AF_INET6;
     vio_proxy_protocol_add(net);
-#endif
     return;
   }
 
@@ -2370,11 +2368,9 @@ static void set_proxy() {
     /* Try to convert to ipv4. */
     if (inet_pton(AF_INET, buffer, &net.addr.in)) net.family = AF_INET;
 
-#ifdef HAVE_IPV6
     /* Try to convert to ipv6. */
     else if (inet_pton(AF_INET6, buffer, &net.addr.in6))
       net.family = AF_INET6;
-#endif
 
     else {
       sql_print_error(
@@ -2405,25 +2401,18 @@ static void set_proxy() {
             "directive.");
         unireg_abort(1);
       }
-#ifdef HAVE_IPV6
       if (net.family == AF_INET6 && bits > 128) {
         sql_print_error(
             "Bad IPv6 mask in 'proxy_protocol_networks' "
             "directive.");
         unireg_abort(1);
       }
-#endif
     } else {
       if (net.family == AF_INET)
         bits = 32;
       else {
-#ifdef HAVE_IPV6
         DBUG_ASSERT(net.family == AF_INET6);
         bits = 128;
-#else
-        DBUG_ASSERT(0);
-        bits = 0;
-#endif
       }
     }
 
@@ -2448,10 +2437,7 @@ static void set_proxy() {
             "The network mask hides a part of the address for "
             "'%s/%d' in 'proxy_protocol_networks' directive.",
             buffer, bits);
-    }
-#ifdef HAVE_IPV6
-    else {
-
+    } else {
       /* Process IPv6 mask */
       memset(&net.mask.in6, 0, sizeof(net.mask.in6));
       if (bits > 0 && bits < 32) {
@@ -2496,7 +2482,6 @@ static void set_proxy() {
             buffer, bits);
       }
     }
-#endif
 
     if (*p != '\0' && *p != ',') {
       sql_print_error("Bad syntax in 'proxy_protocol_networks' directive.");
@@ -6184,15 +6169,15 @@ int mysqld_main(int argc, char **argv)
     }
   }
 #else
-    /*
-      Other provider of the instrumentation interface should
-      initialize PSI_hook here:
-      - HAVE_PSI_INTERFACE is for the instrumentation interface
-      - WITH_PERFSCHEMA_STORAGE_ENGINE is for one implementation
-        of the interface,
-      but there could be alternate implementations, which is why
-      these two defines are kept separate.
-    */
+  /*
+    Other provider of the instrumentation interface should
+    initialize PSI_hook here:
+    - HAVE_PSI_INTERFACE is for the instrumentation interface
+    - WITH_PERFSCHEMA_STORAGE_ENGINE is for one implementation
+      of the interface,
+    but there could be alternate implementations, which is why
+    these two defines are kept separate.
+  */
 #endif /* WITH_PERFSCHEMA_STORAGE_ENGINE */
 
 #ifdef HAVE_PSI_INTERFACE
@@ -7626,6 +7611,8 @@ struct my_option my_long_early_options[] = {
     {"skip-stack-trace", OPT_SKIP_STACK_TRACE,
      "Don't print a stack trace on failure.", 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0,
      0, 0, 0, 0},
+    /* We must always support the next option to make scripts like mysqltest
+       easier to do */
     {"gdb", 0, "Set up signals usable for debugging.", &opt_debugging,
      &opt_debugging, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
     {0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}};
@@ -7712,8 +7699,6 @@ struct my_option my_long_options[] = {
      "--skip-external-locking.",
      &opt_external_locking, &opt_external_locking, 0, GET_BOOL, NO_ARG, 0, 0, 0,
      0, 0, 0},
-/* We must always support the next option to make scripts like mysqltest
-   easier to do */
 #if defined(HAVE_LINUX_LARGE_PAGES) || defined(HAVE_SOLARIS_LARGE_PAGES)
     {"super-large-pages", 0, "Enable support for super large pages.",
      &opt_super_large_pages, &opt_super_large_pages, 0, GET_BOOL, OPT_ARG, 0, 0,
