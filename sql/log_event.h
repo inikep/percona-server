@@ -42,6 +42,8 @@
 #include <string>
 
 #include "lex_string.h"
+#include "m_string.h"  // native_strncasecmp
+#include "my_aes.h"
 #include "libbinlogevents/include/binlog_event.h"
 #include "libbinlogevents/include/control_events.h"
 #include "libbinlogevents/include/load_data_events.h"
@@ -1099,7 +1101,8 @@ class Log_event {
         */
         (get_type_code() == binary_log::ROTATE_EVENT &&
          ((server_id == (uint32)::server_id) ||
-          (common_header->log_pos == 0 && mts_in_group))))
+          (common_header->log_pos == 0 && mts_in_group))) ||
+        (get_type_code() == binary_log::START_ENCRYPTION_EVENT))
       return EVENT_EXEC_ASYNC;
     else if (is_mts_sequential_exec())
       return EVENT_EXEC_SYNC;

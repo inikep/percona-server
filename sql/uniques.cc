@@ -193,8 +193,8 @@ static int merge_buffers(THD *thd, Uniq_param *param, IO_CACHE *from_file,
   Priority_queue<Merge_chunk *,
                  std::vector<Merge_chunk *, Malloc_allocator<Merge_chunk *>>,
                  decltype(greater)>
-  queue(greater,
-        Malloc_allocator<Merge_chunk *>(key_memory_Filesort_info_merge));
+      queue(greater,
+            Malloc_allocator<Merge_chunk *>(key_memory_Filesort_info_merge));
 
   if (queue.reserve(chunk_array.size())) return 1;
 
@@ -657,7 +657,9 @@ void Unique::reset() {
   */
   if (elements) {
     file_ptrs.clear();
-    reinit_io_cache(&file, WRITE_CACHE, 0L, false, true);
+    MY_ATTRIBUTE((unused))
+    int reinit_res = reinit_io_cache(&file, WRITE_CACHE, 0L, false, true);
+    DBUG_ASSERT(reinit_res == 0);
   }
   /*
     If table is used - finish index access and delete all records.

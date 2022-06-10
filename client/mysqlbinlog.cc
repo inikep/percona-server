@@ -436,6 +436,11 @@ class Load_log_processor {
           -1)
         return res;
     }
+    char errbuf[MYSYS_STRERROR_SIZE];
+    error(
+        "create_unique_file: "
+        "my_create failed on filename %s, my_errno %d (%s)",
+        filename, my_errno(), my_strerror(errbuf, sizeof(errbuf), my_errno()));
     return -1;
   }
 
@@ -950,13 +955,15 @@ static Exit_status process_event(PRINT_EVENT_INFO *print_event_info,
   IO_CACHE *const head = &print_event_info->head_cache;
 
   /*
-    Format events are not concerned by --offset and such, we always need to
-    read them to be able to process the wanted events.
+    Format and Start encryptions events are not concerned by --offset and such,
+    we always need to read them to be able to process the wanted events.
   */
   if (((rec_count >= offset) &&
        ((my_time_t)(ev->common_header->when.tv_sec) >= start_datetime)) ||
-      (ev_type == binary_log::FORMAT_DESCRIPTION_EVENT)) {
-    if (ev_type != binary_log::FORMAT_DESCRIPTION_EVENT) {
+      (ev_type == binary_log::FORMAT_DESCRIPTION_EVENT) ||
+      (ev_type == binary_log::START_ENCRYPTION_EVENT)) {
+    if (ev_type != binary_log::FORMAT_DESCRIPTION_EVENT &&
+        ev_type != binary_log::START_ENCRYPTION_EVENT) {
       /*
         We have found an event after start_datetime, from now on print
         everything (in case the binlog has timestamps increasing and
@@ -1056,6 +1063,7 @@ static Exit_status process_event(PRINT_EVENT_INFO *print_event_info,
         if (head->error == -1) goto err;
         break;
       }
+        // fallthrough
 
       case binary_log::INTVAR_EVENT: {
         buff_event.event = ev;
