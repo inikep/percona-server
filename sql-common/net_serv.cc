@@ -2230,6 +2230,7 @@ ulong my_net_read(NET *net) {
 void my_net_set_read_timeout(NET *net, uint timeout) {
   DBUG_TRACE;
   DBUG_PRINT("enter", ("timeout: %d", timeout));
+  if (net->read_timeout == timeout) return;
   net->read_timeout = timeout;
   if (net->vio) vio_timeout(net->vio, 0, timeout);
 }
@@ -2237,6 +2238,7 @@ void my_net_set_read_timeout(NET *net, uint timeout) {
 void my_net_set_write_timeout(NET *net, uint timeout) {
   DBUG_TRACE;
   DBUG_PRINT("enter", ("timeout: %d", timeout));
+  if (net->write_timeout == timeout) return;
   net->write_timeout = timeout;
   if (net->vio) vio_timeout(net->vio, 1, timeout);
 }
