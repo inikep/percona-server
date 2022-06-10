@@ -1498,6 +1498,18 @@ CHARSET_INFO *warn_on_deprecated_user_defined_collation(
   list ident_keywords_unambiguous lest they become reserved keywords.
 */
 
+/*
+   Tokens from Percona Server 5.7 and older
+*/
+%token<lexer.keyword> CLIENT_STATS_SYM 1301
+%token<lexer.keyword> INDEX_STATS_SYM 1304
+%token<lexer.keyword> TABLE_STATS_SYM 1305
+%token<lexer.keyword> THREAD_STATS_SYM 1306
+%token<lexer.keyword> USER_STATS_SYM 1307
+
+/*
+   Tokens from Percona Server 8.0
+*/
 
 /*
   Precedence rules used to resolve the ambiguity when using keywords as idents
@@ -7604,9 +7616,9 @@ column_attribute:
             $$= NEW_PTN PT_unique_key_column_attr(@$);
           }
         | COMMENT_SYM TEXT_STRING_sys
-          {
+        {
             $$= NEW_PTN PT_comment_column_attr(@$, to_lex_cstring($2));
-          }
+        }
         | COLLATE_SYM collation_name
           {
             $$= NEW_PTN PT_collate_column_attr(@$, $2);
@@ -7969,7 +7981,7 @@ keys_or_index:
         ;
 
 opt_unique:
-          %empty { $$= KEYTYPE_MULTIPLE; }
+          %empty       { $$= KEYTYPE_MULTIPLE; }
         | UNIQUE_SYM   { $$= KEYTYPE_UNIQUE; }
         ;
 
@@ -9528,6 +9540,13 @@ start_transaction_option:
           WITH CONSISTENT_SYM SNAPSHOT_SYM
           {
             $$= MYSQL_START_TRANS_OPT_WITH_CONS_SNAPSHOT;
+          }
+        | WITH CONSISTENT_SYM SNAPSHOT_SYM FROM SESSION_SYM expr
+          {
+            ITEMIZE($6, &$6);
+
+            $$= MYSQL_START_TRANS_OPT_WITH_CONS_SNAPSHOT;
+            Lex->donor_transaction_id= $6;
           }
         | READ_SYM ONLY_SYM
           {
@@ -14791,6 +14810,16 @@ flush_option:
           { Lex->type|= REFRESH_LOG; }
         | STATUS_SYM
           { Lex->type|= REFRESH_STATUS; }
+        | CLIENT_STATS_SYM
+          { Lex->type|= REFRESH_CLIENT_STATS; }
+        | USER_STATS_SYM
+          { Lex->type|= REFRESH_USER_STATS; }
+        | THREAD_STATS_SYM
+          { Lex->type|= REFRESH_THREAD_STATS; }
+        | TABLE_STATS_SYM
+          { Lex->type|= REFRESH_TABLE_STATS; }
+        | INDEX_STATS_SYM
+          { Lex->type|= REFRESH_INDEX_STATS; }
         | RESOURCES
           { Lex->type|= REFRESH_USER_RESOURCES; }
         | OPTIMIZER_COSTS_SYM
@@ -16012,6 +16041,7 @@ ident_keywords_unambiguous:
         | CIPHER_SYM
         | CLASS_ORIGIN_SYM
         | CLIENT_SYM
+        | CLIENT_STATS_SYM
         | CLOSE_SYM
         | COALESCE
         | CODE_SYM
@@ -16120,6 +16150,7 @@ ident_keywords_unambiguous:
         | IDENTIFIED_SYM
         | IGNORE_SERVER_IDS_SYM
         | INACTIVE_SYM
+        | INDEX_STATS_SYM
         | INDEXES
         | INITIAL_SIZE_SYM
         | INITIAL_SYM
@@ -16358,11 +16389,13 @@ ident_keywords_unambiguous:
         | TABLESPACE_SYM
         | TABLE_CHECKSUM_SYM
         | TABLE_NAME_SYM
+        | TABLE_STATS_SYM
         | TEMPORARY
         | TEMPTABLE_SYM
         | TEXT_SYM
         | THAN_SYM
         | THREAD_PRIORITY_SYM
+        | THREAD_STATS_SYM
         | TIES_SYM
         | TIMESTAMP_ADD
         | TIMESTAMP_DIFF
@@ -16385,6 +16418,7 @@ ident_keywords_unambiguous:
         | URI_SYM
         | URL_SYM
         | USER
+        | USER_STATS_SYM
         | USE_FRM
         | VALIDATE_SYM
         | VALIDATION_SYM
@@ -16822,20 +16856,28 @@ set_expr_or_default:
 /* Lock function */
 
 lock:
-          LOCK_SYM table_or_tables
+          LOCK_SYM lock_variant
           {
-            LEX *lex= Lex;
-
-            if (lex->sphead)
+            if (Lex->sphead)
             {
               my_error(ER_SP_BADSTATEMENT, MYF(0), "LOCK");
               MYSQL_YYABORT;
             }
-            lex->sql_command= SQLCOM_LOCK_TABLES;
+          }
+        ;
+
+lock_variant:
+        TABLES FOR_SYM BACKUP_SYM
+          {
+            Lex->sql_command= SQLCOM_LOCK_TABLES_FOR_BACKUP;
+          }
+        | table_or_tables
+          {
+            Lex->sql_command= SQLCOM_LOCK_TABLES;
           }
           table_lock_list
           {}
-        | LOCK_SYM INSTANCE_SYM FOR_SYM BACKUP_SYM
+        | INSTANCE_SYM FOR_SYM BACKUP_SYM
           {
             Lex->sql_command= SQLCOM_LOCK_INSTANCE;
             Lex->m_sql_cmd= NEW_PTN Sql_cmd_lock_instance();
@@ -16889,25 +16931,27 @@ lock_option:
         ;
 
 unlock:
-          UNLOCK_SYM
+          UNLOCK_SYM unlock_variant
           {
-            LEX *lex= Lex;
-
-            if (lex->sphead)
+            if (Lex->sphead)
             {
               my_error(ER_SP_BADSTATEMENT, MYF(0), "UNLOCK");
               MYSQL_YYABORT;
             }
-            lex->sql_command= SQLCOM_UNLOCK_TABLES;
           }
-          table_or_tables
-          {}
-        | UNLOCK_SYM INSTANCE_SYM
+	;
+
+unlock_variant:
+          INSTANCE_SYM
           {
             Lex->sql_command= SQLCOM_UNLOCK_INSTANCE;
             Lex->m_sql_cmd= NEW_PTN Sql_cmd_unlock_instance();
             if (Lex->m_sql_cmd == nullptr)
               MYSQL_YYABORT; // OOM
+          }
+        | table_or_tables
+          {
+            Lex->sql_command= SQLCOM_UNLOCK_TABLES;
           }
         ;
 

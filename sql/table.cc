@@ -751,11 +751,12 @@ void setup_key_part_field(TABLE_SHARE *share, handler *handler_file,
   Field *field = key_part->field;
 
   /* Flag field as unique if it is the only keypart in a unique index */
-  if (key_part_n == 0 && key_n != primary_key_n)
+  if (key_part_n == 0 && key_n != primary_key_n) {
     field->set_flag(
         ((keyinfo->flags & HA_NOSAME) && (keyinfo->user_defined_key_parts == 1))
             ? UNIQUE_KEY_FLAG
             : MULTIPLE_KEY_FLAG);
+  }
   if (key_part_n == 0) field->key_start.set_bit(key_n);
   field->m_indexed = true;
 
@@ -2227,6 +2228,16 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
         share->max_unique_length =
             std::max(share->max_unique_length, keyinfo->key_length);
     }
+
+    /*
+      The next call is here for MyRocks:  Now, we have filled in field and key
+      definitions, give the storage engine a chance to adjust its properties.
+
+      MyRocks may (and typically does) adjust HA_PRIMARY_KEY_IN_READ_INDEX
+      flag in this call.
+    */
+    if (handler_file->init_with_fields()) goto err;
+
     if (primary_key < MAX_KEY && (share->keys_in_use.is_set(primary_key))) {
       share->primary_key = primary_key;
       /*
@@ -2302,6 +2313,8 @@ static int open_binary_frm(THD *thd, TABLE_SHARE *share,
 err:
   my_free(disk_buff);
   my_free(extra_segment_buff);
+  share->fields = 0;
+  share->field = 0;
   if (handler_file != nullptr) ::destroy_at(handler_file);
 
   open_table_error(thd, share, error, my_errno());
@@ -3122,6 +3135,10 @@ int open_table_from_share(THD *thd, TABLE_SHARE *share, const char *alias,
     error_reported = true;
     goto err;
   }
+
+  /* Fill record with default values */
+  if (outparam->record[0] != outparam->s->default_values)
+    restore_record(outparam, s->default_values);
 
   /*
     Process generated columns, if any.
