@@ -71,6 +71,8 @@ class Binlog_read_error {
     CANNOT_GET_FILE_PASSWORD,
     READ_ENCRYPTED_LOG_FILE_IS_NOT_SUPPORTED,
     ERROR_DECRYPTING_FILE,
+    // Invalid starting offset e.g. "SHOW BINLOG EVENTS FROM 5"
+    INVALID_OFFSET,
     // Failed to initialize binlog decryption
     DECRYPT_PRE_8_0_14_INIT_FAILURE
   };
