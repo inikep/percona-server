@@ -303,6 +303,7 @@ class Basic_binlog_file_reader {
     m_data_istream.reset_crypto();
 
     Format_description_log_event *fd = read_fdle(offset);
+
     if (!fd) return has_fatal_error();
 
     if (position() < offset && seek(offset)) {
