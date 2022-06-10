@@ -22,6 +22,7 @@
 
 #include "sql/binlog_reader.h"
 #include "my_byteorder.h"
+#include "sql/event_crypt.h"
 #include "sql/log_event.h"
 
 unsigned char *Default_binlog_event_allocator::allocate(size_t size) {
