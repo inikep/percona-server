@@ -88,7 +88,7 @@
 #include "sql/sql_list.h"
 #include "sql/sql_optimizer.h"  // JOIN
 #include "sql/sql_select.h"
-#include "sql/sql_tmp_table.h"   // tmp tables
+#include "sql/sql_tmp_table.h"  // tmp tables
 #include "sql/table_function.h"  // Table_function
 #include "sql/thd_raii.h"
 #include "sql/timing_iterator.h"
@@ -670,6 +670,7 @@ bool Query_expression::optimize(THD *thd, TABLE *materialize_destination,
   if (query_result() != nullptr) query_result()->estimated_rowcount = 0;
 
   for (Query_block *sl = first_query_block(); sl; sl = sl->next_query_block()) {
+    assert(cleaned == UC_DIRTY);
     thd->lex->set_current_query_block(sl);
 
     // LIMIT is required for optimization
@@ -1295,7 +1296,14 @@ void Query_expression::cleanup(THD *thd, bool full) {
 
   assert(thd == current_thd);
 
-  if (cleaned >= (full ? UC_CLEAN : UC_PART_CLEAN)) return;
+  if (cleaned >= (full ? UC_CLEAN : UC_PART_CLEAN)) {
+#ifndef NDEBUG
+    if (cleaned == UC_CLEAN)
+      for (Query_block *qb = first_query_block(); qb; qb = qb->next_query_block())
+        assert(!qb->join);
+#endif
+    return;
+  }
 
   cleaned = (full ? UC_CLEAN : UC_PART_CLEAN);
 
