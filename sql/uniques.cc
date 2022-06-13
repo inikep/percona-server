@@ -337,7 +337,9 @@ end:
   DBUG_RETURN(error);
 } /* merge_buffers */
 
-int unique_write_to_file(uchar *key, element_count, Unique *unique) {
+int unique_write_to_file(void *key_, element_count, void *unique_) {
+  auto *const key = static_cast<uchar *>(key_);
+  auto *const unique = static_cast<Unique *>(unique_);
   /*
     Use unique->size (size of element stored in the tree) and not
     unique->tree.size_of_element. The latter is different from unique->size
@@ -347,7 +349,9 @@ int unique_write_to_file(uchar *key, element_count, Unique *unique) {
   return my_b_write(&unique->file, key, unique->size) ? 1 : 0;
 }
 
-int unique_write_to_ptrs(uchar *key, element_count, Unique *unique) {
+int unique_write_to_ptrs(void *key_, element_count, void *unique_) {
+  auto *const key = static_cast<uchar *>(key_);
+  auto *const unique = static_cast<Unique *>(unique_);
   memcpy(unique->record_pointers, key, unique->size);
   unique->record_pointers += unique->size;
   return 0;
@@ -634,8 +638,7 @@ bool Unique::flush() {
   file_ptr.set_rowcount(tree.elements_in_tree);
   file_ptr.set_file_position(my_b_tell(&file));
 
-  if (tree_walk(&tree, (tree_walk_action)unique_write_to_file, (void *)this,
-                left_root_right) ||
+  if (tree_walk(&tree, unique_write_to_file, (void *)this, left_root_right) ||
       file_ptrs.push_back(file_ptr))
     return 1;
   delete_tree(&tree);
@@ -897,8 +900,7 @@ bool Unique::get(TABLE *table) {
         (uchar *)my_malloc(key_memory_Filesort_info_record_pointers,
                            size * tree.elements_in_tree, MYF(0)));
     if ((record_pointers = table->unique_result.sorted_result.get())) {
-      (void)tree_walk(&tree, (tree_walk_action)unique_write_to_ptrs, this,
-                      left_root_right);
+      (void)tree_walk(&tree, unique_write_to_ptrs, this, left_root_right);
       return 0;
     }
   }

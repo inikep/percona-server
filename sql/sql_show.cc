@@ -2665,7 +2665,7 @@ int send_user_stats(THD *thd, const user_stats_t &all_user_stats,
   for (const auto &it : all_user_stats) {
     restore_record(table, s->default_values);
     const USER_STATS *const user_stats = &it.second;
-    table->field[0]->store(user_stats->user, strlen(user_stats->user),
+    table->field[0]->store(it.first.c_str(), it.first.length(),
                            system_charset_info);
     table->field[1]->store(user_stats->total_connections, true);
     table->field[2]->store(user_stats->concurrent_connections, true);
@@ -2747,8 +2747,8 @@ int send_thread_stats(THD *thd, const thread_stats_t &all_thread_stats,
   1 - error
 */
 
-int fill_schema_user_stats(THD *thd, TABLE_LIST *tables,
-                           Item *cond MY_ATTRIBUTE((unused))) noexcept {
+static int fill_schema_user_stats(THD *thd, TABLE_LIST *tables,
+                                  Item *cond MY_ATTRIBUTE((unused))) noexcept {
   DBUG_ENTER("fill_schema_user_stats");
 
   if (check_global_access(thd, SUPER_ACL | PROCESS_ACL)) DBUG_RETURN(1);
@@ -2780,8 +2780,8 @@ int fill_schema_user_stats(THD *thd, TABLE_LIST *tables,
   1 - error
 */
 
-int fill_schema_client_stats(THD *thd, TABLE_LIST *tables,
-                             Item *cond MY_ATTRIBUTE((unused))) noexcept {
+static int fill_schema_client_stats(
+    THD *thd, TABLE_LIST *tables, Item *cond MY_ATTRIBUTE((unused))) noexcept {
   DBUG_ENTER("fill_schema_client_stats");
 
   if (check_global_access(thd, SUPER_ACL | PROCESS_ACL)) DBUG_RETURN(1);
@@ -2799,8 +2799,8 @@ int fill_schema_client_stats(THD *thd, TABLE_LIST *tables,
   DBUG_RETURN(result);
 }
 
-int fill_schema_thread_stats(THD *thd, TABLE_LIST *tables,
-                             Item *cond MY_ATTRIBUTE((unused))) noexcept {
+static int fill_schema_thread_stats(
+    THD *thd, TABLE_LIST *tables, Item *cond MY_ATTRIBUTE((unused))) noexcept {
   DBUG_ENTER("fill_schema_thread_stats");
 
   if (check_global_access(thd, SUPER_ACL | PROCESS_ACL)) DBUG_RETURN(1);
@@ -2818,8 +2818,8 @@ int fill_schema_thread_stats(THD *thd, TABLE_LIST *tables,
 }
 
 // Sends the global table stats back to the client.
-int fill_schema_table_stats(THD *thd, TABLE_LIST *tables,
-                            Item *cond MY_ATTRIBUTE((unused))) {
+static int fill_schema_table_stats(THD *thd, TABLE_LIST *tables,
+                                   Item *cond MY_ATTRIBUTE((unused))) {
   DBUG_ENTER("fill_schema_table_stats");
 
   TABLE *const table = tables->table;
@@ -2827,10 +2827,10 @@ int fill_schema_table_stats(THD *thd, TABLE_LIST *tables,
   mysql_mutex_lock(&LOCK_global_table_stats);
   for (const auto &it : *global_table_stats) {
     restore_record(table, s->default_values);
-    const TABLE_STATS *const table_stats = &it.second;
 
-    char *table_full_name = thd->mem_strdup(table_stats->table);
+    char *table_full_name = thd->mem_strdup(it.first.c_str());
     const char *const table_schema = strsep(&table_full_name, ".");
+    const TABLE_STATS *const table_stats = &it.second;
 
     TABLE_LIST tmp_table;
     memset(reinterpret_cast<char *>(&tmp_table), 0, sizeof(tmp_table));
@@ -2860,17 +2860,16 @@ int fill_schema_table_stats(THD *thd, TABLE_LIST *tables,
 }
 
 // Sends the global index stats back to the client.
-int fill_schema_index_stats(THD *thd, TABLE_LIST *tables,
-                            Item *cond MY_ATTRIBUTE((unused))) {
+static int fill_schema_index_stats(THD *thd, TABLE_LIST *tables,
+                                   Item *cond MY_ATTRIBUTE((unused))) {
   TABLE *const table = tables->table;
   DBUG_ENTER("fill_schema_index_stats");
 
   mysql_mutex_lock(&LOCK_global_index_stats);
   for (const auto &it : *global_index_stats) {
     restore_record(table, s->default_values);
-    const INDEX_STATS *const index_stats = &it.second;
 
-    char *index_full_name = thd->mem_strdup(index_stats->index);
+    char *index_full_name = thd->mem_strdup(it.first.c_str());
     const char *const table_schema = strsep(&index_full_name, ".");
     const char *const table_name = strsep(&index_full_name, ".");
 
@@ -2889,7 +2888,7 @@ int fill_schema_index_stats(THD *thd, TABLE_LIST *tables,
     table->field[1]->store(table_name, strlen(table_name), system_charset_info);
     table->field[2]->store(index_full_name, strlen(index_full_name),
                            system_charset_info);
-    table->field[3]->store(index_stats->rows_read, true);
+    table->field[3]->store(it.second, true);  // rows_read
 
     if (schema_table_store_record(thd, table)) {
       mysql_mutex_unlock(&LOCK_global_index_stats);

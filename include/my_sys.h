@@ -259,7 +259,8 @@ extern void (*set_waiting_for_disk_space_hook)(void *opaque_thd, bool waiting);
 /*
   Hook for checking if the thread has been killed.
 */
-extern int (*is_killed_hook)(const void *opaque_thd);
+class THD;
+extern int (*is_killed_hook)(const THD *opaque_thd);
 
 /* charsets */
 #define MY_ALL_CHARSETS_SIZE 2048
@@ -508,7 +509,7 @@ static inline void my_b_clear(IO_CACHE *info) { info->buffer = 0; }
 
 /* Test if buffer is inited */
 MY_NODISCARD
-static inline int my_b_inited(const IO_CACHE *info) noexcept {
+static inline bool my_b_inited(const IO_CACHE *info) noexcept {
   return MY_TEST(info->buffer);
 }
 #define my_b_EOF INT_MIN
