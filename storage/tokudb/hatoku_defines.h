@@ -27,18 +27,33 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 #ifndef _HATOKU_DEFINES_H
 #define _HATOKU_DEFINES_H
 
-#include <my_config.h>
+#define LOG_COMPONENT_TAG "tokudb"
+
+#include "my_config.h"
 #define MYSQL_SERVER 1
-#include <binlog.h>
-#include "debug_sync.h"
-#include "handler.h"
-#include "item_cmpfunc.h"
-#include "log.h"
 #include "mysql_version.h"
-#include "sql_class.h"
-#include "sql_show.h"
-#include "sql_table.h"
-#include "table.h"
+
+#include "sql/current_thd.h"
+#include "sql/debug_sync.h"
+#include "sql/handler.h"
+#include "sql/item_cmpfunc.h"
+#include "sql/mysqld.h"
+#include "sql/sql_class.h"
+#include "sql/sql_lex.h"
+#include "sql/sql_show.h"
+#include "sql/sql_table.h"
+#include "sql/sql_thd_internal_api.h"
+#include "sql/table.h"
+
+#include "my_icp.h"
+#include "my_thread.h"
+#include "mysql/components/my_service.h"
+#include "mysql/components/services/log_builtins.h"
+#include "mysql/psi/mysql_cond.h"
+#include "mysql/psi/mysql_memory.h"
+#include "mysql/psi/mysql_mutex.h"
+#include "mysql/psi/mysql_stage.h"
+#include "mysql/psi/mysql_thread.h"
 
 #undef PACKAGE
 #undef VERSION
@@ -52,7 +67,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 #else
 #endif
 
-#include <mysql/plugin.h>
+#include "mysql/plugin.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -88,14 +103,12 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 // extreme cases though where one side (WRITE) is supported but perhaps
 // 'DISCOVERY' may not be, thus the need for individual indicators.
 #define TOKU_USE_DB_TYPE_TOKUDB 1  // has DB_TYPE_TOKUDB patch
-#define TOKU_INCLUDE_ROW_TYPE_COMPRESSION \
-    1  // has tokudb row format compression patch
 #if defined(HTON_SUPPORTS_EXTENDED_KEYS)
 #define TOKU_INCLUDE_EXTENDED_KEYS 1
 #endif
 #define TOKU_OPTIMIZE_WITH_RECREATE 1
-#define TOKU_INCLUDE_WRITE_FRM_DATA 1
-#define TOKU_INCLUDE_DISCOVER_FRM 1
+#define TOKU_INCLUDE_WRITE_FRM_DATA 0
+#define TOKU_INCLUDE_DISCOVER_FRM 0
 #define TOKU_INCLUDE_RFR 1
 #define TOKU_INCLUDE_UPSERT 1
 
@@ -138,9 +151,12 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 /* Bits for share->status */
 #define STATUS_PRIMARY_KEY_INIT 0x1
 
+// minimum allowable size for locktree a.k.a tokudb_max_lock_memory
+#define HA_TOKUDB_MIN_LOCK_MEMORY (1 << 17)  // 131077
+
 #if defined(TOKUDB_VERSION_MAJOR) && defined(TOKUDB_VERSION_MINOR)
 #define TOKUDB_PLUGIN_VERSION \
-    ((TOKUDB_VERSION_MAJOR << 8) + TOKUDB_VERSION_MINOR)
+  ((TOKUDB_VERSION_MAJOR << 8) + TOKUDB_VERSION_MINOR)
 #else
 #define TOKUDB_PLUGIN_VERSION 0
 #endif
@@ -176,19 +192,19 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 // mysql 5.6.15 removed the test macro, so we define our own
 #define tokudb_test(e) ((e) ? 1 : 0)
 
-inline const char* tokudb_thd_get_proc_info(const THD* thd) {
-    return thd->proc_info;
+inline const char *tokudb_thd_get_proc_info(const THD *thd) {
+  return thd->proc_info;
 }
-inline void tokudb_thd_set_proc_info(THD* thd, const char* proc_info) {
-    thd_proc_info(thd, proc_info);
+inline void tokudb_thd_set_proc_info(THD *thd, const char *proc_info) {
+  thd_proc_info(thd, proc_info);
 }
 
 // uint3korr reads 4 bytes and valgrind reports an error, so we use this
 // function instead
-inline uint tokudb_uint3korr(const uchar* a) {
-    uchar b[4] = {};
-    memcpy(b, a, 3);
-    return uint3korr(b);
+inline uint tokudb_uint3korr(const uchar *a) {
+  uchar b[4] = {};
+  memcpy(b, a, 3);
+  return uint3korr(b);
 }
 
 typedef unsigned int pfs_key_t;
@@ -199,11 +215,11 @@ typedef unsigned int pfs_key_t;
 #define mutex_t_lock(M) M.lock()
 #endif  // SAFE_MUTEX || HAVE_PSI_MUTEX_INTERFACE
 
-#if defined(SAFE_MUTEX)
+#if defined(SAFE_MUTEX) || defined(HAVE_PSI_MUTEX_INTERFACE)
 #define mutex_t_unlock(M) M.unlock(__FILE__, __LINE__)
 #else  // SAFE_MUTEX
 #define mutex_t_unlock(M) M.unlock()
-#endif  // SAFE_MUTEX
+#endif  // SAFE_MUTEX || HAVE_PSI_MUTEX_INTERFACE
 
 #if defined(HAVE_PSI_RWLOCK_INTERFACE)
 #define rwlock_t_lock_read(M) M.lock_read(__FILE__, __LINE__)
