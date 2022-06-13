@@ -2,8 +2,6 @@
 --source include/have_debug.inc
 # Valgrind would report memory leaks on the intentional crashes
 -- source include/not_valgrind.inc
-# Embedded server does not support crashing
--- source include/not_embedded.inc
 # Avoid CrashReporter popup on Mac
 -- source include/not_crashrep.inc
 
@@ -22,7 +20,7 @@ xa end 'a','ab';
 SET SESSION debug="d,tokudb_crash_prepare_before";
 --exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 
---error 2013
+--error CR_SERVER_LOST
 xa prepare 'a','ab';
 
 --enable_reconnect
@@ -46,7 +44,7 @@ SET SESSION debug="d,tokudb_crash_prepare_after";
 --exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 
 
---error 2013
+--error CR_SERVER_LOST
 xa prepare 'a','ab';
 
 
@@ -66,7 +64,7 @@ xa end 'a','ab';
 SET SESSION debug="d,tokudb_crash_prepare_after";
 --exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 
---error 2013
+--error CR_SERVER_LOST
 xa prepare 'a','ab';
 
 
@@ -87,7 +85,7 @@ SET SESSION debug="d,tokudb_crash_commit_before";
 --exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 
 xa prepare 'a','ab';
---error 2013
+--error CR_SERVER_LOST
 xa commit 'a','ab';
 
 --enable_reconnect
@@ -108,7 +106,7 @@ SET SESSION debug="d,tokudb_crash_commit_before";
 
 
 xa prepare 'a','ab';
---error 2013
+--error CR_SERVER_LOST
 xa commit 'a','ab';
 
 --enable_reconnect
