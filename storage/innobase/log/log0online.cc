@@ -102,10 +102,10 @@ name, the 2nd tag is the stem, the 3rd tag is a file sequence number, the 4th
 tag is the start LSN for the file. */
 static const constexpr char *bmp_file_name_template = "%s%s%lu_" LSN_PF ".xdb";
 
-/* On server startup with empty database srv_start_lsn == 0, in
-which case the first LSN of actual log records will be this. */
+/** On server startup with empty database the first LSN of actual log records
+will be this. */
 static const constexpr auto MIN_TRACKED_LSN =
-    LOG_START_LSN + OS_FILE_LOG_BLOCK_SIZE + LOG_BLOCK_HDR_SIZE;
+    LOG_START_LSN + LOG_BLOCK_HDR_SIZE;
 
 /* Tests if num bit of bitmap is set */
 #define IS_BIT_SET(bitmap, num) \
@@ -565,6 +565,7 @@ that's the cwd */
       log_bmp_sys->out.name[FN_REFLEN - 1] = '\0';
     }
   }
+  my_dirend(bitmap_dir);
 
   if (!log_bmp_sys->out_seq_num) {
     log_bmp_sys->out_seq_num = 1;
@@ -580,8 +581,7 @@ that's the cwd */
       innodb_bmp_file_key, log_bmp_sys->out.name, OS_FILE_OPEN,
       OS_FILE_READ_WRITE, srv_read_only_mode, &success);
 
-  const lsn_t tracking_start_lsn =
-      std::max(log_sys->last_checkpoint_lsn.load(), MIN_TRACKED_LSN);
+  const auto tracking_start_lsn = log_sys->last_checkpoint_lsn.load();
   if (!success) {
     /* New file, tracking from scratch */
     if (!log_online_start_bitmap_file()) {
@@ -788,6 +788,10 @@ static void log_online_add_to_parse_buf(
                                    skip */
     noexcept {
   ut_ad(mutex_own(&log_bmp_sys_mutex));
+  // Do not skip into middle of the header
+  ut_ad(!skip_len || skip_len >= LOG_BLOCK_HDR_SIZE);
+  // Do not call this if the whole block must be skipped
+  ut_ad(skip_len < OS_FILE_LOG_BLOCK_SIZE - LOG_BLOCK_TRL_SIZE);
 
   const ulint start_offset = skip_len ? skip_len : LOG_BLOCK_HDR_SIZE;
   const ulint end_offset = (data_len == OS_FILE_LOG_BLOCK_SIZE)
@@ -841,7 +845,7 @@ static bool log_online_follow_log_seg(
       log_bmp_sys->read_buf + (block_end_lsn - block_start_lsn);
 
   recv_read_log_seg(*log_sys, log_bmp_sys->read_buf, block_start_lsn,
-                    block_end_lsn);
+                    block_end_lsn, true);
 
   while (log_block < log_block_end &&
          log_bmp_sys->next_parse_lsn < log_bmp_sys->end_lsn) {
@@ -1049,7 +1053,7 @@ bool log_online_follow_redo_log(void) {
   }
 
   /* Grab the LSN of the last checkpoint, we will parse up to it */
-  log_bmp_sys->end_lsn = log_sys->last_checkpoint_lsn;
+  log_bmp_sys->end_lsn = log_get_checkpoint_lsn(*log_sys);
 
   if (log_bmp_sys->end_lsn == log_bmp_sys->start_lsn) {
     mutex_exit(&log_bmp_sys_mutex);
@@ -1145,6 +1149,7 @@ it, replacing another such file */
       }
     }
   }
+  my_dirend(bitmap_dir);
 
   if (first_file_seq_num == ULONG_MAX && last_file_seq_num == 0) {
     bitmap_files->count = 0;
@@ -1180,6 +1185,7 @@ it, replacing another such file */
     const size_t array_pos = file_seq_num - first_file_seq_num;
     if (UNIV_UNLIKELY(array_pos >= bitmap_files->count)) {
       log_online_diagnose_inconsistent_dir(bitmap_files);
+      my_dirend(bitmap_dir);
       return false;
     }
 
@@ -1191,6 +1197,7 @@ it, replacing another such file */
       bitmap_files->files[array_pos].start_lsn = file_start_lsn;
     }
   }
+  my_dirend(bitmap_dir);
 
   if (!bitmap_files->files[0].seq_num ||
       bitmap_files->files[0].seq_num != first_file_seq_num) {
