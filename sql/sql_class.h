@@ -1484,13 +1484,14 @@ class THD : public MDL_context_owner,
   ulong innodb_page_access;
 
   void mark_innodb_used(ulonglong trx_id) noexcept {
-    DBUG_ASSERT(innodb_trx_id == 0 || innodb_trx_id == trx_id);
-    innodb_trx_id = trx_id;
+    DBUG_ASSERT(innodb_trx_id == 0 || innodb_trx_id == trx_id ||
+                is_attachable_transaction_active());
+    if (trx_id && !is_attachable_transaction_active()) innodb_trx_id = trx_id;
     innodb_was_used = true;
   }
 
   void access_distinct_page(ulong page_id) {
-    if (approx_distinct_pages.test_and_set(mem_root, page_id))
+    if (approx_distinct_pages.test_and_set(&main_mem_root, page_id))
       innodb_page_access++;
   }
 
