@@ -3423,8 +3423,6 @@ void Fil_system::wait_for_changed_page_tracker() noexcept {
 void Fil_shard::close_all_files() {
   ut_ad(mutex_owned());
 
-  Fil_system::wait_for_changed_page_tracker();
-
   auto end = m_spaces.end();
 
   for (auto it = m_spaces.begin(); it != end; it = m_spaces.erase(it)) {
@@ -3454,6 +3452,8 @@ void Fil_shard::close_all_files() {
 
 /** Close all open files. */
 void Fil_system::close_all_files() {
+  Fil_system::wait_for_changed_page_tracker();
+
   for (auto shard : m_shards) {
     shard->mutex_acquire();
 
