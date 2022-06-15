@@ -5428,6 +5428,22 @@ static int init_server_components() {
              "default_tmp_storage_engine", default_tmp_storage_engine);
   }
 
+  if (encrypt_binlog) {
+    if (!opt_master_verify_checksum ||
+        binlog_checksum_options == binary_log::BINLOG_CHECKSUM_ALG_OFF ||
+        binlog_checksum_options == binary_log::BINLOG_CHECKSUM_ALG_UNDEF) {
+      sql_print_error(
+          "BINLOG_ENCRYPTION requires MASTER_VERIFY_CHECKSUM = ON and "
+          "BINLOG_CHECKSUM to be turned ON.");
+      unireg_abort(MYSQLD_ABORT_EXIT);
+    }
+    if (!opt_bin_log)
+      sql_print_information(
+          "binlog and relay log encryption enabled without binary logging "
+          "being enabled. "
+          "If relay logs are in use, they will be encrypted.");
+  }
+
   if (total_ha_2pc > 1 || (1 == total_ha_2pc && opt_bin_log)) {
     if (opt_bin_log)
       tc_log = &mysql_bin_log;
@@ -6274,6 +6290,11 @@ int mysqld_main(int argc, char **argv)
 
     (prev_gtids_ev.common_footer)->checksum_alg =
         static_cast<enum_binlog_checksum_alg>(binlog_checksum_options);
+
+    Binlog_crypt_data *crypto_data = mysql_bin_log.get_crypto_data();
+
+    if (crypto_data->is_enabled())
+      prev_gtids_ev.event_encrypter.enable_encryption(crypto_data);
 
     if (mysql_bin_log.write_event_to_binlog_and_sync(&prev_gtids_ev))
       unireg_abort(MYSQLD_ABORT_EXIT);

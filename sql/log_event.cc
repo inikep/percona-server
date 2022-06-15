@@ -1200,7 +1200,7 @@ bool Log_event::wrapper_my_b_safe_write(Basic_ostream *ostream,
 
   if (need_checksum() && size != 0) crc = checksum_crc32(crc, buf, size);
 
-  return ostream->write(buf, size);
+  return event_encrypter.encrypt_and_write(ostream, buf, size);
 }
 
 bool Log_event::write_footer(Basic_ostream *ostream) {
@@ -1211,9 +1211,11 @@ bool Log_event::write_footer(Basic_ostream *ostream) {
   if (need_checksum()) {
     uchar buf[BINLOG_CHECKSUM_LEN];
     int4store(buf, crc);
-    return ostream->write((uchar *)buf, sizeof(buf));
+    if (event_encrypter.encrypt_and_write(ostream, buf, BINLOG_CHECKSUM_LEN))
+      return true;
   }
-  return 0;
+  return event_encrypter.is_encryption_enabled() &&
+         event_encrypter.finish(ostream);
 }
 
 uint32 Log_event::write_header_to_memory(uchar *buf) {
@@ -1254,7 +1256,6 @@ uint32 Log_event::write_header_to_memory(uchar *buf) {
 
 bool Log_event::write_header(Basic_ostream *ostream, size_t event_data_length) {
   uchar header[LOG_EVENT_HEADER_LEN];
-  bool ret;
   DBUG_ENTER("Log_event::write_header");
 
   /* Store number of bytes that will be written by this event */
@@ -1283,7 +1284,9 @@ bool Log_event::write_header(Basic_ostream *ostream, size_t event_data_length) {
 
   write_header_to_memory(header);
 
-  ret = ostream->write(header, LOG_EVENT_HEADER_LEN);
+  const bool is_format_description_and_need_checksum =
+      need_checksum() &&
+      ((common_header->flags & LOG_EVENT_BINLOG_IN_USE_F) != 0);
 
   /*
     Update the checksum.
@@ -1292,16 +1295,30 @@ bool Log_event::write_header(Basic_ostream *ostream, size_t event_data_length) {
     the LOG_EVENT_BINLOG_IN_USE_F flag before computing the checksum,
     since the flag will be cleared when the binlog is closed.  On
     verification, the flag is dropped before computing the checksum
-    too.
+    too. We need to compute the checksum before we encrypt the header,
+    in case binlog encryption is turned on.
   */
-  if (need_checksum() &&
-      (common_header->flags & LOG_EVENT_BINLOG_IN_USE_F) != 0) {
+
+  if (is_format_description_and_need_checksum) {
     common_header->flags &= ~LOG_EVENT_BINLOG_IN_USE_F;
     int2store(header + FLAGS_OFFSET, common_header->flags);
   }
   crc = my_checksum(crc, header, LOG_EVENT_HEADER_LEN);
 
-  DBUG_RETURN(ret);
+  // restore IN_USE flag after calculating the checksum
+  if (is_format_description_and_need_checksum) {
+    common_header->flags |= LOG_EVENT_BINLOG_IN_USE_F;
+    int2store(header + FLAGS_OFFSET, common_header->flags);
+  }
+
+  uchar *pos = header;
+  size_t len = sizeof(header);
+
+  if (event_encrypter.is_encryption_enabled() &&
+      event_encrypter.init(ostream, pos, len))
+    DBUG_RETURN(true);
+
+  DBUG_RETURN(event_encrypter.encrypt_and_write(ostream, pos, len));
 }
 #endif /* MYSQL_SERVER */
 
@@ -5021,6 +5038,23 @@ Format_description_log_event::Format_description_log_event(
   DBUG_VOID_RETURN;
 }
 
+bool Format_description_log_event::start_decryption(
+    binary_log::Start_encryption_event *see) {
+  DBUG_ASSERT(!crypto_data.is_enabled());
+
+  Start_encryption_log_event *sele =
+      down_cast<Start_encryption_log_event *>(see);
+  if (!sele->is_valid()) return true;
+  if (crypto_data.init(see->crypto_scheme, see->key_version, see->nonce)) {
+    sql_print_error(
+        "Failed to fetch percona_binlog key (version %u) from keyring and thus "
+        "failed to initialize binlog encryption.",
+        see->key_version);
+    return true;
+  }
+  return false;
+}
+
 #ifndef MYSQL_SERVER
 void Format_description_log_event::print(
     FILE *, PRINT_EVENT_INFO *print_event_info) const {
@@ -5203,6 +5237,7 @@ int Format_description_log_event::do_apply_event(Relay_log_info const *rli) {
 
   if (!ret) {
     /* Save the information describing this binlog */
+    copy_crypto_data(*rli->get_rli_description_event());
     const_cast<Relay_log_info *>(rli)->set_rli_description_event(this);
   }
 
@@ -5236,9 +5271,51 @@ Log_event::enum_skip_reason Format_description_log_event::do_shall_skip(
   return Log_event::EVENT_SKIP_NOT;
 }
 
-/**************************************************************************
-  Rotate_log_event methods
-**************************************************************************/
+#endif /* MYSQL_SERVER */
+
+Start_encryption_log_event::Start_encryption_log_event(
+    const char *buf, const Format_description_event *description_event)
+    : Start_encryption_event(buf, description_event),
+      Log_event(header(), footer()) {}
+
+#ifdef MYSQL_SERVER
+int Start_encryption_log_event::do_apply_event(Relay_log_info const *rli) {
+  return rli->get_rli_description_event()->start_decryption(this);
+}
+
+int Start_encryption_log_event::do_update_pos(Relay_log_info *rli) {
+  /*
+    Master never sends Start_encryption_log_event, any SELE that a slave
+    might see was created locally in MYSQL_BIN_LOG::open() on the slave
+  */
+  rli->inc_event_relay_log_pos();
+  return 0;
+}
+
+#endif
+
+#ifndef MYSQL_SERVER
+void Start_encryption_log_event::print(
+    FILE *file MY_ATTRIBUTE((unused)),
+    PRINT_EVENT_INFO *print_event_info) const {
+  // Need 2 characters per one hex + 2 for 0x + 1 for \0
+  char nonce_buf[NONCE_LENGTH * 2 + 2 + 1];
+  str_to_hex(nonce_buf, reinterpret_cast<const char *>(nonce), NONCE_LENGTH);
+
+  IO_CACHE *const head = &print_event_info->head_cache;
+  print_header(head, print_event_info, false);
+  my_b_printf(head, "Encryption scheme: %d", crypto_scheme);
+  my_b_printf(head, ", key_version: %d", key_version);
+  my_b_printf(head, ", nonce: %s ", nonce_buf);
+  my_b_printf(head, "\n# The rest of the binlog is encrypted!\n");
+}
+#endif
+
+  /**************************************************************************
+    Rotate_log_event methods
+  **************************************************************************/
+
+#ifdef MYSQL_SERVER
 
 /*
   Rotate_log_event::pack_info()
@@ -11881,12 +11958,14 @@ bool Incident_log_event::write_data_header(Basic_ostream *ostream) {
 */
 
 static bool write_str_at_most_255_bytes(Basic_ostream *ostream, const char *str,
-                                        uint length) {
+                                        uint length,
+                                        Event_encrypter *event_encrypter) {
   uchar tmp[1];
-
   tmp[0] = (uchar)length;
-  return (ostream->write(tmp, sizeof(tmp)) ||
-          (length > 0 && ostream->write((uchar *)str, length)));
+  return (event_encrypter->encrypt_and_write(ostream, tmp, sizeof(tmp)) ||
+          (length > 0 &&
+           event_encrypter->encrypt_and_write(
+               ostream, reinterpret_cast<const uchar *>(str), length)));
 }
 
 bool Incident_log_event::write_data_body(Basic_ostream *ostream) {
@@ -11898,8 +11977,8 @@ bool Incident_log_event::write_data_body(Basic_ostream *ostream) {
     crc = checksum_crc32(crc, (uchar *)message, message_length);
     // todo: report a bug on write_str accepts uint but treats it as uchar
   }
-  DBUG_RETURN(
-      write_str_at_most_255_bytes(ostream, message, (uint)message_length));
+  DBUG_RETURN(write_str_at_most_255_bytes(
+      ostream, message, (uint)message_length, &event_encrypter));
 }
 #endif
 
@@ -11997,8 +12076,8 @@ bool Rows_query_log_event::write_data_body(Basic_ostream *ostream) {
    m_rows_query length will be stored using only one byte, but on read
    that length will be ignored and the complete query will be read.
   */
-  DBUG_RETURN(
-      write_str_at_most_255_bytes(ostream, m_rows_query, strlen(m_rows_query)));
+  DBUG_RETURN(write_str_at_most_255_bytes(
+      ostream, m_rows_query, strlen(m_rows_query), &event_encrypter));
 }
 
 int Rows_query_log_event::do_apply_event(Relay_log_info const *rli) {

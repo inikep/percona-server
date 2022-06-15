@@ -58,7 +58,9 @@ class Binlog_read_error {
     // System IO error happened while reading the binlog magic
     HEADER_IO_FAILURE,
     // The binlog magic is incorrect
-    BAD_BINLOG_MAGIC
+    BAD_BINLOG_MAGIC,
+    // Encrypted event decryption failure
+    DECRYPT
   };
 
   Binlog_read_error() {}

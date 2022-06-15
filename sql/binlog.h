@@ -45,6 +45,7 @@
 #include "mysql/psi/mysql_mutex.h"
 #include "mysql/udf_registration_types.h"
 #include "mysql_com.h"  // Item_result
+#include "sql/binlog_crypt_data.h"
 #include "sql/rpl_trx_tracking.h"
 #include "sql/tc_log.h"  // TC_LOG
 #include "thr_mutex.h"
@@ -406,6 +407,9 @@ class MYSQL_BIN_LOG : public TC_LOG {
   uint file_id;
   uint open_count;  // For replication
 
+  /* binlog encryption data */
+  Binlog_crypt_data crypto;
+
   /* pointer to the sync period variable, for binlog this will be
      sync_binlog_period, for relay log this will be
      sync_relay_log_period
@@ -764,7 +768,7 @@ class MYSQL_BIN_LOG : public TC_LOG {
   void stop_union_events(THD *thd);
   bool is_query_in_union(THD *thd, query_id_t query_id_param);
 
-  bool write_buffer(const char *buf, uint len, Master_info *mi);
+  bool write_buffer(uchar *buf, uint len, Master_info *mi);
   bool write_event(Log_event *ev, Master_info *mi);
 
  private:
@@ -867,6 +871,8 @@ class MYSQL_BIN_LOG : public TC_LOG {
     True while rotating binlog, which is caused by logging Incident_log_event.
   */
   bool is_rotating_caused_by_incident;
+
+  Binlog_crypt_data *get_crypto_data() { return &crypto; }
 };
 
 struct LOAD_FILE_INFO {

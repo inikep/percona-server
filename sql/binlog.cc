@@ -284,7 +284,7 @@ class MYSQL_BIN_LOG::Binlog_ofile : public Basic_ostream {
      @retval false  Success
      @retval true  Error
   */
-  bool write(const unsigned char *buffer, my_off_t length) {
+  bool write(const unsigned char *buffer, my_off_t length) override {
     DBUG_ASSERT(m_pipeline_head != NULL);
 
     if (m_pipeline_head->write(buffer, length)) return true;
@@ -330,7 +330,7 @@ class MYSQL_BIN_LOG::Binlog_ofile : public Basic_ostream {
   bool flush() { return m_file_ostream.flush(); }
   bool sync() { return m_file_ostream.sync(); }
   bool flush_and_sync() { return flush() || sync(); }
-  my_off_t position() { return m_position; }
+  my_off_t position() const noexcept override { return m_position; }
   bool is_empty() { return position() == 0; }
   bool is_open() { return m_pipeline_head != NULL; }
 
@@ -1172,25 +1172,30 @@ class Binlog_event_writer : public Basic_ostream {
   ha_checksum initial_checksum;
   ha_checksum checksum;
   uint32 end_log_pos;
+  THD *thd;
   uchar header[LOG_EVENT_HEADER_LEN];
   my_off_t header_len = 0;
   uint32 event_len = 0;
 
  public:
+  Event_encrypter event_encrypter;
+
   /**
     Constructs a new Binlog_event_writer. Should be called once before
     starting to flush the transaction or statement cache to the
     binlog.
 
     @param binlog_file to write to.
+    @param thd_arg THD to account written binlog byte statistics to
   */
-  Binlog_event_writer(MYSQL_BIN_LOG::Binlog_ofile *binlog_file)
+  Binlog_event_writer(MYSQL_BIN_LOG::Binlog_ofile *binlog_file, THD *thd_arg)
       : m_binlog_file(binlog_file),
         have_checksum(binlog_checksum_options !=
                       binary_log::BINLOG_CHECKSUM_ALG_OFF),
         initial_checksum(my_checksum(0L, NULL, 0)),
         checksum(initial_checksum),
-        end_log_pos(binlog_file->position()) {
+        end_log_pos(binlog_file->position()),
+        thd(thd_arg) {
     // Simulate checksum error
     if (DBUG_EVALUATE_IF("fault_injection_crc_value", 1, 0)) checksum--;
   }
@@ -1213,7 +1218,7 @@ class Binlog_event_writer : public Basic_ostream {
     if (have_checksum) checksum = my_checksum(checksum, header, header_len);
   }
 
-  bool write(const unsigned char *buffer, my_off_t length) {
+  bool write(const unsigned char *buffer, my_off_t length) override {
     DBUG_ENTER("Binlog_event_writer::write");
 
     while (length > 0) {
@@ -1230,20 +1235,29 @@ class Binlog_event_writer : public Basic_ostream {
 
         if (header_len == LOG_EVENT_HEADER_LEN) {
           update_header();
-          if (m_binlog_file->write(header, header_len)) DBUG_RETURN(true);
-
+          if (event_encrypter.is_encryption_enabled() &&
+              event_encrypter.init(m_binlog_file, header, header_len)) {
+            DBUG_RETURN(true);
+          }
+          if (event_encrypter.encrypt_and_write(m_binlog_file, header,
+                                                header_len))
+            DBUG_RETURN(true);
+          thd->binlog_bytes_written += header_len;
           event_len -= header_len;
           header_len = 0;
         }
       } else {
         my_off_t write_bytes = std::min<uint64>(length, event_len);
 
-        if (m_binlog_file->write(buffer, write_bytes)) DBUG_RETURN(true);
+        if (event_encrypter.encrypt_and_write(m_binlog_file, buffer,
+                                              write_bytes))
+          DBUG_RETURN(true);
 
         // update the checksum
         if (have_checksum)
           checksum = my_checksum(checksum, buffer, write_bytes);
 
+        thd->binlog_bytes_written += write_bytes;
         event_len -= write_bytes;
         length -= write_bytes;
         buffer += write_bytes;
@@ -1253,8 +1267,10 @@ class Binlog_event_writer : public Basic_ostream {
           uchar checksum_buf[BINLOG_CHECKSUM_LEN];
 
           int4store(checksum_buf, checksum);
-          if (m_binlog_file->write(checksum_buf, BINLOG_CHECKSUM_LEN))
+          if (event_encrypter.encrypt_and_write(m_binlog_file, checksum_buf,
+                                                BINLOG_CHECKSUM_LEN))
             DBUG_RETURN(true);
+          thd->binlog_bytes_written += BINLOG_CHECKSUM_LEN;
           checksum = initial_checksum;
         }
       }
@@ -1265,6 +1281,10 @@ class Binlog_event_writer : public Basic_ostream {
     Returns true if per event checksum is enabled.
   */
   bool is_checksum_enabled() { return have_checksum; }
+
+  my_off_t position() const noexcept override {
+    return m_binlog_file->position();
+  }
 };
 
 /*
@@ -1703,7 +1723,10 @@ int binlog_cache_data::flush(THD *thd, my_off_t *bytes_written,
       non-empty then we get two Anonymous_gtid_log_events, which is
       correct.
     */
-    Binlog_event_writer writer(mysql_bin_log.get_binlog_file());
+    Binlog_event_writer writer(mysql_bin_log.get_binlog_file(), thd);
+
+    if (mysql_bin_log.get_crypto_data()->is_enabled())
+      writer.event_encrypter.enable_encryption(mysql_bin_log.get_crypto_data());
 
     /* The GTID ownership process might set the commit_error */
     error = (thd->commit_error == THD::CE_FLUSH_ERROR);
@@ -3712,6 +3735,7 @@ static bool read_gtids_and_update_trx_parser_from_relaylog(
     switch (ev->get_type_code()) {
       case binary_log::FORMAT_DESCRIPTION_EVENT:
       case binary_log::ROTATE_EVENT:
+      case binary_log::START_ENCRYPTION_EVENT:
         // do nothing; just accept this event and go to next
         break;
       case binary_log::PREVIOUS_GTIDS_LOG_EVENT: {
@@ -3900,6 +3924,7 @@ static enum_read_gtids_from_binlog_status read_gtids_from_binlog(
     switch (ev->get_type_code()) {
       case binary_log::FORMAT_DESCRIPTION_EVENT:
       case binary_log::ROTATE_EVENT:
+      case binary_log::START_ENCRYPTION_EVENT:
         // do nothing; just accept this event and go to next
         break;
       case binary_log::PREVIOUS_GTIDS_LOG_EVENT: {
@@ -4606,11 +4631,50 @@ bool MYSQL_BIN_LOG::open_binlog(
     }
   }
 
+  crypto.disable();
+
   if (!s.is_valid()) goto err;
   s.dont_set_created = null_created_arg;
   /* Set LOG_EVENT_RELAY_LOG_F flag for relay log's FD */
   if (is_relay_log) s.set_relay_log_event();
   if (write_event_to_binlog(&s)) goto err;
+
+  if (encrypt_binlog) {
+    if (crypto.load_latest_binlog_key()) {
+      sql_print_error(
+          "Failed to fetch or create percona_binlog key from/in keyring and "
+          "thus "
+          "failed to initialize %s encryption. Have you enabled "
+          "keyring plugin?",
+          log_to_encrypt);
+      goto err;
+    }
+    DBUG_EXECUTE_IF("check_consecutive_binlog_key_versions", {
+      static uint next_key_version = 1;
+      DBUG_ASSERT(crypto.get_key_version() == next_key_version++);
+    });
+
+    uchar nonce[binary_log::Start_encryption_event::NONCE_LENGTH];
+    memset(nonce, 0, binary_log::Start_encryption_event::NONCE_LENGTH);
+    if (my_rand_buffer(nonce, sizeof(nonce))) goto err;
+
+    Start_encryption_log_event sele(1, crypto.get_key_version(), nonce);
+    sele.common_footer->checksum_alg = s.common_footer->checksum_alg;
+    if (write_event_to_binlog(&sele)) {
+      sql_print_error(
+          "Failed to write Start_encryption event to binary log and thus "
+          "failed to initialize %s encryption.",
+          log_to_encrypt);
+      goto err;
+    }
+    bytes_written += sele.common_header->data_written;
+
+    if (crypto.init_with_loaded_key(sele.crypto_scheme, nonce)) {
+      sql_print_error("Failed to initialize %s encryption.", log_to_encrypt);
+      goto err;
+    }
+  }
+
   /*
     We need to revisit this code and improve it.
     See further comments in the mysqld.
@@ -6366,14 +6430,27 @@ bool MYSQL_BIN_LOG::write_event(Log_event *ev, Master_info *mi) {
   DBUG_RETURN(error);
 }
 
-bool MYSQL_BIN_LOG::write_buffer(const char *buf, uint len, Master_info *mi) {
-  DBUG_ENTER("MYSQL_BIN_LOG::write_buffer(char *, uint, Master_info *");
+bool MYSQL_BIN_LOG::write_buffer(uchar *buf, uint len, Master_info *mi) {
+  DBUG_ENTER("MYSQL_BIN_LOG::write_buffer(uchar *, uint, Master_info *");
 
   // check preconditions
   DBUG_ASSERT(is_relay_log);
   mysql_mutex_assert_owner(&LOCK_log);
 
   // write data
+  unique_ptr_my_free<uchar> ebuf;
+
+  if (crypto.is_enabled()) {
+    ebuf.reset(reinterpret_cast<uchar *>(
+        my_malloc(PSI_NOT_INSTRUMENTED, len, MYF(MY_WME))));
+    if (!ebuf || encrypt_event(m_binlog_file->position(), crypto, buf,
+                               ebuf.get(), len)) {
+      DBUG_RETURN(true);
+    }
+
+    buf = ebuf.get();
+  }
+
   bool error = false;
   if (m_binlog_file->write((uchar *)buf, len) == 0) {
     bytes_written += len;
@@ -6383,10 +6460,11 @@ bool MYSQL_BIN_LOG::write_buffer(const char *buf, uint len, Master_info *mi) {
                ER_THD(current_thd, ER_SLAVE_RELAY_LOG_WRITE_FAILURE),
                "failed to write event to the relay log file");
     truncate_relaylog_file(mi, atomic_binlog_end_pos);
-    error = true;
+    DBUG_RETURN(true);
   }
 
-  DBUG_RETURN(error);
+  bytes_written += len;
+  DBUG_RETURN(after_write_to_relay_log(mi));
 }
 
 bool MYSQL_BIN_LOG::flush() {
