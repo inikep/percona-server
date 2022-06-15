@@ -55,7 +55,7 @@ struct blocking_trx_info {
   int64_t query_id;
 };
 
-static constexpr size_t MAX_BLOCKING_TRX_IN_REPORT = 10;
+static const constexpr size_t MAX_BLOCKING_TRX_IN_REPORT = 10;
 
 /** Print the contents of the lock_sys_t::waiting_threads array. */
 static void lock_wait_table_print(void) {

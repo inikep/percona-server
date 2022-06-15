@@ -706,7 +706,6 @@ static void log_preflush_pool_modified_pages(const log_t &log,
     /* Wake up page cleaner asking to perform sync flush
     (unless user explicitly disabled sync-flushes). */
     if (srv_flush_sync) {
-      /* wake page cleaner for IO burst */
       buf_flush_request_force(new_oldest);
     }
   }

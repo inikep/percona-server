@@ -5173,6 +5173,9 @@ static int init_server_components() {
   setup_fpu();
   init_slave_list();
 
+  init_global_table_stats();
+  init_global_index_stats();
+
   setup_error_log();
 
   enter_cond_hook = thd_enter_cond;
@@ -6567,6 +6570,8 @@ int mysqld_main(int argc, char **argv)
 
   if (init_ssl_communication()) unireg_abort(MYSQLD_ABORT_EXIT);
   if (network_init()) unireg_abort(MYSQLD_ABORT_EXIT);
+
+  init_io_cache_encryption(encrypt_tmp_files);
 
 #ifdef _WIN32
   if (opt_require_secure_transport && !opt_enable_shared_memory &&
