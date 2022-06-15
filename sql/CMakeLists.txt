@@ -348,6 +348,7 @@ SET(SQL_SHARED_SOURCES
   auth/sha2_password.cc
   ssl_wrapper_service.cc
   bka_iterator.cc
+  binlog_crypt_data.cc
   bootstrap.cc
   check_stack.cc
   conn_handler/connection_handler_manager.cc 
@@ -409,6 +410,7 @@ SET(SQL_SHARED_SOURCES
   locked_tables_list.cc
   locking_service.cc
   log.cc
+  event_crypt.cc
   mdl.cc
   mdl_context_backup.cc
   migrate_keyring.cc
@@ -877,9 +879,11 @@ SET(BINLOG_SOURCE
   binlog/monitoring/context.cc
   binlog/tools/iterators.cc
   binlog.cc
+  binlog_crypt_data.cc
   binlog_istream.cc
   binlog_ostream.cc
   binlog_reader.cc
+  event_crypt.cc
   log_event.cc
   rpl_commit_stage_manager.cc
   rpl_filter.cc
