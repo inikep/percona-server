@@ -118,6 +118,7 @@ Binlog_sender::Binlog_sender(THD *thd, const char *start_file,
       m_last_pos(0),
       m_half_buffer_size_req_counter(0),
       m_new_shrink_size(PACKET_MIN_SIZE),
+      m_fdle(nullptr),
       m_flag(flag),
       m_observe_transmission(false),
       m_transmit_started(false) {}
@@ -954,6 +955,12 @@ int Binlog_sender::send_format_description_event(File_reader *reader,
   uchar *event_ptr = nullptr;
   uint32 event_len = 0;
 
+  m_fdle.reset(new Format_description_log_event());
+  if (m_fdle == nullptr) {
+    set_fatal_error("Out-of-memory");
+    DBUG_RETURN(1);
+  }
+
   if (read_event(reader, &event_ptr, &event_len)) DBUG_RETURN(1);
 
   DBUG_PRINT(
@@ -1031,7 +1038,55 @@ int Binlog_sender::send_format_description_event(File_reader *reader,
   if (event_checksum_on() && event_updated)
     calc_event_checksum(event_ptr, event_len);
 
-  DBUG_RETURN(send_packet());
+  Format_description_log_event *new_fdle = nullptr;
+
+  new_fdle = new Format_description_log_event(
+      reinterpret_cast<char *>(event_ptr), m_fdle.get());
+
+  if (new_fdle == nullptr) {
+    set_fatal_error("Out-of-memory");
+    DBUG_RETURN(1);
+  }
+  m_fdle.reset(new_fdle);
+
+  if (send_packet()) DBUG_RETURN(1);
+
+  // Let's check if next event is Start encryption event
+  const auto binlog_pos_after_fdle = reader->position();
+  if (read_event(reader, &event_ptr, &event_len)) {
+    reader->seek(binlog_pos_after_fdle);
+    DBUG_RETURN(0);
+  }
+
+  binlog_read_error = binlog_event_deserialize(
+      event_ptr, event_len, reader->format_description_event(), false, &ev);
+  if (!ev || ev->get_type_code() != binary_log::FORMAT_DESCRIPTION_EVENT) {
+    reader->seek(binlog_pos_after_fdle);
+    DBUG_RETURN(0);
+  }
+
+  Start_encryption_log_event *sele =
+      down_cast<Start_encryption_log_event *>(ev);
+
+  if (!sele->is_valid()) {
+    set_fatal_error("Start encryption log event is invalid");
+    DBUG_RETURN(1);
+  }
+
+  if (m_fdle->start_decryption(
+          down_cast<binary_log::Start_encryption_event *>(sele))) {
+    set_fatal_error("Could not decrypt binlog: encryption key error");
+    DBUG_RETURN(1);
+  }
+
+  if (start_pos <= BIN_LOG_HEADER_SIZE) {
+    const auto log_pos = reader->position();
+    // We have read start encryption event from master binlog, but we have
+    // not sent it to slave. We need to inform slave that master position
+    // has advanced.
+    if (unlikely(send_heartbeat_event(log_pos))) DBUG_RETURN(1);
+  }
+  DBUG_RETURN(0);
 }
 
 int Binlog_sender::has_previous_gtid_log_event(File_reader *reader,
@@ -1065,6 +1120,8 @@ const char *Binlog_sender::log_read_error_msg(
              "space on master";
     case Binlog_read_error::CHECKSUM_FAILURE:
       return "event read from binlog did not pass crc check";
+    case Binlog_read_error::DECRYPT:
+      return "Event decryption failure";
     default:
       return Binlog_read_error(error).get_str();
   }
@@ -1103,8 +1160,8 @@ inline int Binlog_sender::read_event(File_reader *reader, uchar **event_ptr,
     that it might call functions to replace the buffer by one with the size to
     fit the event.
   */
-  DBUG_ASSERT(reinterpret_cast<char *>(*event_ptr) ==
-              (m_packet.ptr() + event_offset));
+  DBUG_ASSERT(encrypt_binlog || reinterpret_cast<char *>(*event_ptr) ==
+                                    (m_packet.ptr() + event_offset));
 
   DBUG_PRINT("info", ("Read event %s", Log_event::get_type_str(Log_event_type(
                                            (*event_ptr)[EVENT_TYPE_OFFSET]))));

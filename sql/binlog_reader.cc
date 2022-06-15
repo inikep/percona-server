@@ -40,7 +40,8 @@ static void debug_corrupt_event(unsigned char *buffer, unsigned int event_len) {
       "corrupt_read_log_event", unsigned char type = buffer[EVENT_TYPE_OFFSET];
       if (type != binary_log::FORMAT_DESCRIPTION_EVENT &&
           type != binary_log::PREVIOUS_GTIDS_LOG_EVENT &&
-          type != binary_log::GTID_LOG_EVENT) {
+          type != binary_log::GTID_LOG_EVENT &&
+          type != binary_log::START_ENCRYPTION_EVENT) {
         int cor_pos = rand() % (event_len - BINLOG_CHECKSUM_LEN -
                                 LOG_EVENT_MINIMAL_HEADER_LEN) +
                       LOG_EVENT_MINIMAL_HEADER_LEN;
@@ -101,12 +102,23 @@ bool Binlog_event_data_istream::check_event_header() {
 Binlog_read_error::Error_type binlog_event_deserialize(
     const unsigned char *buffer, unsigned int event_len,
     const Format_description_event *fde, bool verify_checksum,
-    Log_event **event) {
+    Log_event **event, bool force_opt MY_ATTRIBUTE((unused))) {
   const char *buf = reinterpret_cast<const char *>(buffer);
   Log_event *ev = NULL;
   enum_binlog_checksum_alg alg;
 
   DBUG_ENTER("binlog_event_deserialize");
+
+#ifndef MYSQL_SERVER
+  static bool was_start_encryption_event = false;
+  if (was_start_encryption_event) {
+    // We know that binlog is encrypted (as we read Start_encryption event) and
+    // we know that client applications cannot decrypt encrypted binlogs as they
+    // have no access to keyring. Thus we return Unknown_event for all encrypted
+    // events when force is used and close mysqlbinlog when no force.
+    if (!force_opt) DBUG_RETURN(Binlog_read_error::DECRYPT);
+  }
+#endif
 
   DBUG_ASSERT(fde != 0);
   DBUG_PRINT("info", ("binlog_version: %d", fde->binlog_version));
@@ -128,6 +140,30 @@ Binlog_read_error::Error_type binlog_event_deserialize(
     DBUG_RETURN(event_len > uint4korr(buf + EVENT_LEN_OFFSET)
                     ? Binlog_read_error::BOGUS
                     : Binlog_read_error::TRUNC_EVENT);
+  }
+
+  unique_ptr_my_free<char> decrypted_packet;
+  if (fde != nullptr && fde->is_decrypting()) {
+    const Format_description_log_event &fdle =
+        dynamic_cast<const Format_description_log_event &>(*fde);
+    size_t true_data_len = event_len + LOG_EVENT_MINIMAL_HEADER_LEN;
+
+    decrypted_packet.reset(reinterpret_cast<char *>(
+        my_malloc(key_memory_log_event, true_data_len + 1,
+                  MYF(MY_WME))));  // TODO laurynas why +1?
+
+    if (!decrypted_packet) DBUG_RETURN(Binlog_read_error::MEM_ALLOCATE);
+
+    uchar *src = (uchar *)buf;
+    uchar *dst = (uchar *)decrypted_packet.get();
+    memcpy(src + EVENT_LEN_OFFSET, src, 4);
+
+    // TODO laurynas: fdle->crypto_data.offs must be updated
+    if (decrypt_event(fdle.crypto_data, src, dst, true_data_len)) {
+      DBUG_RETURN(Binlog_read_error::DECRYPT);
+    }
+
+    buf = decrypted_packet.get();
   }
 
   uint event_type = buf[EVENT_TYPE_OFFSET];
@@ -281,6 +317,11 @@ Binlog_read_error::Error_type binlog_event_deserialize(
     case binary_log::PARTIAL_UPDATE_ROWS_EVENT:
       ev = new Update_rows_log_event(buf, fde);
       break;
+    case binary_log::START_ENCRYPTION_EVENT:
+      ev = new Start_encryption_log_event(buf, fde);
+#ifndef MYSQL_SERVER
+      was_start_encryption_event = true;
+#endif
     default:
       /*
         Create an object of Ignorable_log_event for unrecognized sub-class.

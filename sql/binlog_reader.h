@@ -34,7 +34,7 @@
 Binlog_read_error::Error_type binlog_event_deserialize(
     const unsigned char *event_data, unsigned int event_data_len,
     const Format_description_event *fde, bool verify_checksum,
-    Log_event **event);
+    Log_event **event, bool force_opt = false);
 
 class Default_binlog_event_allocator {
  public:
@@ -308,8 +308,18 @@ class Basic_binlog_file_reader {
     m_event_start_pos = position();
     Log_event *ev = m_object_istream.read_event_object(m_fde, m_verify_checksum,
                                                        &m_allocator);
-    if (ev && ev->get_type_code() == binary_log::FORMAT_DESCRIPTION_EVENT)
-      m_fde = dynamic_cast<Format_description_event &>(*ev);
+    if (ev && ev->get_type_code() == binary_log::FORMAT_DESCRIPTION_EVENT) {
+      Format_description_log_event *const new_fde =
+          down_cast<Format_description_log_event *>(ev);
+      new_fde->copy_crypto_data(m_fde);
+      m_fde = *new_fde;
+    } else if (ev &&
+               ev->get_type_code() == binary_log::START_ENCRYPTION_EVENT) {
+      if (m_fde.start_decryption(down_cast<Start_encryption_log_event *>(ev))) {
+        delete ev;
+        ev = nullptr;
+      }
+    }
     return ev;
   }
 
@@ -374,8 +384,20 @@ class Basic_binlog_file_reader {
       if (ev == nullptr) break;
       if (ev->get_type_code() == binary_log::FORMAT_DESCRIPTION_EVENT) {
         delete fdle;
-        fdle = dynamic_cast<Format_description_log_event *>(ev);
+        Format_description_log_event *new_fdev =
+            down_cast<Format_description_log_event *>(ev);
+        new_fdev->copy_crypto_data(m_fde);
+        fdle = new_fdev;
         m_fde = *fdle;
+      } else if (ev->get_type_code() == binary_log::START_ENCRYPTION_EVENT) {
+        if (!fdle) break;
+        if (m_fde.start_decryption(
+                down_cast<Start_encryption_log_event *>(ev))) {
+          delete ev;
+          delete fdle;
+          fdle = nullptr;
+          break;
+        }
       } else {
         binary_log::Log_event_type type = ev->get_type_code();
         delete ev;
