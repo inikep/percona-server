@@ -149,9 +149,9 @@ Database: information_schema
 | THREAD_STATISTICS                     |
 | TRIGGERS                              |
 | USER_PRIVILEGES                       |
+| USER_STATISTICS                       |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
-| USER_STATISTICS                       |
 | VIEWS                                 |
 +---------------------------------------+
 Database: INFORMATION_SCHEMA
@@ -228,9 +228,9 @@ Database: INFORMATION_SCHEMA
 | THREAD_STATISTICS                     |
 | TRIGGERS                              |
 | USER_PRIVILEGES                       |
+| USER_STATISTICS                       |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
-| USER_STATISTICS                       |
 | VIEWS                                 |
 +---------------------------------------+
 Wildcard: inf_rmation_schema
