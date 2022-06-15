@@ -155,30 +155,6 @@ Database: information_schema
 | VIEWS                                 |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
-| XTRADB_READ_VIEW                      |
-| INNODB_TRX                            |
-| INNODB_LOCKS                          |
-| INNODB_CMP_PER_INDEX_RESET            |
-| XTRADB_ZIP_DICT                       |
-| INNODB_CMP_PER_INDEX                  |
-| INNODB_CMP                            |
-| INNODB_FT_DELETED                     |
-| INNODB_CMP_RESET                      |
-| INNODB_LOCK_WAITS                     |
-| INNODB_TEMP_TABLE_INFO                |
-| INNODB_BUFFER_PAGE_LRU                |
-| INNODB_CMPMEM_RESET                   |
-| INNODB_CHANGED_PAGES                  |
-| INNODB_FT_BEING_DELETED               |
-| INNODB_FT_INDEX_TABLE                 |
-| INNODB_FT_INDEX_CACHE                 |
-| INNODB_BUFFER_POOL_STATS              |
-| INNODB_METRICS                        |
-| INNODB_CMPMEM                         |
-| INNODB_FT_DEFAULT_STOPWORD            |
-| INNODB_FT_CONFIG                      |
-| INNODB_BUFFER_PAGE                    |
-| XTRADB_ZIP_DICT_COLS                  |
 +---------------------------------------+
 Database: INFORMATION_SCHEMA
 +---------------------------------------+
@@ -260,30 +236,6 @@ Database: INFORMATION_SCHEMA
 | VIEWS                                 |
 | VIEW_ROUTINE_USAGE                    |
 | VIEW_TABLE_USAGE                      |
-| XTRADB_READ_VIEW                      |
-| INNODB_TRX                            |
-| INNODB_LOCKS                          |
-| INNODB_CMP_PER_INDEX_RESET            |
-| XTRADB_ZIP_DICT                       |
-| INNODB_CMP_PER_INDEX                  |
-| INNODB_CMP                            |
-| INNODB_FT_DELETED                     |
-| INNODB_CMP_RESET                      |
-| INNODB_LOCK_WAITS                     |
-| INNODB_TEMP_TABLE_INFO                |
-| INNODB_BUFFER_PAGE_LRU                |
-| INNODB_CMPMEM_RESET                   |
-| INNODB_CHANGED_PAGES                  |
-| INNODB_FT_BEING_DELETED               |
-| INNODB_FT_INDEX_TABLE                 |
-| INNODB_FT_INDEX_CACHE                 |
-| INNODB_BUFFER_POOL_STATS              |
-| INNODB_METRICS                        |
-| INNODB_CMPMEM                         |
-| INNODB_FT_DEFAULT_STOPWORD            |
-| INNODB_FT_CONFIG                      |
-| INNODB_BUFFER_PAGE                    |
-| XTRADB_ZIP_DICT_COLS                  |
 +---------------------------------------+
 Wildcard: inf_rmation_schema
 +--------------------+
