@@ -1288,6 +1288,8 @@ char server_version[SERVER_VERSION_LENGTH];
 const char *mysqld_unix_port;
 char *opt_mysql_tmpdir;
 
+bool encrypt_binlog;
+
 /** name of reference on left expression in rewritten IN subquery */
 const char *in_left_expr_name = "<left expr>";
 
@@ -5747,6 +5749,22 @@ static int init_server_components() {
     if (ha_is_storage_engine_disabled(default_tmp_se_handle))
       LogErr(WARNING_LEVEL, ER_DISABLED_STORAGE_ENGINE_AS_DEFAULT,
              "default_tmp_storage_engine", default_tmp_storage_engine);
+  }
+
+  if (encrypt_binlog) {
+    if (!opt_master_verify_checksum ||
+        binlog_checksum_options == binary_log::BINLOG_CHECKSUM_ALG_OFF ||
+        binlog_checksum_options == binary_log::BINLOG_CHECKSUM_ALG_UNDEF) {
+      sql_print_error(
+          "BINLOG_ENCRYPTION requires MASTER_VERIFY_CHECKSUM = ON and "
+          "BINLOG_CHECKSUM to be turned ON.");
+      unireg_abort(MYSQLD_ABORT_EXIT);
+    }
+    if (!opt_bin_log)
+      sql_print_information(
+          "binlog and relay log encryption enabled without binary logging "
+          "being enabled. "
+          "If relay logs are in use, they will be encrypted.");
   }
 
   if (total_ha_2pc > 1 || (1 == total_ha_2pc && opt_bin_log)) {
