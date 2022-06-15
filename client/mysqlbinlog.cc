@@ -2210,7 +2210,7 @@ static Exit_status dump_remote_log_entries(PRINT_EVENT_INFO *print_event_info,
         (type == binary_log::FORMAT_DESCRIPTION_EVENT)) {
       Binlog_read_error read_error = binlog_event_deserialize(
           reinterpret_cast<unsigned char *>(event_buf), event_len,
-          &glob_description_event, opt_verify_binlog_checksum, &ev);
+          &glob_description_event, opt_verify_binlog_checksum, &ev, force_opt);
 
       if (read_error.has_error()) {
         error("Could not construct log event object: %s", read_error.get_str());

@@ -5234,6 +5234,7 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
       goto err_exit_no_heap;
     } else {
       my_free(master_key);
+      // TODO laurynas: assert file-per-table?
       encrypt_flag = DICT_TF2_ENCRYPTION_FILE_PER_TABLE;
     }
   }

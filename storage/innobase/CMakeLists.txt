@@ -207,7 +207,6 @@ SET(INNOBASE_SOURCES
 	ut/ut0rnd.cc
 	ut/ut0ut.cc
 	ut/ut0vec.cc
-  ../../mysys_ssl/my_crypt.cc
 	ut/ut0wqueue.cc)
 
 IF(WITH_INNODB)

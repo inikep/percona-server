@@ -4603,6 +4603,15 @@ static bool prepare_key_column(THD *thd, HA_CREATE_INFO *create_info,
     }
   }
 
+  /* compressed column is not allowed to be defined as a key part */
+  DBUG_EXECUTE_IF("remove_compressed_attributes_for_keys",
+                  sql_field->set_column_format(COLUMN_FORMAT_TYPE_DEFAULT););
+  if (sql_field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED) {
+    my_error(ER_COMPRESSED_COLUMN_USED_AS_KEY, MYF(0),
+             column->get_field_name());
+    DBUG_RETURN(true);
+  }
+
   uint column_length;
   if (key->type == KEYTYPE_FULLTEXT) {
     if ((sql_field->sql_type != MYSQL_TYPE_STRING &&

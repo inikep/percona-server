@@ -1014,7 +1014,6 @@ if no error occurs.
 @return error code  */
 dberr_t BtrBulk::finish(dberr_t err) {
   ut_ad(m_page_bulks);
-  ut_ad(!m_index->table->is_temporary());
 
   page_no_t last_page_no = FIL_NULL;
 

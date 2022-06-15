@@ -5225,7 +5225,7 @@ tablespace_option:
         | ts_option_wait
         | ts_option_comment
         | ts_option_file_block_size
-        | ts_option_encryption
+	| ts_option_encryption
         ;
 
 opt_alter_tablespace_options:

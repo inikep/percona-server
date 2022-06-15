@@ -4876,7 +4876,6 @@ static dberr_t fil_create_tablespace(space_id_t space_id, const char *name,
   fil_space_t *space = nullptr;
 
   ut_ad(!fsp_is_system_tablespace(space_id));
-  ut_ad(!fsp_is_global_temporary(space_id));
   ut_a(fsp_flags_is_valid(flags));
   ut_a(type == FIL_TYPE_TEMPORARY || type == FIL_TYPE_TABLESPACE);
 
