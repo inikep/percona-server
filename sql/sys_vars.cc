@@ -4682,8 +4682,8 @@ static Sys_var_charptr Sys_version_suffix("version_suffix", "version_suffix",
 static char *server_version_comment_ptr;
 static Sys_var_charptr Sys_version_comment(
     "version_comment", "version_comment",
-    GLOBAL_VAR(server_version_comment_ptr), NO_CMD_LINE,
-    IN_SYSTEM_CHARSET, DEFAULT(MYSQL_COMPILATION_COMMENT));
+    GLOBAL_VAR(server_version_comment_ptr), NO_CMD_LINE, IN_SYSTEM_CHARSET,
+    DEFAULT(MYSQL_COMPILATION_COMMENT));
 
 static char *server_version_compile_machine_ptr;
 static Sys_var_charptr Sys_version_compile_machine(

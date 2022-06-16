@@ -443,7 +443,7 @@ void btr_pcur_move_to_next_page(
                              btr_pcur_get_btr_cur(cursor)->index, mtr);
 
   if (!next_block && !btr_pcur_get_btr_cur(cursor)->index->table->is_readable())
-     return; /* decryption failure */
+    return; /* decryption failure */
 
   next_page = buf_block_get_frame(next_block);
 

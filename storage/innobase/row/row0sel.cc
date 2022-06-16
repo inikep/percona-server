@@ -4115,8 +4115,8 @@ dberr_t row_search_no_mvcc(byte *buf, page_cur_mode_t mode,
                                  pcur, 0, mtr);
 
     } else if (mode == PAGE_CUR_G || mode == PAGE_CUR_L) {
-      err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index, BTR_SEARCH_LEAF,
-                                        pcur, false, 0, mtr);
+      err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index,
+                                        BTR_SEARCH_LEAF, pcur, false, 0, mtr);
       if (err != DB_SUCCESS) {
         if (err == DB_DECRYPTION_FAILED) {
           ib::warn() << "Table is encrypted but encryption service or"
@@ -4376,8 +4376,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
 
   } else if (prebuilt->table->file_unreadable) {
     DBUG_RETURN(fil_space_get(prebuilt->table->space)
-                  ? DB_DECRYPTION_FAILED
-                  : DB_TABLESPACE_NOT_FOUND);
+                    ? DB_DECRYPTION_FAILED
+                    : DB_TABLESPACE_NOT_FOUND);
   } else if (!prebuilt->index_usable) {
     DBUG_RETURN(DB_MISSING_HISTORY);
 
@@ -4770,8 +4770,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
       }
     }
 
-    err = btr_pcur_open_with_no_init(index, search_tuple, mode, BTR_SEARCH_LEAF, pcur,
-                                     0, &mtr);
+    err = btr_pcur_open_with_no_init(index, search_tuple, mode, BTR_SEARCH_LEAF,
+                                     pcur, 0, &mtr);
 
     if (err != DB_SUCCESS) {
       rec = NULL;
@@ -4809,8 +4809,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
       }
     }
   } else if (mode == PAGE_CUR_G || mode == PAGE_CUR_L) {
-    err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index, BTR_SEARCH_LEAF,
-                                      pcur, false, 0, &mtr);
+    err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index,
+                                      BTR_SEARCH_LEAF, pcur, false, 0, &mtr);
     if (err != DB_SUCCESS) {
       if (err == DB_DECRYPTION_FAILED) {
         ib::warn() << "Table is encrypted but encryption service or"
@@ -5857,7 +5857,7 @@ lock_wait_or_error:
   /*-------------------------------------------------------------*/
   if (!dict_index_is_spatial(index)) {
     btr_pcur_store_position(pcur, &mtr);
-    if(rec) {
+    if (rec) {
       btr_pcur_store_position(pcur, &mtr);
     }
   }
@@ -6183,11 +6183,10 @@ static const rec_t *row_search_get_max_rec(dict_index_t *index, mtr_t *mtr,
   const rec_t *rec;
 
   /* Open at the high/right end (false), and init cursor */
-  dberr_t err = btr_pcur_open_at_index_side(false, index, BTR_SEARCH_LEAF, &pcur, true, 0,
-                                            mtr);
+  dberr_t err = btr_pcur_open_at_index_side(false, index, BTR_SEARCH_LEAF,
+                                            &pcur, true, 0, mtr);
 
-  if (err != DB_SUCCESS)
-    return NULL;
+  if (err != DB_SUCCESS) return NULL;
 
   do {
     const page_t *page;

@@ -50,6 +50,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0priv.h"
 #include "dict0stats.h"
 #include "dict0stats_bg.h"
+#include "fil0crypt.h"
 #include "fil0fil.h"
 #include "fsp0file.h"
 #include "fsp0sysspace.h"
@@ -76,7 +77,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0undo.h"
 #include "ut0new.h"
 #include "zlib.h"
-#include "fil0crypt.h"
 
 #include "current_thd.h"
 #include "my_dbug.h"
@@ -1948,36 +1948,37 @@ or is tablespace .ibd file missing.
 @retval DB_DECRYPTION_FAILED    table is encrypted but decryption failed
 @retval DB_CORRUPTION           table is corrupted
 @retval DB_TABLESPACE_NOT_FOUND tablespace .ibd file not found */
-static dberr_t row_mysql_get_table_status(const dict_table_t* table,
-                                          trx_t* trx,
+static dberr_t row_mysql_get_table_status(const dict_table_t *table, trx_t *trx,
                                           bool push_warning = true) {
   dberr_t err;
-  if (fil_space_t* space = fil_space_acquire_silent(table->space)) {
+  if (fil_space_t *space = fil_space_acquire_silent(table->space)) {
     if (space->crypt_data && space->crypt_data->is_encrypted()) {
       if (push_warning) {
-        push_warning_printf(trx->mysql_thd, Sql_condition::SL_WARNING,
-                            HA_ERR_DECRYPTION_FAILED, "Table %s in tablespace %u encrypted."
-                            "However key management plugin or used key_id is not found or"
-                            " used encryption algorithm or method does not match.",
-                            table->name.m_name, table->space);
+        push_warning_printf(
+            trx->mysql_thd, Sql_condition::SL_WARNING, HA_ERR_DECRYPTION_FAILED,
+            "Table %s in tablespace %u encrypted."
+            "However key management plugin or used key_id is not found or"
+            " used encryption algorithm or method does not match.",
+            table->name.m_name, table->space);
       }
       err = DB_DECRYPTION_FAILED;
     } else {
       if (push_warning) {
         push_warning_printf(trx->mysql_thd, Sql_condition::SL_WARNING,
-                            HA_ERR_CRASHED, "Table %s in tablespace %u corrupted.",
+                            HA_ERR_CRASHED,
+                            "Table %s in tablespace %u corrupted.",
                             table->name.m_name, table->space);
       }
       err = DB_CORRUPTION;
     }
     fil_space_release(space);
   } else {
-    ib::error(ER_IB_MSG_977) << ".ibd file is missing for table "
-                << table->name;
-                err = DB_TABLESPACE_NOT_FOUND;
+    ib::error(ER_IB_MSG_977)
+        << ".ibd file is missing for table " << table->name;
+    err = DB_TABLESPACE_NOT_FOUND;
   }
 
-  return(err);
+  return (err);
 }
 
 /** Does an insert for MySQL using INSERT graph. This function will run/execute
@@ -2011,7 +2012,7 @@ static dberr_t row_insert_for_mysql_using_ins_graph(const byte *mysql_rec,
     return (DB_TABLESPACE_DELETED);
 
   } else if (!prebuilt->table->is_readable()) {
-		return(row_mysql_get_table_status(prebuilt->table, trx, true));
+    return (row_mysql_get_table_status(prebuilt->table, trx, true));
   } else if (srv_force_recovery &&
              !(srv_force_recovery < SRV_FORCE_NO_UNDO_LOG_SCAN &&
                dict_sys_t::is_dd_table_id(prebuilt->table->id))) {
@@ -3148,11 +3149,13 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in]	compression	compression algorithm to use, can be nullptr
 @param[in,out]	trx		transaction
 @param[in]      fil_encryption_t mode,  in: encryption mode
-@param[in]      const CreateInfoEncryptionKeyId &create_info_encryption_key_id in: encryption key_id
+@param[in]      const CreateInfoEncryptionKeyId &create_info_encryption_key_id
+in: encryption key_id
 @return error code or DB_SUCCESS */
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   trx_t *trx, fil_encryption_t mode, 
-                                   const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression, trx_t *trx,
+    fil_encryption_t mode,
+    const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
   mem_heap_t *heap;
   dberr_t err;
 

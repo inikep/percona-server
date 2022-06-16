@@ -33,6 +33,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <errno.h>
 #include <my_aes.h>
 
+#include "fil0crypt.h"
 #include "fsp0sysspace.h"
 #include "ha_prototypes.h"
 #include "ibuf0ibuf.h"
@@ -40,7 +41,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0quiesce.h"
 #include "srv0start.h"
 #include "trx0purge.h"
-#include "fil0crypt.h"
 
 #include "my_dbug.h"
 
@@ -353,12 +353,13 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t row_quiesce_write_header(
 {
   byte value[sizeof(ib_uint32_t)];
 
-  fil_space_t*	space = fil_space_get(table->space);
-  //The table is read locked so it will not be dropped
+  fil_space_t *space = fil_space_get(table->space);
+  // The table is read locked so it will not be dropped
   ut_ad(space != NULL);
 
   /* Write the meta-data version number. */
-  if (space->crypt_data != NULL && space->crypt_data->type != CRYPT_SCHEME_UNENCRYPTED) {
+  if (space->crypt_data != NULL &&
+      space->crypt_data->type != CRYPT_SCHEME_UNENCRYPTED) {
     mach_write_to_4(value, IB_EXPORT_CFG_VERSION_V1_WITH_RK);
   } else {
     mach_write_to_4(value, IB_EXPORT_CFG_VERSION_V3);

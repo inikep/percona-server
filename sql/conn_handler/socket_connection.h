@@ -82,7 +82,7 @@ typedef std::map<MYSQL_SOCKET, bool, Socket_lt_type>::iterator
 class Mysqld_socket_listener {
   std::list<std::string> m_bind_addresses;  // addresses to listen to
   uint m_tcp_port;                          // TCP port to bind to
-  uint m_extra_tcp_port;        // Extra TCP port to bind to if non-zero
+  uint m_extra_tcp_port;  // Extra TCP port to bind to if non-zero
   std::unordered_set<int> m_extra_tcp_port_fds;
   uint m_backlog;       // backlog specifying length of pending connection queue
   uint m_port_timeout;  // port timeout value

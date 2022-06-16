@@ -36,9 +36,9 @@
 #include "nullable.h"
 #include "sql/dd/types/column.h"
 #include "sql/gis/srid.h"
-#include "sql/mdl.h"                // MDL_request
 #include "sql/key.h"  // KEY
 #include "sql/key_spec.h"
+#include "sql/mdl.h"                // MDL_request
 #include "sql/mem_root_array.h"     // Mem_root_array
 #include "sql/sql_cmd.h"            // Sql_cmd
 #include "sql/sql_cmd_ddl_table.h"  // Sql_cmd_ddl_table

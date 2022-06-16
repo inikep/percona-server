@@ -416,8 +416,7 @@ trx_t *innobase_get_trx(void);
 InnoDB extended statistics should be collected.
 @return transaction object if statistics should be collected, or NULL. */
 MY_NODISCARD
-trx_t*
-innobase_get_trx_for_slow_log(void) noexcept;
+trx_t *innobase_get_trx_for_slow_log(void) noexcept;
 
 enum srv_encrypt_tables_values {
   SRV_ENCRYPT_TABLES_OFF = 0,

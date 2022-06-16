@@ -3045,28 +3045,25 @@ bool THD::sql_parser() {
 static bool lock_keyring(THD *thd, plugin_ref plugin, void *arg);
 
 class KeyringsLocker {
-public:
+ public:
   static KeyringsLocker &get_instance() {
     static KeyringsLocker instance;
     return instance;
   }
 
-  ~KeyringsLocker() {
-    mysql_mutex_destroy(&mutex);
-  }
+  ~KeyringsLocker() { mysql_mutex_destroy(&mutex); }
 
   int lock_keyrings(THD *thd) {
     mysql_mutex_lock(&mutex);
 
-    uint number_of_keyrings_locked= locked_keyring_plugins.size();
-    if (number_of_keyrings_locked > 0)
-    {
+    uint number_of_keyrings_locked = locked_keyring_plugins.size();
+    if (number_of_keyrings_locked > 0) {
       mysql_mutex_unlock(&mutex);
-      return number_of_keyrings_locked; // keyrings were already locked
+      return number_of_keyrings_locked;  // keyrings were already locked
     }
     plugin_foreach(thd, lock_keyring, MYSQL_KEYRING_PLUGIN, this);
 
-    number_of_keyrings_locked= locked_keyring_plugins.size();
+    number_of_keyrings_locked = locked_keyring_plugins.size();
 
     mysql_mutex_unlock(&mutex);
     return number_of_keyrings_locked;
@@ -3075,9 +3072,9 @@ public:
   int unlock_keyrings(THD *thd) {
     mysql_mutex_lock(&mutex);
 
-    for(LockedKeyringsPlugins::reverse_iterator riter = locked_keyring_plugins.rbegin();
-        riter != locked_keyring_plugins.rend(); ++riter)
-    {
+    for (LockedKeyringsPlugins::reverse_iterator riter =
+             locked_keyring_plugins.rbegin();
+         riter != locked_keyring_plugins.rend(); ++riter) {
       plugin_unlock(thd, *riter);
       locked_keyring_plugins.pop_back();
     }
@@ -3086,28 +3083,25 @@ public:
     return 0;
   }
 
-  // esentialy I am using this vector as a stack, but I did not want to import stack.h just for
-  // this usage
+  // esentialy I am using this vector as a stack, but I did not want to import
+  // stack.h just for this usage
   typedef std::vector<plugin_ref> LockedKeyringsPlugins;
   LockedKeyringsPlugins locked_keyring_plugins;
 
-private:
-  KeyringsLocker() {
-    mysql_mutex_init(0, &mutex, MY_MUTEX_INIT_FAST);
-  }
+ private:
+  KeyringsLocker() { mysql_mutex_init(0, &mutex, MY_MUTEX_INIT_FAST); }
   mysql_mutex_t mutex;
 };
 
 static bool lock_keyring(THD *thd, plugin_ref plugin, void *arg) {
-  KeyringsLocker *keyrings_locker= reinterpret_cast<KeyringsLocker*>(arg);
-  plugin= plugin_lock(thd, &plugin);
-  if (plugin)
-    keyrings_locker->locked_keyring_plugins.push_back(plugin);
+  KeyringsLocker *keyrings_locker = reinterpret_cast<KeyringsLocker *>(arg);
+  plugin = plugin_lock(thd, &plugin);
+  if (plugin) keyrings_locker->locked_keyring_plugins.push_back(plugin);
   return false;
 }
 
 int lock_keyrings(THD *thd) {
-  return KeyringsLocker::get_instance().lock_keyrings(thd); 
+  return KeyringsLocker::get_instance().lock_keyrings(thd);
 }
 
 int unlock_keyrings(THD *thd) {

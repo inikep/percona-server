@@ -2872,8 +2872,8 @@ dberr_t row_ins_sec_index_entry_low(ulint flags, ulint mode,
     rtr_info_update_btr(&cursor, &rtr_info);
 
     err = btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_RTREE_INSERT,
-                                      search_mode, &cursor, 0, __FILE__, __LINE__,
-                                      &mtr);
+                                      search_mode, &cursor, 0, __FILE__,
+                                      __LINE__, &mtr);
 
     if (mode == BTR_MODIFY_LEAF && rtr_info.mbr_adj) {
       mtr_commit(&mtr);
@@ -2888,8 +2888,8 @@ dberr_t row_ins_sec_index_entry_low(ulint flags, ulint mode,
       search_mode |= BTR_MODIFY_TREE;
 
       err = btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_RTREE_INSERT,
-                                        search_mode, &cursor, 0, __FILE__, __LINE__,
-                                        &mtr);
+                                        search_mode, &cursor, 0, __FILE__,
+                                        __LINE__, &mtr);
       mode = BTR_MODIFY_TREE;
     }
 
@@ -2902,8 +2902,9 @@ dberr_t row_ins_sec_index_entry_low(ulint flags, ulint mode,
       ut_ad(cursor.page_cur.block != NULL);
       ut_ad(cursor.page_cur.block->made_dirty_with_no_latch);
     } else {
-      err = btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_LE, search_mode,
-                                        &cursor, 0, __FILE__, __LINE__, &mtr);
+      err =
+          btr_cur_search_to_nth_level(index, 0, entry, PAGE_CUR_LE, search_mode,
+                                      &cursor, 0, __FILE__, __LINE__, &mtr);
     }
   }
 
@@ -2912,7 +2913,7 @@ dberr_t row_ins_sec_index_entry_low(ulint flags, ulint mode,
       ib::warn() << "Table is encrypted but encryption service or"
                     " used key_id is not available. "
                     " Can't continue reading table.";
-                    index->table->set_file_unreadable();
+      index->table->set_file_unreadable();
     }
     goto func_exit;
   }
