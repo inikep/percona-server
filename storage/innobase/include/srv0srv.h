@@ -169,7 +169,7 @@ struct srv_stats_t {
 
   /* Number of pages encrypted */
   ulint_ctr_64_t pages_encrypted;
-  
+
   /* Number of pages decrypted */
   ulint_ctr_64_t pages_decrypted;
 };
@@ -1200,11 +1200,11 @@ struct export_var_t {
   fragmentation_stats_t innodb_fragmentation_stats; /*!< Fragmentation
                                            statistics */
 
-  int64_t innodb_scrub_log; 
-  int64_t innodb_pages_encrypted;      /*!< Number of pages
-                                       encrypted */
-  int64_t innodb_pages_decrypted;      /*!< Number of pages
-                                       decrypted */
+  int64_t innodb_scrub_log;
+  int64_t innodb_pages_encrypted; /*!< Number of pages
+                                  encrypted */
+  int64_t innodb_pages_decrypted; /*!< Number of pages
+                                  decrypted */
   ulint innodb_encryption_rotation_pages_read_from_cache;
   ulint innodb_encryption_rotation_pages_read_from_disk;
   ulint innodb_encryption_rotation_pages_modified;

@@ -2864,13 +2864,15 @@ class PT_traceable_create_table_option : public PT_create_table_option {
 
 template <typename Option_type, Option_type HA_CREATE_INFO::*Property,
           ulong Property_flag>
-class PT_traceable_create_table_option_encryption_key_id : public PT_create_table_option {
+class PT_traceable_create_table_option_encryption_key_id
+    : public PT_create_table_option {
   typedef PT_create_table_option super;
 
   const Option_type value;
 
  public:
-  explicit PT_traceable_create_table_option_encryption_key_id(Option_type value) : value(value) {}
+  explicit PT_traceable_create_table_option_encryption_key_id(Option_type value)
+      : value(value) {}
 
   bool contextualize(Table_ddl_parse_context *pc) override {
     if (super::contextualize(pc)) return true;
@@ -2947,7 +2949,8 @@ typedef PT_traceable_create_table_option<
     PT_create_encryption_option;
 
 typedef PT_traceable_create_table_option_encryption_key_id<
-    TYPE_AND_REF(HA_CREATE_INFO::encryption_key_id), HA_CREATE_USED_ENCRYPTION_KEY_ID>
+    TYPE_AND_REF(HA_CREATE_INFO::encryption_key_id),
+    HA_CREATE_USED_ENCRYPTION_KEY_ID>
     PT_create_encryption_key_id_option;
 
 /**

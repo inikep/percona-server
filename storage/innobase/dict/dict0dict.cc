@@ -5390,7 +5390,7 @@ void dict_set_corrupted(dict_index_t *index) {
 cache
 @param[in] space_id Tablespace id */
 void dict_table_set_encrypted_by_space(space_id_t space_id,
-                                     bool need_mutex) noexcept {
+                                       bool need_mutex) noexcept {
   ut_a(space_id != 0);
   ut_a(space_id < dict_sys_t::s_log_space_first_id);
 

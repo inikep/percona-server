@@ -353,9 +353,11 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in]	compression	compression algorithm to use, can be nullptr
 @param[in,out]	trx		transasction
 @return error code or DB_SUCCESS */
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   trx_t *trx, fil_encryption_t mode, /*!< in: encryption mode */
-                                   const CreateInfoEncryptionKeyId &create_info_encryption_key_id) /*!< in: encryption key_id */
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression, trx_t *trx,
+    fil_encryption_t mode, /*!< in: encryption mode */
+    const CreateInfoEncryptionKeyId
+        &create_info_encryption_key_id) /*!< in: encryption key_id */
     MY_ATTRIBUTE((warn_unused_result));
 /** Does an index creation operation for MySQL. TODO: currently failure
  to create an index results in dropping the whole table! This is no problem

@@ -90,10 +90,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "usr0sess.h"
 #include "ut0crc32.h"
 #endif /* !UNIV_HOTBACKUP */
+#include "fil0crypt.h"
 #include "ha_innodb.h"
 #include "sql/handler.h"
 #include "ut0mem.h"
-#include "fil0crypt.h"
 
 #ifdef UNIV_HOTBACKUP
 #include "page0size.h"
@@ -1759,19 +1759,18 @@ void srv_export_innodb_status(void) {
 
   if (!srv_read_only_mode) {
     export_vars.innodb_encryption_rotation_pages_read_from_cache =
-      crypt_stat.pages_read_from_cache;
+        crypt_stat.pages_read_from_cache;
     export_vars.innodb_encryption_rotation_pages_read_from_disk =
-      crypt_stat.pages_read_from_disk;
+        crypt_stat.pages_read_from_disk;
     export_vars.innodb_encryption_rotation_pages_modified =
-      crypt_stat.pages_modified;
+        crypt_stat.pages_modified;
     export_vars.innodb_encryption_rotation_pages_flushed =
-      crypt_stat.pages_flushed;
+        crypt_stat.pages_flushed;
     export_vars.innodb_encryption_rotation_estimated_iops =
-      crypt_stat.estimated_iops;
-    export_vars.innodb_encryption_key_requests =
-      srv_stats.n_key_requests;
+        crypt_stat.estimated_iops;
+    export_vars.innodb_encryption_key_requests = srv_stats.n_key_requests;
     export_vars.innodb_key_rotation_list_length =
-      srv_stats.key_rotation_list_length;
+        srv_stats.key_rotation_list_length;
   }
 
   mutex_exit(&srv_innodb_monitor_mutex);

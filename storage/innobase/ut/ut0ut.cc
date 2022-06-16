@@ -568,9 +568,9 @@ const char *ut_strerr(dberr_t num) {
     case DB_COMPUTE_VALUE_FAILED:
       return ("Compute generated column failed");
     case DB_DECRYPTION_FAILED:
-      return("Table is encrypted but decrypt failed.");
+      return ("Table is encrypted but decrypt failed.");
     case DB_PAGE_CORRUPTED:
-      return("Page read from tablespace is corrupted.");
+      return ("Page read from tablespace is corrupted.");
 
     case DB_INVALID_ENCRYPTION_META:
       return ("Invalid encryption meta-data information");

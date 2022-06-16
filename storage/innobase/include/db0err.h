@@ -192,9 +192,9 @@ enum dberr_t {
                               of missing key management plugin,
                               or missing or incorrect key or
                               incorret AES method or algorithm. */
-  
-  DB_PAGE_CORRUPTED = 999,    /* Page read from tablespace is
-                              corrupted. */
+
+  DB_PAGE_CORRUPTED = 999, /* Page read from tablespace is
+                           corrupted. */
 
   /* The following are partial failure codes */
   DB_FAIL = 1000,

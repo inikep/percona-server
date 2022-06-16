@@ -1367,10 +1367,9 @@ space_id_t dict_check_sys_tablespaces(bool validate) {
 
     Keyring_encryption_info keyring_encryption_info;
     /* Check that the .ibd file exists. */
-    dberr_t err =
-        fil_ibd_open(validate, FIL_TYPE_TABLESPACE, space_id, fsp_flags,
-                     space_name, space_name, filepath, true, true,
-                     keyring_encryption_info);
+    dberr_t err = fil_ibd_open(validate, FIL_TYPE_TABLESPACE, space_id,
+                               fsp_flags, space_name, space_name, filepath,
+                               true, true, keyring_encryption_info);
 
     if (err != DB_SUCCESS) {
       ib::warn(ER_IB_MSG_191) << "Ignoring tablespace " << id_name_t(space_name)
@@ -1589,10 +1588,9 @@ space_id_t dict_check_sys_tables(bool validate) {
 
     Keyring_encryption_info keyring_encryption_info;
 
-    dberr_t err =
-        fil_ibd_open(validate, FIL_TYPE_TABLESPACE, space_id, fsp_flags,
-                     space_name, tbl_name, filepath, true, true,
-                     keyring_encryption_info);
+    dberr_t err = fil_ibd_open(validate, FIL_TYPE_TABLESPACE, space_id,
+                               fsp_flags, space_name, tbl_name, filepath, true,
+                               true, keyring_encryption_info);
 
     if (err != DB_SUCCESS) {
       ib::warn(ER_IB_MSG_194) << "Ignoring tablespace " << id_name_t(space_name)

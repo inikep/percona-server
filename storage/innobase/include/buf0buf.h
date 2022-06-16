@@ -428,7 +428,8 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
                               const page_size_t &page_size, ulint rw_latch,
                               buf_block_t *guess, ulint mode, const char *file,
                               ulint line, mtr_t *mtr,
-                              bool dirty_with_no_latch = false, dberr_t* err = NULL);
+                              bool dirty_with_no_latch = false,
+                              dberr_t *err = NULL);
 
 /** Initializes a page to the buffer buf_pool. The page is usually not read
 from a file even if it cannot be found in the buffer buf_pool. This is one
@@ -606,19 +607,24 @@ void buf_read_page_handle_error(buf_page_t *bpage);
 #define buf_block_modify_clock_inc(block) ((void)0)
 #endif /* !UNIV_HOTBACKUP */
 
-bool buf_page_is_checksum_valid_crc32(const byte* read_buf, ulint checksum_field1,
+bool buf_page_is_checksum_valid_crc32(const byte *read_buf,
+                                      ulint checksum_field1,
                                       ulint checksum_field2,
 #ifdef UNIV_INNOCHECKSUM
                                       uintmax_t page_no, bool is_log_enabled,
-                                      FILE* log_file, const srv_checksum_algorithm_t curr_algo,
+                                      FILE *log_file,
+                                      const srv_checksum_algorithm_t curr_algo,
 #endif /* UNIV_INNOCHECKSUM */
                                       bool use_legacy_big_endian);
 
-bool buf_page_is_checksum_valid_innodb(const byte* read_buf, ulint checksum_field1,
+bool buf_page_is_checksum_valid_innodb(const byte *read_buf,
+                                       ulint checksum_field1,
                                        ulint checksum_field2
 #ifdef UNIV_INNOCHECKSUM
-                                       ,uintmax_t page_no, bool is_log_enabled,
-                                       FILE* log_file, const srv_checksum_algorithm_t curr_algo
+                                       ,
+                                       uintmax_t page_no, bool is_log_enabled,
+                                       FILE *log_file,
+                                       const srv_checksum_algorithm_t curr_algo
 #endif /* UNIV_INNOCHECKSUM */
 );
 
@@ -1297,7 +1303,7 @@ class buf_page_t {
                         in the buffer pool. Protected by
                         block mutex */
   bool is_corrupt;
-  bool encrypted;       /*!< page is still encrypted */
+  bool encrypted; /*!< page is still encrypted */
 #ifdef UNIV_DEBUG
   ibool file_page_was_freed;
   /*!< this is set to TRUE when

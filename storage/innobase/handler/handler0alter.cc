@@ -627,8 +627,7 @@ static inline bool is_instant(const Alter_inplace_info *ha_alter_info) {
 @param[in]	ha_alter_info	The DDL operation
 @return whether it is necessary to rebuild the table */
 static MY_ATTRIBUTE((warn_unused_result)) bool innobase_need_rebuild(
-    const Alter_inplace_info *ha_alter_info,
-    const TABLE *old_table) {
+    const Alter_inplace_info *ha_alter_info, const TABLE *old_table) {
   if (is_instant(ha_alter_info)) {
     return (false);
   }
@@ -636,17 +635,15 @@ static MY_ATTRIBUTE((warn_unused_result)) bool innobase_need_rebuild(
   Alter_inplace_info::HA_ALTER_FLAGS alter_inplace_flags =
       ha_alter_info->handler_flags & ~(INNOBASE_INPLACE_IGNORE);
 
-  if ((
-        Encryption::none_explicitly_specified(ha_alter_info->create_info->encrypt_type.str) &&
-        (Encryption::is_keyring(old_table->s->encrypt_type.str) || Encryption::is_empty(old_table->s->encrypt_type.str))
-      ) ||
-      (
-        Encryption::is_keyring(ha_alter_info->create_info->encrypt_type.str) &&
-        !Encryption::is_keyring(old_table->s->encrypt_type.str)
-      ) ||
-      ha_alter_info->create_info->encryption_key_id != old_table->s->encryption_key_id
-     )
-       return true;
+  if ((Encryption::none_explicitly_specified(
+           ha_alter_info->create_info->encrypt_type.str) &&
+       (Encryption::is_keyring(old_table->s->encrypt_type.str) ||
+        Encryption::is_empty(old_table->s->encrypt_type.str))) ||
+      (Encryption::is_keyring(ha_alter_info->create_info->encrypt_type.str) &&
+       !Encryption::is_keyring(old_table->s->encrypt_type.str)) ||
+      ha_alter_info->create_info->encryption_key_id !=
+          old_table->s->encryption_key_id)
+    return true;
 
   if (alter_inplace_flags == Alter_inplace_info::CHANGE_CREATE_OPTION &&
       !(ha_alter_info->create_info->used_fields &
@@ -702,11 +699,11 @@ enum_alter_inplace_result ha_innobase::check_if_supported_inplace_alter(
 
   /* We don't support change Master key encryption attribute with
   inplace algorithm. */
-  char* old_encryption = this->table->s->encrypt_type.str;
+  char *old_encryption = this->table->s->encrypt_type.str;
   char *new_encryption = altered_table->s->encrypt_type.str;
 
- if (Encryption::is_master_key_encryption(old_encryption) !=
-     Encryption::is_master_key_encryption(new_encryption)) {
+  if (Encryption::is_master_key_encryption(old_encryption) !=
+      Encryption::is_master_key_encryption(new_encryption)) {
     ha_alter_info->unsupported_reason =
         innobase_get_err_msg(ER_UNSUPPORTED_ALTER_ENCRYPTION_INPLACE);
     DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
@@ -2596,8 +2593,8 @@ static MY_ATTRIBUTE((warn_unused_result, malloc)) index_def_t
                               bool &add_fts_doc_idx,
                               /*!< in: whether we need to add new DOC ID
                               index for FTS index */
-                              const TABLE* table)
-                              /*!<in: old_table MySQL table as it is before the ALTER operation */
+                              const TABLE *table)
+/*!<in: old_table MySQL table as it is before the ALTER operation */
 {
   index_def_t *indexdef;
   index_def_t *indexdefs;
@@ -2628,8 +2625,8 @@ static MY_ATTRIBUTE((warn_unused_result, malloc)) index_def_t
     new_primary = (altered_table->s->primary_key != MAX_KEY);
   }
 
-  const bool rebuild =
-      new_primary || add_fts_doc_id || innobase_need_rebuild(ha_alter_info, table);
+  const bool rebuild = new_primary || add_fts_doc_id ||
+                       innobase_need_rebuild(ha_alter_info, table);
 
   /* Reserve one more space if new_primary is true, and we might
   need to add the FTS_DOC_ID_INDEX */
@@ -4158,9 +4155,9 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
   column is to be added, and the primary index definition
   is just copied from old table and stored in indexdefs[0] */
   DBUG_ASSERT(!add_fts_doc_id || new_clustered);
-  DBUG_ASSERT(!!new_clustered ==
-              (innobase_need_rebuild(ha_alter_info, old_table)
-               || add_fts_doc_id));
+  DBUG_ASSERT(
+      !!new_clustered ==
+      (innobase_need_rebuild(ha_alter_info, old_table) || add_fts_doc_id));
 
   /* Allocate memory for dictionary index definitions */
 
@@ -4404,38 +4401,44 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
       ut_ad(!DICT_TF_HAS_SHARED_SPACE(flags));
     }
 
-    key_id= ha_alter_info->create_info->encryption_key_id;
+    key_id = ha_alter_info->create_info->encryption_key_id;
 
     // re-encrypting, check that key used to encrypt table is present
     if (DICT_TF2_FLAG_SET(ctx->old_table, DICT_TF2_ENCRYPTION_FILE_PER_TABLE)) {
-      if (Encryption::is_master_key_encryption(old_table->s->encrypt_type.str)) {
+      if (Encryption::is_master_key_encryption(
+              old_table->s->encrypt_type.str)) {
         // re-encrypting from master key encryption
         /* Check if keyring is ready. */
-        byte* master_key = NULL;
+        byte *master_key = NULL;
         ulint master_key_id;
-        
+
         Encryption::get_master_key(&master_key_id, &master_key);
-        
+
         if (master_key == NULL) {
           dict_mem_table_free(ctx->new_table);
-          my_error(ER_CANNOT_FIND_KEY_IN_KEYRING,
-          MYF(0));
-            goto new_clustered_failed;
+          my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
+          goto new_clustered_failed;
         } else {
           my_free(master_key);
         }
       } else if (Encryption::is_keyring(old_table->s->encrypt_type.str) &&
-           (old_table->s->encryption_key_id != ha_alter_info->create_info->encryption_key_id || Encryption::none_explicitly_specified(encrypt))) {
-        // it is KEYRING encryption - check if old's table encryption key is available 
-        if (Encryption::tablespace_key_exists(old_table->s->encryption_key_id) == false) {
+                 (old_table->s->encryption_key_id !=
+                      ha_alter_info->create_info->encryption_key_id ||
+                  Encryption::none_explicitly_specified(encrypt))) {
+        // it is KEYRING encryption - check if old's table encryption key is
+        // available
+        if (Encryption::tablespace_key_exists(
+                old_table->s->encryption_key_id) == false) {
           my_printf_error(ER_ILLEGAL_HA_CREATE_OPTION,
-                          "Cannot find key to decrypt table to ALTER. Please make sure that keyring is installed "
-                          " and key used to encrypt table is available.", MYF(0));
+                          "Cannot find key to decrypt table to ALTER. Please "
+                          "make sure that keyring is installed "
+                          " and key used to encrypt table is available.",
+                          MYF(0));
           goto new_clustered_failed;
         }
       }
     }
-    
+
     if (Encryption::none_explicitly_specified(encrypt))
       mode = FIL_ENCRYPTION_OFF;
     else if (Encryption::is_keyring(encrypt) ||
@@ -4500,10 +4503,11 @@ static MY_ATTRIBUTE((warn_unused_result)) bool prepare_inplace_alter_table_dict(
     mutex_exit(&dict_sys->mutex);
 
     create_info_encryption_key_id.was_encryption_key_id_set =
-      ha_alter_info->create_info->was_encryption_key_id_set;
+        ha_alter_info->create_info->was_encryption_key_id_set;
     create_info_encryption_key_id.encryption_key_id = key_id;
 
-    error = row_create_table_for_mysql(ctx->new_table, compression, ctx->trx, mode, create_info_encryption_key_id);
+    error = row_create_table_for_mysql(ctx->new_table, compression, ctx->trx,
+                                       mode, create_info_encryption_key_id);
 
     mutex_enter(&dict_sys->mutex);
 
@@ -5233,28 +5237,28 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
       /* Handled below */
     } else {
       FilSpace space(indexed_table->space, true);
-    
+
       if (space()) {
         String str;
-        const char* engine= table_type();
-        
-        push_warning_printf(m_user_thd, Sql_condition::SL_WARNING,
-                            HA_ERR_DECRYPTION_FAILED,
-                            "Table %s in file %s is encrypted but encryption service or"
-                            " used key_id is not available. "
-                            " Can't continue reading table.",
-                            table_share->table_name.str,
-                            space()->files.begin()->name);
-        
-        my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(), engine);
+        const char *engine = table_type();
+
+        push_warning_printf(
+            m_user_thd, Sql_condition::SL_WARNING, HA_ERR_DECRYPTION_FAILED,
+            "Table %s in file %s is encrypted but encryption service or"
+            " used key_id is not available. "
+            " Can't continue reading table.",
+            table_share->table_name.str, space()->files.begin()->name);
+
+        my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(),
+                 engine);
         DBUG_RETURN(true);
       }
     }
   }
-  
-  if (indexed_table->is_corrupt
-      || UT_LIST_GET_FIRST(indexed_table->indexes) == NULL
-      || UT_LIST_GET_FIRST(indexed_table->indexes)->is_corrupted()) {
+
+  if (indexed_table->is_corrupt ||
+      UT_LIST_GET_FIRST(indexed_table->indexes) == NULL ||
+      UT_LIST_GET_FIRST(indexed_table->indexes)->is_corrupted()) {
     /* The clustered index is corrupted. */
     my_error(ER_CHECK_NO_SUCH_TABLE, MYF(0));
     DBUG_RETURN(true);
@@ -5344,7 +5348,8 @@ bool ha_innobase::prepare_inplace_alter_table_impl(
   flags. There are places where it is done afterwards, there are places
   where it isn't done. We need to inspect all code paths and check if
   encryption flag can be set in one place. */
-  if (Encryption::is_master_key_encryption(ha_alter_info->create_info->encrypt_type.str)) {
+  if (Encryption::is_master_key_encryption(
+          ha_alter_info->create_info->encrypt_type.str)) {
     /* Set the encryption flag. */
     byte *master_key = nullptr;
     ulint master_key_id;
@@ -6084,9 +6089,10 @@ oom:
       break;
     case DB_DECRYPTION_FAILED: {
       String str;
-      const char* engine= table_type();
+      const char *engine = table_type();
       get_error_message(HA_ERR_DECRYPTION_FAILED, &str);
-      my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(), engine);
+      my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(),
+               engine);
       break;
     }
     default:
@@ -7204,16 +7210,17 @@ bool ha_innobase::commit_inplace_alter_table_impl(
         static_cast<ha_innobase_inplace_ctx *>(*pctx);
     DBUG_ASSERT(ctx->prebuilt->trx == m_prebuilt->trx);
 
-  /* If decryption failed for old table or new table
-  fail here. */
-    if ((!ctx->old_table->is_readable()
-         && fil_space_get(ctx->old_table->space))
-        || (!ctx->new_table->is_readable()
-        && fil_space_get(ctx->new_table->space))) {
+    /* If decryption failed for old table or new table
+    fail here. */
+    if ((!ctx->old_table->is_readable() &&
+         fil_space_get(ctx->old_table->space)) ||
+        (!ctx->new_table->is_readable() &&
+         fil_space_get(ctx->new_table->space))) {
       String str;
-      const char* engine= table_type();
+      const char *engine = table_type();
       get_error_message(HA_ERR_DECRYPTION_FAILED, &str);
-      my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(), engine);
+      my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(),
+               engine);
       DBUG_RETURN(true);
     }
 

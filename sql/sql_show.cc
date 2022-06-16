@@ -1693,12 +1693,14 @@ int store_create_info(THD *thd, TABLE_LIST *table_list, String *packet,
     }
 
     if (share->was_encryption_key_id_set) {
-      DBUG_ASSERT(share->encrypt_type.length == 0 || my_strcasecmp(system_charset_info, share->encrypt_type.str, "KEYRING") != 0
-                  || share->encrypt_type.length == strlen("KEYRING"));
+      DBUG_ASSERT(share->encrypt_type.length == 0 ||
+                  my_strcasecmp(system_charset_info, share->encrypt_type.str,
+                                "KEYRING") != 0 ||
+                  share->encrypt_type.length == strlen("KEYRING"));
 
       char *end;
-      packet->append(STRING_WITH_LEN(" ENCRYPTION_KEY_ID=")); 
-      end= longlong10_to_str(table->s->encryption_key_id, buff, 10);
+      packet->append(STRING_WITH_LEN(" ENCRYPTION_KEY_ID="));
+      end = longlong10_to_str(table->s->encryption_key_id, buff, 10);
       packet->append(buff, static_cast<uint>(end - buff));
     }
 
