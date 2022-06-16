@@ -817,9 +817,9 @@ class PageConverter : public AbstractCallback {
  private:
   /** Status returned by PageConverter::validate() */
   enum import_page_status_t {
-    IMPORT_PAGE_STATUS_OK,       /*!< Page is OK */
-    IMPORT_PAGE_STATUS_ALL_ZERO, /*!< Page is all zeros */
-    IMPORT_PAGE_STATUS_CORRUPTED, /*!< Page is corrupted */
+    IMPORT_PAGE_STATUS_OK,               /*!< Page is OK */
+    IMPORT_PAGE_STATUS_ALL_ZERO,         /*!< Page is all zeros */
+    IMPORT_PAGE_STATUS_CORRUPTED,        /*!< Page is corrupted */
     IMPORT_PAGE_STATUS_DECRYPTION_FAILED /*< Page decryption failed */
   };
 
@@ -2103,7 +2103,9 @@ PageConverter::import_page_status_t PageConverter::validate(
   ulint page_type = mach_read_from_2(page + FIL_PAGE_TYPE);
   ulint original_page_type = mach_read_from_2(page + FIL_PAGE_ORIGINAL_TYPE_V1);
   bool was_page_read_encrypted = original_page_type == FIL_PAGE_ENCRYPTED;
-  block->page.encrypted = block->page.encrypted || was_page_read_encrypted || page_type == FIL_PAGE_ENCRYPTED || page_type == FIL_PAGE_ENCRYPTED_RTREE ||
+  block->page.encrypted = block->page.encrypted || was_page_read_encrypted ||
+                          page_type == FIL_PAGE_ENCRYPTED ||
+                          page_type == FIL_PAGE_ENCRYPTED_RTREE ||
                           page_type == FIL_PAGE_COMPRESSED_AND_ENCRYPTED;
 
   BlockReporter reporter(false, page, get_page_size(),
@@ -2112,18 +2114,17 @@ PageConverter::import_page_status_t PageConverter::validate(
   if (reporter.is_corrupted() ||
       (page_get_page_no(page) != offset / m_page_size.physical() &&
        page_get_page_no(page) != 0)) {
-    return block->page.encrypted
-      ? IMPORT_PAGE_STATUS_DECRYPTION_FAILED
-      : IMPORT_PAGE_STATUS_CORRUPTED;
+    return block->page.encrypted ? IMPORT_PAGE_STATUS_DECRYPTION_FAILED
+                                 : IMPORT_PAGE_STATUS_CORRUPTED;
 
   } else if (offset > 0 && page_get_page_no(page) == 0) {
     /* The page is all zero: do nothing. We already checked
     for all NULs in buf_page_is_corrupted() */
-    block->page.encrypted= false;
+    block->page.encrypted = false;
     return (IMPORT_PAGE_STATUS_ALL_ZERO);
   }
 
-  block->page.encrypted= false;
+  block->page.encrypted = false;
   return (IMPORT_PAGE_STATUS_OK);
 }
 
@@ -2185,13 +2186,12 @@ dberr_t PageConverter::operator()(os_offset_t offset,
       /* The page is all zero: leave it as is. */
       break;
 
-
     case IMPORT_PAGE_STATUS_DECRYPTION_FAILED:
-      ib::warn() << "Page " << (offset / m_page_size.physical())
-                 << " at offet " << offset
-                 << " in file " << m_filepath << " cannot be decrypted. "
-                 << "Are you using correct keyring that contain the key used to "
-                 << "encrypt the tablespace before it was discared ?";
+      ib::warn()
+          << "Page " << (offset / m_page_size.physical()) << " at offet "
+          << offset << " in file " << m_filepath << " cannot be decrypted. "
+          << "Are you using correct keyring that contain the key used to "
+          << "encrypt the tablespace before it was discared ?";
       return (DB_DECRYPTION_FAILED);
 
     case IMPORT_PAGE_STATUS_CORRUPTED:
@@ -3244,7 +3244,7 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t row_import_read_meta_data(
       return (err);
     case IB_EXPORT_CFG_VERSION_V1_WITH_RK:
       cfg.m_is_keyring_encrypted = true;
-      return(row_import_read_v1(file, thd, &cfg));
+      return (row_import_read_v1(file, thd, &cfg));
     default:
       ib_errf(thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
               "Unsupported meta-data version number (%lu),"
@@ -3708,9 +3708,16 @@ dberr_t row_import_for_mysql(dict_table_t *table, dd::Table *table_def,
                      true, false, keyring_encryption_info);
 
   if (err == DB_SUCCESS && cfg.m_is_keyring_encrypted &&
-      (!keyring_encryption_info.page0_has_crypt_data || !FSP_FLAGS_GET_ENCRYPTION(fsp_flags))) {
-    ut_ad(!keyring_encryption_info.is_encryption_in_progress()); // it should not be possible to FLUSH FOR EXPORT when encryption
-                                                                 // is in progress
+      (!keyring_encryption_info.page0_has_crypt_data ||
+       !FSP_FLAGS_GET_ENCRYPTION(fsp_flags))) {
+    ut_ad(!keyring_encryption_info.is_encryption_in_progress());  // it should
+                                                                  // not be
+                                                                  // possible to
+                                                                  // FLUSH FOR
+                                                                  // EXPORT when
+                                                                  // encryption
+                                                                  // is in
+                                                                  // progress
     ib_errf(trx->mysql_thd, IB_LOG_LEVEL_ERROR, ER_TABLE_SCHEMA_MISMATCH,
             "Table is marked as encrypted with KEYRING in cfg file, but there"
             " is no KEYRING encryption information in tablespace header"
@@ -3732,12 +3739,12 @@ dberr_t row_import_for_mysql(dict_table_t *table, dd::Table *table_def,
     return (row_import_cleanup(prebuilt, trx, err));
   }
 
-  /* For encrypted tablespace, set encryption information. */
+  /*a For encrypted tablespace, set encryption information. */
   if (FSP_FLAGS_GET_ENCRYPTION(fsp_flags)) {
-    err = fil_set_encryption(table->space,
-                             cfg.m_is_keyring_encrypted ? Encryption::KEYRING
-                                                        : Encryption::AES,
-                             table->encryption_key, table->encryption_iv);
+    err = fil_set_encryption(
+        table->space,
+        cfg.m_is_keyring_encrypted ? Encryption::KEYRING : Encryption::AES,
+        table->encryption_key, table->encryption_iv);
   }
 
   row_mysql_unlock_data_dictionary(trx);

@@ -436,15 +436,15 @@ buf_page_t *buf_page_get_zip(const page_id_t &page_id,
                              const page_size_t &page_size);
 
 /** This is the general function used to get access to a database page.
-@param[in]  page_id     page id
-@param[in]  page_size   page size
-@param[in]  rw_latch    RW_S_LATCH, RW_X_LATCH, RW_NO_LATCH
-@param[in]  guess       guessed block or NULL
-@param[in]  mode        Fetch mode.
-@param[in]  file        file name
-@param[in]  line        line where called
-@param[in]  mtr         mini-transaction
-@param[in]  dirty_with_no_latch mark page as dirty even if page is being
+@param[in]	page_id			page id
+@param[in]	page_size		page size
+@param[in]	rw_latch		RW_S_LATCH, RW_X_LATCH, RW_NO_LATCH
+@param[in]	guess			  guessed block or NULL
+@param[in]	mode			  Fetch mode.
+@param[in]	file			  file name
+@param[in]	line			  line where called
+@param[in]	mtr			    mini-transaction
+@param[in]	dirty_with_no_latch	mark page as dirty even if page is being
                         pinned without any latch
 @return pointer to the block or NULL */
 buf_block_t *buf_page_get_gen(const page_id_t &page_id,
@@ -630,19 +630,24 @@ void buf_read_page_handle_error(buf_page_t *bpage);
 #define buf_block_modify_clock_inc(block) ((void)0)
 #endif /* !UNIV_HOTBACKUP */
 
-bool buf_page_is_checksum_valid_crc32(const byte* read_buf, ulint checksum_field1,
+bool buf_page_is_checksum_valid_crc32(const byte *read_buf,
+                                      ulint checksum_field1,
                                       ulint checksum_field2,
 #ifdef UNIV_INNOCHECKSUM
                                       uintmax_t page_no, bool is_log_enabled,
-                                      FILE* log_file, const srv_checksum_algorithm_t curr_algo,
+                                      FILE *log_file,
+                                      const srv_checksum_algorithm_t curr_algo,
 #endif /* UNIV_INNOCHECKSUM */
                                       bool use_legacy_big_endian);
 
-bool buf_page_is_checksum_valid_innodb(const byte* read_buf, ulint checksum_field1,
+bool buf_page_is_checksum_valid_innodb(const byte *read_buf,
+                                       ulint checksum_field1,
                                        ulint checksum_field2
 #ifdef UNIV_INNOCHECKSUM
-                                       ,uintmax_t page_no, bool is_log_enabled,
-                                       FILE* log_file, const srv_checksum_algorithm_t curr_algo
+                                       ,
+                                       uintmax_t page_no, bool is_log_enabled,
+                                       FILE *log_file,
+                                       const srv_checksum_algorithm_t curr_algo
 #endif /* UNIV_INNOCHECKSUM */
 );
 
@@ -1322,7 +1327,7 @@ class buf_page_t {
                         in the buffer pool. Protected by
                         block mutex */
   bool is_corrupt;
-  bool encrypted;       /*!< page is still encrypted */
+  bool encrypted; /*!< page is still encrypted */
 #ifdef UNIV_DEBUG
   ibool file_page_was_freed;
   /*!< this is set to TRUE when

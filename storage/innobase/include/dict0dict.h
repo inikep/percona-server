@@ -1753,7 +1753,7 @@ void dict_table_set_corrupt_by_space(space_id_t space_id,
 cache
 @param[in] space_id Tablespace id */
 void dict_table_set_encrypted_by_space(space_id_t space_id,
-                                     bool need_mutex) noexcept;
+                                       bool need_mutex) noexcept;
 
 /** SYS_ZIP_DICT and SYS_ZIP_DICT_COLS will be missing when upgrading
 mysql-5.7 to PS-8.0 */

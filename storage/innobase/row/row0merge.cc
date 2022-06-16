@@ -1714,8 +1714,7 @@ static MY_ATTRIBUTE((warn_unused_result)) dberr_t
     mem_heap_empty(row_heap);
 
     /* Do not continue if table pages are still encrypted */
-    if (!old_table->is_readable() ||
-        !new_table->is_readable()) {
+    if (!old_table->is_readable() || !new_table->is_readable()) {
       err = DB_DECRYPTION_FAILED;
       trx->error_key_num = 0;
       goto func_exit;

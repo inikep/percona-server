@@ -70,6 +70,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "buf0checksum.h"
 #include "buf0dump.h"
 #include "dict0dict.h"
+#include "fil0crypt.h"
 #include "log0recv.h"
 #include "os0thread-create.h"
 #include "page0zip.h"
@@ -79,7 +80,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "sync0sync.h"
 #include "trx0trx.h"
 #include "ut0new.h"
-#include "fil0crypt.h"
 #endif /* !UNIV_HOTBACKUP */
 
 #ifdef HAVE_LIBNUMA
@@ -5109,58 +5109,57 @@ void buf_read_page_handle_error(buf_page_t *bpage) {
   os_atomic_decrement_ulint(&buf_pool->n_pend_reads, 1);
 }
 
-dberr_t buf_page_check_corrupt(buf_page_t* bpage, fil_space_t* space) {
+dberr_t buf_page_check_corrupt(buf_page_t *bpage, fil_space_t *space) {
   ut_ad(space->n_pending_ios > 0);
-  byte* dst_frame = (bpage->zip.data) ? bpage->zip.data :
-    ((buf_block_t*) bpage)->frame;
-  
+  byte *dst_frame =
+      (bpage->zip.data) ? bpage->zip.data : ((buf_block_t *)bpage)->frame;
+
   dberr_t err = DB_SUCCESS;
-  fil_space_crypt_t* crypt_data = space->crypt_data;
+  fil_space_crypt_t *crypt_data = space->crypt_data;
   ulint page_type = mach_read_from_2(dst_frame + FIL_PAGE_TYPE);
-  ulint original_page_type = mach_read_from_2(dst_frame + FIL_PAGE_ORIGINAL_TYPE_V1);
+  ulint original_page_type =
+      mach_read_from_2(dst_frame + FIL_PAGE_ORIGINAL_TYPE_V1);
   bool was_page_read_encrypted = original_page_type == FIL_PAGE_ENCRYPTED;
-  bpage->encrypted = bpage->encrypted || was_page_read_encrypted || page_type == FIL_PAGE_ENCRYPTED || page_type == FIL_PAGE_ENCRYPTED_RTREE ||
+  bpage->encrypted = bpage->encrypted || was_page_read_encrypted ||
+                     page_type == FIL_PAGE_ENCRYPTED ||
+                     page_type == FIL_PAGE_ENCRYPTED_RTREE ||
                      page_type == FIL_PAGE_COMPRESSED_AND_ENCRYPTED;
-  
-  ut_ad(bpage->id.page_no() != 0 ||
-        (original_page_type != FIL_PAGE_ENCRYPTED && page_type != FIL_PAGE_ENCRYPTED));
-  
-  BlockReporter reporter(true, dst_frame, bpage->size, fsp_is_checksum_disabled(bpage->id.space()));
-  
+
+  ut_ad(bpage->id.page_no() != 0 || (original_page_type != FIL_PAGE_ENCRYPTED &&
+                                     page_type != FIL_PAGE_ENCRYPTED));
+
+  BlockReporter reporter(true, dst_frame, bpage->size,
+                         fsp_is_checksum_disabled(bpage->id.space()));
+
   bool corrupted = bpage->is_corrupt || reporter.is_corrupted();
-  
+
   if (!corrupted) {
     bpage->encrypted = false;
   } else {
     err = DB_PAGE_CORRUPTED;
   }
-  
+
   if (corrupted && !bpage->encrypted) {
     /* An error will be reported by
     buf_page_io_complete(). */
   } else if (bpage->encrypted && corrupted) {
     bpage->encrypted = true;
-    err = DB_DECRYPTION_FAILED; 
-    ib::error()
-      << "The page " << bpage->id << " in file '"
-      << space->files.begin()->name
-      << "' cannot be decrypted.";
-    
+    err = DB_DECRYPTION_FAILED;
+    ib::error() << "The page " << bpage->id << " in file '"
+                << space->files.begin()->name << "' cannot be decrypted.";
+
     if (crypt_data) {
-      ib::info()
-        << "However key management plugin or used key_version "
-        << mach_read_from_4(dst_frame
-           + FIL_PAGE_FILE_FLUSH_LSN)
-        << " is not found or"
-        " used encryption algorithm or method does not match.";
+      ib::info() << "However key management plugin or used key_version "
+                 << mach_read_from_4(dst_frame + FIL_PAGE_FILE_FLUSH_LSN)
+                 << " is not found or"
+                    " used encryption algorithm or method does not match.";
     }
-    
+
     if (bpage->id.space() != TRX_SYS_SPACE) {
-      ib::info()
-        << "Marking tablespace as missing."
-        " You may drop this table or"
-        " install correct key management plugin"
-        " and key file.";
+      ib::info() << "Marking tablespace as missing."
+                    " You may drop this table or"
+                    " install correct key management plugin"
+                    " and key file.";
     }
   }
   return err;
@@ -5174,8 +5173,8 @@ the buffer pool.
 @retval	DB_TABLESPACE_DELETED	if the tablespace does not exist
 @retval	DB_PAGE_CORRUPTED	if the checksum fails on a page read
 @retval	DB_DECRYPTION_FAILED	if page post encryption checksum matches but
-				after decryption normal page checksum does
-				not match */
+                                after decryption normal page checksum does
+                                not match */
 dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
   enum buf_io_fix io_type;
   buf_pool_t *buf_pool = buf_pool_from_bpage(bpage);
@@ -5200,7 +5199,7 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
     byte *frame;
     bool compressed_page;
 
-    fil_space_t* space = fil_space_acquire_for_io(bpage->id.space());
+    fil_space_t *space = fil_space_acquire_for_io(bpage->id.space());
     if (!space) {
       return DB_TABLESPACE_DELETED;
     }
@@ -5228,8 +5227,7 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
     should be the same as in block. */
     read_page_no = mach_read_from_4(frame + FIL_PAGE_OFFSET);
     read_space_id = mach_read_from_4(frame + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
-    key_version = mach_read_from_4(
-      frame + FIL_PAGE_ENCRYPTION_KEY_VERSION);
+    key_version = mach_read_from_4(frame + FIL_PAGE_ENCRYPTION_KEY_VERSION);
 
     if (bpage->id.space() == TRX_SYS_SPACE &&
         buf_dblwr_page_inside(bpage->id.page_no())) {
@@ -5277,8 +5275,9 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
         // Here bpage should not be encrypted. If it is still encrypted it means
         // that decryption failed and whole space is not readable
         if (bpage->encrypted) {
-          ib::error() << "Page is still encrypted - which means decryption failed. "
-                         "Marking whole space as encrypted";
+          ib::error()
+              << "Page is still encrypted - which means decryption failed. "
+                 "Marking whole space as encrypted";
           fil_space_set_encrypted(bpage->id.space());
 
           trx_t *trx;
@@ -5344,7 +5343,7 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
 
           buf_read_page_handle_error(bpage);
           fil_space_release_for_io(space);
-          return(err);
+          return (err);
         }
       }
     }
@@ -5370,15 +5369,13 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
         block = nullptr;
         update_ibuf_bitmap = false;
       } else if (UNIV_UNLIKELY(bpage->encrypted)) {
-        ib::warn()
-        << "Table in tablespace "
-        << bpage->id.space()
-        << " encrypted. However key "
-           "management plugin or used "
-        << "key_version " << key_version
-        << "is not found or"
-           " used encryption algorithm or method does not match."
-           " Can't continue opening the table.";
+        ib::warn() << "Table in tablespace " << bpage->id.space()
+                   << " encrypted. However key "
+                      "management plugin or used "
+                   << "key_version " << key_version
+                   << "is not found or"
+                      " used encryption algorithm or method does not match."
+                      " Can't continue opening the table.";
 
         block = reinterpret_cast<buf_block_t *>(bpage);
         update_ibuf_bitmap = true;

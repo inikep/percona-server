@@ -190,14 +190,14 @@ enum dberr_t {
   /** Incomplete cloned directory */
   DB_ABORT_INCOMPLETE_CLONE,
 
-  DB_DECRYPTION_FAILED = 998, /* Tablespace encrypted and
+  DB_DECRYPTION_FAILED = 998, /*!< Tablespace encrypted and
                               decrypt operation failed because
                               of missing key management plugin,
                               or missing or incorrect key or
                               incorret AES method or algorithm. */
-  
-  DB_PAGE_CORRUPTED = 999,    /* Page read from tablespace is
-                              corrupted. */
+
+  DB_PAGE_CORRUPTED = 999, /*!< Page read from tablespace is
+                           corrupted. */
 
   /* The following are partial failure codes */
   DB_FAIL = 1000,

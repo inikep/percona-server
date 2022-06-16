@@ -631,7 +631,7 @@ dberr_t PageBulk::latch() {
     }
 
     ut_ad(m_block != nullptr);
-}
+  }
 
   buf_block_buf_fix_dec(m_block);
 

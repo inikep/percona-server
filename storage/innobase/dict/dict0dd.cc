@@ -6019,8 +6019,9 @@ bool dd_tablespace_update_cache(THD *thd) {
 
       /* It's safe to pass space_name in tablename charset
       because filename is already in filename charset. */
-      dberr_t err = fil_ibd_open(false, purpose, id, flags, space_name, nullptr,
-                                 filename, false, false, keyring_encryption_info);
+      dberr_t err =
+          fil_ibd_open(false, purpose, id, flags, space_name, nullptr, filename,
+                       false, false, keyring_encryption_info);
       switch (err) {
         case DB_SUCCESS:
         case DB_CANNOT_OPEN_FILE:

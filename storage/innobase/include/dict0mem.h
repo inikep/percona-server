@@ -1526,18 +1526,12 @@ struct dict_table_t {
   @retval false if this is a single-table tablespace
                 and the .ibd file is missing, or a
                 page cannot be read or decrypted */
-  
-  bool is_readable() const {
-    return(UNIV_LIKELY(!file_unreadable));
-  }
-  
-  void set_file_unreadable() {
-    file_unreadable = true;
-  }
-  
-  void set_file_readable() {
-    file_unreadable = false;
-  }
+
+  bool is_readable() const { return (UNIV_LIKELY(!file_unreadable)); }
+
+  void set_file_unreadable() { file_unreadable = true; }
+
+  void set_file_readable() { file_unreadable = false; }
 
 #ifndef UNIV_HOTBACKUP
   /** Mutex of the table for concurrency access. */
@@ -1612,7 +1606,7 @@ struct dict_table_t {
 
   /** TRUE if  this is in a single-table tablespace and the .ibd
   file is missing or page decryption failed and page is corrupted */
-  unsigned file_unreadable:1;
+  unsigned file_unreadable : 1;
 
   /** TRUE if the table object has been added to the dictionary cache. */
   unsigned cached : 1;
@@ -2198,7 +2192,7 @@ inline bool dict_index_t::is_compressed() const {
 inline bool dict_index_t::is_readable() const {
   volatile bool is_readable = !table->file_unreadable;
   return is_readable;
-  //return(UNIV_LIKELY(!table->file_unreadable));
+  // return(UNIV_LIKELY(!table->file_unreadable));
 }
 
 /** Persistent dynamic metadata type, there should be 1 to 1

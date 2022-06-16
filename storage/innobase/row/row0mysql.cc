@@ -50,6 +50,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0priv.h"
 #include "dict0stats.h"
 #include "dict0stats_bg.h"
+#include "fil0crypt.h"
 #include "fil0fil.h"
 #include "fsp0file.h"
 #include "fsp0sysspace.h"
@@ -78,7 +79,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0mpmcbq.h"
 #include "ut0new.h"
 #include "zlib.h"
-#include "fil0crypt.h"
 
 #include "current_thd.h"
 #include "my_dbug.h"
@@ -255,7 +255,6 @@ const byte *row_mysql_read_true_varchar(
 
   return (field + 1);
 }
-
 
 /**
    Compressed BLOB header format:
@@ -987,7 +986,7 @@ byte *row_mysql_store_col_in_innobase_format(
     Consider a CHAR(n) field, a field of n characters.
     It will contain between n * mbminlen and n * mbmaxlen bytes.
     We will try to truncate it to n bytes by stripping
-    space padding.  If the field contains single-byte
+    space padding.	If the field contains single-byte
     characters only, it will be truncated to n characters.
     Consider a CHAR(5) field containing the string
     ".a   " where "." denotes a 3-byte character represented
@@ -1104,7 +1103,6 @@ static void row_mysql_convert_row_to_innobase(
     fts_create_doc_id(prebuilt->table, row, prebuilt->heap);
   }
 }
-
 
 /** Handles user errors and lock waits detected by the database engine.
  @return true if it was a lock wait and we should continue running the
@@ -1768,9 +1766,9 @@ static dberr_t row_explicit_rollback(dict_index_t *index, const dtuple_t *entry,
 
 /** Convert a row in the MySQL format to a row in the Innobase format.
 This is specialized function used for intrinsic table with reduce branching.
-@param[in,out]  row   row where field values are copied.
-@param[in]  prebuilt  prebuilt handler
-@param[in]  mysql_rec row in mysql format. */
+@param[in,out]	row		row where field values are copied.
+@param[in]	prebuilt	prebuilt handler
+@param[in]	mysql_rec	row in mysql format. */
 static void row_mysql_to_innobase(dtuple_t *row, row_prebuilt_t *prebuilt,
                                   const byte *mysql_rec) {
   ut_ad(prebuilt->table->is_intrinsic());
@@ -1952,36 +1950,37 @@ or is tablespace .ibd file missing.
 @retval DB_DECRYPTION_FAILED    table is encrypted but decryption failed
 @retval DB_CORRUPTION           table is corrupted
 @retval DB_TABLESPACE_NOT_FOUND tablespace .ibd file not found */
-static dberr_t row_mysql_get_table_status(const dict_table_t* table,
-                                          trx_t* trx,
+static dberr_t row_mysql_get_table_status(const dict_table_t *table, trx_t *trx,
                                           bool push_warning = true) {
   dberr_t err;
-  if (fil_space_t* space = fil_space_acquire_silent(table->space)) {
+  if (fil_space_t *space = fil_space_acquire_silent(table->space)) {
     if (space->crypt_data && space->crypt_data->is_encrypted()) {
       if (push_warning) {
-        push_warning_printf(trx->mysql_thd, Sql_condition::SL_WARNING,
-                            HA_ERR_DECRYPTION_FAILED, "Table %s in tablespace %u encrypted."
-                            "However key management plugin or used key_id is not found or"
-                            " used encryption algorithm or method does not match.",
-                            table->name.m_name, table->space);
+        push_warning_printf(
+            trx->mysql_thd, Sql_condition::SL_WARNING, HA_ERR_DECRYPTION_FAILED,
+            "Table %s in tablespace %u encrypted."
+            "However key management plugin or used key_id is not found or"
+            " used encryption algorithm or method does not match.",
+            table->name.m_name, table->space);
       }
       err = DB_DECRYPTION_FAILED;
     } else {
       if (push_warning) {
         push_warning_printf(trx->mysql_thd, Sql_condition::SL_WARNING,
-                            HA_ERR_CRASHED, "Table %s in tablespace %u corrupted.",
+                            HA_ERR_CRASHED,
+                            "Table %s in tablespace %u corrupted.",
                             table->name.m_name, table->space);
       }
       err = DB_CORRUPTION;
     }
     fil_space_release(space);
   } else {
-    ib::error(ER_IB_MSG_977) << ".ibd file is missing for table "
-                << table->name;
-                err = DB_TABLESPACE_NOT_FOUND;
+    ib::error(ER_IB_MSG_977)
+        << ".ibd file is missing for table " << table->name;
+    err = DB_TABLESPACE_NOT_FOUND;
   }
 
-  return(err);
+  return (err);
 }
 
 /** Does an insert for MySQL using INSERT graph. This function will run/execute
@@ -2015,7 +2014,7 @@ static dberr_t row_insert_for_mysql_using_ins_graph(const byte *mysql_rec,
     return (DB_TABLESPACE_DELETED);
 
   } else if (!prebuilt->table->is_readable()) {
-		return(row_mysql_get_table_status(prebuilt->table, trx, true));
+    return (row_mysql_get_table_status(prebuilt->table, trx, true));
   } else if (srv_force_recovery &&
              !(srv_force_recovery < SRV_FORCE_NO_UNDO_LOG_SCAN &&
                dict_sys_t::is_dd_table_id(prebuilt->table->id))) {
@@ -3152,11 +3151,13 @@ kept in non-LRU list while on failure the 'table' object will be freed.
 @param[in]	compression	compression algorithm to use, can be nullptr
 @param[in,out]	trx		transaction
 @param[in]      fil_encryption_t mode,  in: encryption mode
-@param[in]      const CreateInfoEncryptionKeyId &create_info_encryption_key_id in: encryption key_id
+@param[in]      const CreateInfoEncryptionKeyId &create_info_encryption_key_id
+in: encryption key_id
 @return error code or DB_SUCCESS */
-dberr_t row_create_table_for_mysql(dict_table_t *table, const char *compression,
-                                   trx_t *trx, fil_encryption_t mode, 
-                                   const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
+dberr_t row_create_table_for_mysql(
+    dict_table_t *table, const char *compression, trx_t *trx,
+    fil_encryption_t mode,
+    const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
   mem_heap_t *heap;
   dberr_t err;
 

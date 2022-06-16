@@ -283,17 +283,16 @@ struct fil_space_t {
   bool is_corrupt;
 
   bool is_encrypted;
- 
+
   bool exclude_from_rotation;
 
   UT_LIST_NODE_T(fil_space_t) space_list; /*!< list of all spaces */
   UT_LIST_NODE_T(fil_space_t) rotation_list;
   /** whether this tablespace needs key rotation */
   bool is_in_rotation_list;
-  
-  /** MariaDB encryption data */
-  fil_space_crypt_t* crypt_data;
 
+  /** MariaDB encryption data */
+  fil_space_crypt_t *crypt_data;
 
   /** Compression algorithm */
   Compression::Type compression_type;
@@ -322,9 +321,7 @@ struct fil_space_t {
 
   /** @return whether the tablespace is about to be dropped or
   truncated */
-  bool is_stopping() const {
-    return stop_new_ops;
-  }
+  bool is_stopping() const { return stop_new_ops; }
 
   /** System tablespace */
   static fil_space_t *s_sys_space;
@@ -1051,7 +1048,7 @@ Error messages are issued to the server log.
 @retval nullptr on failure (such as when the same tablespace exists) */
 fil_space_t *fil_space_create(const char *name, space_id_t space_id,
                               ulint flags, fil_type_t purpose,
-                              fil_space_crypt_t* crypt_data,
+                              fil_space_crypt_t *crypt_data,
                               fil_encryption_t mode = FIL_ENCRYPTION_DEFAULT)
     MY_ATTRIBUTE((warn_unused_result));
 
@@ -1204,11 +1201,11 @@ when it could be dropped concurrently.
 @param[in]	id	tablespace ID
 @return	the tablespace
 @retval	NULL if missing */
-fil_space_t* fil_space_acquire_for_io(ulint id);
+fil_space_t *fil_space_acquire_for_io(ulint id);
 
 /** Release a tablespace acquired with fil_space_acquire_for_io().
 @param[in,out]	space	tablespace to release  */
-void fil_space_release_for_io(fil_space_t* space);
+void fil_space_release_for_io(fil_space_t *space);
 
 /** Return the next fil_space_t.
 Once started, the caller must keep calling this until it returns NULL.
@@ -1218,8 +1215,8 @@ blocks a concurrent operation from dropping the tablespace.
 If NULL, use the first fil_space_t on fil_system->space_list.
 @return pointer to the next fil_space_t.
 @retval NULL if this was the last  */
-fil_space_t* fil_space_next(fil_space_t* prev_space)
-  MY_ATTRIBUTE((warn_unused_result));
+fil_space_t *fil_space_next(fil_space_t *prev_space)
+    MY_ATTRIBUTE((warn_unused_result));
 
 /** Return the next fil_space_t from key rotation list.
 Once started, the caller must keep calling this until it returns NULL.
@@ -1229,33 +1226,33 @@ blocks a concurrent operation from dropping the tablespace.
 If NULL, use the first fil_space_t on fil_system->space_list.
 @return pointer to the next fil_space_t.
 @retval NULL if this was the last*/
-fil_space_t* fil_space_keyrotate_next(fil_space_t* prev_space)
- MY_ATTRIBUTE((warn_unused_result));
+fil_space_t *fil_space_keyrotate_next(fil_space_t *prev_space)
+    MY_ATTRIBUTE((warn_unused_result));
 
 class FilSpace {
-public:
+ public:
   /** Default constructor: Use this when reference counting
   is done outside this wrapper. */
   FilSpace() : m_space(NULL) {}
-  
+
   /** Constructor: Look up the tablespace and increment the
   referece count if found.
   @param[in]	space_id	tablespace ID */
   explicit FilSpace(ulint space_id, bool silent = false)
-    : m_space(silent ? fil_space_acquire_silent(space_id)
-                           : fil_space_acquire(space_id)) {}
-  
+      : m_space(silent ? fil_space_acquire_silent(space_id)
+                       : fil_space_acquire(space_id)) {}
+
   /** Assignment operator: This assumes that fil_space_acquire()
   has already been done for the fil_space_t. The caller must
   assign NULL if it calls fil_space_release().
   @param[in]	space	tablespace to assign */
-  class FilSpace& operator=(fil_space_t* space) {
+  class FilSpace &operator=(fil_space_t *space) {
     /* fil_space_acquire() must have been invoked. */
     ut_ad(space == NULL || space->n_pending_ops > 0);
     m_space = space;
-    return(*this);
+    return (*this);
   }
-  
+
   /** Destructor - Decrement the reference count if a fil_space_t
   is still assigned. */
   ~FilSpace() {
@@ -1263,22 +1260,18 @@ public:
       fil_space_release(m_space);
     }
   }
-  
+
   /** Implicit type conversion
   @return the wrapped object */
-  operator const fil_space_t*() const {
-    return(m_space);
-  }
-  
+  operator const fil_space_t *() const { return (m_space); }
+
   /** Explicit type conversion
   @return the wrapped object */
-  const fil_space_t* operator()() const {
-    return(m_space);
-  }
+  const fil_space_t *operator()() const { return (m_space); }
 
-private:
+ private:
   /** The wrapped pointer */
-  fil_space_t* m_space;
+  fil_space_t *m_space;
 };
 
 /** Fetch the file name opened for a space_id during recovery
@@ -1353,13 +1346,13 @@ bool fil_rename_tablespace(space_id_t space_id, const char *old_path,
     MY_ATTRIBUTE((warn_unused_result));
 
 /** Create a tablespace file.
-@param[in]  space_id  Tablespace ID
-@param[in]  name    Tablespace name in dbname/tablename format.
+@param[in]	space_id	Tablespace ID
+@param[in]	name		Tablespace name in dbname/tablename format.
                                 For general tablespaces, the 'dbname/' part
                                 may be missing.
-@param[in]  path    Path and filename of the datafile to create.
-@param[in]  flags   Tablespace flags
-@param[in]  size    Initial size of the tablespace file in pages,
+@param[in]	path		Path and filename of the datafile to create.
+@param[in]	flags		Tablespace flags
+@param[in]	size		Initial size of the tablespace file in pages,
                                 must be >= FIL_IBD_FILE_INITIAL_SIZE
 @return DB_SUCCESS or error code */
 dberr_t fil_ibd_create(
@@ -1419,8 +1412,9 @@ from it
 dberr_t fil_ibd_open(bool validate, fil_type_t purpose, space_id_t space_id,
                      ulint flags, const char *space_name,
                      const char *table_name, const char *path_in, bool strict,
-                     bool old_space, Keyring_encryption_info &keyring_encryption_info)
-  MY_ATTRIBUTE((warn_unused_result));
+                     bool old_space,
+                     Keyring_encryption_info &keyring_encryption_info)
+    MY_ATTRIBUTE((warn_unused_result));
 
 /** Returns true if a matching tablespace exists in the InnoDB tablespace
 memory cache.
@@ -1772,7 +1766,7 @@ void fil_io_set_encryption(IORequest &req_type, const page_id_t &page_id,
 @param[in] iv			Encryption iv
 @return DB_SUCCESS or error code */
 dberr_t fil_set_encryption(space_id_t space_id, Encryption::Type algorithm,
-                           byte* key, byte* iv, bool aquire_mutex = true)
+                           byte *key, byte *iv, bool aquire_mutex = true)
     MY_ATTRIBUTE((warn_unused_result));
 
 /** Reset the encryption type for the tablespace

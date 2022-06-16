@@ -1207,9 +1207,9 @@ static void buf_flush_write_block_low(buf_page_t *bpage, buf_flush_t flush_type,
 #ifdef UNIV_DEBUG
     dberr_t err =
 #endif
-    /* true means we want to evict this page from the
-    LRU list as well. */
-    buf_page_io_complete(bpage, true);
+        /* true means we want to evict this page from the
+        LRU list as well. */
+        buf_page_io_complete(bpage, true);
 
     ut_ad(err == DB_SUCCESS);
   }

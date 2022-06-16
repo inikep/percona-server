@@ -475,7 +475,7 @@ dberr_t ibuf_init_at_db_start(void) {
   mtr_t mtr;
   ulint n_used;
   page_t *header_page;
-  dberr_t error= DB_SUCCESS;
+  dberr_t error = DB_SUCCESS;
 
   ibuf = static_cast<ibuf_t *>(ut_zalloc_nokey(sizeof(ibuf_t)));
 
@@ -763,7 +763,7 @@ static page_t *ibuf_bitmap_get_map_page_func(const page_id_t &page_id,
   if (err != nullptr) {
     *err = error;
   }
-  
+
   if (error != DB_SUCCESS) {
     return nullptr;
   }
@@ -4525,12 +4525,12 @@ dberr_t ibuf_check_bitmap_on_import(
     ibuf_enter(&mtr);
 
     dberr_t err = DB_SUCCESS;
-    
-    bitmap_page = ibuf_bitmap_get_map_page_func(page_id_t(space_id, page_no), page_size,
-                                                __FILE__, __LINE__, &mtr, &err);
-    
-    if (err != DB_SUCCESS)
-      return err;
+
+    bitmap_page =
+        ibuf_bitmap_get_map_page_func(page_id_t(space_id, page_no), page_size,
+                                      __FILE__, __LINE__, &mtr, &err);
+
+    if (err != DB_SUCCESS) return err;
 
     if (buf_page_is_zeroes(bitmap_page, page_size)) {
     /* This means we got all-zero page instead of

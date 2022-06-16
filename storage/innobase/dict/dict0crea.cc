@@ -66,7 +66,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 @param[in,out]	table	dict table object
 @param[in,out]	trx	transaction instance
 @return DB_SUCCESS or error code */
-dberr_t dict_build_table_def(dict_table_t *table, trx_t *trx, fil_encryption_t mode, const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
+dberr_t dict_build_table_def(
+    dict_table_t *table, trx_t *trx, fil_encryption_t mode,
+    const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
   char db_buf[NAME_LEN + 1];
   char tbl_buf[NAME_LEN + 1];
 
@@ -90,7 +92,8 @@ dberr_t dict_build_table_def(dict_table_t *table, trx_t *trx, fil_encryption_t m
     dict_table_assign_new_id(table, trx);
   }
 
-  dberr_t err = dict_build_tablespace_for_table(table, trx, mode, create_info_encryption_key_id);
+  dberr_t err = dict_build_tablespace_for_table(table, trx, mode,
+                                                create_info_encryption_key_id);
 
   return (err);
 }
@@ -99,7 +102,9 @@ dberr_t dict_build_table_def(dict_table_t *table, trx_t *trx, fil_encryption_t m
 @param[in,out]	trx		DD transaction
 @param[in,out]	tablespace	Tablespace object describing what to build.
 @return DB_SUCCESS or error code. */
-dberr_t dict_build_tablespace(trx_t *trx, Tablespace *tablespace, fil_encryption_t mode, const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
+dberr_t dict_build_tablespace(
+    trx_t *trx, Tablespace *tablespace, fil_encryption_t mode,
+    const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
   dberr_t err = DB_SUCCESS;
   mtr_t mtr;
   space_id_t space = 0;
@@ -141,8 +146,8 @@ dberr_t dict_build_tablespace(trx_t *trx, Tablespace *tablespace, fil_encryption
   first table we create here. */
 
   err = fil_ibd_create(space, tablespace->name(), datafile->filepath(),
-                       tablespace->flags(), FIL_IBD_FILE_INITIAL_SIZE,
-                       mode, create_info_encryption_key_id);
+                       tablespace->flags(), FIL_IBD_FILE_INITIAL_SIZE, mode,
+                       create_info_encryption_key_id);
 
   DBUG_INJECT_CRASH("ddl_crash_after_create_tablespace",
                     crash_injection_after_create_counter++);
@@ -178,7 +183,9 @@ dberr_t dict_build_tablespace(trx_t *trx, Tablespace *tablespace, fil_encryption
 @param[in,out]	table	Table to build in its own tablespace.
 @param[in,out]	trx	Transaction
 @return DB_SUCCESS or error code */
-dberr_t dict_build_tablespace_for_table(dict_table_t *table, trx_t *trx, fil_encryption_t mode, const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
+dberr_t dict_build_tablespace_for_table(
+    dict_table_t *table, trx_t *trx, fil_encryption_t mode,
+    const CreateInfoEncryptionKeyId &create_info_encryption_key_id) {
   dberr_t err = DB_SUCCESS;
   mtr_t mtr;
   space_id_t space = 0;
@@ -190,7 +197,6 @@ dberr_t dict_build_tablespace_for_table(dict_table_t *table, trx_t *trx, fil_enc
 
   needs_file_per_table =
       DICT_TF2_FLAG_IS_SET(table, DICT_TF2_USE_FILE_PER_TABLE);
-
 
   if (mode == FIL_ENCRYPTION_ON ||
       (mode == FIL_ENCRYPTION_DEFAULT &&
@@ -265,7 +271,8 @@ dberr_t dict_build_tablespace_for_table(dict_table_t *table, trx_t *trx, fil_enc
     dd_filename_to_spacename(table->name.m_name, &tablespace_name);
 
     err = fil_ibd_create(space, tablespace_name.c_str(), filepath, fsp_flags,
-                         FIL_IBD_FILE_INITIAL_SIZE, mode, create_info_encryption_key_id);
+                         FIL_IBD_FILE_INITIAL_SIZE, mode,
+                         create_info_encryption_key_id);
 
     ut_free(filepath);
 

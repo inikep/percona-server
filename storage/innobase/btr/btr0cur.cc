@@ -815,7 +815,7 @@ dberr_t btr_cur_search_to_nth_level(
 
     DBUG_RETURN(err);
   }
-# endif /* BTR_CUR_HASH_ADAPT */
+#endif /* BTR_CUR_HASH_ADAPT */
 #endif /* BTR_CUR_ADAPT */
   btr_cur_n_non_sea++;
   DBUG_EXECUTE_IF("non_ahi_search",
@@ -1116,8 +1116,7 @@ retry_page_get:
       if (estimate) {
         page_cursor->block = 0;
         page_cursor->rec = 0;
-        cursor->path_arr->nth_rec =
-          ULINT_UNDEFINED;
+        cursor->path_arr->nth_rec = ULINT_UNDEFINED;
       }
       index->table->set_file_unreadable();
       goto func_exit;
@@ -5271,25 +5270,24 @@ static int64_t btr_estimate_n_rows_in_range_low(
       5 and we should count the border, but if x > 7 is specified,
       then the cursor will be positioned at 'sup' on the rightmost
       leaf page in the tree and we should not count the border. */
-      should_count_the_left_border
-          = !page_rec_is_supremum(btr_cur_get_rec(&cursor));
+      should_count_the_left_border =
+          !page_rec_is_supremum(btr_cur_get_rec(&cursor));
     }
   } else {
-    dberr_t err = btr_cur_open_at_index_side(true, index, BTR_SEARCH_LEAF | BTR_ESTIMATE,
-                                             &cursor, 0, &mtr);
+    dberr_t err = btr_cur_open_at_index_side(
+        true, index, BTR_SEARCH_LEAF | BTR_ESTIMATE, &cursor, 0, &mtr);
 
     if (err != DB_SUCCESS) {
       ib::warn() << " Error code: " << err
                  << " btr_estimate_n_rows_in_range_low "
-                 << " called from file: "
-                 << __FILE__ << " line: " << __LINE__
+                 << " called from file: " << __FILE__ << " line: " << __LINE__
                  << " table: " << index->table->name
                  << " index: " << index->name;
     }
 
     if (index->is_readable()) {
       ut_ad(page_rec_is_infimum(btr_cur_get_rec(&cursor)));
-      
+
       /* The range specified is wihout a left border, just
       'x < 123' or 'x <= 123' and btr_cur_open_at_index_side()
       positioned the cursor on the infimum record on the leftmost
@@ -5348,14 +5346,13 @@ static int64_t btr_estimate_n_rows_in_range_low(
     the requested one (can also be positioned on the 'sup') and
     we should not count the right border. */
   } else {
-    dberr_t err = btr_cur_open_at_index_side(false, index, BTR_SEARCH_LEAF | BTR_ESTIMATE,
-                                             &cursor, 0, &mtr);
+    dberr_t err = btr_cur_open_at_index_side(
+        false, index, BTR_SEARCH_LEAF | BTR_ESTIMATE, &cursor, 0, &mtr);
 
     if (err != DB_SUCCESS) {
       ib::warn() << " Error code: " << err
                  << " btr_estimate_n_rows_in_range_low "
-                 << " called from file: "
-                 << __FILE__ << " line: " << __LINE__
+                 << " called from file: " << __FILE__ << " line: " << __LINE__
                  << " table: " << index->table->name
                  << " index: " << index->name;
     }

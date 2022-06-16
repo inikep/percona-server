@@ -60,8 +60,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "data0type.h"
 #include "dict0dd.h"
 #include "dict0dict.h"
-#include "fil0fil.h"
 #include "fil0crypt.h"
+#include "fil0fil.h"
 #include "fsp0fsp.h"
 #include "fsp0sysspace.h"
 #include "ha_prototypes.h"
@@ -2367,10 +2367,10 @@ dberr_t srv_start(bool create_new_db, const std::string &scan_directories) {
     sprintf(logfilename + dirnamelen, "ib_logfile%u", 0);
 
     /* Disable the doublewrite buffer for log files. */
-    fil_space_t *log_space = fil_space_create(
-        "innodb_redo_log", dict_sys_t::s_log_space_first_id,
-        fsp_flags_set_page_size(0, univ_page_size), FIL_TYPE_LOG,
-        NULL /* no encryption yet */);
+    fil_space_t *log_space =
+        fil_space_create("innodb_redo_log", dict_sys_t::s_log_space_first_id,
+                         fsp_flags_set_page_size(0, univ_page_size),
+                         FIL_TYPE_LOG, NULL /* no encryption yet */);
 
     ut_ad(fil_validate());
     ut_a(log_space != nullptr);
@@ -2629,12 +2629,11 @@ files_checked:
         fil_space_t *space = fil_space_acquire_silent(dict_sys_t::s_space_id);
         if (space == nullptr) {
           Keyring_encryption_info keyring_encryption_info;
-          dberr_t error =
-              fil_ibd_open(true, FIL_TYPE_TABLESPACE, dict_sys_t::s_space_id,
-                           predefined_flags, dict_sys_t::s_dd_space_name,
-                           dict_sys_t::s_dd_space_name,
-                           dict_sys_t::s_dd_space_file_name, true, false,
-                           keyring_encryption_info);
+          dberr_t error = fil_ibd_open(
+              true, FIL_TYPE_TABLESPACE, dict_sys_t::s_space_id,
+              predefined_flags, dict_sys_t::s_dd_space_name,
+              dict_sys_t::s_dd_space_name, dict_sys_t::s_dd_space_file_name,
+              true, false, keyring_encryption_info);
           if (error != DB_SUCCESS) {
             ib::error(ER_IB_MSG_1142);
             return (srv_init_abort(DB_ERROR));

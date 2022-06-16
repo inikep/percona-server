@@ -928,13 +928,14 @@ class create_table_info_t {
   @return on success DB_SUCCESS else DB_UNSPPORTED on failure */
   dberr_t enable_master_key_encryption(dict_table_t *table);
 
-  /** If keyring encryption is requested, check for tablespace's key availability
-  and set the encryption flag in table flags
+  /** If keyring encryption is requested, check for tablespace's key
+  availability and set the encryption flag in table flags
   @param[in,out] table table object
   @param[in,out] rotated_keys_encryption_option contains appropriate
                  FIL_ENCRYPTION_(ON/DEFAULT/OFF)
   @return on success DB_SUCCESS else DB_UNSPPORTED on failure */
-  dberr_t enable_keyring_encryption(dict_table_t *   table,fil_encryption_t &rotated_keys_encryption_option);
+  dberr_t enable_keyring_encryption(
+      dict_table_t *table, fil_encryption_t &rotated_keys_encryption_option);
 
  private:
   /** Parses the table name into normal name and either temp path or
@@ -1300,9 +1301,5 @@ MY_NODISCARD
 bool innobase_build_index_translation(const TABLE *table,
                                       dict_table_t *ib_table,
                                       INNOBASE_SHARE *share);
-
-/** Free InnoDB session specific data.
-@param[in,out]	thd	MySQL thread handler. */
-void thd_free_innodb_session(THD *thd) noexcept;
 
 #endif /* ha_innodb_h */

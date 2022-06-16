@@ -53,7 +53,7 @@
 #include "sql/item.h"
 #include "sql/item_cmpfunc.h"       // Item_func_any_value
 #include "sql/item_func.h"          // Item_func_udf_str
-#include "sql/item_geofunc.h"       // Item_func_area
+#include "sql/item_geofunc.h"       // Item_func_st_area
 #include "sql/item_inetfunc.h"      // Item_func_inet_ntoa
 #include "sql/item_json_func.h"     // Item_func_json
 #include "sql/item_keyring_func.h"  // Item_func_rotate_system_key

@@ -668,8 +668,8 @@ static void buf_flush_dirty_pages(buf_pool_t *buf_pool, space_id_t id,
 
     err = buf_flush_or_remove_pages(buf_pool, id, observer, flush, trx);
 
-    ut_ad(err == DB_INTERRUPTED || err == DB_FAIL
-          || buf_pool_get_dirty_pages_count(buf_pool, id, observer) == 0);
+    ut_ad(err == DB_INTERRUPTED || err == DB_FAIL ||
+          buf_pool_get_dirty_pages_count(buf_pool, id, observer) == 0);
 
     mutex_exit(&buf_pool->LRU_list_mutex);
 

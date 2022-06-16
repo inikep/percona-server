@@ -2526,21 +2526,21 @@ static void row_sel_store_row_id_to_prebuilt(
 
 /** Stores a non-SQL-NULL field in the MySQL format. The counterpart of this
 function is row_mysql_store_col_in_innobase_format() in row0mysql.cc.
-@param[in,out] dest   buffer where to store; NOTE
+@param[in,out] dest		buffer where to store; NOTE
                                 that BLOBs are not in themselves stored
                                 here: the caller must allocate and copy
                                 the BLOB into buffer before, and pass
                                 the pointer to the BLOB in 'data'
-@param[in]  templ   MySQL column template. Its following fields
+@param[in]	templ		MySQL column template. Its following fields
                                 are referenced: type, is_unsigned,
 mysql_col_len, mbminlen, mbmaxlen
-@param[in]  index   InnoDB index
-@param[in]  field_no  templ->rec_field_no or templ->clust_rec_field_no
+@param[in]	index		InnoDB index
+@param[in]	field_no	templ->rec_field_no or templ->clust_rec_field_no
                                 or templ->icp_rec_field_no
-@param[in]  data    data to store
-@param[in]  len   length of the data
-@param[in]  prebuilt  use prebuilt->compress_heap only here
-@param[in]  sec_field secondary index field no if the secondary index
+@param[in]	data		data to store
+@param[in]	len		length of the data
+@param[in]	prebuilt	use prebuilt->compress_heap only here
+@param[in]	sec_field	secondary index field no if the secondary index
                                 record but the prebuilt template is in
                                 clustered index format and used only for end
                                 range comparison. */
@@ -2741,24 +2741,24 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
 #define row_sel_store_mysql_field(m, p, r, i, o, f, t, s, l) \
   row_sel_store_mysql_field_func(m, p, r, i, o, f, t, s, l)
 /** Convert a field in the Innobase format to a field in the MySQL format.
-@param[out] mysql_rec   record in the MySQL format
-@param[in,out]  prebuilt    prebuilt struct
-@param[in]  rec     InnoDB record; must be protected
+@param[out]	mysql_rec		record in the MySQL format
+@param[in,out]	prebuilt		prebuilt struct
+@param[in]	rec			InnoDB record; must be protected
                                         by a page latch
-@param[in]  index     index of rec
-@param[in]  offsets     array returned by rec_get_offsets()
-@param[in]  field_no    templ->rec_field_no or
+@param[in]	index			index of rec
+@param[in]	offsets			array returned by rec_get_offsets()
+@param[in]	field_no		templ->rec_field_no or
                                         templ->clust_rec_field_no
                                         or templ->icp_rec_field_no
                                         or sec field no if clust_templ_for_sec
                                         is TRUE
-@param[in]  templ     row template
-@param[in]  sec_field_no    secondary index field no if the
+@param[in]	templ			row template
+@param[in]	sec_field_no		secondary index field no if the
                                         secondary index record but the
                                         prebuilt template is in clustered index
                                         format and used only for end
                                         range comparison.
-@param[in]  lob_undo    the LOB undo information. */
+@param[in]	lob_undo		the LOB undo information. */
 static MY_ATTRIBUTE((warn_unused_result)) ibool
     row_sel_store_mysql_field_func(byte *mysql_rec, row_prebuilt_t *prebuilt,
                                    const rec_t *rec, const dict_index_t *index,
@@ -4108,8 +4108,8 @@ dberr_t row_search_no_mvcc(byte *buf, page_cur_mode_t mode,
                                  pcur, 0, mtr);
 
     } else if (mode == PAGE_CUR_G || mode == PAGE_CUR_L) {
-      err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index, BTR_SEARCH_LEAF,
-                                        pcur, false, 0, mtr);
+      err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index,
+                                        BTR_SEARCH_LEAF, pcur, false, 0, mtr);
       if (err != DB_SUCCESS) {
         if (err == DB_DECRYPTION_FAILED) {
           ib::warn() << "Table is encrypted but encryption service or"
@@ -4370,8 +4370,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
 
   } else if (prebuilt->table->file_unreadable) {
     DBUG_RETURN(fil_space_get(prebuilt->table->space)
-                  ? DB_DECRYPTION_FAILED
-                  : DB_TABLESPACE_NOT_FOUND);
+                    ? DB_DECRYPTION_FAILED
+                    : DB_TABLESPACE_NOT_FOUND);
   } else if (!prebuilt->index_usable) {
     DBUG_RETURN(DB_MISSING_HISTORY);
 
@@ -4764,8 +4764,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
       }
     }
 
-    err = btr_pcur_open_with_no_init(index, search_tuple, mode, BTR_SEARCH_LEAF, pcur,
-                                     0, &mtr);
+    err = btr_pcur_open_with_no_init(index, search_tuple, mode, BTR_SEARCH_LEAF,
+                                     pcur, 0, &mtr);
 
     if (err != DB_SUCCESS) {
       rec = NULL;
@@ -4803,8 +4803,8 @@ dberr_t row_search_mvcc(byte *buf, page_cur_mode_t mode,
       }
     }
   } else if (mode == PAGE_CUR_G || mode == PAGE_CUR_L) {
-    err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index, BTR_SEARCH_LEAF,
-                                      pcur, false, 0, &mtr);
+    err = btr_pcur_open_at_index_side(mode == PAGE_CUR_G, index,
+                                      BTR_SEARCH_LEAF, pcur, false, 0, &mtr);
     if (err != DB_SUCCESS) {
       if (err == DB_DECRYPTION_FAILED) {
         ib::warn() << "Table is encrypted but encryption service or"
@@ -5851,7 +5851,7 @@ lock_wait_or_error:
   /*-------------------------------------------------------------*/
   if (!dict_index_is_spatial(index)) {
     btr_pcur_store_position(pcur, &mtr);
-    if(rec) {
+    if (rec) {
       btr_pcur_store_position(pcur, &mtr);
     }
   }
@@ -6177,11 +6177,10 @@ static const rec_t *row_search_get_max_rec(dict_index_t *index, mtr_t *mtr,
   const rec_t *rec;
 
   /* Open at the high/right end (false), and init cursor */
-  dberr_t err = btr_pcur_open_at_index_side(false, index, BTR_SEARCH_LEAF, &pcur, true, 0,
-                                            mtr);
+  dberr_t err = btr_pcur_open_at_index_side(false, index, BTR_SEARCH_LEAF,
+                                            &pcur, true, 0, mtr);
 
-  if (err != DB_SUCCESS)
-    return NULL;
+  if (err != DB_SUCCESS) return NULL;
 
   do {
     const page_t *page;

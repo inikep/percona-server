@@ -170,11 +170,10 @@ buf_block_t *btr_root_block_get(
   buf_block_t *block = btr_block_get(page_id, page_size, mode, index, mtr);
 
   if (!block && index && index->table && !index->table->is_readable()) {
-
     ib::warn() << "Table in tablespace is encrypted but encryption service or"
                   " used key_id is not available. "
                   " Can't continue reading table.";
-                  return nullptr;
+    return nullptr;
   }
 
   SRV_CORRUPT_TABLE_CHECK(block, return (nullptr););
@@ -213,13 +212,13 @@ page_t *btr_root_get(const dict_index_t *index, /*!< in: index tree */
   SX lock doesn't block reading user data by other threads.
   And block the segment list access by others.*/
 
-  buf_block_t* root = btr_root_block_get(index, RW_SX_LATCH, mtr);
+  buf_block_t *root = btr_root_block_get(index, RW_SX_LATCH, mtr);
 
   if (root && root->page.encrypted == true) {
     root = nullptr;
   }
 
-  return(root ? buf_block_get_frame(root) : nullptr);
+  return (root ? buf_block_get_frame(root) : nullptr);
 }
 
 /** Gets the height of the B-tree (the level of the root, when the leaf
@@ -229,7 +228,7 @@ page_t *btr_root_get(const dict_index_t *index, /*!< in: index tree */
 ulint btr_height_get(dict_index_t *index, /*!< in: index tree */
                      mtr_t *mtr)          /*!< in/out: mini-transaction */
 {
-  ulint height=0;
+  ulint height = 0;
   buf_block_t *root_block;
 
   ut_ad(srv_read_only_mode ||
@@ -523,8 +522,7 @@ ulint btr_get_size(dict_index_t *index, /*!< in: index */
 
   root = btr_root_get(index, mtr);
 
-  if (!root && index->table->is_readable() == false)
-    return ULINT_UNDEFINED;
+  if (!root && index->table->is_readable() == false) return ULINT_UNDEFINED;
 
   SRV_CORRUPT_TABLE_CHECK(root, {
     mtr_commit(mtr);
@@ -879,23 +877,22 @@ static MY_ATTRIBUTE((warn_unused_result)) buf_block_t *btr_free_root_check(
   ut_ad(!fsp_is_system_temporary(page_id.space()));
   ut_ad(index_id != BTR_FREED_INDEX_ID);
 
-  buf_block_t* block = buf_page_get(
-    page_id, page_size, RW_X_LATCH, mtr);
+  buf_block_t *block = buf_page_get(page_id, page_size, RW_X_LATCH, mtr);
 
   if (block) {
     buf_block_dbg_add_level(block, SYNC_TREE_NODE);
 
-    if (fil_page_index_page_check(block->frame)
-        && index_id == btr_page_get_index_id(block->frame)) {
-        /* This should be a root page.
-        It should not be possible to reassign the same
-        index_id for some other index in the tablespace. */
-        ut_ad(page_is_root(block->frame));
-        } else {
-          block = NULL;
-        }
+    if (fil_page_index_page_check(block->frame) &&
+        index_id == btr_page_get_index_id(block->frame)) {
+      /* This should be a root page.
+      It should not be possible to reassign the same
+      index_id for some other index in the tablespace. */
+      ut_ad(page_is_root(block->frame));
+    } else {
+      block = NULL;
+    }
   }
-  return(block);
+  return (block);
 }
 
 /** Create the root node for a new index tree.
@@ -4635,8 +4632,7 @@ dberr_t btr_validate_index(
   }
 
   if (dict_index_is_spatial(index)) {
-    return btr_validate_spatial_index(index, trx) ? DB_SUCCESS
-                                                  : DB_ERROR;
+    return btr_validate_spatial_index(index, trx) ? DB_SUCCESS : DB_ERROR;
   }
 
   mtr_t mtr;

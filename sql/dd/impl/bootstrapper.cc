@@ -2455,7 +2455,7 @@ bool restart(THD *thd) {
       bootstrap::do_server_upgrade_checks(thd) || upgrade_tables(thd) ||
       check_and_create_compression_dict_tables(thd) ||
       repopulate_charsets_and_collations(thd) || verify_contents(thd) ||
-      update_versions(thd)) { 
+      update_versions(thd)) {
     return true;
   }
 

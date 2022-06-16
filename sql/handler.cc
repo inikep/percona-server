@@ -2675,8 +2675,8 @@ void HA_CREATE_INFO::init_create_options_from_share(const TABLE_SHARE *share,
   }
 
   if (!(used_fields & HA_CREATE_USED_ENCRYPTION_KEY_ID)) {
-    encryption_key_id= share->encryption_key_id;
-    was_encryption_key_id_set= share->was_encryption_key_id_set;
+    encryption_key_id = share->encryption_key_id;
+    was_encryption_key_id_set = share->was_encryption_key_id_set;
   }
 }
 
