@@ -65,7 +65,8 @@
 #include "sql/auth/auth_acls.h"
 #include "sql/auth/auth_common.h"  // acl_getroot
 #include "sql/auth/sql_security_ctx.h"
-#include "sql/binlog.h"                      // mysql_bin_log
+#include "sql/binlog.h"  // mysql_bin_log
+#include "sql/create_field.h"
 #include "sql/dd/cache/dictionary_client.h"  // dd::cache_Dictionary_client
 #include "sql/dd/dd.h"                       // dd::get_dictionary
 #include "sql/dd/dictionary.h"               // dd::Dictionary
@@ -6952,6 +6953,57 @@ bool TABLE::check_read_removal(uint index) {
 
   bitmap_clear_all(&tmp_set);
   DBUG_RETURN(retval);
+}
+
+/**
+  Checks if TABLE has at least one field with
+  COLUMN_FORMAT_TYPE_COMPRESSED flag.
+*/
+bool TABLE::has_compressed_columns() const {
+  DBUG_ENTER("has_compressed_columns");
+  DBUG_ASSERT(field != 0);
+
+  Field **field_ptr = field;
+  while (*field_ptr != nullptr &&
+         (*field_ptr)->column_format() != COLUMN_FORMAT_TYPE_COMPRESSED)
+    ++field_ptr;
+
+  DBUG_RETURN(*field_ptr != nullptr);
+}
+
+/**
+  Checks if TABLE has at least one field with
+  COLUMN_FORMAT_TYPE_COMPRESSED flag and non-empty
+  zip_dict.
+*/
+bool TABLE::has_compressed_columns_with_dictionaries() const {
+  DBUG_ENTER("has_compressed_columns_with_dictionaries");
+  DBUG_ASSERT(field != 0);
+
+  Field **field_ptr = field;
+  while (*field_ptr != nullptr &&
+         !(*field_ptr)->has_associated_compression_dictionary())
+    ++field_ptr;
+
+  DBUG_RETURN(*field_ptr != nullptr);
+}
+
+/**
+  Updates zip_dict_name in the TABLE's field definitions based on the
+  values from the supplied list of Create_field objects.
+*/
+void TABLE::update_compressed_columns_info(const List<Create_field> &fields) {
+  Field **field_ptr = field;
+  List_iterator<Create_field> it(const_cast<List<Create_field> &>(fields));
+  Create_field *field_definition = it++;
+
+  while (*field_ptr != nullptr && field_definition != nullptr) {
+    (*field_ptr)->zip_dict_name = field_definition->zip_dict_name;
+    ++field_ptr;
+    field_definition = it++;
+  }
+  DBUG_ASSERT(field_definition == nullptr);
+  DBUG_ASSERT(*field_ptr == nullptr);
 }
 
 /**

@@ -3361,7 +3361,7 @@ sp_fdparam:
                                       NULL, NULL, &NULL_STR, 0,
                                       $2->get_interval_list(),
                                       cs ? cs : thd->variables.collation_database,
-                                      $3 != nullptr, $2->get_uint_geom_type(),
+                                      $3 != nullptr, $2->get_uint_geom_type(), nullptr,
                                       nullptr, nullptr, {},
                                       dd::Column::enum_hidden_type::HT_VISIBLE))
             {
@@ -3422,7 +3422,7 @@ sp_pdparam:
                                       NULL, NULL, &NULL_STR, 0,
                                       $3->get_interval_list(),
                                       cs ? cs : thd->variables.collation_database,
-                                      $4 != nullptr, $3->get_uint_geom_type(),
+                                      $4 != nullptr, $3->get_uint_geom_type(), nullptr,
                                       nullptr, nullptr, {},
                                       dd::Column::enum_hidden_type::HT_VISIBLE))
             {
@@ -3552,7 +3552,7 @@ sp_decl:
                                         NULL, NULL, &NULL_STR, 0,
                                         $3->get_interval_list(),
                                         cs ? cs : thd->variables.collation_database,
-                                        $4 != nullptr, $3->get_uint_geom_type(),
+                                        $4 != nullptr, $3->get_uint_geom_type(), nullptr,
                                         nullptr, nullptr, {},
                                         dd::Column::enum_hidden_type::HT_VISIBLE))
               {
@@ -16201,7 +16201,7 @@ sf_tail:
                                             $9->get_type_flags(), NULL, NULL, &NULL_STR, 0,
                                             $9->get_interval_list(),
                                             cs ? cs : YYTHD->variables.collation_database,
-                                            $10 != nullptr, $9->get_uint_geom_type(),
+                                            $10 != nullptr, $9->get_uint_geom_type(), nullptr,
                                             nullptr, nullptr, {},
                                             dd::Column::enum_hidden_type::HT_VISIBLE))
             {

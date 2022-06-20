@@ -155,7 +155,8 @@
 #include "sql/sql_test.h"           // mysql_print_status
 #include "sql/sql_trigger.h"        // add_table_for_trigger
 #include "sql/sql_udf.h"
-#include "sql/sql_view.h"  // mysql_create_view
+#include "sql/sql_view.h"      // mysql_create_view
+#include "sql/sql_zip_dict.h"  // mysqld_create_zip_dict, mysqld_drop_zip_dict
 #include "sql/strfunc.h"
 #include "sql/system_variables.h"  // System_status_var
 #include "sql/table.h"
@@ -459,6 +460,10 @@ void init_sql_command_flags(void) {
   sql_command_flags[SQLCOM_UPDATE] = CF_CHANGES_DATA | CF_REEXECUTION_FRAGILE |
                                      CF_CAN_GENERATE_ROW_EVENTS |
                                      CF_OPTIMIZER_TRACE | CF_CAN_BE_EXPLAINED;
+  sql_command_flags[SQLCOM_CREATE_COMPRESSION_DICTIONARY] =
+      CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS;
+  sql_command_flags[SQLCOM_DROP_COMPRESSION_DICTIONARY] =
+      CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS;
   sql_command_flags[SQLCOM_UPDATE_MULTI] =
       CF_CHANGES_DATA | CF_REEXECUTION_FRAGILE | CF_CAN_GENERATE_ROW_EVENTS |
       CF_OPTIMIZER_TRACE | CF_CAN_BE_EXPLAINED;
@@ -800,6 +805,10 @@ void init_sql_command_flags(void) {
   sql_command_flags[SQLCOM_IMPORT] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_CREATE_SRS] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_DROP_SRS] |= CF_DISALLOW_IN_RO_TRANS;
+  sql_command_flags[SQLCOM_CREATE_COMPRESSION_DICTIONARY] |=
+      CF_DISALLOW_IN_RO_TRANS;
+  sql_command_flags[SQLCOM_DROP_COMPRESSION_DICTIONARY] |=
+      CF_DISALLOW_IN_RO_TRANS;
 
   /*
     Mark statements that are allowed to be executed by the plugins.
@@ -1336,7 +1345,12 @@ static bool deny_updates_if_read_only_option(THD *thd, TABLE_LIST *all_tables) {
       (lex->sql_command == SQLCOM_CREATE_DB) ||
       (lex->sql_command == SQLCOM_DROP_DB);
 
-  if (update_real_tables || create_or_drop_databases) {
+  const bool create_or_drop_compression_dictionary =
+      (lex->sql_command == SQLCOM_CREATE_COMPRESSION_DICTIONARY) ||
+      (lex->sql_command == SQLCOM_DROP_COMPRESSION_DICTIONARY);
+
+  if (update_real_tables || create_or_drop_databases ||
+      create_or_drop_compression_dictionary) {
     /*
       An attempt was made to modify one or more non-temporary tables.
     */
@@ -5437,17 +5451,15 @@ bool mysql_test_parse_for_slave(THD *thd) {
   @return
     Return 0 if ok
 */
-bool Alter_info::add_field(THD *thd, const LEX_STRING *field_name,
-                           enum_field_types type, const char *length,
-                           const char *decimals, uint type_modifier,
-                           Item *default_value, Item *on_update_value,
-                           LEX_STRING *comment, const char *change,
-                           List<String> *interval_list, const CHARSET_INFO *cs,
-                           bool has_explicit_collation, uint uint_geom_type,
-                           Value_generator *gcol_info,
-                           Value_generator *default_val_expr,
-                           const char *opt_after, Nullable<gis::srid_t> srid,
-                           dd::Column::enum_hidden_type hidden) {
+bool Alter_info::add_field(
+    THD *thd, const LEX_STRING *field_name, enum_field_types type,
+    const char *length, const char *decimals, uint type_modifier,
+    Item *default_value, Item *on_update_value, LEX_STRING *comment,
+    const char *change, List<String> *interval_list, const CHARSET_INFO *cs,
+    bool has_explicit_collation, uint uint_geom_type,
+    const LEX_CSTRING *zip_dict, Value_generator *gcol_info,
+    Value_generator *default_val_expr, const char *opt_after,
+    Nullable<gis::srid_t> srid, dd::Column::enum_hidden_type hidden) {
   Create_field *new_field;
   uint8 datetime_precision = decimals ? atoi(decimals) : 0;
   DBUG_ENTER("add_field_to_list");
@@ -5541,8 +5553,8 @@ bool Alter_info::add_field(THD *thd, const LEX_STRING *field_name,
       new_field->init(thd, field_name->str, type, length, decimals,
                       type_modifier, default_value, on_update_value, comment,
                       change, interval_list, cs, has_explicit_collation,
-                      uint_geom_type, gcol_info, default_val_expr, srid,
-                      hidden))
+                      uint_geom_type, zip_dict, gcol_info, default_val_expr,
+                      srid, hidden))
     DBUG_RETURN(1);
 
   create_list.push_back(new_field);

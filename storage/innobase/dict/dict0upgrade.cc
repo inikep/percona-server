@@ -1425,8 +1425,8 @@ bool dd_upgrade_get_compression_dict_data(
     ulint name_len;
 
     /* Extract necessary information from a SYS_ZIP_DICT row */
-    err_msg = dict_process_sys_zip_dict(heap, *pcur.btr_cur.index, rec, &id,
-                                        &name, &name_len, &data, &data_len);
+    err_msg = dict_process_sys_zip_dict(heap, *pcur.index(), rec, &id, &name,
+                                        &name_len, &data, &data_len);
 
     mtr_commit(&mtr);
     mutex_exit(&dict_sys->mutex);

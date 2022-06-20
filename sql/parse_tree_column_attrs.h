@@ -77,6 +77,7 @@ class PT_column_attr_base : public Parse_tree_node_tmpl<Column_parse_context> {
     *has_explicit_collation = false;
     return false;
   }
+  virtual void apply_zip_dict(LEX_CSTRING *) const noexcept {}
 };
 
 /**
@@ -293,8 +294,9 @@ class PT_column_format_column_attr : public PT_column_attr_base {
   column_format_type format;
 
  public:
-  explicit PT_column_format_column_attr(column_format_type format)
-      : format(format) {}
+  explicit PT_column_format_column_attr(
+      column_format_type format, const LEX_CSTRING &zip_dict_name) noexcept
+      : format(format), m_zip_dict_name(zip_dict_name) {}
 
   virtual void apply_type_flags(ulong *type_flags) const {
     *type_flags &= ~(FIELD_FLAGS_COLUMN_FORMAT_MASK);
@@ -303,6 +305,12 @@ class PT_column_format_column_attr : public PT_column_attr_base {
   virtual bool contextualize(Column_parse_context *pc) {
     return super::contextualize(pc);
   }
+  virtual void apply_zip_dict(LEX_CSTRING *to) const noexcept {
+    *to = m_zip_dict_name;
+  }
+
+ private:
+  const LEX_CSTRING m_zip_dict_name;
 };
 
 /**
@@ -734,6 +742,7 @@ class PT_field_def_base : public Parse_tree_node {
     ...
     );
   */
+  LEX_CSTRING m_zip_dict;
 
  protected:
   PT_type *type_node;
@@ -776,6 +785,7 @@ class PT_field_def_base : public Parse_tree_node {
         attr->apply_gen_default_value(&default_val_info);
         attr->apply_on_update_value(&on_update_value);
         attr->apply_srid_modifier(&m_srid);
+        attr->apply_zip_dict(&m_zip_dict);
         if (attr->apply_collation(&charset, &has_explicit_collation))
           return true;
       }

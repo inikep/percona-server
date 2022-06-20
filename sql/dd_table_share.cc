@@ -1084,7 +1084,7 @@ static bool fill_column_from_dd(THD *thd, TABLE_SHARE *share,
 
   if (column_options->exists("zip_dict_id")) {
     uint64 zip_dict_id;
-    column_options->get_uint64("zip_dict_id", &zip_dict_id);
+    column_options->get("zip_dict_id", &zip_dict_id);
 
     DBUG_LOG("zip_dict",
              "Table_name: " << share->table_name.str

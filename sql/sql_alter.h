@@ -425,9 +425,11 @@ class Alter_info {
                  Item *on_update_value, LEX_STRING *comment, const char *change,
                  List<String> *interval_list, const CHARSET_INFO *cs,
                  bool has_explicit_collation, uint uint_geom_type,
-                 Value_generator *gcol_info, Value_generator *default_val_expr,
-                 const char *opt_after, Nullable<gis::srid_t> srid,
+                 const LEX_CSTRING *zip_dict, Value_generator *gcol_info,
+                 Value_generator *default_val_expr, const char *opt_after,
+                 Nullable<gis::srid_t> srid,
                  dd::Column::enum_hidden_type hidden);
+
 
   /**
      Checks if there are any columns with COLUMN_FORMAT COMRPESSED

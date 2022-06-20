@@ -1874,6 +1874,24 @@ struct TABLE {
 #ifndef DBUG_OFF
   void set_tmp_table_seq_id(uint arg) { tmp_table_seq_id = arg; }
 #endif
+  /**
+    Checks if TABLE has at least one field with
+    COLUMN_FORMAT_TYPE_COMPRESSED flag.
+  */
+  bool has_compressed_columns() const;
+
+  /**
+    Checks if TABLE has at least one field with
+    COLUMN_FORMAT_TYPE_COMPRESSED flag and non-empty
+    zip_dict.
+  */
+  bool has_compressed_columns_with_dictionaries() const;
+
+  /**
+    Updates zip_dict_name in the TABLE's field definitions based on the
+    values from the supplied list of Create_field objects.
+  */
+  void update_compressed_columns_info(const List<Create_field> &fields);
 
   /**
     Update covering keys depending on max read key length.

@@ -4807,6 +4807,9 @@ static int innodb_init(void *p) {
       HTON_FKS_WITH_PREFIX_PARENT_KEYS |
       HTON_FKS_NEED_DIFFERENT_PARENT_AND_SUPPORTING_KEYS;
 
+  innobase_hton->check_fk_column_compat = innodb_check_fk_column_compat;
+  innobase_hton->is_reserved_db_name = innobase_check_reserved_file_name;
+
   innobase_hton->upgrade_get_compression_dict_data =
       dd_upgrade_get_compression_dict_data;
 
@@ -6410,6 +6413,8 @@ static void innobase_vcol_build_templ(const TABLE *table,
   templ->mbminlen = col->get_mbminlen();
   templ->mbmaxlen = col->get_mbmaxlen();
   templ->is_unsigned = col->prtype & DATA_UNSIGNED;
+  templ->compressed = (field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED);
+  templ->zip_dict_data = field->zip_dict_data;
 }
 
 /** callback used by MySQL server layer to initialize
@@ -8040,6 +8045,8 @@ static mysql_row_templ_t *build_template_field(
   templ->mbminlen = col->get_mbminlen();
   templ->mbmaxlen = col->get_mbmaxlen();
   templ->is_unsigned = col->prtype & DATA_UNSIGNED;
+  templ->compressed = (field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED);
+  templ->zip_dict_data = field->zip_dict_data;
 
   if (!index->is_clustered() && templ->rec_field_no == ULINT_UNDEFINED) {
     prebuilt->need_to_access_clustered = TRUE;
@@ -8694,13 +8701,13 @@ func_exit:
 but indexed columns. Such columns could stil present in the virtual
 index rec fields even if they are not updated (some other fields updated),
 so needs to be logged.
-@param[in]	prebuilt		InnoDB prebuilt struct
-@param[in,out]	vfield			field to filled
-@param[in]	o_len			actual column length
-@param[in,out]	col			column to be filled
-@param[in]	old_mysql_row_col	MySQL old field ptr
-@param[in]	col_pack_len		MySQL field col length
-@param[in,out]	buf			buffer for a converted integer value
+@param[in]  prebuilt        InnoDB prebuilt struct
+@param[in,out]  vfield          field to filled
+@param[in]  o_len           actual column length
+@param[in,out]  col         column to be filled
+@param[in]  old_mysql_row_col   MySQL old field ptr
+@param[in]  col_pack_len        MySQL field col length
+@param[in,out]  buf         buffer for a converted integer value
 @return used buffer ptr from row_mysql_store_col_in_innobase_format() */
 static byte *innodb_fill_old_vcol_val(row_prebuilt_t *prebuilt,
                                       dfield_t *vfield, ulint o_len,
@@ -8711,7 +8718,7 @@ static byte *innodb_fill_old_vcol_val(row_prebuilt_t *prebuilt,
   if (o_len != UNIV_SQL_NULL) {
     buf = row_mysql_store_col_in_innobase_format(
         vfield, buf, TRUE, old_mysql_row_col, col_pack_len,
-        dict_table_is_comp(prebuilt->table));
+        dict_table_is_comp(prebuilt->table), false, nullptr, 0, nullptr);
   } else {
     dfield_set_null(vfield);
   }
@@ -8802,8 +8809,11 @@ static dberr_t calc_row_difference(
       case DATA_POINT:
       case DATA_VAR_POINT:
       case DATA_GEOMETRY:
-        o_ptr = row_mysql_read_blob_ref(&o_len, o_ptr, o_len);
-        n_ptr = row_mysql_read_blob_ref(&n_len, n_ptr, n_len);
+        /* Do not compress blob column while comparing */
+        o_ptr = row_mysql_read_blob_ref(&o_len, o_ptr, o_len, false, nullptr, 0,
+                                        prebuilt);
+        n_ptr = row_mysql_read_blob_ref(&n_len, n_ptr, n_len, false, nullptr, 0,
+                                        prebuilt);
 
         break;
 
@@ -8923,7 +8933,10 @@ static dberr_t calc_row_difference(
 
         buf = row_mysql_store_col_in_innobase_format(
             &dfield, (byte *)buf, TRUE, new_mysql_row_col, col_pack_len,
-            dict_table_is_comp(prebuilt->table));
+            dict_table_is_comp(prebuilt->table),
+            field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED,
+            reinterpret_cast<const byte *>(field->zip_dict_data.str),
+            field->zip_dict_data.length, prebuilt);
         dfield_copy(&ufield->new_val, &dfield);
       } else {
         col->copy_type(dfield_get_type(&ufield->new_val));
@@ -8950,7 +8963,10 @@ static dberr_t calc_row_difference(
 
           buf = row_mysql_store_col_in_innobase_format(
               &dfield, (byte *)buf, TRUE, old_mysql_row_col, col_pack_len,
-              dict_table_is_comp(prebuilt->table));
+              dict_table_is_comp(prebuilt->table),
+              field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED,
+              reinterpret_cast<const byte *>(field->zip_dict_data.str),
+              field->zip_dict_data.length, prebuilt);
           dfield_copy(ufield->old_v_val, &dfield);
           dfield_copy(vfield, &dfield);
         } else {
@@ -10588,6 +10604,7 @@ inline MY_ATTRIBUTE((warn_unused_result)) int create_table_info_t::
   ulint unsigned_type;
   ulint binary_type;
   ulint long_true_varchar;
+  ulint compressed;
   ulint charset_no;
   ulint i;
   ulint j = 0;
@@ -10784,6 +10801,10 @@ inline MY_ATTRIBUTE((warn_unused_result)) int create_table_info_t::
 
     is_virtual = (innobase_is_v_fld(field)) ? DATA_VIRTUAL : 0;
     is_stored = innobase_is_s_fld(field);
+    /* Check if the the field has COMPRESSED attribute */
+    compressed = (field->column_format() == COLUMN_FORMAT_TYPE_COMPRESSED)
+                     ? DATA_COMPRESSED
+                     : 0;
 
     /* First check whether the column to be added has a
     system reserved name. */
@@ -10801,7 +10822,8 @@ inline MY_ATTRIBUTE((warn_unused_result)) int create_table_info_t::
       dict_mem_table_add_col(
           table, heap, field_name, col_type,
           dtype_form_prtype((ulint)field->type() | nulls_allowed |
-                                unsigned_type | binary_type | long_true_varchar,
+                                unsigned_type | binary_type |
+                                long_true_varchar | compressed,
                             charset_no),
           col_len);
     } else {
@@ -10809,7 +10831,7 @@ inline MY_ATTRIBUTE((warn_unused_result)) int create_table_info_t::
           table, heap, field_name, col_type,
           dtype_form_prtype((ulint)field->type() | nulls_allowed |
                                 unsigned_type | binary_type |
-                                long_true_varchar | is_virtual,
+                                long_true_varchar | is_virtual | compressed,
                             charset_no),
           col_len, i, field->gcol_info->non_virtual_base_columns());
     }
@@ -17887,7 +17909,9 @@ int ha_innobase::external_lock(THD *thd, /*!< in: handle to the user thread */
        sql_command == SQLCOM_ALTER_TABLE || sql_command == SQLCOM_OPTIMIZE ||
        (sql_command == SQLCOM_CREATE_TABLE && lock_type == F_WRLCK) ||
        sql_command == SQLCOM_CREATE_INDEX || sql_command == SQLCOM_DROP_INDEX ||
-       sql_command == SQLCOM_DELETE)) {
+       sql_command == SQLCOM_DELETE ||
+       sql_command == SQLCOM_CREATE_COMPRESSION_DICTIONARY ||
+       sql_command == SQLCOM_DROP_COMPRESSION_DICTIONARY)) {
     if (sql_command == SQLCOM_CREATE_TABLE) {
       ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_INNODB_READ_ONLY);
       DBUG_RETURN(HA_ERR_INNODB_READ_ONLY);
@@ -18678,7 +18702,9 @@ THR_LOCK_DATA **ha_innobase::store_lock(
        (sql_command == SQLCOM_CREATE_TABLE &&
         (lock_type >= TL_WRITE_CONCURRENT_INSERT && lock_type <= TL_WRITE)) ||
        sql_command == SQLCOM_CREATE_INDEX || sql_command == SQLCOM_DROP_INDEX ||
-       sql_command == SQLCOM_DELETE)) {
+       sql_command == SQLCOM_DELETE ||
+       sql_command == SQLCOM_CREATE_COMPRESSION_DICTIONARY ||
+       sql_command == SQLCOM_DROP_COMPRESSION_DICTIONARY)) {
     ib_senderrf(trx->mysql_thd, IB_LOG_LEVEL_WARN, ER_READ_ONLY_MODE);
 
   } else if (sql_command == SQLCOM_FLUSH && lock_type == TL_READ_NO_INSERT) {
@@ -22734,7 +22760,7 @@ innobase_index_cond(ha_innobase *h) /*!< in/out: pointer to ha_innobase */
 }
 
 /** Get the computed value by supplying the base column values.
-@param[in,out]	table	table whose virtual column template to be built */
+@param[in,out]  table   table whose virtual column template to be built */
 void innobase_init_vc_templ(dict_table_t *table) {
   THD *thd = current_thd;
   char dbname[MAX_DATABASE_NAME_LEN + 1];
@@ -22779,6 +22805,7 @@ void innobase_init_vc_templ(dict_table_t *table) {
   tbnamelen = filename_to_tablename(tbname, t_tbname, MAX_TABLE_NAME_LEN + 1);
 
   {
+    innodb_session_dict_mutex_guard_t guard(*thd_to_innodb_session(thd));
 #ifdef UNIV_DEBUG
     bool ret =
 #endif /* UNIV_DEBUG */
@@ -22868,19 +22895,19 @@ static dfield_t *innobase_get_field_from_update_vector(dict_foreign_t *foreign,
 }
 
 /** Get the computed value by supplying the base column values.
-@param[in,out]	row		the data row
-@param[in]	col		virtual column
-@param[in]	index		index
-@param[in,out]	local_heap	heap memory for processing large data etc.
-@param[in,out]	heap		memory heap that copies the actual index row
-@param[in]	ifield		index field
-@param[in]	thd		MySQL thread handle
-@param[in,out]	mysql_table	mysql table object
-@param[in]	old_table	during ALTER TABLE, this is the old table
+@param[in,out]  row     the data row
+@param[in]  col     virtual column
+@param[in]  index       index
+@param[in,out]  local_heap  heap memory for processing large data etc.
+@param[in,out]  heap        memory heap that copies the actual index row
+@param[in]  ifield      index field
+@param[in]  thd     MySQL thread handle
+@param[in,out]  mysql_table mysql table object
+@param[in]  old_table   during ALTER TABLE, this is the old table
                                 or NULL.
-@param[in]	parent_update	update vector for the parent row
-@param[in]	foreign		foreign key information
-@param[in]	prebuilt	compress_heap must be taken from here
+@param[in]  parent_update   update vector for the parent row
+@param[in]  foreign     foreign key information
+@param[in]  prebuilt    compress_heap must be taken from here
 @return the field filled with computed value, or NULL if just want
 to store the value in passed in "my_rec" */
 dfield_t *innobase_get_computed_value(
@@ -22969,7 +22996,8 @@ dfield_t *innobase_get_computed_value(
     } else {
       row_sel_field_store_in_mysql_format(
           mysql_rec + templ->mysql_col_offset, templ, index,
-          templ->clust_rec_field_no, (const byte *)data, len, ULINT_UNDEFINED);
+          templ->clust_rec_field_no, (const byte *)data, len, prebuilt,
+          ULINT_UNDEFINED);
 
       if (templ->mysql_null_bit_mask) {
         /* It is a nullable column with a
@@ -23007,10 +23035,12 @@ dfield_t *innobase_get_computed_value(
       byte *blob_mem = static_cast<byte *>(mem_heap_alloc(heap, max_len));
 
       row_mysql_store_blob_ref(mysql_rec + vctempl->mysql_col_offset,
-                               vctempl->mysql_col_len, blob_mem, max_len);
+                               vctempl->mysql_col_len, blob_mem, max_len, false,
+                               0, 0, prebuilt);
     }
 
     {
+      innodb_session_dict_mutex_guard_t guard(*thd_to_innodb_session(thd));
       ret = handler::my_eval_gcolumn_expr_with_open(
           thd, index->table->vc_templ->db_name.c_str(),
           index->table->vc_templ->tb_name.c_str(), &column_map,
@@ -23045,7 +23075,7 @@ dfield_t *innobase_get_computed_value(
 
   row_mysql_store_col_in_innobase_format(
       field, buf, TRUE, mysql_rec + vctempl->mysql_col_offset,
-      vctempl->mysql_col_len, dict_table_is_comp(index->table));
+      vctempl->mysql_col_len, dict_table_is_comp(index->table), false, 0, 0, 0);
   field->type.prtype |= DATA_VIRTUAL;
 
   ulint max_prefix = col->m_col.max_prefix;

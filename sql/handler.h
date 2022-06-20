@@ -2469,6 +2469,7 @@ struct HA_CREATE_INFO {
 
   void init_create_options_from_share(const TABLE_SHARE *share,
                                       uint used_fields);
+  Item *zip_dict_name;
 };
 
 /**
@@ -6514,6 +6515,7 @@ void ha_drop_database(char *path);
 class Create_field;
 int ha_create_table(THD *thd, const char *path, const char *db,
                     const char *table_name, HA_CREATE_INFO *create_info,
+                    const List<Create_field> *create_fields,
                     bool update_create_info, bool is_temp_table,
                     dd::Table *table_def);
 

@@ -58,6 +58,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "usr0sess.h"
 #include "ut0vec.h"
 
+#include "sql/sql_zip_dict.h"
+
 /** Build a table definition without updating SYSTEM TABLES
 @param[in,out]	table	dict table object
 @param[in,out]	trx	transaction instance
@@ -766,7 +768,7 @@ static ibool dict_create_extract_int_aux(void *row,      /*!< in: sel_node_t* */
 
 /** Get a single compression dictionary id for the given
 (table id, column pos) pair.
-@return	error code or DB_SUCCESS */
+@return error code or DB_SUCCESS */
 dberr_t dict_create_get_zip_dict_id_by_reference(
     ulint table_id,   /*!< in: table id */
     ulint column_pos, /*!< in: column position */
@@ -779,7 +781,7 @@ dberr_t dict_create_get_zip_dict_id_by_reference(
   pars_info_t *info = pars_info_create();
 
   ib_uint32_t dict_id_buf;
-  mach_write_to_4(reinterpret_cast<byte *>(&dict_id_buf), ULINT32_UNDEFINED);
+  mach_write_to_4(reinterpret_cast<byte *>(&dict_id_buf), UINT32_UNDEFINED);
 
   pars_info_add_int4_literal(info, "table_id", table_id);
   pars_info_add_int4_literal(info, "column_pos", column_pos);
@@ -802,7 +804,7 @@ dberr_t dict_create_get_zip_dict_id_by_reference(
   if (error == DB_SUCCESS) {
     ib_uint32_t local_dict_id =
         mach_read_from_4(reinterpret_cast<const byte *>(&dict_id_buf));
-    if (local_dict_id == ULINT32_UNDEFINED)
+    if (local_dict_id == UINT32_UNDEFINED)
       error = DB_RECORD_NOT_FOUND;
     else
       *dict_id = local_dict_id;
