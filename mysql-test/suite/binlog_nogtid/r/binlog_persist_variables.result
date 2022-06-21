@@ -21,7 +21,7 @@ VARIABLE_NAME LIKE '%slave%') AND
 (VARIABLE_NAME NOT LIKE 'innodb%')
 ORDER BY VARIABLE_NAME;
 
-include/assert.inc ['Expect 84 variables in the table.']
+include/assert.inc ['Expect 86 variables in the table.']
 
 # Test SET PERSIST
 SET PERSIST binlog_cache_size = @@GLOBAL.binlog_cache_size;
@@ -54,8 +54,6 @@ ERROR HY000: Variable 'binlog_space_limit' is a read only variable
 SET PERSIST binlog_stmt_cache_size = @@GLOBAL.binlog_stmt_cache_size;
 SET PERSIST binlog_transaction_dependency_history_size = @@GLOBAL.binlog_transaction_dependency_history_size;
 SET PERSIST binlog_transaction_dependency_tracking = @@GLOBAL.binlog_transaction_dependency_tracking;
-SET PERSIST encrypt_binlog = @@GLOBAL.encrypt_binlog;
-ERROR HY000: Variable 'encrypt_binlog' is a read only variable
 SET PERSIST enforce_gtid_consistency = @@GLOBAL.enforce_gtid_consistency;
 SET PERSIST gtid_executed = @@GLOBAL.gtid_executed;
 ERROR HY000: Variable 'gtid_executed' is a read only variable
@@ -145,7 +143,7 @@ include/assert.inc ['Expect 66 persisted variables in persisted_variables table.
 
 include/assert.inc ['Expect 66 persisted variables in persisted_variables table.']
 include/assert.inc ['Expect 66 persisted variables shown as PERSISTED in variables_info table.']
-include/assert.inc ['Expect 66 persisted variables with matching peristed and global values.']
+include/assert.inc ['Expect 66 persisted variables with matching persisted and global values.']
 
 ############################################################
 # 3. Test RESET PERSIST IF EXISTS. Verify persisted variable
@@ -181,9 +179,6 @@ Warning	3615	Variable binlog_space_limit does not exist in persisted config file
 RESET PERSIST IF EXISTS binlog_stmt_cache_size;
 RESET PERSIST IF EXISTS binlog_transaction_dependency_history_size;
 RESET PERSIST IF EXISTS binlog_transaction_dependency_tracking;
-RESET PERSIST IF EXISTS encrypt_binlog;
-Warnings:
-Warning	3615	Variable encrypt_binlog does not exist in persisted config file
 RESET PERSIST IF EXISTS enforce_gtid_consistency;
 RESET PERSIST IF EXISTS gtid_executed;
 Warnings:
