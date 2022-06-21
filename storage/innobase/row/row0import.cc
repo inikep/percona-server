@@ -3694,7 +3694,7 @@ dberr_t row_import_for_mysql(dict_table_t *table, dd::Table *table_def,
   fil_space_set_imported() to declare it a persistent tablespace. */
 
   ulint fsp_flags = dict_tf_to_fsp_flags(table->flags);
-  if (table->encryption_key != NULL || cfg.m_is_keyring_encrypted) {
+  if (table->encryption_key != nullptr || cfg.m_is_keyring_encrypted) {
     FSP_FLAGS_SET_ENCRYPTION(fsp_flags);
   }
 

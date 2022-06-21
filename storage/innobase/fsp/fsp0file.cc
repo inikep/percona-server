@@ -427,8 +427,8 @@ Datafile::ValidateOutput Datafile::validate_to_dd(space_id_t space_id,
                   "encryption"
                << " could finish up the rotation.";
     // exclude encryption flag from validation
-    m_flags &= ~FSP_FLAGS_MASK_ENCRYPTION;
-    flags &= ~FSP_FLAGS_MASK_ENCRYPTION;
+    FSP_FLAGS_UNSET_ENCRYPTION(m_flags);
+    FSP_FLAGS_UNSET_ENCRYPTION(flags);
   }
 
   /* Make sure the datafile we found matched the space ID.

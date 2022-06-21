@@ -8998,13 +8998,13 @@ func_exit:
 but indexed columns. Such columns could stil present in the virtual
 index rec fields even if they are not updated (some other fields updated),
 so needs to be logged.
-@param[in]  prebuilt        InnoDB prebuilt struct
-@param[in,out]  vfield          field to filled
-@param[in]  o_len           actual column length
-@param[in,out]  col         column to be filled
-@param[in]  old_mysql_row_col   MySQL old field ptr
-@param[in]  col_pack_len        MySQL field col length
-@param[in,out]  buf         buffer for a converted integer value
+@param[in]	prebuilt		InnoDB prebuilt struct
+@param[in,out]	vfield			field to filled
+@param[in]	o_len			actual column length
+@param[in,out]	col			column to be filled
+@param[in]	old_mysql_row_col	MySQL old field ptr
+@param[in]	col_pack_len		MySQL field col length
+@param[in,out]	buf			buffer for a converted integer value
 @return used buffer ptr from row_mysql_store_col_in_innobase_format() */
 static byte *innodb_fill_old_vcol_val(row_prebuilt_t *prebuilt,
                                       dfield_t *vfield, ulint o_len,
@@ -23412,7 +23412,7 @@ innobase_index_cond(ha_innobase *h) /*!< in/out: pointer to ha_innobase */
 }
 
 /** Get the computed value by supplying the base column values.
-@param[in,out]  table   table whose virtual column template to be built */
+@param[in,out]	table	table whose virtual column template to be built */
 void innobase_init_vc_templ(dict_table_t *table) {
   THD *thd = current_thd;
   char dbname[MAX_DATABASE_NAME_LEN + 1];
@@ -23547,19 +23547,19 @@ static dfield_t *innobase_get_field_from_update_vector(dict_foreign_t *foreign,
 }
 
 /** Get the computed value by supplying the base column values.
-@param[in,out]  row     the data row
-@param[in]  col     virtual column
-@param[in]  index       index
-@param[in,out]  local_heap  heap memory for processing large data etc.
-@param[in,out]  heap        memory heap that copies the actual index row
-@param[in]  ifield      index field
-@param[in]  thd     MySQL thread handle
-@param[in,out]  mysql_table mysql table object
-@param[in]  old_table   during ALTER TABLE, this is the old table
+@param[in,out]	row		the data row
+@param[in]	col		virtual column
+@param[in]	index		index
+@param[in,out]	local_heap	heap memory for processing large data etc.
+@param[in,out]	heap		memory heap that copies the actual index row
+@param[in]	ifield		index field
+@param[in]	thd		MySQL thread handle
+@param[in,out]	mysql_table	mysql table object
+@param[in]	old_table	during ALTER TABLE, this is the old table
                                 or NULL.
-@param[in]  parent_update   update vector for the parent row
-@param[in]  foreign     foreign key information
-@param[in]  prebuilt    compress_heap must be taken from here
+@param[in]	parent_update	update vector for the parent row
+@param[in]	foreign		foreign key information
+@param[in]	prebuilt	compress_heap must be taken from here
 @return the field filled with computed value, or NULL if just want
 to store the value in passed in "my_rec" */
 dfield_t *innobase_get_computed_value(

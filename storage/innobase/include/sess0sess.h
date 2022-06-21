@@ -187,7 +187,7 @@ class innodb_session_t {
 class innodb_session_dict_mutex_guard_t {
  public:
   /** Constructor
-      @param[in,out]  session innodb session object. */
+      @param[in,out]	session	innodb session object. */
   innodb_session_dict_mutex_guard_t(innodb_session_t &session)
       : m_session(session) {
     ++m_session.m_dict_mutex_locked;

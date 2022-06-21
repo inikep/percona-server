@@ -2808,7 +2808,6 @@ void srv_enable_undo_encryption_if_set() {
     ut_ad(fsp_is_undo_tablespace(undo_space->id()));
 
     space = fil_space_get(undo_space->id());
-    ut_ad(space);
 
     if (space == nullptr || space->encryption_type != Encryption::AES) {
       continue;

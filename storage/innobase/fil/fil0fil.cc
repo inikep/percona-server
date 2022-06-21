@@ -593,8 +593,10 @@ class Fil_shard {
 
   using Names = std::unordered_map<const char *, fil_space_t *, Char_Ptr_Hash,
                                    Char_Ptr_Compare>;
+
  public:
   using Space_list = UT_LIST_BASE_NODE_T(fil_space_t);
+
  public:
   /** Constructor
   @param[in]	shard_id	Shard ID  */
@@ -1565,7 +1567,6 @@ private :
     ibd_open_for_recovery(space_id_t space_id, const std::string &path,
                           fil_space_t *&space)
         MY_ATTRIBUTE((warn_unused_result));
-
 
 private:
 /** Fil_shards managed */
@@ -3850,14 +3851,12 @@ void fil_space_release_for_io(fil_space_t *space) {
   shard->mutex_release();
 }
 
-fil_space_t* fil_space_get_next_in_shard(fil_space_t *space, Fil_shard *shard) {
-
+fil_space_t *fil_space_get_next_in_shard(fil_space_t *space, Fil_shard *shard) {
   space = (space == nullptr) ? UT_LIST_GET_FIRST(shard->m_space_list)
                              : UT_LIST_GET_NEXT(space_list, space);
   /* Skip spaces that are being created by
   fil_ibd_create(), or dropped, or !tablespace. */
-  while (space != nullptr && (space->files.empty() ||
-                              space->is_stopping() ||
+  while (space != nullptr && (space->files.empty() || space->is_stopping() ||
                               space->purpose != FIL_TYPE_TABLESPACE)) {
     space = UT_LIST_GET_NEXT(space_list, space);
   }
@@ -3868,10 +3867,8 @@ fil_space_t* fil_space_get_next_in_shard(fil_space_t *space, Fil_shard *shard) {
 Remove space from key rotation list if there are no more
 pending operations.
 @param[in]	space		Tablespace */
-static
-void
-fil_space_remove_from_keyrotation(Fil_shard *shard, fil_space_t* space) {
-
+static void fil_space_remove_from_keyrotation(Fil_shard *shard,
+                                              fil_space_t *space) {
   ut_ad(shard->mutex_owned());
   ut_ad(space);
 
@@ -3882,8 +3879,8 @@ fil_space_remove_from_keyrotation(Fil_shard *shard, fil_space_t* space) {
   }
 }
 
-fil_space_t* fil_space_get_next_in_shards_rotation_list(fil_space_t *space, Fil_shard *shard) {
-
+fil_space_t *fil_space_get_next_in_shards_rotation_list(fil_space_t *space,
+                                                        Fil_shard *shard) {
   if (space == nullptr) {
     space = UT_LIST_GET_FIRST(shard->m_rotation_list);
   } else {
@@ -3893,8 +3890,7 @@ fil_space_t* fil_space_get_next_in_shards_rotation_list(fil_space_t *space, Fil_
   }
   /* Skip spaces that are being created by
   fil_ibd_create(), or dropped, or !tablespace. */
-  while (space != nullptr && (space->files.empty() ||
-                              space->is_stopping() ||
+  while (space != nullptr && (space->files.empty() || space->is_stopping() ||
                               space->purpose != FIL_TYPE_TABLESPACE)) {
     fil_space_t *prev_space = space;
     space = UT_LIST_GET_NEXT(rotation_list, prev_space);
@@ -3902,7 +3898,6 @@ fil_space_t* fil_space_get_next_in_shards_rotation_list(fil_space_t *space, Fil_
   }
   return space;
 }
-
 
 /** Return the next fil_space_t.
 Once started, the caller must keep calling this until it returns NULL.
@@ -3941,7 +3936,8 @@ fil_space_t *fil_space_next(
     space = fil_space_get_next_in_shard(space, shard);
   }
 
-  while (space == nullptr && (++shard_index < fil_system->get_number_of_shards())) {
+  while (space == nullptr &&
+         (++shard_index < fil_system->get_number_of_shards())) {
     shard->mutex_release();
     shard = fil_system->shard_by_index(shard_index);
     ut_ad(shard != nullptr);
@@ -3960,8 +3956,6 @@ fil_space_t *fil_space_next(
   return (space);
 }
 
-
-
 /** Return the next fil_space_t from key rotation list.
 Once started, the caller must keep calling this until it returns NULL.
 fil_space_acquire() and fil_space_release() are invoked here which
@@ -3973,7 +3967,7 @@ If NULL, use the first fil_space_t on fil_system->space_list.
 fil_space_t *fil_space_keyrotate_next(
     fil_space_t *prev_space) {  // TODO: To powinno być częścią Fil_system
 
-  fil_space_t* space = prev_space;
+  fil_space_t *space = prev_space;
   mutex_enter(&fil_crypt_list_mutex);
 
   Fil_shard *shard = nullptr;
@@ -3998,7 +3992,8 @@ fil_space_t *fil_space_keyrotate_next(
     space = fil_space_get_next_in_shards_rotation_list(prev_space, shard);
   }
 
-  while (space == nullptr && (++shard_index < fil_system->get_number_of_shards())) {
+  while (space == nullptr &&
+         (++shard_index < fil_system->get_number_of_shards())) {
     shard->mutex_release();
     shard = fil_system->shard_by_index(shard_index);
     ut_ad(shard != nullptr);
@@ -9245,6 +9240,8 @@ dberr_t fil_set_encryption(space_id_t space_id, Encryption::Type algorithm,
   ut_ad(algorithm != Encryption::NONE);
   space->encryption_type = algorithm;
 
+  if (space->crypt_data == nullptr) FSP_FLAGS_SET_ENCRYPTION(space->flags);
+
   if (acquire_mutex) {
     shard->mutex_release();
   }
@@ -9340,7 +9337,7 @@ dberr_t fil_reset_encryption(space_id_t space_id) {
 
 #ifndef UNIV_HOTBACKUP
 /** Rotate the tablespace keys by new master key.
-@param[in,out]  shard   Rotate the keys in this shard
+@param[in,out]	shard		Rotate the keys in this shard
 @return true if the re-encrypt succeeds */
 bool Fil_system::encryption_rotate_in_a_shard(Fil_shard *shard) {
   for (auto &elem : shard->m_spaces) {
