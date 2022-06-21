@@ -109,8 +109,6 @@ struct TABLE_SHARE;
 struct TYPELIB;
 struct timeval;
 
-extern const LEX_CSTRING null_lex_cstr;
-
 using Mysql::Nullable;
 
 /*

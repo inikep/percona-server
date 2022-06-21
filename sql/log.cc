@@ -812,6 +812,14 @@ bool File_query_log::write_slow(THD *thd, ulonglong current_utime,
       goto err; /* purecov: inspected */
   }
 
+  if (thd->variables.log_slow_verbosity & (1ULL << SLOG_V_QUERY_PLAN))
+    if (my_b_printf(&log_file,
+                    "  Tmp_tables: %lu  Tmp_disk_tables: %lu  "
+                    "Tmp_table_sizes: %llu",
+                    thd->tmp_tables_used, thd->tmp_tables_disk_used,
+                    thd->tmp_tables_size) == (uint)-1)
+      goto err;
+
   if (my_b_write(&log_file, (uchar *)"\n", 1)) goto err;
 
   if (opt_log_slow_sp_statements == 1 && thd->sp_runtime_ctx &&
@@ -1705,7 +1713,7 @@ static void copy_global_to_session(THD *thd, ulong flag, const ulonglong *val) {
     *(ulonglong *)((char *)&thd->variables + offset) = *val;
 }
 
-bool log_slow_applicable(THD *thd) {
+bool log_slow_applicable(THD *thd, int sp_sql_command) {
   DBUG_ENTER("log_slow_applicable");
 
   /*
@@ -1731,8 +1739,8 @@ bool log_slow_applicable(THD *thd) {
   if (opt_log_slow_sp_statements > 0 && thd->lex) {
     if (thd->lex->sql_command == SQLCOM_CALL) {
       if (!thd->stmt_arena->is_regular()) {
-        int sql_command = ((sp_lex_instr *)thd->stmt_arena)->get_command();
-        if (sql_command == SQLCOM_CALL || sql_command == -1) DBUG_RETURN(false);
+        DBUG_ASSERT(sp_sql_command != -1);
+        if (sp_sql_command == SQLCOM_CALL) DBUG_RETURN(false);
       } else
         DBUG_RETURN(false);
     } else if (thd->lex->sql_command == SQLCOM_EXECUTE) {
