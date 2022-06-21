@@ -288,7 +288,6 @@ The following options may be given as the first argument:
  before storage engine initialization, where each plugin
  is identified as name=library, where name is the plugin
  name and library is the plugin library in plugin_dir.
- --encrypt-binlog    Encrypt binary logs (including relay logs)
  --encrypt-tmp-files Encrypt temporary files (created for filesort, binary log
  cache, etc)
  --end-markers-in-json 
@@ -337,11 +336,6 @@ The following options may be given as the first argument:
  With this option enabled you can run myisamchk to test
  (not repair) tables while the MySQL server is running.
  Disable with --skip-external-locking.
- --extra-max-connections=# 
- The number of connections on extra-port
- --extra-port=#      Extra port number to use for tcp connections in a
- one-thread-per-connection manner. 0 means don't use
- another port
  --flush             Flush MyISAM tables to disk between SQL commands
  --flush-time=#      A dedicated thread is created to flush all tables at the
  given interval
@@ -1476,7 +1470,6 @@ disabled-storage-engines
 disconnect-on-expired-password TRUE
 disconnect-slave-event-count 0
 div-precision-increment 4
-encrypt-binlog FALSE
 encrypt-tmp-files FALSE
 end-markers-in-json FALSE
 enforce-gtid-consistency FALSE
@@ -1487,8 +1480,6 @@ expand-fast-index-creation FALSE
 expire-logs-days 0
 explicit-defaults-for-timestamp TRUE
 external-locking FALSE
-extra-max-connections 1
-extra-port 0
 flush FALSE
 flush-time 0
 ft-boolean-syntax + -><()~*:""&|
@@ -1672,7 +1663,7 @@ performance-schema-max-socket-classes 10
 performance-schema-max-socket-instances -1
 performance-schema-max-sql-text-length 1024
 performance-schema-max-stage-classes 175
-performance-schema-max-statement-classes 220
+performance-schema-max-statement-classes 226
 performance-schema-max-statement-stack 10
 performance-schema-max-table-handles -1
 performance-schema-max-table-instances -1
