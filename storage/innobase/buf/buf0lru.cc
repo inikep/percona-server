@@ -1312,7 +1312,10 @@ loop:
                               recv_recovery_on, false)) {
     block = NULL;
 
-    if (srv_debug_monitor_printed) DBUG_SUICIDE();
+    if (srv_debug_monitor_printed) {
+      flush_error_log_messages();
+      DBUG_SUICIDE();
+    }
   } else {
     block = buf_LRU_get_free_only(buf_pool);
   }

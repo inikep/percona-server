@@ -6665,20 +6665,6 @@ func_exit:
   DBUG_RETURN(ret);
 }
 
-/** Free InnoDB session specific data.
-@param[in,out]	thd	MySQL thread handler. */
-void thd_free_innodb_session(THD *thd) noexcept {
-  if (innodb_hton_ptr != nullptr && innodb_hton_ptr->slot != HA_SLOT_UNDEF) {
-    innodb_session_t *&&innodb_session = reinterpret_cast<innodb_session_t *>(
-        *thd_ha_data(thd, innodb_hton_ptr));
-
-    if (innodb_session != nullptr) {
-      UT_DELETE(innodb_session);
-      innodb_session = nullptr;
-    }
-  }
-}
-
 /** This function uses index translation table to quickly locate the
  requested index structure.
  Note we do not have mutex protection for the index translatoin table

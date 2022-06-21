@@ -1878,7 +1878,7 @@ static dberr_t srv_sys_enable_encryption(bool create_new_db) {
   dberr_t err = DB_SUCCESS;
 
   if (create_new_db && srv_sys_tablespace_encrypt) {
-    space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+    FSP_FLAGS_SET_ENCRYPTION(space->flags);
     srv_sys_space.set_flags(space->flags);
 
     err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
@@ -1904,7 +1904,7 @@ static dberr_t srv_sys_enable_encryption(bool create_new_db) {
     }
 
     if (is_encrypted) {
-      space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+      FSP_FLAGS_SET_ENCRYPTION(space->flags);
       srv_sys_space.set_flags(space->flags);
 
       err = fil_set_encryption(space->id, Encryption::AES,
@@ -2928,7 +2928,7 @@ files_checked:
 
   ib::info(ER_IB_MSG_1151,
            "Percona XtraDB (http://www.percona.com) " INNODB_VERSION_STR,
-           log_get_lsn(*log_sys));
+           ulonglong{log_get_lsn(*log_sys)});
 
   return (DB_SUCCESS);
 }

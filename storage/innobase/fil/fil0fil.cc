@@ -2363,21 +2363,21 @@ dberr_t Fil_shard::get_file_size(fil_node_t *file, bool read_only_mode) {
   ulint header_fsp_flags = flags;
 
   /* If a crash occurs while an UNDO space is being truncated,
-  it will be created new at startup. In that case, the fil_space_t
-  object will have the ENCRYPTION flag set, but the header page will
-  not be marked until the srv_master_thread gets around to it.
-  The opposite can occur where the header page contains the encryption
-  flag but the fil_space_t does not.  It could happen that undo
-  encryption was turned off just before the crash or shutdown so that
-  the srv_master_thread did not yet have time to apply it.
-  So don't compare the encryption flag for undo tablespaces. */
+     it will be created new at startup. In that case, the fil_space_t
+     object will have the ENCRYPTION flag set, but the header page will
+     not be marked until the srv_master_thread gets around to it.
+     The opposite can occur where the header page contains the encryption
+     flag but the fil_space_t does not.  It could happen that undo
+     encryption was turned off just before the crash or shutdown so that
+     the srv_master_thread did not yet have time to apply it.
+     So don't compare the encryption flag for undo tablespaces. */
   if (fsp_is_undo_tablespace(space->id)) {
     FSP_FLAGS_UNSET_ENCRYPTION(fil_space_flags);
     FSP_FLAGS_UNSET_ENCRYPTION(header_fsp_flags);
   }
 
   /* Make sure the space_flags are the same as the header page flags. */
-  if (fil_space_flags != header_fsp_flags) {
+  if (UNIV_UNLIKELY(fil_space_flags != header_fsp_flags)) {
     ib::error(ER_IB_MSG_272, ulong{space->flags}, file->name, ulonglong{flags});
     ut_error;
   }
@@ -9904,10 +9904,10 @@ byte *fil_tablespace_redo_encryption(byte *ptr, const byte *end,
   fil_space_t *space = fil_space_get(space_id);
 
   /* An undo space might be open but not have the ENCRYPTION bit set
-  in its header if the current value of innodb_undo_log_encrypt=OFF
-  and a crash occured between flushing this redo record and the header
-  page of the undo space.  So if the flag is missing, ignore the header
-  page. */
+     in its header if the current value of innodb_undo_log_encrypt=OFF
+     and a crash occured between flushing this redo record and the header
+     page of the undo space.  So if the flag is missing, ignore the header
+     page. */
   if (fsp_is_undo_tablespace(space_id) && space != nullptr &&
       !FSP_FLAGS_GET_ENCRYPTION(space->flags)) {
     space = nullptr;

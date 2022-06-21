@@ -131,7 +131,7 @@ in the file along with the file page, resides in the control block.
 
                 Buffer pool struct
                 ------------------
-The buffer buf_pool contains several mutexes which protects all the
+The buffer buf_pool contains several mutexes which protect all the
 control data structures of the buf_pool. The content of a buffer frame is
 protected by a separate read-write lock in its control block, though.
 
@@ -4004,13 +4004,8 @@ buf_block_t *Buf_fetch<T>::single_page() {
 
     if (is_optimistic()) {
       const auto bpage = &block->page;
-      auto block_mutex = buf_page_get_mutex(bpage);
-
-      mutex_enter(block_mutex);
 
       const auto state = buf_page_get_io_fix_unlocked(bpage);
-
-      mutex_exit(block_mutex);
 
       if (state == BUF_IO_READ) {
         /* The page is being read to buffer pool, but we cannot wait around for
@@ -4020,6 +4015,12 @@ buf_block_t *Buf_fetch<T>::single_page() {
 
         return (nullptr);
       }
+    }
+
+    if (UNIV_UNLIKELY(block->page.is_corrupt && srv_pass_corrupt_table <= 1)) {
+      buf_block_unfix(block);
+
+      return (nullptr);
     }
 
     switch (check_state(block)) {
@@ -4078,6 +4079,7 @@ buf_block_t *Buf_fetch<T>::single_page() {
 #endif /* UNIV_DEBUG */
 
   ut_ad(m_mode == Page_fetch::POSSIBLY_FREED ||
+        m_mode == Page_fetch::PEEK_IF_IN_POOL ||
         !block->page.file_page_was_freed);
 
   /* Check if this is the first access to the page */
@@ -4136,6 +4138,8 @@ buf_block_t *Buf_fetch<T>::single_page() {
 
   ut_ad(!rw_lock_own(m_hash_lock, RW_LOCK_X));
   ut_ad(!rw_lock_own(m_hash_lock, RW_LOCK_S));
+
+  trx_stats::inc_page_get(m_trx, block->page.id.fold());
 
   return (block);
 }
@@ -4276,7 +4280,9 @@ bool buf_page_optimistic_get(ulint rw_latch, buf_block_t *block,
 
   buf_page_mutex_exit(block);
 
-  buf_page_make_young_if_needed(&block->page);
+  if (fetch_mode != Page_fetch::SCAN) {
+    buf_page_make_young_if_needed(&block->page);
+  }
 
   mtr_memo_push(mtr, block, fix_type);
 

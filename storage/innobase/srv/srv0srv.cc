@@ -3030,7 +3030,6 @@ void srv_worker_thread() {
 
   rw_lock_x_unlock(&purge_sys->latch);
 
-  thd_free_innodb_session(thd);
   destroy_thd(thd);
 
   my_thread_end();
@@ -3333,7 +3332,6 @@ void srv_purge_coordinator_thread() {
     srv_release_threads(SRV_WORKER, srv_n_purge_threads - 1);
   }
 
-  thd_free_innodb_session(thd);
   destroy_thd(thd);
 
   my_thread_end();

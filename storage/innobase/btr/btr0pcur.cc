@@ -41,11 +41,11 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0byte.h"
 
 /** Updates fragmentation statistics for a single page transition.
-@param[in]  page      the current page being processed
-@param[in]  page_no     page number to move to (next_page_no
+@param[in]	page			the current page being processed
+@param[in]	page_no			page number to move to (next_page_no
 if forward_direction is true,
 prev_page_no otherwise.
-@param[in]  forward_direction move direction: true means moving
+@param[in]	forward_direction	move direction: true means moving
 forward, false - backward. */
 static void btr_update_scan_stats(const page_t *page, ulint page_no,
                                   bool forward_direction) {
@@ -74,6 +74,9 @@ void btr_pcur_t::store_position(mtr_t *mtr) {
   ut_ad(m_latch_mode != BTR_NO_LATCHES);
 
   auto block = get_block();
+
+  SRV_CORRUPT_TABLE_CHECK(block, return;);
+
   auto index = btr_cur_get_index(get_btr_cur());
 
   auto page_cursor = get_page_cur();
@@ -400,6 +403,8 @@ void btr_pcur_t::move_backward_from_page(mtr_t *mtr) {
   /* For intrinsic table we don't do optimistic restore and so there is
   no left block that is pinned that needs to be released. */
   if (!btr_cur_get_index(get_btr_cur())->table->is_intrinsic()) {
+    if (prev_page_no != FIL_NULL)
+      btr_update_scan_stats(page, prev_page_no, false /* backward */);
     buf_block_t *prev_block;
 
     if (prev_page_no == FIL_NULL) {

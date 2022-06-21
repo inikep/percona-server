@@ -1026,6 +1026,7 @@ bool fsp_header_dict_get_server_version(uint *version) {
 
   return (false);
 }
+
 /** Initializes the space header of a new created space and creates also the
 insert buffer tree root if space == 0.
 @param[in]	space_id	space id
