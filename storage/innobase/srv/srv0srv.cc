@@ -1752,6 +1752,7 @@ void srv_export_innodb_status(void) {
     buf_pool_t *buf_pool = buf_pool_from_array(i);
     export_vars.innodb_buffer_pool_pages_old += buf_pool->LRU_old_len;
   }
+
   export_vars.innodb_checkpoint_age =
       (log_get_lsn(*log_sys) - log_sys->last_checkpoint_lsn);
 
