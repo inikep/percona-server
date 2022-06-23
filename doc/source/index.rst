@@ -79,7 +79,6 @@ Flexibility Improvements
 
    flexibility/log_warnings_suppress
    flexibility/improved_memory_engine
-   flexibility/max_binlog_files
    flexibility/extended_mysqldump
    flexibility/extended_select_into_outfile
    flexibility/extended_mysqlbinlog
