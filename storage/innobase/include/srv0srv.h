@@ -464,6 +464,9 @@ page size | FSP_EXTENT_SIZE  | Initial Size | Pages
 #define INITIAL_UNDO_SPACE_SIZE_IN_PAGES \
   static_cast<os_offset_t>(INITIAL_UNDO_SPACE_SIZE / UNIV_PAGE_SIZE)
 
+/** Enable or disable encryption of temporary tablespace.*/
+extern bool srv_tmp_tablespace_encrypt;
+
 /** Whether the redo log tracking is currently enabled. Note that it is
 possible for the log tracker thread to be running and the tracking to be
 disabled */
@@ -812,6 +815,8 @@ extern std::atomic<int> srv_fatal_semaphore_wait_extend;
 
 extern ulint srv_dml_needed_delay;
 
+extern bool srv_encrypt_online_alter_logs;
+
 #ifdef UNIV_HOTBACKUP
 // MAHI: changed from 130 to 1 assuming the apply-log is single threaded
 #define SRV_MAX_N_IO_THREADS 1
@@ -871,6 +876,8 @@ extern bool srv_print_ddl_logs;
 extern bool srv_print_lock_wait_timeout_info;
 
 extern bool srv_cmp_per_index_enabled;
+
+extern ulong srv_encrypt_tables;
 
 /** Number of times secondary index lookup triggered cluster lookup */
 extern std::atomic<ulint> srv_sec_rec_cluster_reads;
@@ -1250,6 +1257,13 @@ void srv_master_thread_disabled_debug_update(THD *thd, SYS_VAR *var,
                                              void *var_ptr, const void *save);
 #endif /* UNIV_DEBUG */
 #endif /* !UNIV_HOTBACKUP */
+
+/** Set temporary tablespace to be encrypted if global variable
+innodb_temp_tablespace_encrypt is TRUE
+@param[in]	enable	true to enable encryption, false to disable
+@return DB_SUCCESS on success, DB_ERROR on failure */
+MY_NODISCARD
+dberr_t srv_temp_encryption_update(bool enable);
 
 /** Status variables to be passed to MySQL */
 struct export_var_t {
