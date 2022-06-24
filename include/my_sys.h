@@ -750,6 +750,13 @@ extern bool array_append_string_unique(const char *str, const char **array,
 
 void my_store_ptr(uchar *buff, size_t pack_length, my_off_t pos);
 my_off_t my_get_ptr(uchar *ptr, size_t pack_length);
+typedef int (*io_cache_encr_read_function)(IO_CACHE *, uchar *, size_t);
+typedef int (*io_cache_encr_write_function)(IO_CACHE *, const uchar *, size_t);
+extern void init_io_cache_encryption_ext(
+    io_cache_encr_read_function read_function,
+    io_cache_encr_write_function write_function, size_t encr_block_size,
+    size_t encr_header_size);
+extern void init_io_cache_encryption(bool enable);
 MY_NODISCARD
 extern int init_io_cache_ext(IO_CACHE *info, File file, size_t cachesize,
                              enum cache_type type, my_off_t seek_offset,

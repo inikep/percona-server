@@ -110,6 +110,10 @@ MY_NODISCARD
 static int _my_b_cache_write_r(IO_CACHE *info, const uchar *Buffer,
                                size_t Count);
 
+static io_cache_encr_read_function _my_b_encr_read = NULL;
+static io_cache_encr_write_function _my_b_encr_write = NULL;
+static size_t io_cache_encr_block_size = 0, io_cache_encr_header_size = 0;
+
 /*
   Setup internal pointers inside IO_CACHE
 
@@ -139,7 +143,18 @@ static void init_functions(IO_CACHE *info) {
   info->read_function = nullptr;  /* Force a core if used */
   info->write_function = nullptr; /* Force a core if used */
 
-  {
+  if (info->myflags & MY_ENCRYPT) {
+    switch (type) {
+      case READ_CACHE:
+        info->read_function = _my_b_encr_read;
+        break;
+      case WRITE_CACHE:
+        info->write_function = _my_b_encr_write;
+        break;
+      default:
+        DBUG_ASSERT(0);
+    }
+  } else {
     switch (type) {
       case READ_NET:
         /*
@@ -166,6 +181,39 @@ static void init_functions(IO_CACHE *info) {
     }
   }
   setup_io_cache(info);
+}
+
+/*
+  Initialize IO_CACHE encryption subsystem
+
+  SYNOPSIS
+    init_io_cache_encryption_ext()
+    read_function     pointer to a function for reading encrypted data
+    write_function    pointer to a function for writing encrypted data
+    encr_block_size   cipher block size
+    encr_header_size  encyption header size
+
+  RETURN
+    void
+
+*/
+
+void init_io_cache_encryption_ext(io_cache_encr_read_function read_function,
+                                  io_cache_encr_write_function write_function,
+                                  size_t encr_block_size,
+                                  size_t encr_header_size) {
+  DBUG_ENTER("init_io_cache_encryption_ext");
+  DBUG_ASSERT(
+      (read_function == NULL && write_function == NULL &&
+       encr_block_size == 0 && encr_header_size == 0) ||
+      (read_function != NULL && write_function != NULL && encr_block_size > 0));
+
+  _my_b_encr_read = read_function;
+  _my_b_encr_write = write_function;
+  io_cache_encr_block_size = encr_block_size;
+  io_cache_encr_header_size = encr_header_size;
+
+  DBUG_VOID_RETURN;
 }
 
 /*
@@ -232,6 +280,9 @@ int init_io_cache_ext(IO_CACHE *info, File file, size_t cachesize,
       DBUG_ASSERT(seek_offset == 0);
     } else
       info->seek_not_done = (seek_offset != pos);
+  } else if (type == WRITE_CACHE && _my_b_encr_read) {
+    cache_myflags |= MY_ENCRYPT;
+    DBUG_ASSERT(seek_offset == 0);
   }
 
   info->disk_writes = 0;
@@ -272,6 +323,9 @@ int init_io_cache_ext(IO_CACHE *info, File file, size_t cachesize,
       buffer_block = cachesize;
       if (type == SEQ_READ_APPEND)
         buffer_block *= 2;
+      else if (cache_myflags & MY_ENCRYPT)
+        buffer_block = 2 * (buffer_block + io_cache_encr_block_size) +
+                       io_cache_encr_header_size;
       if (cachesize == min_cache) flags |= (myf)MY_WME;
 
       if ((info->buffer = (uchar *)my_malloc(key_memory_IO_CACHE, buffer_block,
@@ -394,7 +448,15 @@ bool reinit_io_cache(IO_CACHE *info, enum cache_type type, my_off_t seek_offset,
     if (type == READ_CACHE) {
       info->read_end = info->buffer; /* Nothing in cache */
     } else {
-      {
+      if (info->myflags & MY_ENCRYPT) {
+        info->write_end = info->write_buffer + info->buffer_length;
+        if (seek_offset && info->file != -1) {
+          info->read_end = info->buffer;
+          _my_b_encr_read(info, 0, 0); /* prefill the buffer */
+          info->write_pos = info->read_pos;
+          info->seek_not_done = 1;
+        }
+      } else {
         info->write_end = (info->buffer + info->buffer_length -
                            (seek_offset & (IO_SIZE - 1)));
       }
