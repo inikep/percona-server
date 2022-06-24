@@ -178,6 +178,9 @@ bool srv_undo_log_encrypt = FALSE;
 /** Maximum size of undo tablespace. */
 unsigned long long srv_max_undo_tablespace_size;
 
+/** Enable or disable encryption of temporary tablespace.*/
+bool srv_tmp_tablespace_encrypt;
+
 /** Default undo tablespace size in UNIV_PAGEs count (10MB). */
 const page_no_t SRV_UNDO_TABLESPACE_SIZE_IN_PAGES =
     ((1024 * 1024) * 10) / UNIV_PAGE_SIZE_DEF;
@@ -534,6 +537,8 @@ ulong srv_n_purge_threads = 4;
 
 /* the number of pages to purge in one batch */
 ulong srv_purge_batch_size = 20;
+
+ulong srv_encrypt_tables = 0;
 
 /* Internal setting for "innodb_stats_method". Decides how InnoDB treats
 NULL value when collecting statistics. By default, it is set to
@@ -2634,6 +2639,42 @@ func_exit:
                                     n_bytes_merged);
 
   return (n_bytes_merged || n_tables_to_drop);
+}
+
+/** Set temporary tablespace to be encrypted if global variable
+innodb_temp_tablespace_encrypt is TRUE
+@param[in]	enable	true to enable encryption, false to disable
+@return DB_SUCCESS on success, DB_ERROR on failure */
+dberr_t srv_temp_encryption_update(bool enable) {
+  ut_ad(!srv_read_only_mode);
+
+  fil_space_t *const space = fil_space_get(srv_tmp_space.space_id());
+  bool is_encrypted = FSP_FLAGS_GET_ENCRYPTION(space->flags);
+
+  ut_ad(fsp_is_system_temporary(space->id));
+
+  if (enable) {
+    if (is_encrypted) {
+      /* Encryption already enabled */
+      return (DB_SUCCESS);
+    } else {
+      /* Enable encryption now */
+      dberr_t err = fil_temp_update_encryption(space);
+      if (err == DB_SUCCESS) {
+        srv_tmp_space.set_flags(space->flags);
+      }
+      return (err);
+    }
+
+  } else {
+    if (!is_encrypted) {
+      /* Encryption already disabled */
+      return (DB_SUCCESS);
+    } else {
+      // TODO: Disabling encryption is not allowed yet
+      return (DB_SUCCESS);
+    }
+  }
 }
 
 void undo_rotate_default_master_key() {

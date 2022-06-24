@@ -265,6 +265,25 @@ ibool row_fts_psort_info_init(
         ret = FALSE;
         goto func_exit;
       }
+
+      /* If tablespace is encrypted, allocate additional
+      buffer for encryption/decryption. */
+      if (log_tmp_is_encrypted()) {
+        /* Need to align memory for O_DIRECT write */
+        psort_info[j].crypt_alloc[i] = static_cast<row_merge_block_t *>(
+            ut_malloc_nokey(block_size + 1024));
+
+        if (psort_info[j].crypt_alloc[i] == NULL) {
+          ret = FALSE;
+          goto func_exit;
+        }
+
+        psort_info[j].crypt_block[i] = static_cast<row_merge_block_t *>(
+            ut_align(psort_info[j].crypt_alloc[i], 1024));
+      } else {
+        psort_info[j].crypt_alloc[i] = NULL;
+        psort_info[j].crypt_block[i] = NULL;
+      }
     }
 
     psort_info[j].child_status = 0;
