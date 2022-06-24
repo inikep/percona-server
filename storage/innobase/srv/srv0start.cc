@@ -1168,6 +1168,27 @@ static dberr_t srv_open_tmp_tablespace(ib::fsp::SysTablespace &tmp_space) {
     ib::error(ER_IB_MSG_1102, tmp_space.name());
     return space.error();
   } else {
+    if (srv_tmp_tablespace_encrypt) {
+      /* Make sure the keyring is loaded. */
+      if (!Encryption::check_keyring()) {
+        srv_tmp_tablespace_encrypt = false;
+        ib::error() << "Can't set temporary"
+                    << " tablespace to be encrypted"
+                    << " because keyring plugin is"
+                    << " not available.";
+        fil_space_release(*space);
+        return DB_ERROR;
+      }
+
+      const auto encryption_err = fil_set_encryption(
+          (*space)->id, Encryption::AES, nullptr, nullptr);
+      if (encryption_err != DB_SUCCESS) {
+        fil_space_release(*space);
+        return encryption_err;
+      }
+      tmp_space.set_flags((*space)->flags);
+    }
+
     fil_space_release(*space);
   }
 
@@ -2285,6 +2306,9 @@ void srv_start_threads() {
     purge_sys->state = PURGE_STATE_DISABLED;
     return;
   }
+
+  /* Enable row log encryption if it is set */
+  log_tmp_enable_encryption_if_set();
 
   /* Create the master thread which does purge and other utility
   operations */

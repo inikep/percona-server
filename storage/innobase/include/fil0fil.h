@@ -2424,6 +2424,11 @@ dberr_t fil_set_autoextend_size(space_id_t space_id, uint64_t autoextend_size);
 /** Re-encrypt the tablespace keys by current master key. */
 void fil_encryption_reencrypt(const std::vector<space_id_t> &sid_vector);
 
+/** Enable encryption of temporary tablespace
+@param[in,out]  space   tablespace object
+@return DB_SUCCESS on success, DB_ERROR on failure */
+[[nodiscard]] dberr_t fil_temp_update_encryption(fil_space_t *space);
+
 #ifdef UNIV_ENABLE_UNIT_TEST_MAKE_FILEPATH
 void test_make_filepath();
 #endif /* UNIV_ENABLE_UNIT_TEST_MAKE_FILEPATH */
