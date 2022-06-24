@@ -3,6 +3,7 @@
 # and @@session.binlog_format=ROW/MIXED in Wl#8872.
 --let $gtid_violation= 0
 --let $error_code= 0
+--let $gtid_violation_row_mix= 0
 
 # When CREATE TEMPORARY or DROP TEMPORARY occurs in the middle of a
 # transaction, it is a GTID-violation for @@session.binlog_format=
