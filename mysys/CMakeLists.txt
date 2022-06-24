@@ -121,6 +121,7 @@ SET(MYSYS_SOURCES
   typelib.cc
   # From deleted mysys_ssl library
   crypt_genhash_impl.cc
+  my_crypt.cc
   my_default.cc
   my_getopt.cc
   my_aes.cc
