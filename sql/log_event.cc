@@ -6851,8 +6851,11 @@ Log_event::enum_skip_reason User_var_log_event::do_shall_skip(
 void Unknown_log_event::print(FILE *,
                               PRINT_EVENT_INFO *print_event_info) const {
   if (print_event_info->short_form) return;
-  print_header(&print_event_info->head_cache, print_event_info, false);
-  my_b_printf(&print_event_info->head_cache, "\n# %s", "Unknown event\n");
+  if (what != kind::ENCRYPTED) {
+    print_header(&print_event_info->head_cache, print_event_info, false);
+    my_b_printf(&print_event_info->head_cache, "\n# %s", "Unknown event\n");
+  } else
+    my_b_printf(&print_event_info->head_cache, "\n# %s", "Encrypted event\n");
 }
 
 /**************************************************************************
