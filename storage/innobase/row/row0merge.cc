@@ -1098,6 +1098,18 @@ ibool row_merge_read(int fd,                       /*!< in: file descriptor */
   err = os_file_read_no_error_handling_int_fd(request, nullptr, fd, buf, ofs,
                                               srv_sort_buf_size, nullptr);
 
+  /* For encrypted tables, decrypt data after reading and copy data */
+  if (err == DB_SUCCESS && log_tmp_is_encrypted()) {
+    if (log_tmp_block_decrypt(static_cast<const byte *>(buf), srv_sort_buf_size,
+                              static_cast<byte *>(crypt_buf), offset,
+                              space_id)) {
+      srv_stats.n_merge_blocks_decrypted.inc();
+      memcpy(buf, crypt_buf, srv_sort_buf_size);
+    } else {
+      err = DB_IO_DECRYPT_FAIL;
+    }
+  }
+
 #ifdef POSIX_FADV_DONTNEED
   /* Each block is read exactly once.  Free up the file cache. */
   posix_fadvise(fd, ofs, srv_sort_buf_size, POSIX_FADV_DONTNEED);
@@ -1131,6 +1143,18 @@ ibool row_merge_write(int fd,                /*!< in: file descriptor */
   IORequest request(IORequest::WRITE);
 
   request.disable_compression();
+
+  /* For encrypted tables, encrypt data before writing */
+  if (log_tmp_is_encrypted()) {
+    if (!log_tmp_block_encrypt(
+            static_cast<const byte *>(buf), srv_sort_buf_size,
+            static_cast<byte *>(crypt_buf), offset, space_id)) {
+      ib::error() << "Failed encrypt block at " << offset;
+      return FALSE;
+    }
+    srv_stats.n_merge_blocks_encrypted.inc();
+    out_buf = crypt_buf;
+  }
 
   err = os_file_write_int_fd(request, "(merge)", fd, out_buf, ofs, buf_len);
 
@@ -3714,6 +3738,7 @@ dberr_t row_merge_build_indexes(
   merge_file_t *merge_files;
   row_merge_block_t *block;
   ut_new_pfx_t block_pfx;
+  ut_new_pfx_t crypt_pfx;
   ulint i;
   ulint j;
   dberr_t error;
@@ -3743,6 +3768,19 @@ dberr_t row_merge_build_indexes(
 
   if (block == nullptr) {
     return DB_OUT_OF_MEMORY;
+  }
+
+  /* If online logs are set to be encrypted, allocate additional buffer
+  for encryption/decryption. */
+  row_merge_block_t *crypt_block = nullptr;
+
+  if (log_tmp_is_encrypted()) {
+    crypt_block = static_cast<row_merge_block_t *>(
+        alloc.allocate_large(3 * srv_sort_buf_size, &crypt_pfx, false));
+
+    if (crypt_block == nullptr) {
+      return DB_OUT_OF_MEMORY;
+    }
   }
 
   trx_start_if_not_started_xa(trx, true);
@@ -3818,7 +3856,7 @@ dberr_t row_merge_build_indexes(
   error = row_merge_read_clustered_index(
       trx, table, old_table, new_table, online, indexes, fts_sort_idx,
       psort_info, merge_files, key_numbers, n_indexes, add_cols, add_v, col_map,
-      add_autoinc, sequence, block, nullptr, skip_pk_sort, &tmpfd, stage,
+      add_autoinc, sequence, block, crypt_block, skip_pk_sort, &tmpfd, stage,
       eval_table, prebuilt);
 
   stage->end_phase_read_pk();
@@ -3901,7 +3939,7 @@ dberr_t row_merge_build_indexes(
     } else if (merge_files[i].fd >= 0) {
       row_merge_dup_t dup = {sort_idx, table, col_map, 0};
 
-      error = row_merge_sort(trx, &dup, &merge_files[i], block, nullptr,
+      error = row_merge_sort(trx, &dup, &merge_files[i], block, crypt_block,
                              new_table->space, &tmpfd, stage);
 
       if (error == DB_SUCCESS) {
@@ -3909,7 +3947,7 @@ dberr_t row_merge_build_indexes(
         error = btr_bulk.init();
         if (error == DB_SUCCESS) {
           error = row_merge_insert_index_tuples(
-              trx, sort_idx, old_table, merge_files[i].fd, block, nullptr,
+              trx, sort_idx, old_table, merge_files[i].fd, block, crypt_block,
               new_table->space, nullptr, &btr_bulk, stage);
 
           error = btr_bulk.finish(error);
@@ -3974,6 +4012,10 @@ func_exit:
   ut_free(merge_files);
 
   alloc.deallocate_large(block, &block_pfx);
+
+  if (crypt_block) {
+    alloc.deallocate_large(crypt_block, &crypt_pfx);
+  }
 
   DICT_TF2_FLAG_UNSET(new_table, DICT_TF2_FTS_ADD_DOC_ID);
 
