@@ -136,8 +136,7 @@ test_services_host_application_signal  plugin_output_directory  TEST_SERVICES_HO
 component_test_mysql_runtime_error  plugin_output_directory  TEST_MYSQL_RUNTIME_ERROR_COMPONENT
 
 # Percona additions
-  SOCKET_AUTH
-     plugin_output_directory  SOCKET_AUTH
+auth_socket        plugin_output_directory  SOCKET_AUTH
 audit_log          plugin_output_directory  AUDIT_LOG             audit_log
 ha_tokudb          plugin_output_directory  TOKUDB          tokudb,tokudb_trx,tokudb_locks,tokudb_lock_waits,tokudb_fractal_tree_info,tokudb_background_job_status,tokudb_file_map
 tokudb_backup      plugin_output_directory  TOKUDB_BACKUP   tokudb_backup
