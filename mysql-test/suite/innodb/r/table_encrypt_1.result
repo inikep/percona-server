@@ -100,7 +100,7 @@ INSERT INTO t1 VALUES(6, "ggggg");
 INSERT INTO t1 VALUES(7, "hhhhh");
 INSERT INTO t1 VALUES(8, "iiiii");
 INSERT INTO t1 VALUES(9, "jjjjj");
-# restart:<hidden args>
+# Kill and restart:<hidden args>
 SELECT * FROM t1 ORDER BY c1 LIMIT 10;
 c1	c2
 0	aaaaa
@@ -260,7 +260,26 @@ SET GLOBAL innodb_file_per_table=OFF;
 CREATE TABLE t1 (c1 int);
 ALTER TABLE t1 COMPRESSION='zlib';
 ERROR HY000: Table storage engine 'InnoDB' does not support the create option 'COMPRESSION'
+SHOW WARNINGS;
+Level	Code	Message
+Warning	138	InnoDB: Page Compression is not supported for the system tablespace
+Error	1478	Table storage engine 'InnoDB' does not support the create option 'COMPRESSION'
 ALTER TABLE t1 ENCRYPTION='Y',ALGORITHM=COPY;
 ERROR HY000: Request to create 'encrypted' table while using an 'unencrypted' tablespace.
+DROP TABLE t1;
+SET GLOBAL innodb_file_per_table=ON;
+CREATE TABLE t1 (id int unsigned NOT NULL auto_increment PRIMARY KEY, val varchar(20) NOT NULL) ENGINE=InnoDB;
+INSERT INTO t1 (val) VALUES ('Sydney'), ('Melbourne'), ('Brisbane'), ('Perth'), ('Adelaide');
+ALTER TABLE t1 ENCRYPTION = 'Y';
+ALTER TABLE t1 ADD COLUMN is_capital char(1) NOT NULL DEFAULT 'N' AFTER val;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `val` varchar(20) NOT NULL,
+  `is_capital` char(1) NOT NULL DEFAULT 'N',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ENCRYPTION='Y'
+Pattern "Sydney" not found
 SET GLOBAL innodb_file_per_table=1;
 DROP TABLE t1;
