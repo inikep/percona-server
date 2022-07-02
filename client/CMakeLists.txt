@@ -20,9 +20,9 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 
-## Subdirectory with common client code.
-
 INCLUDE_DIRECTORIES(SYSTEM ${READLINE_INCLUDE_DIR})
+
+## Subdirectory with common client code.
 
 ADD_SUBDIRECTORY(base)
 ## Subdirectory for mysqlpump code.
