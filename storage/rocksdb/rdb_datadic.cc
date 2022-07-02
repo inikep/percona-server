@@ -33,6 +33,7 @@
 
 /* MySQL header files */
 #include "m_ctype.h"
+#include "myisampack.h"
 #include "my_bit.h"
 #include "my_bitmap.h"
 #include "my_stacktrace.h"
