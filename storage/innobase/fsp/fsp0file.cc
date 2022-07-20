@@ -746,8 +746,8 @@ Datafile::ValidateOutput Datafile::validate_first_page(space_id_t space_id,
       free_first_page();
       ut_free(m_encryption_key);
       ut_free(m_encryption_iv);
-      m_encryption_key = NULL;
-      m_encryption_iv = NULL;
+      m_encryption_key = nullptr;
+      m_encryption_iv = nullptr;
       output.error = DB_INVALID_ENCRYPTION_META;
       return (output);
     } else {
