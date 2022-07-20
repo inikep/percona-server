@@ -7926,10 +7926,10 @@ int ha_innobase::open(const char *name, int, uint open_flags,
       my_error(ER_CANNOT_FIND_KEY_IN_KEYRING, MYF(0));
       error = HA_ERR_TABLE_CORRUPT;
     }
+    free_share(m_share);
     dict_table_close(ib_table, FALSE, FALSE);
     ib_table = nullptr;
 
-    free_share(m_share);
     return error;
   }
 
