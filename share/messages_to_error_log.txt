@@ -10717,8 +10717,8 @@ ER_PARALLEL_DOUBLEWRITE_WRITE_ERROR
 ER_XB_MSG_6
   eng "Key rotation of encrypted session temporary tablespace %s failed"
 
-ER_XB_UNDO_DELETE_FAILURE
-  eng "Deletion of 5.7 undo tablespace %s failed"
+ER_XB_MSG_7
+  eng "%s"
 
 ER_UPGRADE_KEYRING_V1_ENCRYPTION
   eng "Upgrade is not possible as there are tables that are KERYING encrypted. KEYRING encryption is still experimental feature in the version you are upgrading from. To upgrade please decrypt the tables encrypted with KEYRING encryption."
