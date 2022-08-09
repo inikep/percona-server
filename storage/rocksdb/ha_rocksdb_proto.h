@@ -80,6 +80,7 @@ Rdb_cf_manager &rdb_get_cf_manager();
 const rocksdb::BlockBasedTableOptions &rdb_get_table_options();
 bool rdb_is_table_scan_index_stats_calculation_enabled();
 bool rdb_is_ttl_enabled();
+bool rdb_is_ttl_compaction_filter_paused();
 #ifndef NDEBUG
 int rdb_dbug_set_ttl_rec_ts();
 int rdb_dbug_set_ttl_snapshot_ts();

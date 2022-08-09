@@ -175,6 +175,11 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
       abort();
     }
 
+    // TTL filtering is paused: keep expired rows.
+    if (rdb_is_ttl_compaction_filter_paused()) {
+      return false;
+    }
+
     /*
       Filter out the record only if it is older than the oldest snapshot
       timestamp.  This prevents any rows from expiring in the middle of

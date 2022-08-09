@@ -737,6 +737,7 @@ static unsigned long long  // NOLINT(runtime/int)
 static bool rocksdb_skip_locks_if_skip_unique_check = false;
 static bool rocksdb_alter_column_default_inplace = false;
 static bool rocksdb_alter_table_comment_inplace = false;
+static bool rocksdb_pause_ttl_compaction_filter = false;
 bool rocksdb_disable_instant_ddl = false;
 bool rocksdb_enable_tmp_table = false;
 bool rocksdb_enable_delete_range_for_drop_index = false;
@@ -2360,6 +2361,14 @@ static MYSQL_SYSVAR_BOOL(enable_delete_range_for_drop_index,
                          "Enable drop table/index by delete range", nullptr,
                          nullptr, false);
 
+static MYSQL_SYSVAR_BOOL(pause_ttl_compaction_filter,
+                         rocksdb_pause_ttl_compaction_filter,
+                         PLUGIN_VAR_RQCMDARG,
+                         "Pauses TTL compaction filter. This means that as "
+                         "long as this variable is enabled, compactions will "
+                         "not delete expired rows.",
+                         nullptr, nullptr, false);
+
 static MYSQL_SYSVAR_BOOL(alter_table_comment_inplace,
                          rocksdb_alter_table_comment_inplace,
                          PLUGIN_VAR_RQCMDARG,
@@ -2560,6 +2569,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(disable_instant_ddl),
     MYSQL_SYSVAR(enable_tmp_table),
     MYSQL_SYSVAR(alter_table_comment_inplace),
+    MYSQL_SYSVAR(pause_ttl_compaction_filter),
     MYSQL_SYSVAR(column_default_value_as_expression),
     MYSQL_SYSVAR(enable_delete_range_for_drop_index),
     nullptr};
@@ -15708,6 +15718,9 @@ bool rdb_is_table_scan_index_stats_calculation_enabled() {
   return rocksdb_table_stats_use_table_scan;
 }
 bool rdb_is_ttl_enabled() { return rocksdb_enable_ttl; }
+bool rdb_is_ttl_compaction_filter_paused() {
+  return rocksdb_pause_ttl_compaction_filter;
+}
 static bool rdb_is_ttl_read_filtering_enabled() {
   return rocksdb_enable_ttl_read_filtering;
 }
