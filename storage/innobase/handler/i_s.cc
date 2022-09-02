@@ -64,6 +64,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fut0fut.h"
 #include "ha_prototypes.h"
 #include "ibuf0ibuf.h"
+#include "log0online.h"
 #include "mysql/plugin.h"
 #include "page0zip.h"
 #include "pars0pars.h"
@@ -7415,6 +7416,33 @@ struct st_mysql_plugin i_s_innodb_session_temp_tablespaces = {
     STRUCT_FLD(flags, 0UL),
 };
 
+static ST_FIELD_INFO i_s_innodb_changed_pages_info[] = {
+    {STRUCT_FLD(field_name, "space_id"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+    {STRUCT_FLD(field_name, "page_id"),
+     STRUCT_FLD(field_length, MY_INT32_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+    {STRUCT_FLD(field_name, "start_lsn"),
+     STRUCT_FLD(field_length, MY_INT64_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONGLONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+    {STRUCT_FLD(field_name, "end_lsn"),
+     STRUCT_FLD(field_length, MY_INT64_NUM_DECIMAL_DIGITS),
+     STRUCT_FLD(field_type, MYSQL_TYPE_LONGLONG), STRUCT_FLD(value, 0),
+     STRUCT_FLD(field_flags, MY_I_S_UNSIGNED), STRUCT_FLD(old_name, ""),
+     STRUCT_FLD(open_method, 0)},
+
+    END_OF_ST_FIELD_INFO};
+
 /**
   This function implements ICP for I_S.INNODB_CHANGED_PAGES by parsing a
   condition and getting lower and upper bounds for start and end LSNs if the
@@ -7564,3 +7592,116 @@ static void limit_lsn_range_from_condition(TABLE *table, Item *cond,
     default:;
   }
 }
+
+/** Fill the dynamic table information_schema.innodb_changed_pages.
+@param[in]	thd	thread
+@param[in,out]	tables	tables to fill
+@param[in]	cond	condition
+@return 0 on success, 1 on failure */
+static int i_s_innodb_changed_pages_fill(THD *thd, TABLE_LIST *tables,
+                                         Item *cond) {
+  DBUG_ENTER("i_s_innodb_changed_pages_fill");
+
+  /* deny access to non-superusers */
+  if (check_global_access(thd, PROCESS_ACL)) {
+    DBUG_RETURN(0);
+  }
+
+  TABLE *table = (TABLE *)tables->table;
+  lsn_t max_lsn = LSN_MAX;
+  lsn_t min_lsn = 0ULL;
+  if (cond) {
+    limit_lsn_range_from_condition(table, cond, &min_lsn, &max_lsn);
+  }
+
+  /* If the log tracker is running and our max_lsn > current tracked LSN,
+  cap the max lsn so that we don't try to read any partial runs as the
+  tracked LSN advances. */
+  if (srv_track_changed_pages) {
+    const lsn_t tracked_lsn = log_sys->tracked_lsn.load();
+    if (max_lsn > tracked_lsn) max_lsn = tracked_lsn;
+  }
+
+  log_bitmap_iterator_t i;
+  if (!log_online_bitmap_iterator_init(&i, min_lsn, max_lsn)) {
+    my_error(ER_CANT_FIND_SYSTEM_REC, MYF(0));
+    DBUG_RETURN(1);
+  }
+
+  DEBUG_SYNC(thd, "i_s_innodb_changed_pages_range_ready");
+
+  ib_uint64_t output_rows_num = 0UL;
+
+  while (log_online_bitmap_iterator_next(&i) &&
+         (!srv_max_changed_pages || output_rows_num < srv_max_changed_pages)) {
+    if (!LOG_BITMAP_ITERATOR_PAGE_CHANGED(i)) continue;
+
+    /* SPACE_ID */
+    table->field[0]->store(LOG_BITMAP_ITERATOR_SPACE_ID(i));
+    /* PAGE_ID */
+    table->field[1]->store(LOG_BITMAP_ITERATOR_PAGE_NUM(i));
+    /* START_LSN */
+    table->field[2]->store(LOG_BITMAP_ITERATOR_START_LSN(i), true);
+    /* END_LSN */
+    table->field[3]->store(LOG_BITMAP_ITERATOR_END_LSN(i), true);
+
+    /*
+      I_S tables are in-memory tables. If bitmap file is big enough
+      a lot of memory can be used to store the table. But the size
+      of used memory can be diminished if we store only data which
+      corresponds to some conditions (in WHERE sql clause). Here
+      conditions are checked for the field values stored above.
+
+      Conditions are checked twice. The first is here (during table
+      generation) and the second during query execution. Maybe it
+      makes sense to use some flag in THD object to avoid double
+      checking.
+    */
+    if (cond && !cond->val_int()) continue;
+
+    if (schema_table_store_record(thd, table)) {
+      log_online_bitmap_iterator_release(&i);
+      my_error(ER_CANT_FIND_SYSTEM_REC, MYF(0));
+      DBUG_RETURN(1);
+    }
+
+    ++output_rows_num;
+  }
+
+  int ret = 0;
+
+  if (i.failed) {
+    my_error(ER_CANT_FIND_SYSTEM_REC, MYF(0));
+    ret = 1;
+  }
+
+  log_online_bitmap_iterator_release(&i);
+  DBUG_RETURN(ret);
+}
+
+static int i_s_innodb_changed_pages_init(void *p) noexcept {
+  DBUG_ENTER("i_s_innodb_changed_pages_init");
+  ST_SCHEMA_TABLE *schema = (ST_SCHEMA_TABLE *)p;
+
+  schema->fields_info = i_s_innodb_changed_pages_info;
+  schema->fill_table = i_s_innodb_changed_pages_fill;
+
+  DBUG_RETURN(0);
+}
+
+struct st_mysql_plugin i_s_innodb_changed_pages = {
+    STRUCT_FLD(type, MYSQL_INFORMATION_SCHEMA_PLUGIN),
+    STRUCT_FLD(info, &i_s_info),
+    STRUCT_FLD(name, "INNODB_CHANGED_PAGES"),
+    STRUCT_FLD(author, "Percona"),
+    STRUCT_FLD(descr, "InnoDB CHANGED_PAGES table"),
+    STRUCT_FLD(license, PLUGIN_LICENSE_GPL),
+    STRUCT_FLD(init, i_s_innodb_changed_pages_init),
+    STRUCT_FLD(deinit, i_s_common_deinit),
+    nullptr,
+    STRUCT_FLD(version, 0x0100 /* 1.0 */),
+    STRUCT_FLD(status_vars, nullptr),
+    STRUCT_FLD(system_vars, nullptr),
+    STRUCT_FLD(__reserved1, nullptr),
+    STRUCT_FLD(flags, 0UL),
+};

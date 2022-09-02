@@ -1017,6 +1017,15 @@ void log_print(const log_t &log, FILE *file) {
       ulint(log.n_log_ios),
       static_cast<double>(log.n_log_ios - log.n_log_ios_old) / time_elapsed);
 
+  if (srv_track_changed_pages) {
+    /* The maximum tracked LSN age is equal to the maximum
+    checkpoint age */
+    fprintf(file,
+            "Log tracking enabled\n"
+            "Log tracked up to   " LSN_PF "\n",
+            log_sys->tracked_lsn.load());
+  }
+
   log.n_log_ios_old = log.n_log_ios;
   log.last_printout_time = current_time;
 }
