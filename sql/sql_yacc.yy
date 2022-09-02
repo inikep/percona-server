@@ -15297,6 +15297,7 @@ ident_keywords_unambiguous:
         | CHAIN_SYM
         | CHALLENGE_RESPONSE_SYM
         | CHANGED
+        | CHANGED_PAGE_BITMAPS_SYM
         | CHANNEL_SYM
         | CIPHER_SYM
         | CLASS_ORIGIN_SYM
