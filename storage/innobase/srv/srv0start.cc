@@ -68,6 +68,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_prototypes.h"
 #include "ibuf0ibuf.h"
 #include "log0log.h"
+#include "log0online.h"
 #include "log0recv.h"
 #include "mem0mem.h"
 #include "mtr0mtr.h"
@@ -197,6 +198,7 @@ mysql_pfs_key_t srv_lock_timeout_thread_key;
 mysql_pfs_key_t srv_master_thread_key;
 mysql_pfs_key_t srv_monitor_thread_key;
 mysql_pfs_key_t srv_purge_thread_key;
+mysql_pfs_key_t srv_log_tracking_thread_key;
 mysql_pfs_key_t srv_worker_thread_key;
 mysql_pfs_key_t trx_recovery_rollback_thread_key;
 mysql_pfs_key_t srv_ts_alter_encrypt_thread_key;
@@ -1587,6 +1589,24 @@ static void srv_start_wait_for_purge_to_start() {
   }
 }
 
+/** Initializes the log tracking subsystem and starts its thread.  */
+void srv_init_log_online(void) {
+  if (UNIV_UNLIKELY(srv_force_recovery > 0 || srv_read_only_mode)) {
+    srv_track_changed_pages = false;
+    return;
+  }
+
+  if (srv_track_changed_pages) {
+    log_online_read_init();
+
+    /* Create the thread that follows the redo log to output the
+       changed page bitmap */
+    srv_threads.m_changed_page_tracker = os_thread_create(
+        srv_log_tracking_thread_key, 0, srv_redo_log_follow_thread);
+    srv_threads.m_changed_page_tracker.start();
+  }
+}
+
 /** Create the temporary file tablespace.
 @param[in]	create_new_db	whether we are creating a new database
 @param[in,out]	tmp_space	Shared Temporary SysTablespace
@@ -1705,6 +1725,12 @@ void srv_shutdown_exit_threads() {
       if (srv_start_state_is_set(SRV_START_STATE_PURGE)) {
         /* d. Wakeup purge threads. */
         srv_purge_wakeup();
+      }
+
+      /* Stop srv_redo_log_follow_thread thread */
+      if (srv_thread_is_active(srv_threads.m_changed_page_tracker)) {
+        os_event_reset(srv_redo_log_tracked_event);
+        os_event_set(srv_checkpoint_completed_event);
       }
     }
 
@@ -2157,6 +2183,7 @@ dberr_t srv_start(bool create_new_db) {
 
   fsp_init();
   pars_init();
+  log_online_init();
 
   recv_sys_create();
   recv_sys_init(buf_pool_get_curr_size());
@@ -2409,6 +2436,8 @@ files_checked:
     log_start(*log_sys, 0, flushed_lsn, flushed_lsn);
 
     log_start_background_threads(*log_sys);
+
+    srv_init_log_online();
 
     err = srv_undo_tablespaces_init(true);
 
@@ -2686,6 +2715,17 @@ files_checked:
       ut_a(err == DB_SUCCESS);
 
       RECOVERY_CRASH(4);
+
+      /* If log tracking is enabled, make it catch up with
+      the old logs synchronously. */
+      if (srv_track_changed_pages) {
+        const lsn_t checkpoint_lsn = log_sys->last_checkpoint_lsn;
+        ib::info() << "Tracking redo log synchronously until "
+                   << checkpoint_lsn;
+        if (!log_online_follow_redo_log()) {
+          return (srv_init_abort(DB_ERROR));
+        }
+      }
 
       /* Close and free the redo log files, so that
       we can replace them. */
@@ -3501,6 +3541,15 @@ static void srv_shutdown_page_cleaners() {
   }
 }
 
+static void srv_wake_log_tracker_thread() {
+  /* Wake the log tracking thread which will then immediately quit because of
+  srv_shutdown_state value */
+  if (srv_thread_is_active(srv_threads.m_changed_page_tracker)) {
+    os_event_reset(srv_redo_log_tracked_event);
+    os_event_set(srv_checkpoint_completed_event);
+  }
+}
+
 /** Closes redo log. If this is not fast shutdown, it forces to write a
 checkpoint which should be written for logically empty redo log. Note that we
 forced to flush all dirty pages in the last stages of page cleaners activity
@@ -3534,6 +3583,8 @@ static lsn_t srv_shutdown_log() {
 
     srv_shutdown_set_state(SRV_SHUTDOWN_LAST_PHASE);
 
+    srv_wake_log_tracker_thread();
+
     return (log_get_lsn(*log_sys));
   }
 
@@ -3549,6 +3600,8 @@ static lsn_t srv_shutdown_log() {
     }
 
     log_stop_background_threads(*log_sys);
+
+    srv_wake_log_tracker_thread();
   }
 
   /* No redo log might be generated since now. */
@@ -3562,6 +3615,8 @@ static lsn_t srv_shutdown_log() {
   }
 
   srv_shutdown_set_state(SRV_SHUTDOWN_LAST_PHASE);
+
+  srv_wake_log_tracker_thread();
 
   if (srv_downgrade_logs) {
     ut_a(!srv_read_only_mode);
@@ -3739,6 +3794,7 @@ void srv_shutdown() {
   btr_search_disable(true);
 
   ibuf_close();
+  log_online_shutdown();
   ddl_log_close();
   log_sys_close();
   recv_sys_close();
