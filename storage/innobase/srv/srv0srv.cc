@@ -65,6 +65,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ibuf0ibuf.h"
 #ifndef UNIV_HOTBACKUP
 #include "lock0lock.h"
+#include "log0online.h"
 #include "log0recv.h"
 #include "mem0mem.h"
 #include "os0proc.h"
@@ -217,6 +218,14 @@ bool srv_use_native_aio = false;
 
 bool srv_numa_interleave = false;
 
+/** Whether the redo log tracking is currently enabled. Note that it is
+possible for the log tracker thread to be running and the tracking to be
+disabled */
+bool srv_track_changed_pages = false;
+
+ulonglong srv_max_bitmap_file_size = 100 * 1024 * 1024;
+
+ulonglong srv_max_changed_pages = 0;
 #ifdef UNIV_DEBUG
 /** Force all user tables to use page compression. */
 ulong srv_debug_compress;
@@ -2096,6 +2105,31 @@ The first phase of server shutdown must have already been executed
 @retval false	if no thread is active */
 bool srv_master_thread_is_active() {
   return (srv_thread_is_active(srv_threads.m_master));
+}
+
+/** A thread which follows the redo log and outputs the changed page bitmap. */
+void srv_redo_log_follow_thread() {
+  ut_ad(!srv_read_only_mode);
+
+  do {
+    os_event_wait(srv_checkpoint_completed_event);
+    os_event_reset(srv_checkpoint_completed_event);
+
+    if (srv_track_changed_pages &&
+        srv_shutdown_state.load() < SRV_SHUTDOWN_LAST_PHASE) {
+      if (!log_online_follow_redo_log()) {
+        /* TODO: sync with I_S log tracking status? */
+        ib::error() << "Log tracking bitmap write "
+                       "failed, stopping log tracking thread!";
+        break;
+      }
+      os_event_set(srv_redo_log_tracked_event);
+    }
+
+  } while (srv_shutdown_state.load() < SRV_SHUTDOWN_LAST_PHASE);
+
+  log_online_read_shutdown();
+  os_event_set(srv_redo_log_tracked_event);
 }
 
 /** Tells the InnoDB server that there has been activity in the database

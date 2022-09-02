@@ -2072,6 +2072,80 @@ static void log_writer_wait_on_archiver(log_t &log, lsn_t last_write_lsn,
   }
 }
 
+static void log_writer_wait_on_tracker(log_t &log, lsn_t last_write_lsn,
+                                       lsn_t next_write_lsn) {
+  static const constexpr int32_t SLEEP_BETWEEN_RETRIES_IN_US = 100; /* 100us */
+
+  static const constexpr int32_t TIME_BETWEEN_WARNINGS_IN_US =
+      100000; /* 100ms */
+
+  static const constexpr int32_t TIME_UNTIL_ERROR_IN_US = 1000000; /* 1s */
+
+  ut_ad(log_writer_mutex_own(log));
+
+  int32_t count = 0;
+
+  while (srv_track_changed_pages) {
+    lsn_t tracked_lsn = log_sys->tracked_lsn.load();
+    tracked_lsn = ut_uint64_align_down(tracked_lsn, OS_FILE_LOG_BLOCK_SIZE);
+
+    const lsn_t tracker_limited_lsn = tracked_lsn + log.lsn_capacity_for_writer;
+
+    ut_a(next_write_lsn > tracked_lsn);
+
+    if (next_write_lsn <= tracker_limited_lsn) {
+      /* Between tracked_lsn and next_write_lsn there is less
+      bytes than capacity of all log files. Writing log up to
+      next_write_lsn will not overwrite data at tracked_lsn.
+      There is no need to wait for the redo log tracker. */
+      break;
+    }
+
+    (void)log_advance_ready_for_write_lsn(log);
+
+    static const constexpr int32_t ATTEMPTS_UNTIL_ERROR =
+        TIME_UNTIL_ERROR_IN_US / SLEEP_BETWEEN_RETRIES_IN_US;
+
+    if (count >= ATTEMPTS_UNTIL_ERROR) {
+      log_writer_mutex_exit(log);
+
+      const lsn_t lsn_diff = next_write_lsn - tracker_limited_lsn;
+
+      ib::error(ER_XB_MSG_0)
+          << "Log writer overwriting data to"
+             " track - waited too long (1 second), lag: "
+          << lsn_diff << " bytes, tracked LSN: " << tracked_lsn
+          << ". Stopping the log tracking thread";
+      srv_track_changed_pages = false;
+      log_writer_mutex_enter(log);
+      break;
+    }
+
+    os_event_set(srv_checkpoint_completed_event);
+
+    log_writer_mutex_exit(log);
+
+    static const constexpr int32_t ATTEMPTS_BETWEEN_WARNINGS =
+        TIME_BETWEEN_WARNINGS_IN_US / SLEEP_BETWEEN_RETRIES_IN_US;
+
+    if (count % ATTEMPTS_BETWEEN_WARNINGS == 0) {
+      const lsn_t lsn_diff = next_write_lsn - tracker_limited_lsn;
+
+      ib::warn(ER_XB_MSG_1)
+          << "Log writer is waiting for tracker to"
+             " to catch up lag: "
+          << lsn_diff << " bytes, tracked LSN: " << tracked_lsn;
+    }
+    count++;
+    std::this_thread::sleep_for(
+        std::chrono::microseconds(SLEEP_BETWEEN_RETRIES_IN_US));
+
+    MONITOR_INC(MONITOR_LOG_WRITER_ON_TRACKER_WAITS);
+
+    log_writer_mutex_enter(log);
+  }
+}
+
 static void log_writer_write_buffer(log_t &log, lsn_t next_write_lsn) {
   ut_ad(log_writer_mutex_own(log));
 
@@ -2115,6 +2189,8 @@ static void log_writer_write_buffer(log_t &log, lsn_t next_write_lsn) {
   if (arch_log_sys != nullptr) {
     log_writer_wait_on_archiver(log, last_write_lsn, next_write_lsn);
   }
+
+  log_writer_wait_on_tracker(log, last_write_lsn, next_write_lsn);
 
   ut_ad(log_writer_mutex_own(log));
 
