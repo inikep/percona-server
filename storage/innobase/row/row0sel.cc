@@ -241,7 +241,7 @@ static dberr_t row_sel_sec_rec_is_for_clust_rec(
       vfield = innobase_get_computed_value(
           row, v_col, clust_index, &heap, heap, nullptr,
           thr_get_trx(thr)->mysql_thd, thr->prebuilt->m_mysql_table, nullptr,
-          nullptr, nullptr, thr->prebuilt);
+          nullptr, nullptr, &thr->prebuilt->compress_heap);
 
       if (vfield == nullptr) {
         /* This may happen e.g. when this statement is executed in
@@ -2535,7 +2535,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
                                               ulint field_no,
 #endif /* UNIV_DEBUG */
                                               const byte *data, ulint len,
-                                              row_prebuilt_t *prebuilt
+                                              mem_heap_t **compress_heap
 #ifdef UNIV_DEBUG
                                               ,
                                               ulint sec_field
@@ -2594,7 +2594,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
           data = row_decompress_column(
               data, &len,
               reinterpret_cast<const byte *>(templ->zip_dict_data.str),
-              templ->zip_dict_data.length, prebuilt);
+              templ->zip_dict_data.length, compress_heap);
 
         /* This is a >= 5.0.3 type true VARCHAR. Store the
         length of the data to the first byte or the first
@@ -2648,7 +2648,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
       row_mysql_store_blob_ref(
           dest, templ->mysql_col_len, data, len, templ->compressed,
           reinterpret_cast<const byte *>(templ->zip_dict_data.str),
-          templ->zip_dict_data.length, prebuilt);
+          templ->zip_dict_data.length, compress_heap);
       break;
 
     case DATA_POINT:
@@ -2863,7 +2863,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
 
     row_sel_field_store_in_mysql_format(mysql_rec + templ->mysql_col_offset,
                                         templ, rec_index, field_no, data, len,
-                                        prebuilt, ULINT_UNDEFINED);
+                                        &prebuilt->compress_heap, ULINT_UNDEFINED);
 
     if (heap != blob_heap) {
       mem_heap_free(heap);
@@ -2919,7 +2919,7 @@ void row_sel_field_store_in_mysql_format_func(byte *dest,
 
     row_sel_field_store_in_mysql_format(mysql_rec + templ->mysql_col_offset,
                                         templ, rec_index, field_no, data, len,
-                                        prebuilt, sec_field_no);
+                                        &prebuilt->compress_heap, ULINT_UNDEFINED);
   }
 
   ut_ad(rec_field_not_null_not_add_col_def(len));
@@ -3020,7 +3020,7 @@ bool row_sel_store_mysql_rec(byte *mysql_rec, row_prebuilt_t *prebuilt,
         row_sel_field_store_in_mysql_format(
             mysql_rec + templ->mysql_col_offset, templ, rec_index,
             templ->clust_rec_field_no, (const byte *)dfield->data, dfield->len,
-            prebuilt, ULINT_UNDEFINED);
+            &prebuilt->compress_heap, ULINT_UNDEFINED);
         if (templ->mysql_null_bit_mask) {
           mysql_rec[templ->mysql_null_byte_offset] &=
               ~(byte)templ->mysql_null_bit_mask;

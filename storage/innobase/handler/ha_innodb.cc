@@ -24268,7 +24268,7 @@ dfield_t *innobase_get_computed_value(
     const dtuple_t *row, const dict_v_col_t *col, const dict_index_t *index,
     mem_heap_t **local_heap, mem_heap_t *heap, const dict_field_t *ifield,
     THD *thd, TABLE *mysql_table, const dict_table_t *old_table,
-    upd_t *parent_update, dict_foreign_t *foreign, row_prebuilt_t *prebuilt) {
+    upd_t *parent_update, dict_foreign_t *foreign, mem_heap_t **compress_heap) {
   byte rec_buf1[REC_VERSION_56_MAX_INDEX_COL_LEN];
   byte rec_buf2[REC_VERSION_56_MAX_INDEX_COL_LEN];
   byte *mysql_rec;
@@ -24352,7 +24352,7 @@ dfield_t *innobase_get_computed_value(
     } else {
       row_sel_field_store_in_mysql_format(
           mysql_rec + templ->mysql_col_offset, templ, index,
-          templ->clust_rec_field_no, (const byte *)data, len, prebuilt,
+          templ->clust_rec_field_no, (const byte *)data, len, compress_heap,
           ULINT_UNDEFINED);
 
       if (templ->mysql_null_bit_mask) {
@@ -24392,7 +24392,7 @@ dfield_t *innobase_get_computed_value(
 
       row_mysql_store_blob_ref(mysql_rec + vctempl->mysql_col_offset,
                                vctempl->mysql_col_len, blob_mem, max_len, false,
-                               0, 0, prebuilt);
+                               0, 0, compress_heap);
     }
 
     {

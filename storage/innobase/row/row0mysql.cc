@@ -489,11 +489,11 @@ do_not_compress:
 @param[in,out]  len     in: data length; out: length of decompressed data
 @param[in]      dict_data       optional dictionary data used for decompression
 @param[in]      dict_data_len   optional dictionary data length
-@param[in]      prebuilt        use prebuilt->compress_heap only here
+@param[in]      compress_heap
 @return pointer to the uncompressed data */
 const byte *row_decompress_column(const byte *data, ulint *len,
                                   const byte *dict_data, ulint dict_data_len,
-                                  row_prebuilt_t *prebuilt) {
+                                  mem_heap_t **compress_heap) {
   ulint buf_len = 0;
   byte *buf;
   int err = 0;
@@ -553,13 +553,13 @@ const byte *row_decompress_column(const byte *data, ulint *len,
   data += lenlen;
 
   /* data is compressed, decompress it*/
-  if (!prebuilt->compress_heap) {
-    prebuilt->compress_heap =
+  if (!*compress_heap) {
+    *compress_heap =
         mem_heap_create(ut_max(UNIV_PAGE_SIZE, uncomp_len));
   }
 
   buf_len = uncomp_len;
-  buf = static_cast<byte *>(mem_heap_zalloc(prebuilt->compress_heap, buf_len));
+  buf = static_cast<byte *>(mem_heap_zalloc(*compress_heap, buf_len));
 
   /* init d_stream */
   d_stream.next_in = const_cast<Bytef *>(data);
@@ -567,7 +567,7 @@ const byte *row_decompress_column(const byte *data, ulint *len,
   d_stream.next_out = buf;
   d_stream.avail_out = buf_len;
 
-  column_zip_set_alloc(&d_stream, prebuilt->compress_heap);
+  column_zip_set_alloc(&d_stream, *compress_heap);
 
   window_bits = wrap ? MAX_WBITS : -MAX_WBITS;
   err = inflateInit2(&d_stream, window_bits);
@@ -627,7 +627,7 @@ remember also to set the null bit in the mysql record header!
 void row_mysql_store_blob_ref(byte *dest, ulint col_len, const void *data,
                               ulint len, bool need_decompression,
                               const byte *dict_data, ulint dict_data_len,
-                              row_prebuilt_t *prebuilt) {
+                              mem_heap_t **compress_heap) {
   /* MySQL might assume the field is set to zero except the length and
   the pointer fields */
 
@@ -650,7 +650,7 @@ void row_mysql_store_blob_ref(byte *dest, ulint col_len, const void *data,
 
   if (need_decompression)
     ptr = row_decompress_column((const byte *)data, &len, dict_data,
-                                dict_data_len, prebuilt);
+                                dict_data_len, compress_heap);
 
   if (ptr)
     memcpy(dest + col_len - 8, &ptr, sizeof ptr);
