@@ -115,7 +115,7 @@ void row_mysql_prebuilt_free_compress_heap(row_prebuilt_t *prebuilt) noexcept;
 MY_NODISCARD
 const byte *row_decompress_column(const byte *data, ulint *len,
                                   const byte *dict_data, ulint dict_data_len,
-                                  row_prebuilt_t *prebuilt);
+                                  mem_heap_t **compress_heap);
 
 /** Compress blob/text/varchar column using zlib
 @param[in]  data    data in MySQL (uncompressed) format
@@ -163,7 +163,7 @@ remember also to set the null bit in the mysql record header!
 void row_mysql_store_blob_ref(byte *dest, ulint col_len, const void *data,
                               ulint len, bool need_decompression,
                               const byte *dict_data, ulint dict_data_len,
-                              row_prebuilt_t *prebuilt);
+                              mem_heap_t **compress_heap);
 
 /** Reads a reference to a BLOB in the MySQL format.
 @param[out] len                 BLOB length.
@@ -1028,14 +1028,13 @@ dfield_t *innobase_get_field_from_update_vector(dict_foreign_t *foreign,
                                 or NULL.
 @param[in]	parent_update	update vector for the parent row
 @param[in]	foreign		foreign key information
-@param[in]	prebuilt	compress_heap must be taken from here
 @return the field filled with computed value, or NULL if just want
 to store the value in passed in "my_rec" */
 dfield_t *innobase_get_computed_value(
     const dtuple_t *row, const dict_v_col_t *col, const dict_index_t *index,
     mem_heap_t **local_heap, mem_heap_t *heap, const dict_field_t *ifield,
     THD *thd, TABLE *mysql_table, const dict_table_t *old_table,
-    upd_t *parent_update, dict_foreign_t *foreign, row_prebuilt_t *prebuilt);
+    upd_t *parent_update, dict_foreign_t *foreign, mem_heap_t **compress_heap);
 
 /** Parse out multi-values from a MySQL record
 @param[in]      mysql_table     MySQL table structure
