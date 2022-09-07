@@ -1676,7 +1676,8 @@ static std::unique_ptr<Log_user_consumer> log_meb_consumer;
 /* Protected by limits_mutex */
 static innodb_session_t *log_meb_consumer_session;
 
-static bool redo_log_consumer_register(innodb_session_t *session) {
+static bool redo_log_consumer_register(innodb_session_t *session,
+                                       std::string const &name) {
   log_t &log = *log_sys;
   ut_a(log_checkpointing != nullptr);
   IB_mutex_guard checkpointer_latch{&(log_checkpointing->checkpoint_mutex),
@@ -1691,7 +1692,7 @@ static bool redo_log_consumer_register(innodb_session_t *session) {
 
   ut_a(log_meb_consumer.get() == nullptr);
 
-  log_meb_consumer = std::make_unique<Log_user_consumer>("MEB");
+  log_meb_consumer = std::make_unique<Log_user_consumer>(name);
 
   log_meb_consumer->set_consumed_lsn(pages_persistence->get_checkpoint_lsn());
 
@@ -2305,7 +2306,7 @@ long long innodb_redo_log_sharp_checkpoint(
 */
 bool innodb_redo_log_consumer_register_init([[maybe_unused]] UDF_INIT *initid,
                                             UDF_ARGS *args, char *message) {
-  if (args->arg_count != 0) {
+  if (args->arg_count > 1) {
     snprintf(message, MYSQL_ERRMSG_SIZE, "Invalid number of arguments.");
     return true;
   }
@@ -2334,12 +2335,18 @@ long long innodb_redo_log_consumer_register(
     [[maybe_unused]] UDF_INIT *initid, [[maybe_unused]] UDF_ARGS *args,
     [[maybe_unused]] unsigned char *null_value,
     [[maybe_unused]] unsigned char *error) {
+  std::string name = "MEB";
   if (current_thd == nullptr ||
       verify_privilege(current_thd, backup_admin_privilege)) {
     return 1;
   }
-  return static_cast<long long>(
-      meb::redo_log_consumer_register(thd_to_innodb_session(current_thd)));
+
+  if (args->arg_count >= 1) {
+    name.assign(args->args[0]);
+  }
+
+  return static_cast<long long>(meb::redo_log_consumer_register(
+      thd_to_innodb_session(current_thd), name));
 }
 
 /**
