@@ -61,10 +61,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 /** Pointer to the log checksum calculation function. */
 log_checksum_func_t log_checksum_algorithm_ptr;
 
-/* Next log block number to do dummy record filling if no log records written
- * for a while */
-static ulint next_lbn_to_pad = 0;
-
 #ifndef UNIV_HOTBACKUP
 
 #include <debug_sync.h>

@@ -1929,8 +1929,6 @@ static bool fil_crypt_space_needs_rotation(rotate_thread_t *state,
     }
   }
 
-  const bool space_compressed = space->compression_type != Compression::NONE;
-
   do {
     /* prevent threads from starting to rotate space */
     if (crypt_data->rotate_state.starting) {
@@ -3470,7 +3468,6 @@ void fil_crypt_thread() {
 
   while (!thr.should_shutdown()) {
     key_state_t new_state;
-    time_t wait_start = time(0);
 
     while (!thr.should_shutdown()) {
       /* wait for key state changes
