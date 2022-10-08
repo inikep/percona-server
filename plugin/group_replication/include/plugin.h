@@ -223,6 +223,7 @@ bool get_group_replication_use_pqc_sign_var();
 const char *get_group_replication_tls_kex_var();
 void declare_plugin_cloning(bool is_running);
 bool get_allow_single_leader();
+uint get_auto_evict_timeout();
 /**
   Encapsulates the logic necessary to attempt a rejoin, i.e. gracefully leave
   the group, terminate GCS infrastructure, terminate auto-rejoin relevant plugin
