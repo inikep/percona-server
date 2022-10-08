@@ -22,6 +22,7 @@ WHERE VARIABLE_NAME LIKE 'group_replication%'
  ORDER BY VARIABLE_NAME;
 
 SET PERSIST_ONLY group_replication_advertise_recovery_endpoints = @@GLOBAL.group_replication_advertise_recovery_endpoints;
+SET PERSIST_ONLY group_replication_auto_evict_timeout = @@GLOBAL.group_replication_auto_evict_timeout;
 SET PERSIST_ONLY group_replication_auto_increment_increment = @@GLOBAL.group_replication_auto_increment_increment;
 SET PERSIST_ONLY group_replication_autorejoin_tries = @@GLOBAL.group_replication_autorejoin_tries;
 SET PERSIST_ONLY group_replication_bootstrap_group = @@GLOBAL.group_replication_bootstrap_group;
@@ -101,6 +102,7 @@ include/assert.inc ['Expect 50 persisted variables with matching persisted and g
 # 3. Test RESET PERSIST IF EXISTS.
 #    Verify that there are no persisted variables.
 RESET PERSIST IF EXISTS group_replication_advertise_recovery_endpoints;
+RESET PERSIST IF EXISTS group_replication_auto_evict_timeout;
 RESET PERSIST IF EXISTS group_replication_auto_increment_increment;
 RESET PERSIST IF EXISTS group_replication_autorejoin_tries;
 RESET PERSIST IF EXISTS group_replication_bootstrap_group;
