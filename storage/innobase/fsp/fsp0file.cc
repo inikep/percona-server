@@ -178,6 +178,8 @@ ut::Expected<ut::unique_ptr_aligned<byte[]>> Datafile::read_first_page(
   }
   ut_a(n_read == physical_page_size);
 
+  srv_stats.page0_read.add(1);
+
 #ifndef UNIV_HOTBACKUP
   /* If Double-Write Buffer is available, in case the page is corrupted, check
   if it can be recovered from the Double-Write Buffer. */
