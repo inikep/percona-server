@@ -315,7 +315,7 @@ Rdb_sst_info::Rdb_sst_info(rocksdb::DB *const db, const std::string &tablename,
       m_sst_file(nullptr),
       m_tracing(tracing),
       m_print_client_error(true) {
-  m_prefix = db->GetName() + "/";
+  m_prefix = db->GetName() + '/';
 
   std::string normalized_table;
   if (rdb_normalize_tablename(tablename.c_str(), &normalized_table)) {
