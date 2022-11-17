@@ -422,6 +422,22 @@ ELSE()
       )
   ENDIF()
 
+  IF(WITH_WSREP)
+    # Configure wsrep_sst_backup script for testing, but do not install it.
+    CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/wsrep_sst_backup.sh
+      ${CMAKE_CURRENT_BINARY_DIR}/wsrep_sst_backup ESCAPE_QUOTES @ONLY)
+    SET(BIN_SCRIPTS
+      ${BIN_SCRIPTS}
+      wsrep_recover
+      wsrep_sst_clone
+      wsrep_sst_common
+      wsrep_sst_mysqldump
+      wsrep_sst_rsync
+      wsrep_sst_xtrabackup
+      wsrep_sst_xtrabackup-v2
+    )
+  ENDIF()
+
   FOREACH(file ${BIN_SCRIPTS})
     IF(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${file}.sh)
       CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/${file}.sh
@@ -450,6 +466,14 @@ ELSE()
       COMPONENT ${file_COMPONENT}
      )
   ENDFOREACH()
+
+  CONFIGURE_FILE(systemd/mysqld_bootstrap.in
+    ${CMAKE_CURRENT_BINARY_DIR}/mysqld_bootstrap ESCAPE_QUOTES @ONLY)
+  INSTALL_SCRIPT(
+    ${CMAKE_CURRENT_BINARY_DIR}/mysqld_bootstrap
+    DESTINATION ${INSTALL_BINDIR}
+    COMPONENT Server
+    )
 
   # Systemd files
   IF(WITH_SYSTEMD)

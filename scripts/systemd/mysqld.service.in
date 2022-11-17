@@ -21,6 +21,7 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 #
 # systemd service file for MySQL forking server
+# Modified for wsrep (Galera): Recovery
 #
 
 [Unit]
@@ -45,11 +46,11 @@ TimeoutSec=0
 # Execute pre and post scripts as root
 PermissionsStartOnly=true
 
-# Needed to create system tables
-ExecStartPre=@bindir@/mysqld_pre_systemd
+# Needed to create system tables and to check for cluster crash recovery
+ExecStartPre=@bindir@/mysqld_pre_systemd --pre
 
 # Start main service
-ExecStart=@libexecdir@/mysqld $MYSQLD_OPTS
+ExecStart=@libexecdir@/mysqld $MYSQLD_OPTS $MYSQLD_RECOVER_START
 
 # Use this to switch malloc implementation
 EnvironmentFile=-/etc/sysconfig/mysql
@@ -58,6 +59,10 @@ EnvironmentFile=-/etc/sysconfig/mysql
 LimitNOFILE = 10000
 
 Restart=on-failure
+
+# Dirty hack to prevent fast restart in case of configuration problem.
+# Longer-term fix will be to ensure exit status 1 for "RestartPreventExitStatus=1" below.
+RestartSec=1
 
 RestartPreventExitStatus=1
 
