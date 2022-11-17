@@ -1,0 +1,22 @@
+#
+# MW-340 5.7: Assertion `thd->ha_data[wsrep_hton->slot].ha_info[all].is_trx_read_write()' failed with CTAS
+#
+
+--source include/galera_cluster.inc
+
+connect (a, 127.0.0.1,root,,test, $NODE_MYPORT_1);
+connect (b, 127.0.0.1,root,,test, $NODE_MYPORT_1);
+
+--connection a
+create table t1(a int not null, b int, primary key(a)) engine=innodb;
+create table t2(d int not null, e int, primary key(d)) engine=innodb;
+
+--connection b
+set autocommit = 0;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+create table t3(d int not null, e int, primary key(d)) engine=innodb
+select * from t2;
+
+DROP TABLE test.t1;
+DROP TABLE test.t2;
+DROP TABLE test.t3;

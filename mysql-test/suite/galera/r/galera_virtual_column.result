@@ -1,0 +1,16 @@
+create table t (i int, c1 char(10), c2 char(10), c12 char(20) as (CONCAT(c1, c2)), b blob);
+insert into t (i, c1, c2) values (1, 'My', 'SQL');
+insert into t (i, c1, c2) values (2, 'Maria', 'DB');
+insert into t (i, c1, c2) values (3, 'Galera', 'Cluster');
+select c12 from t;
+c12
+MySQL
+MariaDB
+GaleraCluster
+update t set c1 = "No" where i=1;
+select c12 from t;
+c12
+NoSQL
+MariaDB
+GaleraCluster
+drop table t;

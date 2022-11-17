@@ -1,0 +1,5 @@
+SET GLOBAL wsrep_provider_options = 'pc.weight=3';
+SELECT @@GLOBAL.wsrep_provider_options;
+@@GLOBAL.wsrep_provider_options
+pc.weight = 3
+SET GLOBAL wsrep_provider_options = 'pc.weight=1';

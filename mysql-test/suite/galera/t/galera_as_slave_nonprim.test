@@ -1,0 +1,94 @@
+#
+# Test the behavior of a Galera async slave if it goes non-prim. Async replication
+# should abort with an error but it should be possible to restart it.
+#
+# The galera/galera_3node_slave.cnf describes the setup of the nodes
+#
+
+--source include/have_log_bin.inc
+--source include/big_test.inc
+--source include/galera_cluster.inc
+
+# Step #1. Establish replication
+#
+# As node 4 is not a Galera node, and galera_cluster.inc does not open connection to it
+# we open the node_4 connection here
+--connect node_4, 127.0.0.1, root, , test, $NODE_MYPORT_4
+
+--connection node_2
+--disable_query_log
+--eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$NODE_MYPORT_4;
+--enable_query_log
+START REPLICA USER='root';
+SET SESSION wsrep_sync_wait = 0;
+
+--connection node_4
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 't1';
+--source include/wait_condition.inc
+
+# Step #2. Force async slave to go non-primary
+
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate=1';
+
+--connection node_2
+--let $wait_condition = SELECT VARIABLE_VALUE = 'OFF' FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_ready';
+--source include/wait_condition.inc
+
+--connection node_1
+--let $members = 2
+--source include/wsrep_wait_membership.inc
+
+# Step #3. Force async replication to fail by creating a replication event while the slave is non-prim
+
+--connection node_4
+INSERT INTO t1 VALUES (1),(2),(3),(4),(5);
+
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM performance_schema.replication_applier_status_by_worker WHERE LAST_ERROR_NUMBER = 1047
+--source include/wait_condition.inc
+
+SELECT LAST_ERROR_NUMBER FROM performance_schema.replication_applier_status_by_worker;
+SELECT TRIM(SUBSTRING_INDEX(LAST_ERROR_MESSAGE, ';', -1)) AS LAST_ERROR_MESSAGE FROM performance_schema.replication_applier_status_by_worker;
+
+# Step #4. Bring back the async slave and restart replication
+--connection node_2
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate=0';
+
+--connection node_1
+--let $members = 3
+--source include/wsrep_wait_membership.inc
+
+--connection node_2
+--source include/galera_wait_ready.inc
+--source include/wait_until_connected_again.inc
+
+START REPLICA;
+
+# Confirm that the replication events have arrived
+
+--let $wait_condition = SELECT COUNT(*) = 5 FROM t1;
+--source include/wait_condition.inc
+
+--connection node_4
+DROP TABLE t1;
+
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 't1';
+--source include/wait_condition.inc
+
+STOP REPLICA;
+RESET REPLICA ALL;
+
+CALL mtr.add_suppression("Error 'WSREP has not yet prepared node for application use' on query");
+CALL mtr.add_suppression("The slave coordinator and worker threads are stopped, possibly leaving data in inconsistent state");
+CALL mtr.add_suppression("Slave: WSREP has not yet prepared node for application use Error_code: MY-001047");
+CALL mtr.add_suppression("(Transport endpoint is not connected|Socket is not connected)");
+CALL mtr.add_suppression("Operation not permitted");
+CALL mtr.add_suppression("Slave SQL for channel '': Error in Xid_log_event: Commit could not be completed, 'Deadlock found when trying to get lock; try restarting transaction', Error_code: 1213");
+CALL mtr.add_suppression("Slave SQL for channel '': Node has dropped from cluster, Error_code: MY-001047");
+
+--connection node_4
+RESET MASTER;

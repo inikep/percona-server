@@ -1,0 +1,46 @@
+#
+# NB-DDL: LOCK TABLE does not block DDL under TOI
+#
+
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+--source include/have_debug.inc
+
+CREATE TABLE t1 (f1 INTEGER NOT NULL) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+
+--connect node_2a, 127.0.0.1, root, , test, $NODE_MYPORT_2
+LOCK TABLES t1 WRITE;
+
+--connection node_1
+--send ALTER TABLE t1 ALGORITHM=INPLACE, LOCK=SHARED, ADD PRIMARY KEY (f1)
+
+--connection node_2a
+SET SESSION wsrep_sync_wait=0;
+
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE USER = 'system user' AND STATE = 'Waiting for table metadata lock'
+--source include/wait_condition.inc
+
+UNLOCK TABLES;
+
+--connection node_1
+--reap
+
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+LOCK TABLES t1 WRITE;
+
+--connection node_1
+--send ALTER TABLE t1 LOCK=SHARED, DROP PRIMARY KEY
+
+--connection node_1a
+SET SESSION wsrep_sync_wait=0;
+
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE USER = 'root' AND STATE = 'Waiting for table metadata lock'
+--source include/wait_condition.inc
+
+UNLOCK TABLES;
+
+--connection node_1
+--reap
+
+DROP TABLE t1;

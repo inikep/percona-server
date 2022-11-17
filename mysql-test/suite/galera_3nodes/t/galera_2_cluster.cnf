@@ -1,0 +1,25 @@
+!include ../galera_2x3nodes.cnf
+
+[mysqld.1]
+server-id=1
+wsrep-cluster-server-id=1
+
+[mysqld.2]
+server-id=2
+wsrep-cluster-server-id=1
+
+[mysqld.3]
+server-id=3
+wsrep-cluster-server-id=1
+
+[mysqld.4]
+server-id=4
+wsrep-cluster-server-id=2
+
+[mysqld.5]
+server-id=5
+wsrep-cluster-server-id=2
+
+[mysqld.6]
+server-id=6
+wsrep-cluster-server-id=2

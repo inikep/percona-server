@@ -1,0 +1,45 @@
+RESET MASTER;
+RESET MASTER;
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE t3 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t4 (f1 INTEGER) ENGINE=InnoDB;
+OPTIMIZE TABLE t1, t2, t3, t4;
+Table	Op	Msg_type	Msg_text
+test.t1	optimize	note	Table does not support optimize, doing recreate + analyze instead
+test.t1	optimize	status	OK
+test.t2	optimize	note	Table does not support optimize, doing recreate + analyze instead
+test.t2	optimize	status	OK
+test.t3	optimize	note	Table does not support optimize, doing recreate + analyze instead
+test.t3	optimize	status	OK
+test.t4	optimize	note	Table does not support optimize, doing recreate + analyze instead
+test.t4	optimize	status	OK
+ANALYZE TABLE t2, t4, t1, t3;
+Table	Op	Msg_type	Msg_text
+test.t2	analyze	status	OK
+test.t4	analyze	status	OK
+test.t1	analyze	status	OK
+test.t3	analyze	status	OK
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	<Pos>	Previous_gtids	1	<End_log_pos>	
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB /* xid=### */
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; CREATE TABLE t3 (f1 INTEGER) ENGINE=InnoDB /* xid=### */
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; OPTIMIZE TABLE t1, t2, t3, t4
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; ANALYZE TABLE t2, t4, t1, t3
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	<Pos>	Previous_gtids	2	<End_log_pos>	
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB /* xid=### */
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; CREATE TABLE t3 (f1 INTEGER) ENGINE=InnoDB /* xid=### */
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; OPTIMIZE TABLE t1, t2, t3, t4
+mysqld-bin.000001	<Pos>	Anonymous_Gtid	1	<End_log_pos>	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	<Pos>	Query	1	<End_log_pos>	use `test`; ANALYZE TABLE t2, t4, t1, t3
+DROP TABLE t1, t2, t3, t4;

@@ -1,0 +1,71 @@
+#
+# Tests the wsrep_sync_wait_upto variable.
+#
+
+--source include/galera_cluster.inc
+
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+
+
+# Test with invalid values
+
+--error ER_WRONG_ARGUMENTS
+SELECT WSREP_SYNC_WAIT_UPTO_GTID(NULL);
+
+--error ER_WRONG_ARGUMENTS
+SELECT WSREP_SYNC_WAIT_UPTO_GTID('a');
+
+--error ER_WRONG_ARGUMENTS
+SELECT WSREP_SYNC_WAIT_UPTO_GTID(2);
+
+
+# If set to low value, expect no waiting
+
+--disable_query_log
+--let $last_written_gtid = `SELECT WSREP_LAST_WRITTEN_GTID()`
+--let $state = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_state_uuid'`
+--enable_query_log
+
+--disable_query_log
+--eval SELECT WSREP_SYNC_WAIT_UPTO_GTID('00000000-0000-0000-0000-000000000000:-1') AS WSREP_SYNC_WAIT_UPTO;
+--enable_query_log
+
+--disable_query_log
+--eval SELECT WSREP_SYNC_WAIT_UPTO_GTID('$state:0') AS WSREP_SYNC_WAIT_UPTO;
+--enable_query_log
+
+
+# If set to current last written value
+
+--disable_query_log
+--eval SELECT WSREP_SYNC_WAIT_UPTO_GTID('$last_written_gtid') AS WSREP_SYNC_WAIT_UPTO;
+--enable_query_log
+
+
+# If set to very high value timeout expected
+
+--disable_query_log
+--error ER_LOCK_WAIT_TIMEOUT
+--eval SELECT WSREP_SYNC_WAIT_UPTO_GTID('$state:9223372036854775807', 1) AS WSREP_SYNC_WAIT_UPTO;
+--enable_query_log
+
+
+# Wait for seqno value
+
+--connection node_2
+--disable_query_log
+--let $last_seen_gtid = `SELECT WSREP_LAST_SEEN_GTID()`
+--let $wait_seqno = `SELECT SUBSTR('$last_seen_gtid', LOCATE(':', '$last_seen_gtid') + LENGTH(':'))`
+--inc $wait_seqno
+--send_eval SELECT WSREP_SYNC_WAIT_UPTO_GTID('$state:$wait_seqno') AS WSREP_SYNC_WAIT_UPTO
+--enable_query_log
+
+--connection node_1
+INSERT INTO t1 VALUES (2);
+
+--connection node_2
+--reap
+
+--connection node_1
+DROP TABLE t1;

@@ -1,0 +1,110 @@
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+
+#
+# Tests for ROLLBACK To SAVEPOINT should only rollback the said action.
+#
+
+CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(64));
+INSERT INTO t VALUES(0, 'zero');
+
+# test 1: immediate rollback to savepoint
+--connection node_1
+
+
+BEGIN;
+INSERT INTO t VALUES(1, 'first');
+SAVEPOINT savepoint_1;
+
+ROLLBACK TO SAVEPOINT savepoint_1;
+
+INSERT INTO t VALUES(2, 'second');
+COMMIT;
+
+SELECT * FROM t;
+
+--connection node_2
+SELECT * FROM t;
+TRUNCATE t;
+
+# test 2: effective rollback to savepoint
+--connection node_1
+BEGIN;
+
+INSERT INTO t VALUES(1, 'first');
+SAVEPOINT savepoint_1;
+INSERT INTO t VALUES(2, 'second');
+
+ROLLBACK TO SAVEPOINT savepoint_1;
+
+INSERT INTO t VALUES(2, 'third');
+COMMIT;
+
+SELECT * FROM t;
+
+--connection node_2
+SELECT * FROM t;
+TRUNCATE t;
+
+#
+# test 3: to savepoint leading to empty transaction
+#
+--connection node_1
+
+BEGIN;
+SAVEPOINT savepoint_1;
+INSERT INTO t VALUES(1, 'first');
+SELECT * FROM t;
+ROLLBACK TO SAVEPOINT savepoint_1;
+COMMIT;
+
+SELECT * FROM t;
+
+--connection node_2
+SELECT * FROM t;
+
+--connection node_1
+DROP TABLE t;
+
+#
+# test 4: Background running applier/high priority transaction kills local transaction
+# at ROLLBACK TO SAVEPOINT stage.
+#
+
+--connection node_1
+create table t1 (i int, j int, primary key pk(i));
+create table t3 (i int, primary key pk(i));
+insert into t1 values (1, 1), (2, 2), (3, 3), (4, 4);
+insert into t3 values (100), (200), (300), (400);
+select * from t1;
+select * from t3;
+
+#
+SET SESSION wsrep_sync_wait = 0;
+SET DEBUG_SYNC = "wsrep_rollback_to_savepoint SIGNAL at_rollback WAIT_FOR continue";
+#
+begin;
+update t1 set i = i + 10;
+savepoint s1;
+update t3 set i = i + 1000;
+select * from t1;
+select * from t3;
+--send rollback to savepoint s1;
+
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connection node_1a
+
+SET SESSION wsrep_sync_wait = 0;
+SET DEBUG_SYNC = "now WAIT_FOR at_rollback";
+
+alter table t1 add index idx(j);
+SET DEBUG_SYNC = "now SIGNAL continue";
+
+--connection node_1
+--error ER_LOCK_DEADLOCK
+--reap
+select * from t1;
+select * from t3;
+#
+SET DEBUG_SYNC = 'RESET';
+drop table t1, t3;

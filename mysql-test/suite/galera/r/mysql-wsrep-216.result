@@ -1,0 +1,10 @@
+SET GLOBAL wsrep_debug = SERVER;
+CREATE USER u1 IDENTIFIED BY 'plaintext_password';
+CREATE USER u1 IDENTIFIED BY 'plaintext_password';
+ERROR HY000: Operation CREATE USER failed for 'u1'@'%'
+include/assert_grep.inc [Plaintext password count is 0]
+include/assert_grep.inc [Plaintext password count is 0]
+include/assert_grep.inc [Obfuscated password count is 5 on the master node]
+include/assert_grep.inc [Obfuscated password count is 1 on the slave node]
+DROP USER u1;
+CALL mtr.add_suppression('Operation CREATE USER failed');

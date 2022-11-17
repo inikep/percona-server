@@ -1,0 +1,62 @@
+#
+# Test wsrep tables initialization
+#
+# Wsrep patch creates a few tables in mysql schema (wsrep_cluster,
+# wsrep_cluster_members and wsrep_streaming_log).
+# At startup, these tables should be created only if galera replication
+# is enabled.
+# This test starts a single server, with galera replication disabled,
+# and makes sure those tables do not exists at the beginning.
+# The server is then turned into a single node Galera cluster, and
+# it is expected that the tables are created.
+#
+
+--connect node_1, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connection node_1
+
+
+#
+# Make sure mysql.wsrep_* tables do not exist
+#
+
+SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'mysql' AND TABLE_NAME LIKE 'wsrep%';
+
+
+#
+# Enable galera replication
+#
+
+--disable_query_log
+--eval SET GLOBAL wsrep_on=ON;
+--eval SET GLOBAL wsrep_provider='$WSREP_PROVIDER'
+--eval SET GLOBAL wsrep_provider_options='base_port=$NODE_GALERAPORT_3'
+--enable_query_log
+
+SET GLOBAL wsrep_cluster_address='gcomm://';
+
+--source include/galera_wait_ready.inc
+
+SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_state_comment';
+SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_status';
+SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size';
+
+
+#
+# Tables mysql.wsrep_* tables should now exist
+#
+
+SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'mysql' AND TABLE_NAME LIKE 'wsrep%';
+
+
+#
+# Cleanup
+#
+
+SET GLOBAL wsrep_on=OFF;
+SET GLOBAL wsrep_provider='none';
+SET GLOBAL wsrep_sst_auth='';
+SET GLOBAL wsrep_provider_options='';
+
+DROP TABLE mysql.wsrep_cluster;
+DROP TABLE mysql.wsrep_cluster_members;
+DROP TABLE mysql.wsrep_streaming_log;

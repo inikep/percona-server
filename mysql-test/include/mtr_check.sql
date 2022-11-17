@@ -105,12 +105,21 @@ BEGIN
 
   -- Dump all global variables except those that may change.
   -- timestamp changes if time passes. server_uuid changes if server restarts.
+  -- wsrep_start_position can change on mysqldump SST
+  -- auto_increment_offset can change on cluster reconfigurations
   SELECT * FROM performance_schema.global_variables
     WHERE variable_name NOT IN ('timestamp', 'server_uuid',
                                 'gtid_executed', 'gtid_purged',
                                 'group_replication_group_name',
                                 'keyring_file_data',
-                                'innodb_thread_sleep_delay')
+                                'innodb_thread_sleep_delay',
+                                'wsrep_start_position',
+                                'auto_increment_offset',
+                                'auto_increment_increment',
+                                'wsrep_data_home_dir',
+                                'keyring_file_data',
+                                'wsrep_local_gtid',
+                                'wsrep_cluster_server_id')
   ORDER BY VARIABLE_NAME;
 
   -- Dump all persisted variables, those that may change.
@@ -119,7 +128,11 @@ BEGIN
 
   -- Dump all databases, there should be none
   -- except those that was created during bootstrap
-  SELECT * FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;
+  -- and the mtr_wsrep_notify schema which is populated by the std_data/wsrep_notify.sh script
+  -- and the suite/galera/t/galera_var_notify_cmd.test
+  -- and the wsrep_schema schema that may be created by Galera
+
+  SELECT * FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('mtr_wsrep_notify', 'wsrep_schema')  ORDER BY SCHEMA_NAME;
 
   -- Dump all tablespaces, there should be none
   SELECT FILE_NAME, FILE_TYPE, TABLESPACE_NAME, ENGINE FROM INFORMATION_SCHEMA.FILES
@@ -166,6 +179,8 @@ BEGIN
          IS_DETERMINISTIC,SQL_DATA_ACCESS,SQL_PATH,SECURITY_TYPE,SQL_MODE,ROUTINE_COMMENT,DEFINER,
          CHARACTER_SET_CLIENT,COLLATION_CONNECTION,DATABASE_COLLATION
     FROM INFORMATION_SCHEMA.ROUTINES ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME, ROUTINE_TYPE;
+  -- Show open connections/transactions in wsrep provider
+  SHOW STATUS LIKE 'wsrep_open%';
 
   -- Dump all views, only those in the sys schema should exist
   SELECT * FROM INFORMATION_SCHEMA.VIEWS
@@ -190,10 +205,12 @@ BEGIN
   --
   -- For "unauthenticated user", see Bug#30035699 "UNAUTHENTICATED USER" SHOWS UP IN CHECK-TESTCASE
   --
-  SELECT USER, HOST, DB, COMMAND, INFO FROM INFORMATION_SCHEMA.PROCESSLIST
-    WHERE COMMAND NOT IN ('Sleep')
-      AND USER NOT IN ('unauthenticated user','mysql.session', 'event_scheduler')
-        ORDER BY COMMAND;
+-- WSREP
+   -- this does not work becaus eof excessive wsrep applier threads
+  -- SELECT USER, HOST, DB, COMMAND, INFO FROM INFORMATION_SCHEMA.PROCESSLIST
+  --  WHERE COMMAND NOT IN ('Sleep')
+  --    AND USER NOT IN ('unauthenticated user','mysql.session', 'event_scheduler')
+  --      ORDER BY COMMAND;
 
   -- Checksum system tables to make sure they have been properly
   -- restored after test.

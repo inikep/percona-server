@@ -1,0 +1,67 @@
+--source include/galera_cluster.inc
+
+#
+# Test CREATE VIEW, especially with different DEFINER
+#
+
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY, f2 VARCHAR(100)) ENGINE=InnoDB;
+CREATE TABLE m1 (f1 INTEGER PRIMARY KEY, f2 VARCHAR(100)) ENGINE=myisam;
+
+INSERT INTO t1 values (1, 'row');
+INSERT INTO m1 values (1, 'row');
+
+CREATE USER 'user1';
+
+CREATE DEFINER=root@localhost VIEW v AS SELECT * FROM t1;
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'test' and TABLE_NAME = 'v'
+--source include/wait_condition.inc
+DROP VIEW v;
+
+--connection node_1
+CREATE DEFINER=user1 VIEW  v AS SELECT * FROM t1;
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'test' and TABLE_NAME = 'v'
+--source include/wait_condition.inc
+DROP VIEW v;
+
+--connection node_1
+CREATE DEFINER=user1 VIEW v AS SELECT * FROM m1;
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'test' and TABLE_NAME = 'v'
+--source include/wait_condition.inc
+DROP VIEW v;
+
+--connection node_1
+CREATE DEFINER=root@localhost VIEW v AS SELECT * FROM m1;
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'test' and TABLE_NAME = 'v'
+--source include/wait_condition.inc
+DROP VIEW v;
+
+
+--connection node_1
+CREATE  VIEW v AS SELECT * FROM t1;
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'test' and TABLE_NAME = 'v'
+--source include/wait_condition.inc
+DROP VIEW v;
+
+--connection node_1
+CREATE  VIEW  v AS SELECT * FROM m1;
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'test' and TABLE_NAME = 'v'
+--source include/wait_condition.inc
+DROP VIEW v;
+
+
+--connection node_1
+DROP TABLE t1, m1;
+
+DROP USER 'user1';
+
+
+
+
+
+

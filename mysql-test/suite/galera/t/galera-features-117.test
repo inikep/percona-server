@@ -1,0 +1,38 @@
+#
+# This test tests voting for DDLs (TOI events)
+#
+--source include/galera_cluster.inc
+
+--connection node_2
+SET SESSION wsrep_on=OFF;
+CREATE TABLE test.t1 (f2 INTEGER);
+SET SESSION wsrep_on=ON;
+
+--error ER_TABLE_EXISTS_ERROR
+CREATE TABLE test.t1 (f1 INTEGER);
+
+--connection node_1
+--let $members = 1
+--source include/wsrep_wait_membership.inc
+SHOW CREATE TABLE test.t1;
+SHOW STATUS LIKE 'wsrep_cluster_status';
+DROP TABLE test.t1;
+
+--connection node_2
+SET GLOBAL wsrep_sync_wait=0;
+--let $members = 0
+--source include/wsrep_wait_membership.inc
+SET SESSION wsrep_sync_wait=0;
+SHOW CREATE TABLE test.t1;
+SHOW STATUS LIKE 'wsrep_cluster_status';
+--error ER_UNKNOWN_COM_ERROR
+CREATE TABLE test.t2 (f1 INTEGER);
+SHOW TABLES IN test;
+
+--source include/kill_galera.inc
+--source include/wait_until_disconnected.inc
+--source include/start_mysqld.inc
+
+CALL mtr.add_suppression("Inconsistent by consensus.");
+CALL mtr.add_suppression("WSREP: Failed to execute TOI action");
+CALL mtr.add_suppression("WSREP: TO isolation end failed");

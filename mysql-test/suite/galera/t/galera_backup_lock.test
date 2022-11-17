@@ -1,0 +1,93 @@
+--source include/galera_cluster.inc
+--source include/have_debug.inc
+--source include/have_debug_sync.inc
+
+
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connect node_1b, 127.0.0.1, root, , test, $NODE_MYPORT_1
+
+--connection node_1
+
+create table t (i int primary key, c varchar(30) );
+insert into t values (1, 'phase 1');
+
+#
+# test phase 1: conflicting DDL from same node
+#
+--echo "test phase 1: conflicting DDL from same node"
+--connection node_1a
+lock instance for backup;
+
+--connection node_1b
+--send alter table t add column (j int default(0));
+
+--connection node_1a
+--let wait_condition = select * from information_schema.processlist where state = 'Waiting for backup lock';
+
+set wsrep_sync_wait=0;
+--source include/wait_condition.inc
+unlock instance;
+
+--connection node_1b
+--reap
+show create table t;
+
+#
+# test phase 2: non-conflicting DML from same node
+#
+--echo "test phase 2: non-conflicting DML from same node"
+--connection node_1a
+lock instance for backup;
+
+--connection node_1b
+insert into t values (2, "phase 2", 1);
+
+--connection node_1a
+unlock instance;
+
+--connection node_1b
+select * from t;
+
+#
+# test phase 3: conflicting DDL from other node
+#
+--echo "test phase 3: conflicting DDL from other node"
+--connection node_1a
+lock instance for backup;
+
+--connection node_2
+--send alter table t add column (k int default(0));
+
+--connection node_1a
+--let wait_condition = select * from information_schema.processlist where state = 'Waiting for backup lock';
+
+--source include/wait_condition.inc
+unlock instance;
+
+--connection node_2
+--reap
+show create table t;
+
+#
+# test phase 4: non-conflicting DML from other node
+#
+--echo "test phase 4: non-conflicting DML from other node"
+--connection node_1a
+lock instance for backup;
+
+--connection node_2
+insert into t values (3, "phase 4", 1, 1);
+
+--connection node_1a
+--let wait_condition = select count(*) = 3 from t;
+
+--source include/wait_condition.inc
+unlock instance;
+
+--connection node_2
+show create table t;
+
+--connection node_1
+select * from t;
+
+drop table t;

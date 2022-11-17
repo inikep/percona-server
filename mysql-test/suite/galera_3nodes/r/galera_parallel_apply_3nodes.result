@@ -1,0 +1,21 @@
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+SET GLOBAL wsrep_applier_threads = 2;
+SET SESSION wsrep_sync_wait=0;
+SET DEBUG_SYNC = 'wsrep_before_certification SIGNAL before_cert WAIT_FOR continue';
+UPDATE t1 SET f1 = f1 + 10;;
+SET DEBUG_SYNC = 'now WAIT_FOR before_cert';
+SET GLOBAL DEBUG = '+d,sync.wsrep_retry_autocommit';
+UPDATE t1 SET f1 = f1 + 100;;
+SET DEBUG_SYNC = 'now WAIT_FOR wsrep_retry_autocommit_reached';
+SET GLOBAL DEBUG = NULL;
+SET DEBUG_SYNC = 'now SIGNAL wsrep_retry_autocommit_continue';
+SELECT f1 = 111 FROM t1;
+f1 = 111
+1
+SELECT COUNT(*) IN (1, 2) FROM INFORMATION_SCHEMA.PROCESSLIST WHERE USER = 'system user' AND STATE LIKE '%committed%';
+COUNT(*) IN (1, 2)
+1
+SET GLOBAL wsrep_applier_threads = DEFAULT;
+DROP TABLE t1;
+SET DEBUG_SYNC= 'RESET';

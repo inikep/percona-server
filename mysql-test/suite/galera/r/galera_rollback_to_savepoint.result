@@ -1,0 +1,102 @@
+CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(64));
+INSERT INTO t VALUES(0, 'zero');
+BEGIN;
+INSERT INTO t VALUES(1, 'first');
+SAVEPOINT savepoint_1;
+ROLLBACK TO SAVEPOINT savepoint_1;
+INSERT INTO t VALUES(2, 'second');
+COMMIT;
+SELECT * FROM t;
+id	name
+0	zero
+1	first
+2	second
+SELECT * FROM t;
+id	name
+0	zero
+1	first
+2	second
+TRUNCATE t;
+BEGIN;
+INSERT INTO t VALUES(1, 'first');
+SAVEPOINT savepoint_1;
+INSERT INTO t VALUES(2, 'second');
+ROLLBACK TO SAVEPOINT savepoint_1;
+INSERT INTO t VALUES(2, 'third');
+COMMIT;
+SELECT * FROM t;
+id	name
+1	first
+2	third
+SELECT * FROM t;
+id	name
+1	first
+2	third
+TRUNCATE t;
+BEGIN;
+SAVEPOINT savepoint_1;
+INSERT INTO t VALUES(1, 'first');
+SELECT * FROM t;
+id	name
+1	first
+ROLLBACK TO SAVEPOINT savepoint_1;
+COMMIT;
+SELECT * FROM t;
+id	name
+SELECT * FROM t;
+id	name
+DROP TABLE t;
+create table t1 (i int, j int, primary key pk(i));
+create table t3 (i int, primary key pk(i));
+insert into t1 values (1, 1), (2, 2), (3, 3), (4, 4);
+insert into t3 values (100), (200), (300), (400);
+select * from t1;
+i	j
+1	1
+2	2
+3	3
+4	4
+select * from t3;
+i
+100
+200
+300
+400
+SET SESSION wsrep_sync_wait = 0;
+SET DEBUG_SYNC = "wsrep_rollback_to_savepoint SIGNAL at_rollback WAIT_FOR continue";
+begin;
+update t1 set i = i + 10;
+savepoint s1;
+update t3 set i = i + 1000;
+select * from t1;
+i	j
+11	1
+12	2
+13	3
+14	4
+select * from t3;
+i
+1100
+1200
+1300
+1400
+rollback to savepoint s1;;
+SET SESSION wsrep_sync_wait = 0;
+SET DEBUG_SYNC = "now WAIT_FOR at_rollback";
+alter table t1 add index idx(j);
+SET DEBUG_SYNC = "now SIGNAL continue";
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+select * from t1;
+i	j
+1	1
+2	2
+3	3
+4	4
+select * from t3;
+i
+100
+200
+300
+400
+SET DEBUG_SYNC = 'RESET';
+drop table t1, t3;

@@ -1,0 +1,16 @@
+#
+# GCF-784 Confirm that START REPLICA can not be issued without log_slave_updates=1
+# 
+
+--source include/galera_cluster.inc
+--source include/have_log_bin.inc
+
+--connection node_2
+--disable_query_log
+--eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$NODE_MYPORT_3;
+--enable_query_log
+
+--error ER_SLAVE_CONFIGURATION
+START REPLICA USER='root';
+
+RESET REPLICA ALL;

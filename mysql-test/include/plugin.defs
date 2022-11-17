@@ -151,6 +151,15 @@ component_test_mysql_runtime_error  plugin_output_directory  no  TEST_MYSQL_RUNT
 # mysqlbackup component
 component_mysqlbackup           plugin_output_directory  no  MYSQLBACKUP_COMPONENT
 
+# Percona audit_log plugin
+audit_log                       plugin_output_directory  no AUDIT_LOG   audit_log
+
+# Percona auth_pam / auth_pam_compat plugin
+auth_pam                        plugin_output_directory  no AUTH_PAM
+auth_pam_compat                 plugin_output_directory  no AUTH_PAM_COMPAT
+
+# Percona auth_ldap plugin
+authentication_ldap_simple      plugin_output_directory  no AUTH_LDAP   authentication_ldap_simple
 component_query_attributes      plugin_output_directory  no  QUERY_ATTRIBUTES_COMPONENT
 
 # component_reference_cache

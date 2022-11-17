@@ -1,0 +1,62 @@
+START REPLICA USER='root';
+Warnings:
+Note	1759	Sending passwords in plain text without SSL/TLS is extremely insecure.
+CREATE TABLE t1(c1 INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, c2 INTEGER);
+INSERT INTO t1(c2) VALUES(1);
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+ALTER TABLE t1 ADD COLUMN t3 INTEGER;
+Node 2 column number AFTER ALTER
+SELECT COUNT(*) = 3 FROM information_schema.columns WHERE table_name ='t1';
+COUNT(*) = 3
+1
+Node 3 column number AFTER ALTER
+SELECT COUNT(*) = 3 FROM information_schema.columns WHERE table_name ='t1';
+COUNT(*) = 3
+1
+Node 4 column number AFTER ALTER
+SELECT COUNT(*) = 3 FROM information_schema.columns WHERE table_name ='t1';
+COUNT(*) = 3
+1
+Node 6 column number AFTER ALTER
+SELECT COUNT(*) = 3 FROM information_schema.columns WHERE table_name ='t1';
+COUNT(*) = 3
+1
+OPTIMIZE TABLE t1;
+Table	Op	Msg_type	Msg_text
+test.t1	optimize	note	Table does not support optimize, doing recreate + analyze instead
+test.t1	optimize	status	OK
+WAIT_FOR_EXECUTED_GTID_SET_EXPECTED
+1
+WAIT_FOR_EXECUTED_GTID_SET_EXPECTED
+1
+WAIT_FOR_EXECUTED_GTID_SET_EXPECTED
+1
+DROP TABLE t1;
+STOP REPLICA;
+RESET REPLICA ALL;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;

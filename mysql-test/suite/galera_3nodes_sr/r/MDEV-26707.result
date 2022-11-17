@@ -1,0 +1,58 @@
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY);
+SET SESSION wsrep_trx_fragment_size=1;
+BEGIN;
+INSERT INTO t1 VALUES (21);
+SELECT COUNT(*) AS EXPECT_1 FROM mysql.wsrep_streaming_log;
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_1 FROM mysql.wsrep_streaming_log;
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_1 FROM mysql.wsrep_streaming_log;
+EXPECT_1
+1
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate = 1';
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET DEBUG_SYNC = 'wsrep_before_certification SIGNAL before_cert WAIT_FOR continue';
+COMMIT;
+SET DEBUG_SYNC = 'now WAIT_FOR before_cert';
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate = 1';
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET DEBUG_SYNC = 'now SIGNAL continue';
+ERROR HY000: Got error 6 - 'Not connected to Primary Component' during COMMIT
+SET DEBUG_SYNC = 'RESET';
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate = 0';
+SET SESSION wsrep_sync_wait = 0;
+SELECT COUNT(*) AS EXPECT_1 FROM mysql.wsrep_streaming_log;
+EXPECT_1
+1
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET SESSION wsrep_sync_wait = 0;
+SELECT COUNT(*) AS EXPECT_1 FROM mysql.wsrep_streaming_log;
+EXPECT_1
+1
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate = 0';
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = DEFAULT;
+SELECT COUNT(*) AS EXPECT_0 FROM  mysql.wsrep_streaming_log;
+EXPECT_0
+0
+SELECT COUNT(*) AS EXPECT_0 FROM  mysql.wsrep_streaming_log;
+EXPECT_0
+0
+SELECT COUNT(*) AS EXPECT_0 FROM  mysql.wsrep_streaming_log;
+EXPECT_0
+0
+DROP TABLE t1;

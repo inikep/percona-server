@@ -1,0 +1,1 @@
+--gtid-mode=ON_PERMISSIVE --log-bin=mysqld-bin

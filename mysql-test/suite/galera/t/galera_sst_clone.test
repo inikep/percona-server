@@ -1,0 +1,13 @@
+--source include/big_test.inc
+--source include/have_clone_plugin.inc
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+
+# galera_st_clean_slave.inc does not clean data dir properly, leaving subdirs.
+# mysqld justly refuses to initialize non-empty data directory. Hence the
+# following test fails.
+# --source suite/galera/include/galera_st_clean_slave.inc
+
+--source suite/galera/include/galera_st_shutdown_slave.inc
+--source suite/galera/include/galera_st_kill_slave.inc
+--source suite/galera/include/galera_st_kill_slave_ddl.inc

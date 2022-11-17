@@ -1,0 +1,2 @@
+--gtid-mode=ON --log-bin=mysqld-bin --log-replica-updates --enforce-gtid-consistency
+

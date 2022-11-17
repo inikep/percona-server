@@ -1,0 +1,131 @@
+--source include/galera_cluster.inc
+
+#
+# Test a local transaction being aborted, so that the victim is in innodb lock wait state
+# for another table
+#
+
+CREATE TABLE t_bf_conflict    (f1 INTEGER PRIMARY KEY, f2 CHAR(6)) ENGINE=InnoDB;
+CREATE TABLE t_local_block (f1 INTEGER PRIMARY KEY, f2 CHAR(6)) ENGINE=InnoDB;
+
+--connect blocker, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connect bf_victim, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connect bf_yielder, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+
+--connection node_1
+--let $wsrep_local_bf_aborts_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_bf_aborts'`
+INSERT INTO t_bf_conflict VALUES (1,'node_1');
+INSERT INTO t_local_block VALUES (1,'node_1');
+
+--connection blocker
+
+SET AUTOCOMMIT=OFF;
+
+START TRANSACTION;
+UPDATE t_local_block SET f2 = 'block';
+
+--connection bf_victim
+# this connection will be victim for later BF abort
+START TRANSACTION;
+UPDATE t_bf_conflict SET f2 = 'victim';
+
+
+--connection bf_victim
+# this update will remain waiting for blocker transaction to release lock
+--send UPDATE t_local_block SET f2 = 'wait';
+
+--connection node_1a
+# wait for UPDATE to reach LOCK WAIT state
+--let $wait_condition = SELECT COUNT(*) = 1 FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT';
+--source include/wait_condition.inc
+
+
+--connection node_2
+UPDATE t_bf_conflict SET f2 = 'kill';
+
+--connection bf_victim
+--error ER_LOCK_DEADLOCK
+--reap
+COMMIT;
+
+--connection blocker
+ROLLBACK;
+
+--connection node_1
+--let $wsrep_local_bf_aborts_after = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_bf_aborts'`
+
+--disable_query_log
+--eval SELECT $wsrep_local_bf_aborts_after - $wsrep_local_bf_aborts_before  AS wsrep_local_aborts_increment;
+--enable_query_log
+
+SELECT * FROM t_bf_conflict;
+SELECT * FROM t_local_block;
+
+#
+# test phase 2, here we have one victim transaction holding the conflicting lock
+# and another local transaction in wait queue for the conflicting lock
+#
+
+--connection blocker
+
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+UPDATE t_local_block SET f2 = 'block';
+
+--connection bf_victim
+# this connection will be victim for later BF abort
+START TRANSACTION;
+UPDATE t_bf_conflict SET f2 = 'victim';
+
+# this update will remain waiting for blocker transaction to release lock
+--send UPDATE t_local_block SET f2 = 'wait';
+
+--connection node_1a
+# wait for UPDATE to reach LOCK WAIT state
+--let $wait_condition = SELECT COUNT(*) = 1 FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT';
+--source include/wait_condition.inc
+
+#
+# this AC connection will be in lock wait state for the conflict table,
+# however, this will not be BF aborted, but should yield its position in lock wait queue
+# for the BF thread, and can resume after BF thread has committed
+#
+
+
+--connection bf_yielder
+--send UPDATE t_bf_conflict SET f2 = 'wait';
+
+--connection node_1a
+# wait for UPDATE to reach LOCK WAIT state
+--let $wait_condition = SELECT COUNT(*) = 2 FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT';
+--source include/wait_condition.inc
+
+--connection node_2
+UPDATE t_bf_conflict SET f2 = 'abort';
+
+--connection bf_victim
+--error ER_LOCK_DEADLOCK
+--reap
+COMMIT;
+
+--connection bf_yielder
+--reap
+COMMIT;
+
+--connection blocker
+ROLLBACK;
+
+--connection node_1
+--let $wsrep_local_bf_aborts_after = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_bf_aborts'`
+
+SELECT * FROM t_bf_conflict;
+SELECT * FROM t_local_block;
+
+--disable_query_log
+--eval SELECT $wsrep_local_bf_aborts_after - $wsrep_local_bf_aborts_before  AS wsrep_local_aborts_increment;
+--enable_query_log
+
+
+DROP TABLE t_bf_conflict;
+DROP TABLE t_local_block;

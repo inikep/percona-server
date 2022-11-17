@@ -1,0 +1,19 @@
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+SELECT WSREP_SYNC_WAIT_UPTO_GTID(NULL);
+ERROR HY000: Incorrect arguments to wsrep_sync_wait_upto_gtid
+SELECT WSREP_SYNC_WAIT_UPTO_GTID('a');
+ERROR HY000: Incorrect arguments to wsrep_sync_wait_upto_gtid
+SELECT WSREP_SYNC_WAIT_UPTO_GTID(2);
+ERROR HY000: Incorrect arguments to wsrep_sync_wait_upto_gtid
+WSREP_SYNC_WAIT_UPTO
+1
+WSREP_SYNC_WAIT_UPTO
+1
+WSREP_SYNC_WAIT_UPTO
+1
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
+INSERT INTO t1 VALUES (2);
+WSREP_SYNC_WAIT_UPTO
+1
+DROP TABLE t1;

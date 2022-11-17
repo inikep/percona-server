@@ -1,0 +1,10 @@
+CREATE DATABASE `some database`;
+CREATE DATABASE `база данни`;
+CREATE TEMPORARY TABLE `some database`.`временна таблица` (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE `база данни`.`some table` (f1 INTEGER) ENGINE=InnoDB;
+DROP TABLE `some database`.`временна таблица`, `база данни`.`some table`;
+SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'some table';
+COUNT(*) = 0
+1
+DROP DATABASE `some database`;
+DROP DATABASE `база данни`;

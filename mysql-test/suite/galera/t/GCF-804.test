@@ -1,0 +1,53 @@
+#
+# GCF-804 Inconsistency voting: Some DDL involving temporary tables cause voting split
+#
+
+--source include/galera_cluster.inc
+
+#
+# CREATE VIEW on TEMPORARY TABLE
+#
+
+CREATE TEMPORARY TABLE t1 (f1 integer);
+--error ER_VIEW_SELECT_TMPTABLE
+CREATE VIEW v1 AS SELECT * FROM t1;
+
+DROP TABLE t1;
+
+#
+# CREATE VIEW on two tables
+#
+
+CREATE TEMPORARY TABLE t1 (f1 integer);
+CREATE TABLE t2 (f1 integer);
+--error ER_VIEW_SELECT_TMPTABLE
+CREATE VIEW v1 AS SELECT 1 FROM t1, t2;
+DROP TABLE t1, t2;
+
+#
+# ALTER on a temp table
+#
+
+CREATE TEMPORARY TABLE t1 (f1 integer);
+ALTER TABLE t1 ADD COLUMN f2 INTEGER;
+DROP TABLE t1;
+
+#
+# ALTER on a temp table that masks a regular one
+#
+
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t1 (f2 INTEGER) ENGINE=InnoDB;
+ALTER TABLE t1 CHANGE COLUMN f2 f2 BIGINT;
+
+DROP TABLE t1;
+DROP TABLE t1;
+
+#
+# CREATE TRIGGER on TEMPORARY TABLE
+#
+
+CREATE TEMPORARY TABLE t1 (f1 INTEGER);
+--error ER_TRG_ON_VIEW_OR_TEMP_TABLE
+CREATE TRIGGER tr1 AFTER INSERT ON t1 FOR EACH ROW INSERT INTO t1 VALUES (1);
+DROP TABLE t1;

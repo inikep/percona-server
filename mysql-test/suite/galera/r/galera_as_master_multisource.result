@@ -1,0 +1,14 @@
+START REPLICA USER='root';
+Warnings:
+Note	1759	Sending passwords in plain text without SSL/TLS is extremely insecure.
+Note	1759	Sending passwords in plain text without SSL/TLS is extremely insecure.
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(1);
+CREATE TABLE t2 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t2 VALUES(1);
+DROP TABLE t1;
+DROP TABLE t2;
+STOP REPLICA;
+RESET REPLICA ALL;
+RESET MASTER;
+RESET MASTER;

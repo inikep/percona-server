@@ -1,0 +1,71 @@
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+RESET MASTER;
+wsrep_last_committed_correct
+1
+SHOW BINLOG EVENTS FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	1	157	
+RESET MASTER;
+RESET MASTER;
+wsrep_last_committed_correct
+1
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+SHOW BINLOG EVENTS FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	1	157	
+mysqld-bin.000001	157	Anonymous_Gtid	1	236	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	236	Query	1	316	BEGIN
+mysqld-bin.000001	316	Table_map	1	364	table_id: ### (test.t1)
+mysqld-bin.000001	364	Write_rows	1	404	table_id: ### flags: STMT_END_F
+mysqld-bin.000001	404	Xid	1	435	COMMIT /* xid=### */
+SHOW BINLOG EVENTS FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	2	157	
+mysqld-bin.000001	157	Anonymous_Gtid	1	247	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	247	Query	1	322	BEGIN
+mysqld-bin.000001	322	Table_map	1	370	table_id: ### (test.t1)
+mysqld-bin.000001	370	Write_rows	1	410	table_id: ### flags: STMT_END_F
+mysqld-bin.000001	410	Xid	1	441	COMMIT /* xid=### */
+TRUNCATE TABLE t1;
+RESET MASTER;
+ERROR 23000: Duplicate entry '1' for key 't1.PRIMARY'
+wsrep_last_committed_correct
+1
+SELECT COUNT(*) = 0 FROM t1;
+COUNT(*) = 0
+1
+SHOW BINLOG EVENTS FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	1	157	
+TRUNCATE TABLE t1;
+RESET MASTER;
+SHOW BINLOG EVENTS FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	1	157	
+mysqld-bin.000001	157	Anonymous_Gtid	1	237	SET @@SESSION.GTID_NEXT= 'ANONYMOUS'
+mysqld-bin.000001	237	Query	1	317	BEGIN
+mysqld-bin.000001	317	Table_map	1	365	table_id: ### (test.t1)
+mysqld-bin.000001	365	Write_rows	1	8580	table_id: ###
+mysqld-bin.000001	8580	Write_rows	1	16795	table_id: ###
+mysqld-bin.000001	16795	Write_rows	1	25010	table_id: ###
+mysqld-bin.000001	25010	Write_rows	1	33225	table_id: ###
+mysqld-bin.000001	33225	Write_rows	1	41440	table_id: ###
+mysqld-bin.000001	41440	Write_rows	1	49655	table_id: ###
+mysqld-bin.000001	49655	Write_rows	1	50610	table_id: ### flags: STMT_END_F
+mysqld-bin.000001	50610	Table_map	1	50658	table_id: ### (test.t1)
+mysqld-bin.000001	50658	Write_rows	1	58873	table_id: ###
+mysqld-bin.000001	58873	Write_rows	1	67088	table_id: ###
+mysqld-bin.000001	67088	Write_rows	1	75303	table_id: ###
+mysqld-bin.000001	75303	Write_rows	1	83518	table_id: ###
+mysqld-bin.000001	83518	Write_rows	1	91733	table_id: ###
+mysqld-bin.000001	91733	Write_rows	1	99948	table_id: ###
+mysqld-bin.000001	99948	Write_rows	1	100903	table_id: ### flags: STMT_END_F
+mysqld-bin.000001	100903	Table_map	1	100951	table_id: ### (test.t1)
+mysqld-bin.000001	100951	Write_rows	1	105991	table_id: ### flags: STMT_END_F
+mysqld-bin.000001	105991	Xid	1	106022	COMMIT /* xid=### */
+DROP TABLE t1;

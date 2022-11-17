@@ -40,7 +40,7 @@ call mtr.add_suppression("Failed to set up SSL because of the following SSL libr
 call mtr.add_suppression("\\[Warning\\] .*MY-\\d+.* Changing innodb_extend_and_initialize not supported on this platform.");
 call mtr.add_suppression("Failed to initialize TLS for channel: mysql_main");
 
-let $total_global_vars=`SELECT COUNT(*) FROM performance_schema.global_variables where variable_name NOT LIKE 'ndb_%'`;
+let $total_global_vars=`SELECT COUNT(*) FROM performance_schema.global_variables where variable_name NOT LIKE 'ndb_%' AND variable_name NOT LIKE 'wsrep_%' AND variable_name NOT LIKE 'innodb_disallow_writes'`;
 let $total_persistent_vars=442;
 
 --echo ***************************************************************
@@ -68,6 +68,7 @@ performance_schema.global_variables WHERE variable_name NOT IN
 'innodb_monitor_disable',
 'innodb_monitor_reset',
 'innodb_monitor_reset_all',
+'innodb_disallow_writes',
 'rbr_exec_mode');
 
 --let $count_vars= `SELECT COUNT(*) FROM global_vars;`
@@ -121,6 +122,8 @@ SELECT * FROM performance_schema.global_variables
 WHERE variable_name NOT IN
 ('rbr_exec_mode')
 AND variable_name NOT LIKE 'ndb_%'
+AND variable_name NOT LIKE 'wsrep_%'
+AND variable_name NOT LIKE 'innodb_disallow_writes'
 ORDER BY variable_name;
 
 --let $count_vars= `SELECT COUNT(*) FROM all_vars;`

@@ -1,0 +1,24 @@
+SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'mysql' AND TABLE_NAME LIKE 'wsrep%';
+TABLE_NAME
+SET GLOBAL wsrep_cluster_address='gcomm://';
+SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_state_comment';
+VARIABLE_VALUE
+Synced
+SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_status';
+VARIABLE_VALUE
+Primary
+SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size';
+VARIABLE_VALUE
+1
+SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'mysql' AND TABLE_NAME LIKE 'wsrep%';
+TABLE_NAME
+wsrep_cluster
+wsrep_cluster_members
+wsrep_streaming_log
+SET GLOBAL wsrep_on=OFF;
+SET GLOBAL wsrep_provider='none';
+SET GLOBAL wsrep_sst_auth='';
+SET GLOBAL wsrep_provider_options='';
+DROP TABLE mysql.wsrep_cluster;
+DROP TABLE mysql.wsrep_cluster_members;
+DROP TABLE mysql.wsrep_streaming_log;

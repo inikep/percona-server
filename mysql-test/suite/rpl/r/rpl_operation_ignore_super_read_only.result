@@ -13,6 +13,7 @@ SET AUTOCOMMIT= ON;
 SHOW VARIABLES like '%autocommit%';
 Variable_name	Value
 autocommit	ON
+wsrep_retry_autocommit	1
 ####################################################################
 # Test Case1: STOP SLAVE command
 ####################################################################
@@ -89,6 +90,7 @@ SET AUTOCOMMIT= OFF;
 SHOW VARIABLES like '%autocommit%';
 Variable_name	Value
 autocommit	OFF
+wsrep_retry_autocommit	1
 ####################################################################
 # Test Case1: STOP SLAVE command
 ####################################################################

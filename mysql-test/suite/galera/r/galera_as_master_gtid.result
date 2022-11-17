@@ -1,0 +1,55 @@
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+RESET MASTER;
+START REPLICA USER='root';
+Warnings:
+Note	1759	Sending passwords in plain text without SSL/TLS is extremely insecure.
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(1);
+uuids_do_not_match
+1
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	1	157	
+mysqld-bin.000001	157	Gtid	1	234	SET @@SESSION.GTID_NEXT= '<effective_uuid>:#'
+mysqld-bin.000001	234	Query	1	376	use `test`; CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB /* xid=# */
+mysqld-bin.000001	376	Gtid	1	455	SET @@SESSION.GTID_NEXT= '<effective_uuid>:#'
+mysqld-bin.000001	455	Query	1	535	BEGIN
+mysqld-bin.000001	535	Table_map	1	583	table_id: # (test.t1)
+mysqld-bin.000001	583	Write_rows	1	623	table_id: # flags: STMT_END_F
+mysqld-bin.000001	623	Xid	1	654	COMMIT /* xid=# */
+INSERT INTO t1 VALUES(2);
+uuids_do_not_match
+1
+uuids_match
+1
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+mysqld-bin.000001	126	Previous_gtids	2	157	
+mysqld-bin.000001	157	Gtid	1	245	SET @@SESSION.GTID_NEXT= '<effective_uuid>:#'
+mysqld-bin.000001	245	Query	1	387	use `test`; CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB /* xid=# */
+mysqld-bin.000001	387	Gtid	1	477	SET @@SESSION.GTID_NEXT= '<effective_uuid>:#'
+mysqld-bin.000001	477	Query	1	552	BEGIN
+mysqld-bin.000001	552	Table_map	1	600	table_id: # (test.t1)
+mysqld-bin.000001	600	Write_rows	1	640	table_id: # flags: STMT_END_F
+mysqld-bin.000001	640	Xid	1	671	COMMIT /* xid=# */
+mysqld-bin.000001	671	Gtid	1	750	SET @@SESSION.GTID_NEXT= '<effective_uuid>:#'
+mysqld-bin.000001	750	Query	1	830	BEGIN
+mysqld-bin.000001	830	Table_map	1	878	table_id: # (test.t1)
+mysqld-bin.000001	878	Write_rows	1	918	table_id: # flags: STMT_END_F
+mysqld-bin.000001	918	Xid	1	949	COMMIT /* xid=# */
+uuids_do_not_match
+1
+uuids_match
+1
+DROP TABLE t1;
+gtid_executed_equal
+1
+gtid_executed_equal
+1
+STOP REPLICA;
+RESET REPLICA ALL;

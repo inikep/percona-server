@@ -1,0 +1,4 @@
+SET SESSION wsrep_on = OFF;
+XA START 'xatest';
+ERROR 42000: This version of MySQL doesn't yet support 'XA with wsrep replication plugin'
+# restart

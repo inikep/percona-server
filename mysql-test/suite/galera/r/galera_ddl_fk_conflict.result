@@ -1,0 +1,222 @@
+SET SESSION wsrep_sync_wait=0;
+SET SESSION wsrep_sync_wait=0;
+######################################################################
+# Test for ALTER ENGINE=INNODB
+######################################################################
+######################################################################
+#
+# Scenario #1: DML working on FK parent table BF aborted by DDL
+#              over child table
+#
+######################################################################
+SET SESSION wsrep_sync_wait=0;
+CREATE TABLE p1 (pk INTEGER PRIMARY KEY, f2 CHAR(30));
+INSERT INTO p1 VALUES (1, 'INITIAL VALUE');
+CREATE TABLE p2 (pk INTEGER PRIMARY KEY, f2 CHAR(30));
+INSERT INTO p2 VALUES (1, 'INITIAL VALUE');
+INSERT INTO p2 VALUES (2, 'INITIAL VALUE');
+CREATE TABLE c1 (pk INTEGER PRIMARY KEY, fk INTEGER, FOREIGN KEY (fk) REFERENCES p1(pk));
+INSERT INTO c1 VALUES (1,1);
+CREATE TABLE c2 (pk INTEGER PRIMARY KEY, fk1 INTEGER, fk2 INTEGER, FOREIGN KEY (fk1) REFERENCES p1(pk), FOREIGN KEY (fk2) REFERENCES p2(pk));
+INSERT INTO c2 VALUES (1,1,1), (2,1,2);
+SET AUTOCOMMIT=ON;
+START TRANSACTION;
+UPDATE p1 SET f2 = 'TO DEADLOCK' WHERE pk = 1;
+SET SESSION wsrep_sync_wait=0;
+ALTER TABLE c1 ENGINE=INNODB;
+COMMIT;
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+######################################################################
+#
+# Scenario #2: DML working on FK parent table tries to replicate, but
+#              fails in certification for earlier DDL on child table
+#
+######################################################################
+BEGIN;
+SET GLOBAL wsrep_provider_options = 'dbug=d,apply_monitor_slave_enter_sync';
+ALTER TABLE c1 ENGINE=INNODB;
+SET SESSION wsrep_on = 0;
+SET SESSION wsrep_on = 1;
+SET GLOBAL wsrep_provider_options = 'dbug=';
+UPDATE p1 SET f2 = 'TO DEADLOCK' WHERE pk = 1;
+COMMIT;
+SET GLOBAL wsrep_provider_options = 'signal=apply_monitor_slave_enter_sync';
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT 'I deadlocked';
+I deadlocked
+I deadlocked
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+######################################################################
+#
+# Scenario #3: 2 DMLs working on two FK parent tables try to replicate, 
+#              but fails in certification for earlier DDL on child table
+#              which is child to both FK parents 
+#
+######################################################################
+BEGIN;
+BEGIN;
+SET GLOBAL wsrep_provider_options = 'dbug=d,apply_monitor_slave_enter_sync';
+ALTER TABLE c2 ENGINE=INNODB;
+SET SESSION wsrep_on = 0;
+SET SESSION wsrep_on = 1;
+SET GLOBAL wsrep_provider_options = 'dbug=';
+UPDATE p1 SET f2 = 'TO DEADLOCK' WHERE pk = 1;
+COMMIT;
+UPDATE p2 SET f2 = 'TO DEADLOCK' WHERE pk = 2;
+COMMIT;
+SET GLOBAL wsrep_provider_options = 'signal=apply_monitor_slave_enter_sync';
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT 'I deadlocked';
+I deadlocked
+I deadlocked
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT 'I deadlocked';
+I deadlocked
+I deadlocked
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+DROP TABLE c1, c2;
+DROP TABLE p1, p2;
+######################################################################
+# Test for TRUNCATE 
+######################################################################
+######################################################################
+#
+# Scenario #1: DML working on FK parent table BF aborted by DDL
+#              over child table
+#
+######################################################################
+SET SESSION wsrep_sync_wait=0;
+CREATE TABLE p1 (pk INTEGER PRIMARY KEY, f2 CHAR(30));
+INSERT INTO p1 VALUES (1, 'INITIAL VALUE');
+CREATE TABLE p2 (pk INTEGER PRIMARY KEY, f2 CHAR(30));
+INSERT INTO p2 VALUES (1, 'INITIAL VALUE');
+INSERT INTO p2 VALUES (2, 'INITIAL VALUE');
+CREATE TABLE c1 (pk INTEGER PRIMARY KEY, fk INTEGER, FOREIGN KEY (fk) REFERENCES p1(pk));
+INSERT INTO c1 VALUES (1,1);
+CREATE TABLE c2 (pk INTEGER PRIMARY KEY, fk1 INTEGER, fk2 INTEGER, FOREIGN KEY (fk1) REFERENCES p1(pk), FOREIGN KEY (fk2) REFERENCES p2(pk));
+INSERT INTO c2 VALUES (1,1,1), (2,1,2);
+SET AUTOCOMMIT=ON;
+START TRANSACTION;
+UPDATE p1 SET f2 = 'TO DEADLOCK' WHERE pk = 1;
+SET SESSION wsrep_sync_wait=0;
+TRUNCATE TABLE c1 ;
+COMMIT;
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+######################################################################
+#
+# Scenario #2: DML working on FK parent table tries to replicate, but
+#              fails in certification for earlier DDL on child table
+#
+######################################################################
+BEGIN;
+SET GLOBAL wsrep_provider_options = 'dbug=d,apply_monitor_slave_enter_sync';
+TRUNCATE TABLE c1 ;
+SET SESSION wsrep_on = 0;
+SET SESSION wsrep_on = 1;
+SET GLOBAL wsrep_provider_options = 'dbug=';
+UPDATE p1 SET f2 = 'TO DEADLOCK' WHERE pk = 1;
+COMMIT;
+SET GLOBAL wsrep_provider_options = 'signal=apply_monitor_slave_enter_sync';
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT 'I deadlocked';
+I deadlocked
+I deadlocked
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+######################################################################
+#
+# Scenario #3: 2 DMLs working on two FK parent tables try to replicate, 
+#              but fails in certification for earlier DDL on child table
+#              which is child to both FK parents 
+#
+######################################################################
+BEGIN;
+BEGIN;
+SET GLOBAL wsrep_provider_options = 'dbug=d,apply_monitor_slave_enter_sync';
+TRUNCATE TABLE c2 ;
+SET SESSION wsrep_on = 0;
+SET SESSION wsrep_on = 1;
+SET GLOBAL wsrep_provider_options = 'dbug=';
+UPDATE p1 SET f2 = 'TO DEADLOCK' WHERE pk = 1;
+COMMIT;
+UPDATE p2 SET f2 = 'TO DEADLOCK' WHERE pk = 2;
+COMMIT;
+SET GLOBAL wsrep_provider_options = 'signal=apply_monitor_slave_enter_sync';
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT 'I deadlocked';
+I deadlocked
+I deadlocked
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+SELECT 'I deadlocked';
+I deadlocked
+I deadlocked
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+SELECT COUNT(*) AS EXPECT_1 FROM p1 WHERE f2 = 'INITIAL VALUE';
+EXPECT_1
+1
+SELECT COUNT(*) AS EXPECT_2 FROM p2 WHERE f2 = 'INITIAL VALUE';
+EXPECT_2
+2
+DROP TABLE c1, c2;
+DROP TABLE p1, p2;

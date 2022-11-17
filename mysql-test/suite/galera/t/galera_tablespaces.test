@@ -1,0 +1,198 @@
+
+#
+# TC aims to test CREATE tablespace and related functionality.
+# especially 5.7 introduces GENERAL TABLESPACE and so it is important
+# that these tablespaces are replicated.
+#
+
+#
+# Important note/limitation: If user try to create tablespace
+# with datafile located out of data-directory then structure of file-system
+# on all nodes should be same else it may result in error on one of the node
+# Such error are logged to log file but we don't break the Galera-replication
+# link though it introduces GTID backlog on failing node.
+#
+
+--source include/galera_cluster.inc
+--source include/galera_have_debug_sync.inc
+
+
+#------------------------------------------------------------------------------
+#
+# Basic scenario to create tablespace directly in data-directory.
+#
+--connection node_1
+--echo #node-1
+use test;
+
+create tablespace ts1 add datafile 'ts1.ibd' engine=innodb;
+create table t1 (i int) TABLESPACE ts1 engine=innodb;
+create table t2 (i int) engine=innodb;
+insert into t1 values (1), (2), (3);
+insert into t2 values (3), (4), (5);
+
+#--replace_result $MYSQL_TMP_DIR MYSQL_TMP_DIR
+#--eval create tablespace ts2 add datafile '$MYSQL_TMP_DIR/n1/ts2.ibd' engine=innodb;
+#create table t3 (i int) TABLESPACE ts2 engine=innodb;
+#insert into t3 values (100), (101), (102);
+
+# check if tablespace is created
+select name from information_schema.innodb_tablespaces where name='ts1';
+select name from information_schema.innodb_tablespaces where name='ts2';
+show create table t1;
+show create table t2;
+
+# alter should put t2 into ts1 tablespace too.
+alter table t2 tablespace ts1;
+show create table t1;
+show create table t2;
+
+--connection node_2
+--echo #node-2
+use test;
+# ensure all the actions are replicated. CREATE TABLESPACE will use TOI.
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 't1';
+--source include/wait_condition.inc
+#
+select name from information_schema.innodb_tablespaces where name='ts1';
+show create table t1;
+show create table t2;
+select * from t1;
+select * from t2;
+#
+# what happens if we try to re-alter keeping the tablespace name unchanged.
+alter table t2 tablespace ts1;
+show create table t2;
+
+# cleanup the workload
+--connection node_1
+--echo #node-1
+use test;
+show create table t2;
+drop table t1;
+drop table t2;
+drop tablespace ts1;
+
+# ensure drop action is replicated too.
+--connection node_2
+--echo #node-2
+--let $wait_condition = SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = 'ts1';
+--source include/wait_condition.inc
+
+
+#------------------------------------------------------------------------------
+#
+# trying alter and rename of tablespace
+#
+--connection node_1
+--echo #node-1
+create tablespace ts1 add datafile 'ts1.ibd' engine=innodb;
+create tablespace ts2 add datafile 'ts2.ibd' engine=innodb;
+create table t1 (i int) TABLESPACE ts1 engine=innodb;
+show create table t1;
+select name, space_type, state from information_schema.innodb_tablespaces where name LIKE 'ts%';
+select name, path from information_schema.innodb_tablespaces_brief where name LIKE 'ts%';
+
+--connection node_2
+--echo #node-2
+#
+# rename tablespace
+alter tablespace ts1 rename to ts10;
+select name, space_type, state from information_schema.innodb_tablespaces where name LIKE 'ts%';
+select name, path from information_schema.innodb_tablespaces_brief where name LIKE 'ts%';
+show create table t1;
+#
+drop tablespace ts2;
+select name, space_type, state from information_schema.innodb_tablespaces where name LIKE 'ts%';
+
+--connection node_1
+--echo #node-1
+select name, space_type, state from information_schema.innodb_tablespaces where name LIKE 'ts%';
+select name, path from information_schema.innodb_tablespaces_brief where name LIKE 'ts%';
+drop table t1;
+drop tablespace ts10;
+
+#------------------------------------------------------------------------------
+#
+# MySQL-8.0 introduces create/alter/drop of undo tables
+#
+--connection node_1
+--echo #node-1
+CREATE UNDO TABLESPACE one_undo ADD DATAFILE 'one_undo.ibu';
+SELECT NAME, SPACE_TYPE, STATE FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Undo' ORDER BY NAME;
+SELECT count(*) = 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = 'one_undo' AND STATE = 'empty';
+
+--connection node_2
+--echo #node-2
+#
+SELECT NAME, SPACE_TYPE, STATE FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Undo' ORDER BY NAME;
+SELECT count(*) = 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = 'one_undo' AND STATE = 'empty';
+
+#
+ALTER UNDO TABLESPACE one_undo SET INACTIVE;
+SELECT NAME, SPACE_TYPE, STATE FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Undo' ORDER BY NAME;
+# -- truncate of undo tablespace after marking inactive may take some time
+SELECT SLEEP(5);
+SELECT count(*) = 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = 'one_undo' AND STATE = 'empty';
+
+#
+DROP UNDO TABLESPACE one_undo;
+SELECT NAME, SPACE_TYPE, STATE FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Undo' ORDER BY NAME;
+SELECT count(*) = 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = 'one_undo' AND STATE = 'empty';
+
+
+--connection node_1
+--echo #node-1
+SELECT NAME, SPACE_TYPE, STATE FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Undo' ORDER BY NAME;
+SELECT count(*) = 1 FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = 'one_undo' AND STATE = 'empty';
+
+
+
+#------------------------------------------------------------------------------
+#
+# ALTER OF TABLESPACE should add all sub-objects as part of it write-set
+# signature to properly detect conflict with parallel running DML command.
+#
+--connection node_1
+--echo #node-1 (issue dml that would conflict with parallel ALTER TABLESPACE)
+use test;
+create tablespace tab ADD DATAFILE 'tab.ibd';
+create table t1 (i int, primary key pk(i)) tablespace=tab;
+insert into t1 values (1), (2), (3), (4);
+select * from t1;
+select name from information_schema.innodb_tablespaces where name='tab';
+#
+set session wsrep_retry_autocommit=0;
+SET DEBUG_SYNC = 'wsrep_before_certification WAIT_FOR continue';
+
+--send update t1 set i = i + 10 where i = 2;
+
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--echo #node-1a (issue ALTER TABLESPACE)
+SET SESSION wsrep_sync_wait = 0;
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE STATE = 'debug sync point: wsrep_before_certification'
+--source include/wait_condition.inc
+
+alter tablespace tab rename to tab_rename;
+
+--connect node_1b, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--echo #node-1b
+SET SESSION wsrep_sync_wait = 0;
+SET DEBUG_SYNC= 'now SIGNAL continue';
+
+--connection node_1
+--echo #node-1
+--error ER_LOCK_DEADLOCK
+--reap
+select * from t1;
+SET DEBUG_SYNC= 'RESET';
+
+--connection node_1a
+--echo #node-1a
+--let $wait_condition = select count(*) = 1 from information_schema.innodb_tablespaces where name='tab_rename';
+--source include/wait_condition.inc
+
+--connection node_1
+--echo #node-1
+drop table t1;
+drop tablespace tab_rename;

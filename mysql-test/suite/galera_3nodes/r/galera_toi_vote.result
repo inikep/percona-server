@@ -1,0 +1,11 @@
+SET SESSION wsrep_on=OFF;
+DROP SCHEMA test;
+CREATE SCHEMA test;
+ERROR HY000: Can't create database 'test'; database exists
+SET SESSION wsrep_sync_wait=0;
+SET SESSION wsrep_sync_wait=0;
+SET SESSION wsrep_sync_wait=0;
+Killing server ...
+# restart
+CALL mtr.add_suppression("Vote 0 \\\(success\\\) on (.*) is inconsistent with group. Leaving cluster.");
+CALL mtr.add_suppression("Slave SQL: Error 'Can't create database 'test'; database exists' on query. Default database: 'test'. Query: 'CREATE SCHEMA test', Error_code: MY-001007");

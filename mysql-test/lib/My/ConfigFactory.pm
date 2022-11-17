@@ -277,8 +277,14 @@ my @mysqld_rules = (
   { 'datadir'                                      => \&fix_datadir },
   { 'port'                                         => \&fix_port },
   { 'admin-port'                                   => \&fix_admin_port },
+  # galera base_port and port used during SST
+  { '#galera_port'                                 => \&fix_port },
+  # Galera uses base_port + 1 for IST, so we do not use it for things such as SST
+  { '#ist_port'                                    => \&fix_port },
+  { '#sst_port'                                    => \&fix_port },
   { 'general_log'                                  => 1 },
   { 'general_log_file'                             => \&fix_log },
+  # Use port number after `#sst_port`
   { 'loose-mysqlx-port'                            => \&fix_x_port },
   { 'loose-mysqlx-socket'                          => \&fix_x_socket },
   { 'loose-mysqlx-ssl'                             => \&fix_ssl_disabled },
@@ -483,14 +489,59 @@ sub resolve_at_variable {
   $config->insert($group->name(), $option->name(), $from);
 }
 
+#
+# wsrep changed tp use old 5.7 version of resolve_at_variable()
+# the problem with 8.0 version is that it does not work with the long
+# wsrep_provider_options variable
+#
+sub resolve_at_variable_57 {
+  my ($self, $config, $group, $option)= @_;
+  local $_ = $option->value();
+  my ($res, $after);
+
+  while (m/(.*?)\@((?:\w+\.)+)(#?[-\w]+)/g) {
+    my ($before, $group_name, $option_name)= ($1, $2, $3);
+    $after = $';
+    chop($group_name);
+
+    $group_name =~ s/^\@//; # Remove at
+    my $value;
+
+    if ($group_name =~ "env")
+    {
+      $value = $ENV{$option_name};
+    }
+    else
+    {
+      my $from_group= $config->group($group_name)
+        or croak "There is no group named '$group_name' that ",
+          "can be used to resolve '$option_name'";
+      $value= $from_group->value($option_name);
+    }
+
+    $res .= $before.$value;
+  }
+  $res .= $after;
+
+  my @parts       = split(/\./, $option->value());
+  my $option_name = pop(@parts);
+  $config->insert($group->name(), $option->name(), $res)
+}
+
 sub post_fix_resolve_at_variables {
   my ($self, $config) = @_;
 
   foreach my $group ($config->groups()) {
     foreach my $option ($group->options()) {
       next unless defined $option->value();
-      $self->resolve_at_variable($config, $group, $option)
-        if ($option->value() =~ /^\@/);
+      #
+      # WSREP uses a bit different logic to filter out resolve_at_variable() call
+      # MySQL upstream 8.0 has it instead like this:
+      #       if ($option->value() =~ /^\@/);
+      # Also, resolve_at_variable() function has been copied from 5.7 version
+      #
+      $self->resolve_at_variable_57($config, $group, $option)
+        if ($option->value() =~ /\@/);
     }
   }
 }

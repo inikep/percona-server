@@ -1,0 +1,32 @@
+SET @old_log_output= @@log_output;
+SET GLOBAL log_output= 'TABLE';
+TRUNCATE mysql.general_log;
+TRUNCATE mysql.slow_log;
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY, f2 INTEGER DEFAULT 0) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1, DEFAULT);
+SELECT COUNT(*) > 0 FROM mysql.general_log;
+COUNT(*) > 0
+1
+TRUNCATE mysql.slow_log;
+SELECT COUNT(*) = 0 FROM t1 WHERE f2 = 1;
+COUNT(*) = 0
+1
+SELECT COUNT(*) = 1 FROM mysql.slow_log WHERE sql_text = 'SELECT COUNT(*) = 0 FROM t1 WHERE f2 = 1';
+COUNT(*) = 1
+1
+SELECT COUNT(*) = 0 FROM mysql.general_log WHERE argument = 'CREATE TABLE t1 (f1 INTEGER PRIMARY KEY, f2 INTEGER DEFAULT 0) ENGINE=InnoDB';
+COUNT(*) = 0
+1
+TRUNCATE mysql.slow_log;
+SELECT COUNT(*) = 0 FROM t1 WHERE f2 = 2;
+COUNT(*) = 0
+1
+SELECT COUNT(*) = 1 FROM mysql.slow_log WHERE sql_text = 'SELECT COUNT(*) = 0 FROM t1 WHERE f2 = 2';
+COUNT(*) = 1
+0
+DROP TABLE t1;
+SET GLOBAL log_output= @old_log_output;
+TRUNCATE mysql.general_log;
+TRUNCATE mysql.slow_log;
+CALL mtr.add_suppression("Although a path was specified for the --general-log-file option, log tables are used. To enable logging to files use the --log-output=file option.");
+CALL mtr.add_suppression("Although a path was specified for the --slow-query-log-file option, log tables are used. To enable logging to files use the --log-output=file option.");

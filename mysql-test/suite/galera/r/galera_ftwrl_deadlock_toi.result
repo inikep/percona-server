@@ -1,0 +1,7 @@
+CREATE TABLE t1 (f1 INT PRIMARY KEY, f2 INT);
+SET DEBUG_SYNC = "wsrep_alter_before_lock_table SIGNAL sync_point_reached WAIT_FOR sync_point_continue";
+ALTER TABLE t1 ADD COLUMN f3 INT;;
+SET DEBUG_SYNC = "now WAIT_FOR sync_point_reached";
+SET DEBUG_SYNC = "now SIGNAL sync_point_continue";
+SET DEBUG_SYNC = "RESET";
+DROP TABLE t1;

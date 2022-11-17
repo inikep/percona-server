@@ -1,0 +1,29 @@
+CREATE TABLE hex (f1 INTEGER) ENGINE=InnoDB;
+INSERT INTO hex VALUES (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12), (13), (14), (15), (16);
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY AUTO_INCREMENT, f2 VARCHAR(512)) ENGINE=InnoDB;
+SET SESSION wsrep_trx_fragment_size = 1;
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+INSERT INTO t1 (f2) SELECT REPEAT('x', 512) FROM hex AS a1, hex AS a2, hex AS a3, hex AS a4;
+INSERT INTO t1 (f2) SELECT REPEAT('x', 512) FROM hex AS a1;
+SELECT COUNT(*) > 0 FROM mysql.wsrep_streaming_log;
+COUNT(*) > 0
+1
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SELECT COUNT(*) FROM t1 AS expect_65552;
+COUNT(*)
+65552
+ROLLBACK;
+SET SESSION wsrep_sync_wait = 0;
+SET GLOBAL wsrep_provider_options = 'repl.causal_read_timeout=PT10M';
+SET SESSION wsrep_sync_wait = 7;
+SELECT COUNT(*) = 0 FROM mysql.wsrep_streaming_log;
+COUNT(*) = 0
+1
+SELECT COUNT(*) = 0 FROM t1;
+COUNT(*) = 0
+1
+COUNT(*) = 0
+1
+COUNT(*) = 0
+1

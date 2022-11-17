@@ -1,0 +1,51 @@
+#
+# Test that sensitive statements such as those containing plaintext passwords
+# do not leak into the logs, expecially under wsrep_debug=ON
+#
+
+--source include/galera_cluster.inc
+
+--let $wsrep_debug_orig = `SELECT @@wsrep_debug`
+
+SET GLOBAL wsrep_debug = SERVER;
+
+CREATE USER u1 IDENTIFIED BY 'plaintext_password';
+
+--error ER_CANNOT_USER
+CREATE USER u1 IDENTIFIED BY 'plaintext_password';
+
+--let $assert_only_after = CURRENT_TEST
+
+# Check that the plaintext password does not appear in the logs
+--let $assert_select = plaintext_password
+--let $assert_count = 0
+--let $assert_text = Plaintext password count is 0
+
+--let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.1.err
+--source include/assert_grep.inc
+--let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.2.err
+--source include/assert_grep.inc
+
+# Check that the obfuscated password appears in the logs
+--let $assert_select = IDENTIFIED BY <secret>
+
+# Four times for the first node, in the various wsrep_debug messages
+--let $assert_count = 5
+--let $assert_text = Obfuscated password count is $assert_count on the master node
+--let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.1.err
+--source include/assert_grep.inc
+
+# Once for the second node, in the 'Slave SQL' error
+--let $assert_count = 1
+--let $assert_text = Obfuscated password count is $assert_count on the slave node
+--let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.2.err
+--source include/assert_grep.inc
+
+DROP USER u1;
+
+--disable_query_log
+--eval SET GLOBAL wsrep_debug = $wsrep_debug_orig
+--enable_query_log
+
+--connection node_2
+CALL mtr.add_suppression('Operation CREATE USER failed');

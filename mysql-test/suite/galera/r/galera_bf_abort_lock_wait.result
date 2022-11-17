@@ -1,0 +1,44 @@
+CREATE TABLE t_bf_conflict    (f1 INTEGER PRIMARY KEY, f2 CHAR(6)) ENGINE=InnoDB;
+CREATE TABLE t_local_block (f1 INTEGER PRIMARY KEY, f2 CHAR(6)) ENGINE=InnoDB;
+INSERT INTO t_bf_conflict VALUES (1,'node_1');
+INSERT INTO t_local_block VALUES (1,'node_1');
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+UPDATE t_local_block SET f2 = 'block';
+START TRANSACTION;
+UPDATE t_bf_conflict SET f2 = 'victim';
+UPDATE t_local_block SET f2 = 'wait';;
+UPDATE t_bf_conflict SET f2 = 'kill';
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+COMMIT;
+ROLLBACK;
+wsrep_local_aborts_increment
+0
+SELECT * FROM t_bf_conflict;
+f1	f2
+1	kill
+SELECT * FROM t_local_block;
+f1	f2
+1	node_1
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+UPDATE t_local_block SET f2 = 'block';
+START TRANSACTION;
+UPDATE t_bf_conflict SET f2 = 'victim';
+UPDATE t_local_block SET f2 = 'wait';;
+UPDATE t_bf_conflict SET f2 = 'wait';;
+UPDATE t_bf_conflict SET f2 = 'abort';
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
+COMMIT;
+COMMIT;
+ROLLBACK;
+SELECT * FROM t_bf_conflict;
+f1	f2
+1	wait
+SELECT * FROM t_local_block;
+f1	f2
+1	node_1
+wsrep_local_aborts_increment
+0
+DROP TABLE t_bf_conflict;
+DROP TABLE t_local_block;

@@ -239,7 +239,7 @@ sub shutdown {
     } else {
       my $exit_status = $proc->exit_status();
       $shutdown_status = $exit_status if $exit_status;
-    }
+     }
   }
 
   # Wait infinitely for those process that has been killed

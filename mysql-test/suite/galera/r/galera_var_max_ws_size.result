@@ -1,0 +1,20 @@
+CREATE TABLE t1 (f1 INTEGER AUTO_INCREMENT PRIMARY KEY, f2 VARCHAR(1024)) Engine=InnoDB;
+SET GLOBAL wsrep_max_ws_size = 1024;
+INSERT INTO t1 VALUES (DEFAULT, REPEAT('X', 1024));
+ERROR HY000: Got error 5 - 'size_exceeded_error' during COMMIT
+SELECT COUNT(*) = 0 FROM t1;
+COUNT(*) = 0
+1
+SET GLOBAL wsrep_provider_options = 'repl.max_ws_size=10000';
+SELECT @@wsrep_max_ws_size = 10000;
+@@wsrep_max_ws_size = 10000
+1
+SET GLOBAL wsrep_provider_options = 'repl.max_ws_size=20000';
+SET GLOBAL wsrep_provider_options = 'repl.max_ws_size=10000';
+SET GLOBAL wsrep_max_ws_size = 20000;
+provider_options_match
+1
+DROP TABLE t1;
+CALL mtr.add_suppression("transaction size limit (.*) exceeded:");
+CALL mtr.add_suppression("Error writing file");
+CALL mtr.add_suppression("rbr write fail, data_len:");

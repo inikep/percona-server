@@ -275,6 +275,43 @@ INSERT INTO global_suppressions VALUES
  ("Insecure configuration for --secure-file-priv:*"),
 
  /*
+   Galera suppressions
+ */
+/* ("WSREP:*down context*"), */
+ ("Failed to send state UUID:*"),
+ ("wsrep_sst_receive_address is set to '127.0.0.1"),
+ ("Could not open state file for reading: "),
+ ("access file\\(.*gvwstate\\.dat\\) failed\\(No such file or directory\\)"),
+ ("last inactive check more than"),
+ ("Quorum: No node with complete state"),
+ ("Failed to report last committed"),
+ ("Slave SQL: Error 'Duplicate entry"),
+ ("Query apply failed:"),
+ ("Warning: Using a password on the command line interface can be insecure"),
+ ("InnoDB: Error: Table \"mysql\"\\.\"innodb_table_stats\" not found"),
+ ("but it is impossible to select State Transfer donor: Resource temporarily unavailable"),
+ ("Could not find peer"),
+ ("discarding established \\(time wait\\)"),
+ ("sending install message failed: Resource temporarily unavailable"),
+ ("Ignoring possible split-brain \\(allowed by configuration\\) from view"),
+ ("no nodes coming from prim view, prim not possible"),
+ ("Action message in non-primary configuration from member"),
+ ("SYNC message from member"),
+ ("InnoDB: Resizing redo log from"),
+ ("InnoDB: Starting to delete and rewrite log files"),
+ ("InnoDB: New log files created, LSN="),
+-- WSREP: Send action {0x7f86280147f0, 73, STATE_REQUEST} returned -107 (Transport endpoint is not connected)
+ ("Transport endpoint is not connected"),
+ ("Socket is not connected"),
+-- "WSREP: Protocol violation. JOIN message sender 1.0 (host-91-221-67-96) is not in state transfer (SYNCED). Message ignored.
+ ("is not in state transfer"),
+ ("JOIN message from member .* in non-primary configuration"),
+ ("install timer expired"),
+ ("Last Applied Action message in non-primary configuration from member"),
+ ("Skipped GCache ring buffer recovery: could not determine history UUID"),
+ ("InnoDB High Priority being used"),
+
+ /*
    Bug#26585560, warning related to --pid-file
  */
  ("Insecure configuration for --pid-file:*"),
@@ -446,9 +483,20 @@ BEGIN
   END IF;
 
   -- Cleanup for next test
-  TRUNCATE test_suppressions;
-  TRUNCATE test_ignored_global_suppressions;
-  TRUNCATE asserted_test_suppressions;
+  IF @@wsrep_on = 1 THEN
+    -- The TRUNCATE should not be replicated under Galera
+    -- as it causes the custom suppressions on the other
+    -- nodes to be deleted as well
+    SET wsrep_on = 0;
+    TRUNCATE test_suppressions;
+    TRUNCATE test_ignored_global_suppressions;
+    TRUNCATE asserted_test_suppressions;
+    SET wsrep_on = 1;
+  ELSE 
+    TRUNCATE test_suppressions;
+    TRUNCATE test_ignored_global_suppressions;
+    TRUNCATE asserted_test_suppressions;
+  END IF;    
   DROP TABLE error_log;
 
 END$$

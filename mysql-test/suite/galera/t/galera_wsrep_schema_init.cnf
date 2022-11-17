@@ -1,0 +1,22 @@
+#
+# This .cnf file starts 1 server without enabling Galera.
+#
+
+!include include/default_mysqld.cnf
+
+[mysqld]
+binlog-format=row
+innodb_autoinc_lock_mode=2
+innodb_flush_log_at_trx_commit=2
+log-bin=mysqld-bin
+
+wsrep_node_address=127.0.0.1
+wsrep_sync_wait = 15
+
+[mysqld.1]
+
+[ENV]
+NODE_MYPORT_1= @mysqld.1.port
+NODE_MYSOCK_1= @mysqld.1.socket
+NODE_GALERAPORT_1= @mysqld.1.#galera_port
+NODE_SSTPORT_1= @mysqld.1.#sst_port

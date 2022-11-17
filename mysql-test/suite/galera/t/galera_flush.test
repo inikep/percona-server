@@ -1,0 +1,88 @@
+#
+# Test that various FLUSH commands are replicated. Whenever possible, check the slave for the effects.
+#
+
+--source include/galera_cluster.inc
+#--source include/have_perfschema.inc
+#--source include/have_query_cache.inc
+
+#
+# The following FLUSH statements should be replicated
+#
+
+--connection node_2
+--let $wsrep_last_committed_before = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--connection node_1
+TRUNCATE TABLE performance_schema.host_cache;
+
+--connection node_2
+--let $wsrep_last_committed_after = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--disable_query_log
+--eval SELECT $wsrep_last_committed_after = $wsrep_last_committed_before + 1 AS wsrep_last_committed_diff;
+--enable_query_log
+
+--connection node_1
+SET GLOBAL wsrep_replicate_myisam = TRUE;
+INSERT INTO mysql.user(host, user, ssl_cipher, x509_issuer, x509_subject, plugin, authentication_string, password_last_changed)  VALUES ('%','user1','','','','mysql_native_password','*22A99BA288DB55E8E230679259740873101CD636','2016-04-06 08:53:54');
+FLUSH PRIVILEGES;
+--connection node_2
+SELECT User FROM mysql.user WHERE User = 'user1';
+--connect node_2a, 127.0.0.1, user1, pass1, test, $NODE_MYPORT_2
+--connection node_1
+DELETE FROM mysql.user WHERE user = 'user1';
+SET GLOBAL wsrep_replicate_myisam = FALSE;
+FLUSH PRIVILEGES;
+
+
+--connection node_2
+--let $wsrep_last_committed_before = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--connection node_1
+FLUSH STATUS;
+
+--connection node_2
+--let $wsrep_last_committed_after = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--disable_query_log
+--eval SELECT $wsrep_last_committed_after = $wsrep_last_committed_before + 1 AS wsrep_last_committed_diff;
+--enable_query_log
+
+
+--connection node_2
+--let $wsrep_last_committed_before = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--connection node_1
+FLUSH USER_RESOURCES;
+--connection node_2
+--let $wsrep_last_committed_after = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--disable_query_log
+--eval SELECT $wsrep_last_committed_after = $wsrep_last_committed_before + 1 AS wsrep_last_committed_diff;
+--enable_query_log
+
+
+#
+# The following statements should not be replicated: FLUSH LOGS, FLUSH TABLES
+#
+
+
+--connection node_1
+CREATE TABLE t1 (f1 INTEGER);
+
+--connection node_2
+--let $wsrep_last_committed_before = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+
+--connection node_1
+FLUSH LOGS;
+FLUSH TABLES WITH READ LOCK;
+UNLOCK TABLES;
+FLUSH TABLES t1 WITH READ LOCK;
+UNLOCK TABLES;
+FLUSH TABLES t1 FOR EXPORT;
+UNLOCK TABLES;
+FLUSH OPTIMIZER_COSTS;
+
+--connection node_2
+--let $wsrep_last_committed_after = `SELECT VARIABLE_VALUE FROM performance_schema.session_status WHERE VARIABLE_NAME = 'wsrep_last_committed'`
+--disable_query_log
+--eval SELECT $wsrep_last_committed_after = $wsrep_last_committed_before AS wsrep_last_committed_diff;
+--enable_query_log
+
+--connection node_1
+DROP TABLE t1;

@@ -1377,6 +1377,16 @@ sub collect_one_test_case {
       skip_test($tinfo, "Test needs binlog");
       return $tinfo;
     }
+  } elsif ($tinfo->{'galera_cluster'}) {
+    # Codership: Galera test should have binlog disabled by default.
+    # By enabling binlog for all tests, we could have
+    # duplicate XIDs written, which can fail if MySQL recovery happens
+    # during tests.
+    # Tests which need binlog to be enabled should add
+    # `--source include/have_log_bin.inc` and take care of reseting
+    # binlog at the end of test if needed.
+    push(@{$tinfo->{'master_opt'}}, "--loose-skip-log-bin");
+    push(@{$tinfo->{'slave_opt'}}, "--loose-skip-log-bin");
   }
 
   if ($tinfo->{'rpl_test'} or $tinfo->{'grp_rpl_test'}) {
@@ -1484,6 +1494,8 @@ my @tags = (
   ],
 
   [ "include/have_log_bin.inc", "need_binlog", 1 ],
+
+  [ "include/galera_cluster.inc", "galera_cluster", 1],
 
   # An empty file to use test that needs myisam engine.
   [ "include/force_myisam_default.inc", "myisam_test", 1 ],

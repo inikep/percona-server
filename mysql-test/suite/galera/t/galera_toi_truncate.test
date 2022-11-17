@@ -1,0 +1,105 @@
+#
+# Test the operation of TRUNCATE with concurrent DML.
+# The DML should be BF-aborted if the DDL arrives from another node
+#
+
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+--source include/have_debug.inc
+
+#
+# INSERT and TRUNCATE on different nodes
+#
+
+--connection node_1
+CREATE TABLE ten (f1 INTEGER NOT NULL PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO ten VALUES (1),(2),(3),(4),(5),(6),(7),(8),(9),(10);
+
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 10 FROM ten;
+--source include/wait_condition.inc
+
+# Prevent autocommit retring from masking the deadlock error we expect to get
+SET SESSION wsrep_retry_autocommit = 0;
+--send INSERT INTO t1 (f1) SELECT 1 FROM ten AS a1, ten AS a2, ten AS a3, ten AS a4, ten AS a5, ten AS a6, ten AS a7, ten AS a8
+
+--connect node_2a, 127.0.0.1, root, , test, $NODE_MYPORT_2
+--connection node_2a
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE STATE LIKE 'executing%' AND INFO LIKE 'INSERT INTO t1 (f1)%';
+--source include/wait_condition.inc
+
+--connection node_1
+TRUNCATE TABLE t1;
+
+--connection node_2
+--error ER_LOCK_DEADLOCK,ER_QUERY_INTERRUPTED
+--reap
+
+SELECT COUNT(*) AS EXPECT_0 FROM t1;
+
+--connection node_1
+SELECT COUNT(*) AS EXPECT_0 FROM t1;
+
+DROP TABLE t1;
+DROP TABLE ten;
+
+--echo *******************************************
+--echo Second test scenario
+--echo *******************************************
+
+
+
+CREATE TABLE t1(i INTEGER PRIMARY KEY, c INTEGER);
+
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connection node_1a
+
+# setting sync point for before applying
+SET SESSION wsrep_sync_wait=0;
+--let $galera_sync_point = apply_monitor_slave_enter_sync
+--source include/galera_set_sync_point.inc
+
+--connection node_2
+# issuing TRUNCATE in node 2, it should block before appying in node 1
+TRUNCATE t1;
+
+--connection node_1a
+# waiting for the TRUNCATE applier to reach sync point
+--let $galera_sync_point = apply_monitor_slave_enter_sync
+--source include/galera_wait_sync_point.inc
+--source include/galera_clear_sync_point.inc
+
+--connection node_1
+SET SESSION wsrep_sync_wait=0;
+SET SESSION wsrep_retry_autocommit = 0;
+
+# setting sync point for self, after ACL cache is locked
+SET SESSION DEBUG_SYNC = 'wsrep_after_acl_cache_lock_guard SIGNAL wsrep_after_acl_cache_lock_guard_continue WAIT_FOR wsrep_after_acl_cache_lock_guard_reached';
+
+# sending INSERT, which should reach the sync point
+--send INSERT INTO t1 VALUES(1,1);
+--connection node_1a
+
+# cannot wait for INSERT to reach the sync point, because acl_latch_guard mutex is now blocked
+# sleeping 5 secs instead
+--sleep 5
+
+# releasing applier to continue with TRUNCATE
+--let $galera_sync_point = apply_monitor_slave_enter_sync
+--source include/galera_clear_sync_point.inc
+--source include/galera_signal_sync_point.inc
+
+# releasing the INSERT to continue
+SET GLOBAL debug = "";
+SET DEBUG_SYNC = "now SIGNAL wsrep_after_acl_cache_lock_guard_continue";
+SET GLOBAL debug = NULL;
+SET debug_sync = 'RESET';
+
+--connection node_1
+--error ER_LOCK_DEADLOCK
+--reap
+
+SELECT * FROM t1;
+DROP TABLE t1;

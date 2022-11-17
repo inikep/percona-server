@@ -1593,6 +1593,137 @@ The following options may be given as the first argument:
  inversion optimization for moving window frames also for
  floating values.
  (Defaults to on; use --skip-windowing-use-high-precision to disable.)
+ --wsrep-OSU-method[=name] 
+ Method for Online Schema Upgrade
+ --wsrep-applier-FK-checks 
+ Should applier thread do foreign key constraint checks
+ (Defaults to on; use --skip-wsrep-applier-FK-checks to disable.)
+ --wsrep-applier-UK-checks 
+ Should applier thread do secondary index uniqueness
+ checks
+ --wsrep-applier-threads=# 
+ Number of applier threads to launch
+ --wsrep-auto-increment-control 
+ To automatically control the assignment of autoincrement
+ variables
+ (Defaults to on; use --skip-wsrep-auto-increment-control to disable.)
+ --wsrep-certification-rules=name 
+ Certification rules to use in the cluster. Possible
+ values are: "strict": stricter rules that could result in
+ more certification failures. "optimized": relaxed rules
+ that allow more concurrency and cause less certification
+ failures.
+ --wsrep-certify-nonPK 
+ Certify tables with no primary key
+ (Defaults to on; use --skip-wsrep-certify-nonPK to disable.)
+ --wsrep-cluster-address=name 
+ Address to initially connect to cluster
+ --wsrep-cluster-name=name 
+ Name for the cluster
+ --wsrep-cluster-server-id=# 
+ Set specific server id for binlog events which are going
+ to be replicated in cluser
+ --wsrep-convert-LOCK-to-trx 
+ To convert locking sessions into transactions
+ --wsrep-data-home-dir=name 
+ home directory for wsrep provider
+ --wsrep-dbug-option=name 
+ DBUG options to provider library
+ --wsrep-debug=name  WSREP debug level logging
+ --wsrep-desync      To desynchronize the node from the cluster
+ --wsrep-dirty-reads Allow reads from a node is not in primary component
+ --wsrep-drupal-282555-workaround 
+ To use a workaround forbad autoincrement value
+ --wsrep-forced-binlog-format=name 
+ binlog format to take effect over user's choice
+ --wsrep-gtid-mode   Enable wsrep gtid cluster mode. Nodes with
+ wsrep_gtid_mode enabled contain same UUID and advance
+ replicated events synchronously.
+ (Defaults to on; use --skip-wsrep-gtid-mode to disable.)
+ --wsrep-ignore-apply-errors=# 
+ Ignore replication errors
+ --wsrep-load-data-splitting 
+ To commit LOAD DATA transaction after every 10K rows
+ inserted (deprecating)
+ (Defaults to on; use --skip-wsrep-load-data-splitting to disable.)
+ --wsrep-local-gtid[=name] 
+ Update local GTID
+ --wsrep-log-conflicts 
+ To log cluster write conflicts
+ --wsrep-max-ws-rows=# 
+ Max number of rows in write set
+ --wsrep-max-ws-size=# 
+ Max write set size (bytes)
+ --wsrep-mode=name   Set of WSREP features that are enabled. Legal values:
+ IGNORE_NATIVE_REPLICATION_FILTER_RULES 
+ --wsrep-mysql-replication-bundle=# 
+ mysql replication group commit. This variable is
+ deprecated and will be removed in a future release.
+ --wsrep-node-address=name 
+ Node address
+ --wsrep-node-incoming-address=name 
+ Client connection address
+ --wsrep-node-name=name 
+ Node name
+ --wsrep-notify-cmd=name 
+ --wsrep-on          To enable wsrep replication 
+ (Defaults to on; use --skip-wsrep-on to disable.)
+ --wsrep-preordered  To enable preordered write set processing. This variable
+ is deprecated and will be removed in a future release.
+ --wsrep-provider=name 
+ Path to replication provider library
+ --wsrep-provider-options=name 
+ provider specific options
+ --wsrep-recover     Recover database state after crash and exit
+ --wsrep-reject-queries[=name] 
+ Variable to set to reject queries
+ --wsrep-replicate-myisam 
+ To enable myisam replication
+ --wsrep-restart-replica 
+ Should MySQL replica be restarted automatically, when
+ node joins back to cluster
+ --wsrep-restart-slave 
+ This option is deprecated. Use wsrep_restart_replica
+ instead.
+ --wsrep-retry-autocommit=# 
+ Max number of times to retry a failed autocommit
+ statement
+ --wsrep-slave-FK-checks 
+ This option is deprecated. Use wsrep_applier_FK_checks
+ instead.
+ (Defaults to on; use --skip-wsrep-slave-FK-checks to disable.)
+ --wsrep-slave-UK-checks 
+ This option is deprecated. Use wsrep_applier_UK_checks
+ instead.
+ --wsrep-slave-threads=# 
+ This option is deprecated. Use wsrep_applier_threads
+ instead.
+ --wsrep-sst-auth=name 
+ Authentication for SST connection
+ --wsrep-sst-donor=name 
+ preferred donor node for the SST
+ --wsrep-sst-donor-rejects-queries 
+ Reject client queries when donating state snapshot
+ transfer
+ --wsrep-sst-method=name 
+ State snapshot transfer method
+ --wsrep-sst-receive-address=name 
+ Address where node is waiting for SST contact
+ --wsrep-start-position=name 
+ global transaction position to start from 
+ --wsrep-status-file=name 
+ wsrep status output filename
+ --wsrep-sync-wait[=#] 
+ Ensure "synchronous" read view before executing an
+ operation of the type specified by bitmask: 1 -
+ READ(includes SELECT, SHOW and BEGIN/START TRANSACTION);
+ 2 - UPDATE and DELETE; 4 - INSERT and REPLACE
+ --wsrep-trx-fragment-size=# 
+ Size of transaction fragments for streaming replication
+ (measured in units of 'wsrep_trx_fragment_unit')
+ --wsrep-trx-fragment-unit=name 
+ Unit for streaming replication transaction fragments'
+ size: bytes, rows, statements
 
 Variables (--variable-name=value)
 abort-slave-event-count 0
@@ -2012,6 +2143,58 @@ validate-user-plugins TRUE
 verbose TRUE
 wait-timeout 28800
 windowing-use-high-precision TRUE
+wsrep-OSU-method TOI
+wsrep-applier-FK-checks TRUE
+wsrep-applier-UK-checks FALSE
+wsrep-applier-threads 1
+wsrep-auto-increment-control TRUE
+wsrep-certification-rules optimized
+wsrep-certify-nonPK TRUE
+wsrep-cluster-address 
+wsrep-cluster-name my_wsrep_cluster
+wsrep-cluster-server-id 0
+wsrep-convert-LOCK-to-trx FALSE
+wsrep-dbug-option 
+wsrep-debug NONE
+wsrep-desync FALSE
+wsrep-dirty-reads FALSE
+wsrep-drupal-282555-workaround FALSE
+wsrep-forced-binlog-format NONE
+wsrep-gtid-mode TRUE
+wsrep-ignore-apply-errors 7
+wsrep-load-data-splitting TRUE
+wsrep-local-gtid (No default value)
+wsrep-log-conflicts FALSE
+wsrep-max-ws-rows 0
+wsrep-max-ws-size 2147483647
+wsrep-mode 
+wsrep-mysql-replication-bundle 0
+wsrep-node-address 
+wsrep-node-incoming-address AUTO
+wsrep-notify-cmd 
+wsrep-on FALSE
+wsrep-preordered FALSE
+wsrep-provider none
+wsrep-provider-options 
+wsrep-recover FALSE
+wsrep-reject-queries NONE
+wsrep-replicate-myisam FALSE
+wsrep-restart-replica FALSE
+wsrep-restart-slave FALSE
+wsrep-retry-autocommit 1
+wsrep-slave-FK-checks TRUE
+wsrep-slave-UK-checks FALSE
+wsrep-slave-threads 1
+wsrep-sst-auth (No default value)
+wsrep-sst-donor 
+wsrep-sst-donor-rejects-queries FALSE
+wsrep-sst-method rsync
+wsrep-sst-receive-address AUTO
+wsrep-start-position 00000000-0000-0000-0000-000000000000:-1
+wsrep-status-file 
+wsrep-sync-wait 0
+wsrep-trx-fragment-size 0
+wsrep-trx-fragment-unit bytes
 
 To see what values a running MySQL server is using, type
 'mysqladmin variables' instead of 'mysqld --verbose --help'.

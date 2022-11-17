@@ -13,6 +13,9 @@ call mtr.add_suppression("\\[ERROR\\] \\[[^]]*\\] \\[[^]]*\\] Plugin keyring_fil
 call mtr.add_suppression("\\[ERROR\\] \\[[^]]*\\] \\[[^]]*\\] Plugin keyring_file reported: 'File 'MYSQL_test_invalid/dir/' not found .*");
 call mtr.add_suppression("\\[ERROR\\] \\[[^]]*\\] \\[[^]]*\\] Plugin keyring_file reported: 'File '/' not found .*");
 call mtr.add_suppression("\\[ERROR\\] \\[[^]]*\\] \\[[^]]*\\] Plugin keyring_file reported: 'Incorrect Keyring file");
+# wsrep additional suppression: On some platforms lseek may return EINVAL
+# when the seek happens for directory. Sometimes it returns off_t max.
+call mtr.add_suppression("\\[ERROR\\] \\[[^]]*\\] \\[[^]]*\\] Plugin keyring_file reported: 'Cannot seek in file '/' \\(OS errno 22 - Invalid argument\\)'");
 
 # Installing keyring plugin.
 --disable_warnings

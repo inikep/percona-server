@@ -1,0 +1,32 @@
+--source include/galera_cluster.inc
+
+#
+# Test that under wsrep_trx_fragment_size = 0, no streaming takes place
+#
+
+--connection node_1
+CREATE TABLE t1 (id INT) ENGINE=InnoDB;
+--let $wsrep_trx_fragment_size_orig = `SELECT @@wsrep_trx_fragment_size`
+SET GLOBAL wsrep_trx_fragment_size = 00;
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+INSERT INTO t1 VALUES (3);
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+INSERT INTO t1 VALUES (6);
+INSERT INTO t1 VALUES (7);
+INSERT INTO t1 VALUES (8);
+INSERT INTO t1 VALUES (9);
+INSERT INTO t1 VALUES (10);
+
+--connection node_2
+--sleep 1
+SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SELECT COUNT(*) = 0 FROM t1;
+
+--connection node_1
+COMMIT;
+
+DROP TABLE t1;

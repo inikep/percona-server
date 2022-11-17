@@ -1,0 +1,254 @@
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1),(2),(3);
+CREATE TABLE t2 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t2 VALUES (1),(2),(3);
+SET SESSION wsrep_trx_fragment_size = 1;
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+
+Start of Simple Insert
+INSERT INTO t1 VALUES (4);
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Query	thread_id=<QUERY_THREAD_ID>	exec_time=<EXEC_TIME>	error_code=0
+SET TIMESTAMP=<TIMESTAMP>/*!*/;
+/*!\C utf8mb4 *//*!*/;
+BEGIN
+/*!*/;
+# at 227
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 271
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Write_rows: table id <TABLE_ID> flags: STMT_END_F
+ROLLBACK /* added by mysqlbinlog */ /*!*/;
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+End of Simple Insert
+
+ROLLBACK;
+Start of Multi-row Update
+UPDATE t1 SET f1 = f1 + 10;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Query	thread_id=<QUERY_THREAD_ID>	exec_time=<EXEC_TIME>	error_code=0
+SET TIMESTAMP=<TIMESTAMP>/*!*/;
+/*!\C utf8mb4 *//*!*/;
+BEGIN
+/*!*/;
+# at 236
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 280
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+ROLLBACK /* added by mysqlbinlog */ /*!*/;
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+End of Multi-row Update
+
+ROLLBACK;
+Start of Multi-table Update
+UPDATE t1, t2 SET t1.f1 = t1.f1 + 100, t2.f1 = t2.f1 + 100;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Query	thread_id=<QUERY_THREAD_ID>	exec_time=<EXEC_TIME>	error_code=0
+SET TIMESTAMP=<TIMESTAMP>/*!*/;
+/*!\C utf8mb4 *//*!*/;
+BEGIN
+/*!*/;
+# at 236
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 280
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t2` mapped to number <TABLE_ID>
+# at 324
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+ROLLBACK /* added by mysqlbinlog */ /*!*/;
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t2` mapped to number <TABLE_ID>
+# at 239
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t2` mapped to number <TABLE_ID>
+# at 239
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t2` mapped to number <TABLE_ID>
+# at 239
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t2` mapped to number <TABLE_ID>
+# at 239
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 195
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t2` mapped to number <TABLE_ID>
+# at 239
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Update_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+End of Multi-table Update
+
+ROLLBACK;
+Start of Savepoint
+INSERT INTO t1 VALUES (1000);
+SAVEPOINT X;
+INSERT INTO t1 VALUES (2000);
+ROLLBACK TO SAVEPOINT X;
+INSERT INTO t1 VALUES (3000);
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Query	thread_id=<QUERY_THREAD_ID>	exec_time=<EXEC_TIME>	error_code=0
+SET TIMESTAMP=<TIMESTAMP>/*!*/;
+/*!\C utf8mb4 *//*!*/;
+BEGIN
+/*!*/;
+# at 227
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 271
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Write_rows: table id <TABLE_ID> flags: STMT_END_F
+ROLLBACK /* added by mysqlbinlog */ /*!*/;
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Query	thread_id=<QUERY_THREAD_ID>	exec_time=<EXEC_TIME>	error_code=0
+SET TIMESTAMP=<TIMESTAMP>/*!*/;
+/*!\C utf8mb4 *//*!*/;
+SAVEPOINT `X`
+/*!*/;
+# at 235
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 279
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Write_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+DELIMITER /*!*/;
+# at 124
+<ISO TIMESTAMP> server id 1  end_log_pos 124 	Start: binlog v 4, server v 8.0.17-debug created 191008 13:03:09 at startup
+ROLLBACK/*!*/;
+# at 151
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Query	thread_id=<QUERY_THREAD_ID>	exec_time=<EXEC_TIME>	error_code=0
+SET TIMESTAMP=<TIMESTAMP>/*!*/;
+/*!\C utf8mb4 *//*!*/;
+ROLLBACK TO `X`
+/*!*/;
+# at 237
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Table_map: `test`.`t1` mapped to number <TABLE_ID>
+# at 281
+<ISO TIMESTAMP> server id 1  end_log_pos 0 	Write_rows: table id <TABLE_ID> flags: STMT_END_F
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+End of Savepoint
+
+ROLLBACK;
+DROP TABLE t1, t2;

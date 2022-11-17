@@ -1,0 +1,51 @@
+#
+# This test verifies that a database dump created with mysqldump
+# can be restored back in presence of foreign key constraints.
+#
+
+--source include/galera_cluster.inc
+
+--let $galera_connection_name = node_3
+--let $galera_server_number = 3
+--source include/galera_connect.inc
+
+--connection node_1
+CREATE TABLE parent (f1 INT PRIMARY KEY);
+
+CREATE TABLE child (
+    f1 INT PRIMARY KEY,
+    parent_f1 INT,
+    FOREIGN KEY (parent_f1) REFERENCES parent(f1)
+);
+
+
+INSERT INTO parent VALUES (1), (2);
+INSERT INTO child VALUES (1, 1);
+
+--exec $MYSQL_DUMP --user=root --host=127.0.0.1 --port=$NODE_MYPORT_1 --databases test > $MYSQLTEST_VARDIR/tmp/galera_fk_mysqldump_restore.sql
+
+DROP TABLE child;
+DROP TABLE parent;
+
+#
+# Without these mysqldump load fails on 8.0.21-26.4
+#
+# --connection node_2
+# SET GLOBAL wsrep_slave_FK_checks = OFF;
+# --connection node_3
+# SET GLOBAL wsrep_slave_FK_checks = OFF;
+
+--connection node_1
+
+--exec $MYSQL --user=root --host=127.0.0.1 --port $NODE_MYPORT_1 < $MYSQLTEST_VARDIR/tmp/galera_fk_mysqldump_restore.sql
+
+--connection node_2
+SELECT * FROM parent;
+SELECT * FROM child;
+--connection node_3
+SELECT * FROM parent;
+SELECT * FROM child;
+
+--remove_file $MYSQLTEST_VARDIR/tmp/galera_fk_mysqldump_restore.sql
+DROP TABLE child;
+DROP TABLE parent;

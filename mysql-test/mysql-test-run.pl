@@ -66,6 +66,7 @@ use mtr_cases;
 use mtr_cases_from_list;
 use mtr_match;
 use mtr_report;
+use mtr_report_junit;
 use mtr_results;
 use mtr_unique;
 
@@ -144,6 +145,10 @@ my $opt_max_test_fail      = env_or_val(MTR_MAX_TEST_FAIL => 10);
 my $opt_mysqlx_baseport    = $ENV{'MYSQLXPLUGIN_PORT'} || "auto";
 my $opt_port_base          = $ENV{'MTR_PORT_BASE'} || "auto";
 my $opt_port_exclude       = $ENV{'MTR_PORT_EXCLUDE'} || "none";
+
+# galera addition
+my $opt_port_group_size = $ENV{MTR_PORT_GROUP_SIZE} || 10;
+
 my $opt_reorder            = 1;
 my $opt_retry              = 3;
 my $opt_retry_failure      = env_or_val(MTR_RETRY_FAILURE => 2);
@@ -204,8 +209,16 @@ our $opt_debugger;
 our $opt_force;
 our $opt_gcov;
 our $opt_gdb;
+
+my $opt_rr;
+my $opt_rr_dir;
+my @rr_record_args;
+my $opt_boot_rr;
+
 our $opt_gdb_secondary_engine;
 our $opt_gprof;
+our $opt_junit_output= undef;
+our $opt_junit_package= undef;
 our $opt_lldb;
 our $opt_manual_boot_gdb;
 our $opt_manual_dbx;
@@ -222,7 +235,9 @@ our $opt_suite_opt;
 our $opt_summary_report;
 our $opt_vardir;
 our $opt_xml_report;
-our $ports_per_thread   = 30;
+# number of ports per server is 6 (3 originally plus 3 from galera).
+# $ports_per_thread is that times 10 (max number of servers in a test).
+our $ports_per_thread   = 60;
 
 #
 # Suites run by default (i.e. when invoking ./mtr without parameters)
@@ -472,6 +487,7 @@ sub main {
     lock_order_prepare($bindir);
   }
 
+  check_wsrep_support();
   # Collect test cases from a file and put them into '@opt_cases'.
   if ($opt_do_test_list) {
     collect_test_cases_from_list(\@opt_cases, $opt_do_test_list, \$opt_ctest);
@@ -898,11 +914,21 @@ sub main {
 
   print_total_times($opt_parallel) if $opt_report_times;
 
-  mtr_report_stats("Completed", $completed);
+  report_stats("Completed", $completed);
 
   remove_vardir_subs() if $opt_clean_vardir;
 
   exit(0);
+}
+
+sub report_stats($$;$) {
+  my ($prefix, $tests, $skip_error) = @_;
+
+  if ($opt_junit_output) {
+    mtr_report_stats_junit($tests, $opt_junit_output, $opt_junit_package);
+  }
+
+  mtr_report_stats($prefix, $tests, $skip_error);
 }
 
 # The word server here refers to the main control loop of MTR, not a
@@ -1077,7 +1103,7 @@ sub run_test_server ($$$) {
             } elsif ($opt_max_test_fail > 0 and
                      $num_failed_test >= $opt_max_test_fail) {
               push(@$completed, $result);
-              mtr_report_stats("Too many failed", $completed, 1);
+              report_stats("Too many failed", $completed, 1);
               mtr_report("Too many tests($num_failed_test) failed!",
                          "Terminating...");
               return undef;
@@ -1265,7 +1291,7 @@ sub run_test_server ($$$) {
 
     # Check if test suite timer expired
     if (has_expired($suite_timeout)) {
-      mtr_report_stats("Timeout", $completed, 1);
+      report_stats("Timeout", $completed, 1);
       mtr_report("Test suite timeout! Terminating...");
       return undef;
     }
@@ -1643,6 +1669,9 @@ sub command_line_setup {
     'port-base|mtr-port-base=i'       => \$opt_port_base,
     'port-exclude|mtr-port-exclude=s' => \$opt_port_exclude,
 
+    # galera addition
+    'port-group-size=s'               => \$opt_port_group_size,
+
     # Test case authoring
     'check-testcases!' => \$opt_check_testcases,
     'mark-progress'    => \$opt_mark_progress,
@@ -1679,6 +1708,12 @@ sub command_line_setup {
     'debugger=s'           => \$opt_debugger,
     'gdb'                  => \$opt_gdb,
     'gdb-secondary-engine' => \$opt_gdb_secondary_engine,
+    # rr debugger
+    'rr'                       => \$opt_rr,
+    'rr-arg=s'                 => \@rr_record_args,
+    'rr-dir=s'                 => \$opt_rr_dir,
+    'boot-rr'                  => \$opt_boot_rr,
+    #
     'lldb'                 => \$opt_lldb,
     'manual-boot-gdb'      => \$opt_manual_boot_gdb,
     'manual-dbx'           => \$opt_manual_dbx,
@@ -1738,6 +1773,8 @@ sub command_line_setup {
     'fast'                  => \$opt_fast,
     'force-restart'         => \$opt_force_restart,
     'help|h'                => \$opt_usage,
+    'junit-output=s'        => \$opt_junit_output,
+    'junit-package=s'       => \$opt_junit_package,
     'keep-ndbfs'            => \$opt_keep_ndbfs,
     'max-connections=i'     => \$opt_max_connections,
     'print-testcases'       => \&collect_option,
@@ -1756,6 +1793,7 @@ sub command_line_setup {
     'start-dirty'           => \$opt_start_dirty,
     'stress=s'              => \$opt_stress,
     'suite-opt=s'           => \$opt_suite_opt,
+
     'suite-timeout=i'       => \$opt_suite_timeout,
     'testcase-timeout=i'    => \$opt_testcase_timeout,
     'timediff'              => \&report_option,
@@ -1781,6 +1819,12 @@ sub command_line_setup {
 
   usage("") if $opt_usage;
   list_options(\%options) if $opt_list_options;
+
+  # Make sure that XML::Simple support exists for JUnit output
+  if ($opt_junit_output and !mtr_junit_supported()) {
+    mtr_error("JUnit XML reporting is not supported.  The XML::Simple package",
+              "could not be loaded.");
+  }
 
   check_platform() if defined $ENV{PB2WORKDIR};
 
@@ -2092,6 +2136,7 @@ sub command_line_setup {
       $opt_client_gdb           ||
       $opt_ddd                  ||
       $opt_client_ddd           ||
+      $opt_rr                   ||
       $opt_manual_gdb           ||
       $opt_manual_lldb          ||
       $opt_manual_ddd           ||
@@ -2455,7 +2500,7 @@ sub set_build_thread_ports($) {
   $ENV{MTR_BUILD_THREAD} = $build_thread;
 
   # Calculate baseport
-  $baseport = $build_thread * 10 + 10000;
+  $baseport = $build_thread * $opt_port_group_size + 10000;
 
   if (lc($opt_mysqlx_baseport) eq "auto") {
     # Reserving last 10 ports in the current port range for X plugin.
@@ -2480,6 +2525,18 @@ sub set_build_thread_ports($) {
       # 10 ports for secondary engine server.
       $::secondary_engine_port = $baseport + 20;
     }
+  }
+
+  # (WSREP): we override the proper value for secondary_engine_port
+  # here to avoid merging issues with the above error prone logic.
+  # Port reservation is as follows:
+  # - First set of 50 ports are reserved for mysqld servers (10 each
+  #   for standard and admin connections, 30 for galera)
+  # - Second set of 10 ports are reserver for Group replication (if enabled)
+  # - Third set of 10 ports are reserved for secondary engine server (if enabled)
+  # - Fourth and last set of 10 ports are reserved for X plugin
+  if ($secondary_engine_support) {
+    $::secondary_engine_port = $baseport + $ports_per_thread - 20;
   }
 
   if ($baseport < 5001 or $baseport + $ports_per_thread - 1 >= 32767) {
@@ -3885,6 +3942,80 @@ sub ndbcluster_start ($) {
   return 0;
 }
 
+sub have_wsrep($) {
+  #my $wsrep_on= $mysqld_variables{'wsrep-on'};
+  #return defined $wsrep_on
+  my $mysqld= shift;
+  return $mysqld->if_exist('wsrep_on') && $mysqld->value('wsrep_on');
+}
+
+sub wsrep_is_bootstrap_server($) {
+  my $mysqld= shift;
+  return $mysqld->if_exist('wsrep_cluster_address') &&
+    ($mysqld->value('wsrep_cluster_address') eq "gcomm://" ||
+     $mysqld->value('wsrep_cluster_address') eq "'gcomm://'");
+}
+
+sub check_wsrep_support() {
+  if (defined $mysqld_variables{'wsrep-on'})
+  {
+    mtr_report(" - binaries built with wsrep patch");
+
+    # ADD scripts to $PATH to that wsrep_sst_* can be found
+    my ($path) = grep { -f "$_/wsrep_sst_rsync"; } "$::bindir/scripts", $::path_client_bindir;
+    mtr_error("No SST scripts") unless $path;
+    $ENV{PATH}="$path:$ENV{PATH}";
+
+    # Check whether WSREP_PROVIDER environment variable is set.
+    if (defined $ENV{'WSREP_PROVIDER'}) {
+      if ((mtr_file_exists($ENV{'WSREP_PROVIDER'}) eq "")  &&
+          ($ENV{'WSREP_PROVIDER'} ne "none")) {
+        mtr_error("WSREP_PROVIDER env set to an invalid path");
+      }
+      # WSREP_PROVIDER is valid; set to a valid path or "none").
+      mtr_verbose("WSREP_PROVIDER env set to $ENV{'WSREP_PROVIDER'}");
+    } else {
+      # WSREP_PROVIDER env not defined. Lets try to locate the wsrep provider
+      # library.
+      my $file_wsrep_provider=
+        mtr_file_exists("/usr/lib/galera/libgalera_smm.so",
+                        "/usr/lib64/galera/libgalera_smm.so");
+
+      if ($file_wsrep_provider ne "") {
+        # wsrep provider library found !
+        mtr_verbose("wsrep provider library found : $file_wsrep_provider");
+        $ENV{'WSREP_PROVIDER'}= $file_wsrep_provider;
+      } else {
+        mtr_verbose("Could not find wsrep provider library, setting it to 'none'");
+        $ENV{'WSREP_PROVIDER'}= "none";
+      }
+    }
+    # Check if garbd executable exists in system.
+    if (defined $ENV{'MTR_GARBD_EXE'}) {
+      if (mtr_file_exists($ENV{'MTR_GARBD_EXE'}) eq "") {
+        mtr_error("MTR_GARBD_EXE env set to an invalid path");
+      }
+    } elsif (defined $ENV{'WSREP_PROVIDER'}) {
+      my $garbd_file = dirname($ENV{'WSREP_PROVIDER'})."/garb/garbd";
+      my $mtr_garbd_exe = mtr_file_exists($garbd_file);
+      if ($mtr_garbd_exe ne "") {
+        $ENV{'MTR_GARBD_EXE'} = $mtr_garbd_exe
+      }
+    }
+    # Garbd not defined by caller or not found from WSREP_PROVIDER
+    # path. Try from system instead.
+    if (not defined $ENV{'MTR_GARBD_EXE'}) {
+      my $mtr_garbd_exe = mtr_file_exists("/usr/bin/garbd");
+      if ($mtr_garbd_exe ne "") {
+        $ENV{'MTR_GARBD_EXE'} = $mtr_garbd_exe;
+      }
+    }
+    if (defined $ENV{'MTR_GARBD_EXE'}) {
+      mtr_verbose("MTR_GARBD_EXE env set to $ENV{MTR_GARBD_EXE}");
+    }
+  }
+}
+
 sub create_config_file_for_extern {
   my %opts = (socket   => '/tmp/mysqld.sock',
               port     => 3306,
@@ -4155,6 +4286,15 @@ sub mysql_install_db {
                   $mysqld->name(), $bootstrap_sql_file);
   }
 
+  # rr integration
+  if ($opt_boot_rr) {
+    $args= ["record", @rr_record_args, $exe_mysqld_bootstrap, @$args];
+    $exe_mysqld_bootstrap= "rr";
+    my $rr_dir= $opt_rr_dir ? $opt_rr_dir : "$opt_vardir/rr.boot";
+    $ENV{'_RR_TRACE_DIR'}= $rr_dir;
+    mkpath($rr_dir);
+  }
+
   if (-f "include/mtr_test_data_timezone.sql") {
     # Add the official mysql system tables in a production system.
     mtr_tofile($bootstrap_sql_file, "use mysql;\n");
@@ -4306,6 +4446,70 @@ sub run_query {
   return $res;
 }
 
+#
+# run_query_output
+#
+# Run a query against a server using mysql client. The output of
+# the query will be written into outfile.
+#
+sub run_query_output {
+  my ($mysqld, $query, $outfile)= @_;
+  my $args;
+
+  mtr_init_args(\$args);
+  mtr_add_arg($args, "--defaults-file=%s", $path_config_file);
+  mtr_add_arg($args, "--defaults-group-suffix=%s", $mysqld->after('mysqld'));
+  mtr_add_arg($args, "--silent");
+  mtr_add_arg($args, "--execute=%s", $query);
+
+  my $res= My::SafeProcess->run
+  (
+    name          => "run_query_output -> ".$mysqld->name(),
+    path          => $exe_mysql,
+    args          => \$args,
+    output        => $outfile,
+    error         => $outfile
+  );
+
+  return $res
+}
+
+#
+# wsrep_wait_ready
+#
+# Wait until the server has been joined to the cluster and is
+# ready for operation.
+#
+# RETURN
+# 1 Server is ready
+# 0 Server didn't transition to ready state within start timeout
+#
+sub wait_wsrep_ready($$) {
+  my ($tinfo, $mysqld)= @_;
+
+  my $sleeptime= 100; # Milliseconds
+  my $loops= ($opt_start_timeout * 1000) / $sleeptime;
+
+  my $name= $mysqld->name();
+  my $outfile= "$opt_vardir/tmp/$name.wsrep_ready";
+  my $query= "SET SESSION wsrep_sync_wait = 0;
+              SHOW STATUS LIKE 'wsrep_ready';";
+
+  for (my $loop= 1; $loop <= $loops; $loop++)
+  {
+    if (run_query_output($mysqld, $query, $outfile) == 0 &&
+        mtr_grab_file($outfile) =~ /wsrep_ready\s+ON/)
+    {
+      unlink($outfile);
+      return 1;
+    }
+
+    mtr_milli_sleep($sleeptime);
+  }
+
+  $tinfo->{logfile}= "WSREP did not transition to state READY";
+  return 0;
+}
 sub do_before_run_mysqltest($) {
   my $tinfo = shift;
 
@@ -5295,7 +5499,6 @@ sub run_testcase ($) {
       report_failure_and_restart($tinfo);
       return 1;
     }
-
     mtr_error("Unhandled process $proc exited");
   }
   mtr_error("Should never come here");
@@ -6255,6 +6458,14 @@ sub mysqld_start ($$$$) {
   if ($opt_strace_server) {
     strace_server_arguments($args, \$exe, $mysqld->name());
   }
+  if ( $opt_rr )
+  {
+    rr_arguments($args, \$exe, $mysqld->name());
+
+    my $rr_dir= $opt_rr_dir ? $opt_rr_dir : "$opt_vardir/rr". $mysqld->after('mysqld');
+    $ENV{'_RR_TRACE_DIR'}= $rr_dir;
+    mkpath($rr_dir);
+  }
 
   foreach my $arg (@$extra_opts) {
     $daemonize_mysqld = 1 if ($arg eq "--daemonize");
@@ -6846,6 +7057,18 @@ sub start_servers($) {
 
     # Save this test case information, so next can examine it
     $mysqld->{'started_tinfo'} = $tinfo;
+
+    # If wsrep is on, we need to wait until the first
+    # server starts and bootstraps the cluster before
+    # starting other servers.
+    if (have_wsrep($mysqld) && wsrep_is_bootstrap_server($mysqld))
+    {
+      mtr_verbose("WSREP waiting for first server to bootstrap cluster");
+      if ($server_id == 1 && !wait_wsrep_ready($tinfo, $mysqld))
+      {
+        return 1;
+      }
+    }
   }
 
   # Wait for clusters to start
@@ -6879,6 +7102,12 @@ sub start_servers($) {
       } else {
         $tinfo->{logfile} = "Could not open server logfile: '$logfile'";
       }
+      return 1;
+    }
+
+    if (have_wsrep($mysqld) && !wsrep_is_bootstrap_server($mysqld) &&
+        !wait_wsrep_ready($tinfo, $mysqld))
+    {
       return 1;
     }
   }
@@ -7332,6 +7561,18 @@ sub strace_server_arguments {
   mtr_add_arg($args, "-f");
   mtr_add_arg($args, $$exe);
   $$exe = "strace";
+}
+
+# Modify the exe and args so that program is run in rr
+sub rr_arguments {
+  my $args  = shift;
+  my $exe   = shift;
+  my $type  = shift;
+
+  mtr_add_arg($args, "record");
+  mtr_add_arg($args, "$$exe");
+
+  $$exe = "rr";
 }
 
 # Modify the exe and args so that client program is run in valgrind
@@ -7798,6 +8039,14 @@ Options for valgrind
   valgrind-options=ARGS Deprecated, use --valgrind-option.
   valgrind-path=<EXE>   Path to the valgrind executable.
 
+Options for rr (Record and Replay)
+  rr                    Run the "mysqld" executables using rr. Default run
+                        option is "rr record mysqld mysqld_options"
+  boot-rr               Start bootstrap server in rr
+  rr-arg=ARG            Option to give rr record, can be specified more then once
+  rr-dir=DIR            The directory where rr recordings are stored. Defaults
+                        to 'vardir'/rr.0 (rr.boot for bootstrap instance and
+                        rr.1, ..., rr.N for slave instances).
 Misc options
 
   charset-for-testdb    CREATE DATABASE test CHARACTER SET <option value>.
@@ -7817,6 +8066,8 @@ Misc options
                         The result is a gcov file per source and header file.
   gprof                 Collect profiling information using gprof.
   help                  Get this help text.
+  junit-output=FILE     Output JUnit test summary XML to FILE.
+  junit-package=NAME    Set the JUnit package name to NAME for this test run.
   keep-ndbfs            Keep ndbfs files when saving files on test failures.
   max-connections=N     Max number of open connection to server in mysqltest.
   no-skip               This option is used to run all MTR tests even if the

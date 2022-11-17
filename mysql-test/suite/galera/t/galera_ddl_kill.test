@@ -1,0 +1,32 @@
+#
+# Confirm that ALTER can not be killed under Galera
+#
+
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+
+CREATE TABLE t1 (f1 INTEGER);
+--connection node_1
+SET DEBUG_SYNC = 'alter_opened_table WAIT_FOR continue';
+--send ALTER TABLE t1 ADD COLUMN f2 INTEGER;
+
+--let $galera_connection_name = node_1a
+--let $galera_server_number = 1
+--source include/galera_connect.inc
+--connection node_1a
+
+# Wait until the ALTER has blocked on the master
+SET SESSION wsrep_sync_wait = 0;
+--let $wait_condition = SELECT 1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE INFO = 'ALTER TABLE t1 ADD COLUMN f2 INTEGER' AND STATE = 'debug sync point: alter_opened_table';
+--source include/wait_condition.inc
+
+--let $alter_connection_id = `SELECT ID FROM INFORMATION_SCHEMA.PROCESSLIST WHERE INFO = 'ALTER TABLE t1 ADD COLUMN f2 INTEGER' AND STATE = 'debug sync point: alter_opened_table'`
+--disable_query_log
+--replace_regex /[0-9]+/N/
+--error ER_KILL_DENIED_ERROR
+--eval KILL CONNECTION $alter_connection_id
+--enable_query_log
+
+SET DEBUG_SYNC= 'now SIGNAL continue';
+
+DROP TABLE t1;

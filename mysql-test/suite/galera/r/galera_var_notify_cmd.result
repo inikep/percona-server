@@ -1,0 +1,12 @@
+# restart
+SELECT COUNT(DISTINCT uuid) AS expect_2 FROM mtr_wsrep_notify.membership;
+expect_2
+2
+SELECT MAX(size) AS expect_2 FROM mtr_wsrep_notify.status;
+expect_2
+2
+SELECT COUNT(*) AS expect_1 FROM mtr_wsrep_notify.status;
+expect_1
+1
+SET wsrep_on = OFF;
+DROP SCHEMA mtr_wsrep_notify;

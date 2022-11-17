@@ -1,0 +1,67 @@
+#
+# GCF-424 Tests for DROP TABLE that includes temporary tables
+# Such tables only exist in the connection, so executing the statement verbatim on
+# another node would cause it to fail, triggering voting.
+#
+
+--source include/galera_cluster.inc
+--source include/have_binlog_format_row.inc
+
+#
+# Simplest case
+#
+
+--connection node_1
+CREATE TEMPORARY TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+DROP TABLE t1;
+
+#
+# Two temporary tables
+#
+
+CREATE TEMPORARY TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+DROP TABLE t1, t2;
+
+#
+# Three tables, one temporary
+#
+
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE t3 (f1 INTEGER) ENGINE=InnoDB;
+
+DROP TABLE t1, t2, t3;
+
+#
+# Three tables, two temporary
+# 
+
+CREATE TEMPORARY TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t3 (f1 INTEGER) ENGINE=InnoDB;
+
+DROP TABLE t1, t2, t3;
+
+#
+# Temp table masking an existing table
+#
+
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+DROP TABLE t1;
+DROP TABLE t1;
+
+#
+# Tables across schemas
+#
+
+CREATE DATABASE db1;
+CREATE DATABASE db2;
+
+CREATE TEMPORARY TABLE db1.t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE db2.t2 (f1 INTEGER) ENGINE=InnoDB;
+DROP TABLE db1.t1, db2.t2;
+
+DROP DATABASE db1;
+DROP DATABASE db2;

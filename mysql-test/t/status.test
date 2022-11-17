@@ -63,6 +63,11 @@ let $wait_condition= select count(*) from INFORMATION_SCHEMA.PROCESSLIST
 connection default;
 --echo # Switched to connection: default
 --echo # wait for the second UPDATE to get blocked
+# wsrep: decrease the the wait_condition timeout to avoid
+#        a lock wait timeout on the following --reap.
+#        Notice that wsrep patch has doubled the default
+#        wait_timeout in include/wait_condition.inc.
+let $wait_timeout= 30;
 let $wait_condition= select 1 from INFORMATION_SCHEMA.PROCESSLIST
     where ID = (select connection_id()) and STATE = "Waiting for table level lock";
 --source include/wait_condition.inc

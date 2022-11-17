@@ -1,0 +1,95 @@
+#
+# Test Galera as a master to a MySQL slave with GTID
+#
+# The galera/galera_2node_master.cnf describes the setup of the nodes
+#
+# We check that all transactions originating from within Galera use a UUID that is 
+# different from the server_uuid of either node
+#
+#
+
+--source include/galera_cluster.inc
+--source include/have_log_bin.inc
+
+--connection node_1
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+
+--connection node_2
+SET GLOBAL wsrep_on = OFF;
+RESET MASTER;
+SET GLOBAL wsrep_on = ON;
+
+--connect node_3, 127.0.0.1, root, , test, $NODE_MYPORT_3
+RESET MASTER;
+--disable_query_log
+--eval CHANGE REPLICATION SOURCE TO  SOURCE_HOST='127.0.0.1', SOURCE_PORT=$NODE_MYPORT_1;
+--enable_query_log
+START REPLICA USER='root';
+
+--connection node_1
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(1);
+
+--let $effective_uuid = `SELECT LEFT(@@global.gtid_executed, 36)`
+
+--disable_query_log
+--eval SELECT '$effective_uuid' != @@global.server_uuid AS uuids_do_not_match;
+--enable_query_log
+
+--replace_result $effective_uuid <effective_uuid>
+--replace_regex /table_id: [0-9]+/table_id: #/ /xid=[0-9]+/xid=#/ /:[0-9]+'/:#'/
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+
+--connection node_2
+INSERT INTO t1 VALUES(2);
+
+--disable_query_log
+--eval SELECT '$effective_uuid' != @@global.server_uuid AS uuids_do_not_match;
+--eval SELECT '$effective_uuid' = LEFT(@@global.gtid_executed, 36) AS uuids_match;
+--enable_query_log
+
+--replace_result $effective_uuid <effective_uuid>
+--replace_regex /table_id: [0-9]+/table_id: #/ /xid=[0-9]+/xid=#/ /:[0-9]+'/:#'/
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+
+--connection node_3
+--let $wait_condition = SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 't1';
+--source include/wait_condition.inc
+
+--let $wait_condition = SELECT COUNT(*) = 2 FROM t1;
+--source include/wait_condition.inc
+
+--disable_query_log
+--eval SELECT '$effective_uuid' != @@global.server_uuid AS uuids_do_not_match;
+--eval SELECT '$effective_uuid' = LEFT(@@global.gtid_executed, 36) AS uuids_match;
+--enable_query_log
+
+--connection node_1
+DROP TABLE t1;
+
+--connection node_3
+--let $wait_condition = SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 't1';
+--source include/wait_condition.inc
+
+--connection node_1
+--let $gtid_executed_node1 = `SELECT @@global.gtid_executed;`
+
+--connection node_2
+--disable_query_log
+--eval SELECT '$gtid_executed_node1' = @@global.gtid_executed  AS gtid_executed_equal
+--enable_query_log
+--connection node_3
+# Table becoming invisible in INFORMATION_SCHEMA above may not guarantee
+# that the commit is complete and the global gtid_executed has been increased.
+# Wait explicitly here before checking equality.
+--let $wait_condition = SELECT '$gtid_executed_node1' = @@global.gtid_executed
+--source include/wait_condition.inc
+--disable_query_log
+--eval SELECT '$gtid_executed_node1' = @@global.gtid_executed  AS gtid_executed_equal
+--enable_query_log
+
+STOP REPLICA;
+RESET REPLICA ALL;
+

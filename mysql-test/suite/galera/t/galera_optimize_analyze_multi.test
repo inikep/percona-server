@@ -1,0 +1,31 @@
+#
+# Test replication of multi-table OPTIMIZE and ANALYZE that contains both normal and temporary tables
+#
+
+--source include/galera_cluster.inc
+
+--connection node_1
+RESET MASTER;
+
+--connection node_2
+RESET MASTER;
+
+--connection node_1
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE t3 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TEMPORARY TABLE t4 (f1 INTEGER) ENGINE=InnoDB;
+
+OPTIMIZE TABLE t1, t2, t3, t4;
+ANALYZE TABLE t2, t4, t1, t3;
+
+--replace_regex /xid=[0-9]+/xid=###/ /table_id: [0-9]+/table_id: ###/
+--replace_column 2 <Pos> 5 <End_log_pos>
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+
+--connection node_2
+--replace_regex /xid=[0-9]+/xid=###/ /table_id: [0-9]+/table_id: ###/
+--replace_column 2 <Pos> 5 <End_log_pos>
+SHOW BINLOG EVENTS IN 'mysqld-bin.000001' FROM 123;
+--connection node_1
+DROP TABLE t1, t2, t3, t4;

@@ -1,0 +1,44 @@
+START REPLICA USER='root';
+Warnings:
+Note	1759	Sending passwords in plain text without SSL/TLS is extremely insecure.
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(1);
+SELECT LENGTH(@@global.gtid_executed) > 1;
+LENGTH(@@global.gtid_executed) > 1
+1
+SHOW BINARY LOGS;
+Log_name	File_size	Encrypted
+master-bin.000001	649	No
+SHOW BINLOG EVENTS IN 'master-bin.000001' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+master-bin.000001	126	Previous_gtids	3	157	
+master-bin.000001	157	Gtid	3	234	SET @@SESSION.GTID_NEXT= '<effective_uuid>:1'
+master-bin.000001	234	Query	3	376	use `test`; CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB /* xid=# */
+master-bin.000001	376	Gtid	3	455	SET @@SESSION.GTID_NEXT= '<effective_uuid>:2'
+master-bin.000001	455	Query	3	530	BEGIN
+master-bin.000001	530	Table_map	3	578	table_id: # (test.t1)
+master-bin.000001	578	Write_rows	3	618	table_id: # flags: STMT_END_F
+master-bin.000001	618	Xid	3	649	COMMIT /* xid=# */
+gtid_executed_equal
+1
+SHOW BINLOG EVENTS IN 'master-bin.000002' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+master-bin.000002	126	Previous_gtids	1	157	
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+gtid_executed_equal
+1
+SHOW BINLOG EVENTS IN 'master-bin.000003' FROM 123;
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+master-bin.000003	126	Previous_gtids	2	157	
+master-bin.000003	157	Gtid	3	241	SET @@SESSION.GTID_NEXT= '<effective_uuid>:1'
+master-bin.000003	241	Query	3	383	use `test`; CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB /* xid=# */
+master-bin.000003	383	Gtid	3	469	SET @@SESSION.GTID_NEXT= '<effective_uuid>:2'
+master-bin.000003	469	Query	3	539	BEGIN
+master-bin.000003	539	Table_map	3	587	table_id: # (test.t1)
+master-bin.000003	587	Write_rows	3	627	table_id: # flags: STMT_END_F
+master-bin.000003	627	Xid	3	658	COMMIT /* xid=# */
+DROP TABLE t1;
+STOP REPLICA;
+RESET REPLICA ALL;

@@ -1,0 +1,5 @@
+SELECT 1;
+1
+1
+include/assert_grep.inc [Using openssl based encryption with socat]
+CALL mtr.add_suppression("No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request");

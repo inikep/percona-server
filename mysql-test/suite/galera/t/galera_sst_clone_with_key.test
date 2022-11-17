@@ -1,0 +1,30 @@
+--source include/big_test.inc
+--source include/have_clone_plugin.inc
+--source include/have_openssl.inc
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+
+# galera_st_clean_slave.inc does not clean data dir properly, leaving subdirs.
+# mysqld justly refuses to initialize non-empty data directory. Hence the
+# following test fails.
+# --source suite/galera/include/galera_st_clean_slave.inc
+
+--source suite/galera/include/galera_st_shutdown_slave.inc
+--source suite/galera/include/galera_st_kill_slave.inc
+--source suite/galera/include/galera_st_kill_slave_ddl.inc
+
+# Confirm that SSL was used by donor:
+--let $assert_text = REQUIRE_SSL=REQUIRE SSL
+--let $assert_select = REQUIRE_SSL=REQUIRE SSL
+--let $assert_count = 2
+--let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.1.err
+--let $assert_only_after = CURRENT_TEST
+--source include/assert_grep.inc
+
+# Confirm that SSL was used by joiner:
+--let $assert_text = Not using SSL for SST
+--let $assert_select = Not using SSL for SST
+--let $assert_count = 0
+--let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.2.err
+--let $assert_only_after = CURRENT_TEST
+--source include/assert_grep.inc

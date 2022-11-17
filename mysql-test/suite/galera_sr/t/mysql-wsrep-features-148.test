@@ -1,0 +1,62 @@
+# statement rollback for SR transaction causes slave crash for inconsistency
+
+# We test the following:
+# 1. Create a transaction that is blocked by an SR transaction
+# 2. Force the SR transaction to have a statement rollback
+#
+
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+
+--connection node_1
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+CREATE TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+INSERT INTO t2 VALUES (6),(7),(8),(9),(10),(1);
+
+--connection node_2
+SET wsrep_sync_wait=0;
+SET GLOBAL wsrep_applier_threads = 2;
+
+# Begin SR transaction
+--connection node_1
+SET SESSION wsrep_trx_fragment_size = 1;
+SET wsrep_sync_wait=0;
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+INSERT INTO t1 VALUES (1), (2), (3), (4), (5);
+
+# Begin non-SR transaction that will block waiting for the SR transaction
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connection node_1a
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+--send INSERT INTO t1 VALUES (1), (2), (3), (4), (5);
+
+--connection node_1
+# wait to see that node_1a INSERT is pending in innodb lock wait
+--let $wait_condition = SELECT COUNT(*) = 1 FROM performance_schema.data_lock_waits
+--source include/wait_condition.inc
+
+# Cause the SR transaction to fail with a duplicate key error
+--error ER_LOCK_DEADLOCK,ER_DUP_ENTRY
+INSERT INTO t1 SELECT * FROM t2;
+
+--connection node_1a
+# node_1a transaction should now get the waited lock, and can continue
+# Do one more INSERT and commit the non-SR transaction.
+--reap
+INSERT INTO t1 VALUES (6), (7), (8), (9), (10);
+COMMIT;
+
+--connection node_2
+# wait until all transactions from node1 have committed
+--let $wait_condition = SELECT COUNT(*) = 10 FROM t1
+--source include/wait_condition.inc
+
+# return applier count back to 1, following two DROP TABLEs from node_1 will
+# eventually terminate the other applier
+SET GLOBAL wsrep_applier_threads = 1;
+
+--connection node_1
+DROP TABLE t1;
+DROP TABLE t2;

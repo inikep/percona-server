@@ -1,0 +1,1 @@
+--log-bin=mysqld-bin --log-replica-updates

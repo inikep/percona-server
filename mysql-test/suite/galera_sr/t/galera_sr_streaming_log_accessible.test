@@ -1,0 +1,18 @@
+#
+# Check that table mysql.wsrep_streaming_log is accessible
+# while a node is detached (wsrep not ready)
+#
+
+--source include/galera_cluster.inc
+
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate = 1';
+
+SET SESSION wsrep_sync_wait = 0;
+--let $wait_condition = SELECT VARIABLE_VALUE = 'OFF' FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_ready'
+--source include/wait_condition.inc
+
+SELECT COUNT(*) FROM mysql.wsrep_streaming_log;
+
+SET GLOBAL wsrep_provider_options = 'gmcast.isolate = 0';
+--let $wait_condition = SELECT VARIABLE_VALUE = 'ON' FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_ready'
+--source include/wait_condition.inc

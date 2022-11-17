@@ -1,0 +1,13 @@
+!include ../galera_2nodes.cnf
+
+[mysqld]
+wsrep_sst_method=xtrabackup-v2
+wsrep_sst_auth="root:"
+
+ssl-cert=@env.MYSQL_TEST_DIR/std_data/client-cert.pem
+ssl-key=@env.MYSQL_TEST_DIR/std_data/client-key.pem
+ssl-ca=@env.MYSQL_TEST_DIR/std_data/cacert.pem
+
+[sst]
+ssl-mode=VERIFY_CA
+wsrep-debug=ON

@@ -1,0 +1,11 @@
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) Engine=InnoDB;
+INSERT INTO t1 VALUES (1);
+SELECT COUNT(*) = 1 FROM t1;
+COUNT(*) = 1
+1
+# restart:--wsrep_cluster_address=gcomm://127.0.0.1:<PORT> --wsrep_provider_options=base_port=<PORT>;socket.ssl=yes;socket.ssl_ca=<SSL_CA>;socket.ssl_cert=<SSL_CERT>;socket.ssl_key=<SSL_KEY>
+INSERT INTO t1 VALUES (2);
+SELECT COUNT(*) = 2 FROM t1;
+COUNT(*) = 2
+1
+DROP TABLE t1;

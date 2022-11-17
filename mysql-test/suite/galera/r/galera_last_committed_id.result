@@ -1,0 +1,21 @@
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+wsrep_written_does_not_match_different_conn
+1
+wsrep_written_does_not_match_different_nodes
+1
+INSERT INTO t1 VALUES (1);
+wsrep_last_written_seen_id_match
+1
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+INSERT INTO t1 VALUES (1);
+wsrep_last_seen_id_match
+1
+wsrep_last_written_id_match
+1
+COMMIT;
+wsrep_last_written_id_advanced
+1
+SET AUTOCOMMIT=ON;
+DROP TABLE t1;

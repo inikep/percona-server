@@ -108,3 +108,49 @@ group_replication.gr_leave_with_suspect_member : BUG#31704262 XCOM CREATES NODES
 group_replication.gr_majority_loss_restored_after_timeout : BUG#31704262 XCOM CREATES NODES WITH PAST GHOST VIEWS
 group_replication.gr_suspect_member_resumes_after_crash_join_retries : BUG#32458239 GR_SUSPECT_MEMBER_RESUMES_AFTER_CRASH_JOIN_RETRIES IS NOT STABLE
 
+#
+# Galera suites' disabled tests
+# Tests that have disabler=CODERSHIP will be forcefully run with "./mtr --enable-disabled" by Jenkins
+#
+
+# wsrep
+wsrep.MDEV-23092: BUG#0000 CODERSHIP variable wsrep_provider is now read-only
+wsrep.MDEV-22443: BUG#0000 it is no longer allowed enable wsrep_on if wsrep_provider is 'none'
+
+# galera
+galera.galera_var_notify_cmd : BUG#08072019 Blocked in wsrep_notify_status(...):82
+galera.GCF-841 : BUG#0000 mysql 5.7 replicates DROP for temporary table, which makes this test void
+#galera.GCF-1081 : BUG#0000 CODERSHIP tries to BF abort earlier trx, needs to be reimplemented
+#galera.GCF-574 : BUG#0000  CODERSHIP CTAS is not supported together with SR
+galera.galera_autoinc_sst_xtrabackup : BUG#0000 CODERSHIP due to cert index preload, this test will never pass
+galera.galera_bf_abort_group_commit : BUG#0000 requires galera_sr_bf_abort.inc, probably needs reimplementation
+galera.galera_kill_nochanges : BUG#0000 mysql-wsrep#24  CODERSHIP Galera server does not restart properly if killed
+galera.galera_split_brain : BUG#0000 GCF-998 CODERSHIP is worked on with tracker GCF-998
+#galera.galera_sr_kill_all_pcrecovery : BUG#0000 GCF-1068 CODERSHIP is worked on with tracker GCF-1068
+galera.galera_var_innodb_disallow_writes : BUG#0000 Issue#451 2018-05-16 CODERSHIP
+galera.MW-286 : BUG#0000 Issue#330 2018-05-16 CODERSHIP
+galera.galera_var_wsrep_recover : BUG#0000 Issue#330 CODERSHIP 
+galera.MW-284 : BUG#0000 test is incompatible with native mysql8.0 server slave behavior 
+galera.MW-356 : BUG#0000 mysql 8.0 has relaxed FK locking, test is obsolete 
+galera.galera_upgrade_partitioning : BUG#0000 mysql 8.0 does not support alter table upgrade partitioning 
+
+galera.galera_as_slave_gtid_replicate_do_db : BUG#000 Needs MySQL Galera GTID feature
+galera.galera_as_slave_gtid_replicate_do_db_cc : BUG#0000 Needs MySQL Galera GTID feature
+
+galera.pxc-421 : BUG#0000 2021-03-02 CODERSHIP variable wsrep_provider is now read-only
+galera.galera_migrate : BUG#0000 2021-03-02 CODERSHIP variable wsrep_provider is now read-only
+galera.galera_wsrep_provider_unset_set : BUG#0000 2021-03-02 CODERSHIP variable wsrep_provider is now read-only
+galera.galera_wsrep_schema_init : BUG#0000 2021-03-02 CODERSHIP variable wsrep_provider is now read-only
+
+# galera_3nodes
+galera_3nodes.galera_parallel_autoinc_manytrx2 : BUG#0000 Issue#330 CODERSHIP 
+galera_3nodes.galera_slave_options_do : BUG#0000 GCF-1019 CODERSHIP 5.7 regression: replication filtering options
+galera_3nodes.galera_slave_options_ignore : BUG#0000 GCF-1019 CODERSHIP 5.7 regression: replication filtering options
+galera_3nodes.galera_innobackupex_backup : BUG#0000 CODERSHIP 8.0 Xtrabackup 8.0 does not have innobackupex
+galera_3nodes.galera_garbd_backup : BUG#0000 innodb_disallow_writes: silencing writes in donor state is not yet complete
+
+# galera_sr
+galera_sr.galera_sr_sbr : BUG#0000 binlog_format=STATEMENT not supported with SR
+galera_sr.mysql-wsrep-features-29 : BUG#0000 binlog_format=STATEMENT not supported with SR
+galera_sr.GCF-574 : BUG#0000 CREATE TABLE AS SELECT not supported with SR
+galera_sr.GCF-437 : BUG#0000 Test relies on InnoDB BLOB size limitation

@@ -1,0 +1,3 @@
+START REPLICA USER='root';
+ERROR HY000: bad configuration no log_replica_updates defined, slave would not replicate further to wsrep cluster
+RESET REPLICA ALL;

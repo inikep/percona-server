@@ -1,0 +1,61 @@
+#
+# Test Galera as a slave to two separate MySQL master
+#
+
+--source include/have_log_bin.inc
+--source include/galera_cluster.inc
+
+# As nodes #3, #4 is not a Galera node, we connect to nodes
+--connect node_3, 127.0.0.1, root, , test, $NODE_MYPORT_3
+--connect node_4, 127.0.0.1, root, , test, $NODE_MYPORT_4
+
+--connection node_1
+--disable_query_log
+--eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$NODE_MYPORT_3 FOR CHANNEL 'master-3';
+--eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$NODE_MYPORT_4 FOR CHANNEL 'master-4';
+--enable_query_log
+START REPLICA USER='root';
+
+--connection node_3
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(1);
+
+--connection node_4
+CREATE TABLE t2 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t2 VALUES(1);
+
+--connection node_1
+--let $wait_condition = SELECT COUNT(*) = 2 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('t1','t2');
+--source include/wait_condition.inc
+
+--let $wait_condition = SELECT COUNT(*) = 1 FROM t1;
+--source include/wait_condition.inc
+
+--let $wait_condition = SELECT COUNT(*) = 1 FROM t2;
+--source include/wait_condition.inc
+
+# Check that all updates made it to the second Galera node
+
+--connection node_2
+SELECT COUNT(*) = 1 FROM t1;
+SELECT COUNT(*) = 1 FROM t2;
+
+--connection node_3
+DROP TABLE t1;
+
+--connection node_4
+DROP TABLE t2;
+
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('t1','t2');
+--source include/wait_condition.inc
+
+--connection node_1
+STOP REPLICA;
+RESET REPLICA ALL;
+
+--connection node_3
+RESET MASTER;
+
+--connection node_4
+RESET MASTER;

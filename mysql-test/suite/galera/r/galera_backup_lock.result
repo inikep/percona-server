@@ -1,0 +1,55 @@
+create table t (i int primary key, c varchar(30) );
+insert into t values (1, 'phase 1');
+"test phase 1: conflicting DDL from same node"
+lock instance for backup;
+alter table t add column (j int default(0));;
+set wsrep_sync_wait=0;
+unlock instance;
+show create table t;
+Table	Create Table
+t	CREATE TABLE `t` (
+  `i` int NOT NULL,
+  `c` varchar(30) DEFAULT NULL,
+  `j` int DEFAULT (0),
+  PRIMARY KEY (`i`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+"test phase 2: non-conflicting DML from same node"
+lock instance for backup;
+insert into t values (2, "phase 2", 1);
+unlock instance;
+select * from t;
+i	c	j
+1	phase 1	0
+2	phase 2	1
+"test phase 3: conflicting DDL from other node"
+lock instance for backup;
+alter table t add column (k int default(0));;
+unlock instance;
+show create table t;
+Table	Create Table
+t	CREATE TABLE `t` (
+  `i` int NOT NULL,
+  `c` varchar(30) DEFAULT NULL,
+  `j` int DEFAULT (0),
+  `k` int DEFAULT (0),
+  PRIMARY KEY (`i`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+"test phase 4: non-conflicting DML from other node"
+lock instance for backup;
+insert into t values (3, "phase 4", 1, 1);
+unlock instance;
+show create table t;
+Table	Create Table
+t	CREATE TABLE `t` (
+  `i` int NOT NULL,
+  `c` varchar(30) DEFAULT NULL,
+  `j` int DEFAULT (0),
+  `k` int DEFAULT (0),
+  PRIMARY KEY (`i`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+select * from t;
+i	c	j	k
+1	phase 1	0	0
+2	phase 2	1	0
+3	phase 4	1	1
+drop table t;

@@ -1,0 +1,27 @@
+# Two parallel commits should have different GTID assigned.
+
+--source include/have_log_bin.inc
+--source include/galera_cluster.inc
+
+CREATE TABLE t1 (f1 INT PRIMARY KEY);
+
+BEGIN;
+INSERT INTO t1 VALUES (1);
+
+--connect node_1a, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connection node_1a
+BEGIN;
+INSERT INTO t1 VALUES (2);
+--send COMMIT
+
+--connection node_1
+COMMIT;
+
+--connection node_1a
+--reap
+
+--replace_regex /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/<GTID>/ /xid=[0-9]+/xid=###/ /table_id: [0-9]+/table_id: ###/
+--replace_column 2 <Pos> 5 <End_log_pos>
+SHOW BINLOG EVENTS IN 'mysqld-bin.000002' FROM 155;
+
+DROP TABLE t1;

@@ -1,0 +1,45 @@
+#
+# Shut down and restart the entire cluster. Check that the wsrep_schema is consistent after restart
+#
+
+--source include/galera_cluster.inc
+--source include/big_test.inc
+
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+
+--connection node_2
+SELECT COUNT(*) = 1 FROM t1;
+
+--connection node_2
+--source include/shutdown_mysqld.inc
+
+--connection node_1
+--let $wait_condition = SELECT VARIABLE_VALUE = 1 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size';
+--source include/shutdown_mysqld.inc
+
+--connection node_1
+--let $start_mysqld_params = "--wsrep-new-cluster"
+--let $_expect_file_name= $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--source include/start_mysqld.inc
+
+--connection node_2
+#
+# We set --wsrep_retry_autocommit=1 here so that MTR considers this node 'tainted' and does not reuse it for the next test
+# As otherwise we get two 1-node clusters for the next test
+#
+--let $start_mysqld_params = "--wsrep_retry_autocommit=1"
+--let $_expect_file_name= $MYSQLTEST_VARDIR/tmp/mysqld.2.expect
+--source include/start_mysqld.inc
+
+--connection node_1
+--source include/wait_until_connected_again.inc
+--source include/galera_wait_ready.inc
+--let $wait_condition = SELECT VARIABLE_VALUE = 2 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size';
+--source include/wait_condition.inc
+
+--let $diff_servers = 1 2
+--let $databases = wsrep_schema
+--source include/diff_servers.inc
+
+DROP TABLE t1;

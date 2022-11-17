@@ -217,7 +217,7 @@ dfLtTBcBAAAAIgAAAPkAAAAAABcAAAAAAAcAAf/+AQAAAA==
 
 SELECT * FROM t1;
 --echo # Their values should be ON
-SHOW SESSION VARIABLES LIKE "%_checks";
+SHOW SESSION VARIABLES WHERE Variable_name LIKE "%_checks" AND Variable_name NOT LIKE "wsrep%";
 
 --echo
 SET @@SESSION.foreign_key_checks= OFF;
@@ -232,7 +232,7 @@ dfLtTBcBAAAAIgAAAM0BAAAAABcAAAAAAAEAAf/+AgAAAA==
 
 SELECT * FROM t1;
 --echo # Their values should be OFF
-SHOW SESSION VARIABLES LIKE "%_checks";
+SHOW SESSION VARIABLES WHERE Variable_name LIKE "%_checks" AND Variable_name NOT LIKE "wsrep%";
 
 --echo # INSERT INTO t1 VALUES(2)
 --echo # foreign_key_checks=1 and unique_checks=1
@@ -246,7 +246,7 @@ dfLtTBcBAAAAIgAAAM0BAAAAABcAAAAAAAEAAf/+AgAAAA==
 
 SELECT * FROM t1;
 --echo # Their values should be OFF
-SHOW SESSION VARIABLES LIKE "%_checks";
+SHOW SESSION VARIABLES WHERE Variable_name LIKE "%_checks" AND Variable_name NOT LIKE "wsrep%";
 
 DROP TABLE t1;
 

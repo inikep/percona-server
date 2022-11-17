@@ -26,7 +26,7 @@
 #    events_bugs.test, events_time_zone.test
 #
 
-let $wait_counter= 300;
+let $wait_counter= 600;
 if ($wait_timeout)
 {
   let $wait_counter= `SELECT $wait_timeout * 10`;
@@ -47,6 +47,7 @@ if (!$explicit_default_wait_timeout)
 let $wait_condition_reps= 0;
 while ($wait_counter)
 {
+    --error 0,ER_NO_SUCH_TABLE,ER_LOCK_WAIT_TIMEOUT,ER_UNKNOWN_COM_ERROR,ER_LOCK_DEADLOCK,ER_QUERY_INTERRUPTED
     let $success= `$wait_condition`;
     inc $wait_condition_reps;
     if ($success)

@@ -1,0 +1,64 @@
+--source include/galera_cluster.inc
+--source include/have_debug_sync.inc
+--source include/galera_have_debug_sync.inc
+
+CREATE TABLE parent (
+	id INT PRIMARY KEY,
+	j INT
+) ENGINE=InnoDB;
+
+CREATE TABLE child (
+	id INT PRIMARY KEY AUTO_INCREMENT,
+	parent_id INT,
+	KEY (parent_id),
+	CONSTRAINT FOREIGN KEY (parent_id) REFERENCES parent(id)
+) ENGINE=InnoDB;
+
+--connection node_1
+INSERT INTO parent VALUES (1,1);
+INSERT INTO child VALUES (1,1);
+
+--connection node_2
+# Ensure that all preceding operations have completed on node_2 before
+# continuing.
+SELECT * from child;
+SET SESSION wsrep_sync_wait=0;
+SET GLOBAL  wsrep_applier_threads=2;
+
+# Set sync point for first transaction
+--let $galera_sync_point = commit_monitor_slave_enter_sync
+--source include/galera_set_sync_point.inc
+
+# Begin first transaction
+--connection node_1
+DELETE FROM child WHERE id=1;
+
+# Ensure that first transaction is in the sync point
+--connection node_2
+--let $galera_sync_point = commit_monitor_slave_enter_sync
+--source include/galera_wait_sync_point.inc
+
+# remember status for receive queue and certification dependency distance
+--let $expected_apply_waits = `SELECT VARIABLE_VALUE+1 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_apply_waits'`
+
+# Send second transaction
+--connection node_1
+DELETE FROM parent WHERE id=1;
+
+--connection node_2
+--let $wait_condition = SELECT VARIABLE_VALUE= $expected_apply_waits FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_apply_waits';
+--source include/wait_condition.inc
+
+# Release first transaction from sync point. The sync point must be
+# cleared first to avoid hitting it with second transaction.
+--let $galera_sync_point = commit_monitor_slave_enter_sync
+--source include/galera_clear_sync_point.inc
+--source include/galera_signal_sync_point.inc
+
+
+--connection node_2
+SET GLOBAL wsrep_applier_threads = DEFAULT;
+
+--connection node_1
+DROP TABLE child;
+DROP TABLE parent;

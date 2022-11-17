@@ -1,0 +1,43 @@
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+SET SESSION wsrep_trx_fragment_size = 3;
+SET SESSION wsrep_trx_fragment_unit = 'statements';
+SET AUTOCOMMIT=OFF;
+START TRANSACTION;
+INSERT INTO t1 VALUES (1);
+SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SELECT COUNT(*) `expect 0` FROM t1;
+expect 0
+0
+SELECT COUNT(*) `expect 0` FROM mysql.wsrep_streaming_log;
+expect 0
+0
+INSERT INTO t1 VALUES (2);
+SELECT COUNT(*) `expect 2` FROM t1;
+expect 2
+2
+SELECT COUNT(*) `expect 1` FROM mysql.wsrep_streaming_log;
+expect 1
+1
+INSERT INTO t1 VALUES (3);
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+SELECT COUNT(*) `expect 5` FROM t1;
+expect 5
+5
+SELECT COUNT(*) `expect 2` FROM mysql.wsrep_streaming_log;
+expect 2
+2
+COMMIT;
+SELECT COUNT(*) `expect 5` FROM t1;
+expect 5
+5
+SELECT COUNT(*) `expect 0` FROM mysql.wsrep_streaming_log;
+expect 0
+0
+SELECT COUNT(*) `expect 5` FROM t1;
+expect 5
+5
+SELECT COUNT(*) `expect 0` FROM mysql.wsrep_streaming_log;
+expect 0
+0
+DROP TABLE t1;

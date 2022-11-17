@@ -1,0 +1,4 @@
+SELECT 1;
+1
+1
+CALL mtr.add_suppression("No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request");

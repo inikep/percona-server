@@ -1,0 +1,26 @@
+CREATE TABLE parent (f1 INT PRIMARY KEY);
+CREATE TABLE child (
+f1 INT PRIMARY KEY,
+parent_f1 INT,
+FOREIGN KEY (parent_f1) REFERENCES parent(f1)
+);
+INSERT INTO parent VALUES (1), (2);
+INSERT INTO child VALUES (1, 1);
+DROP TABLE child;
+DROP TABLE parent;
+SELECT * FROM parent;
+f1
+1
+2
+SELECT * FROM child;
+f1	parent_f1
+1	1
+SELECT * FROM parent;
+f1
+1
+2
+SELECT * FROM child;
+f1	parent_f1
+1	1
+DROP TABLE child;
+DROP TABLE parent;

@@ -17,6 +17,7 @@ performance_schema.global_variables WHERE variable_name NOT IN
 'innodb_monitor_disable',
 'innodb_monitor_reset',
 'innodb_monitor_reset_all',
+'innodb_disallow_writes',
 'rbr_exec_mode');
 ************************************************************
 * 1. Check that there are no persisted variable settings.
@@ -33,6 +34,8 @@ SELECT * FROM performance_schema.global_variables
 WHERE variable_name NOT IN
 ('rbr_exec_mode')
 AND variable_name NOT LIKE 'ndb_%'
+AND variable_name NOT LIKE 'wsrep_%'
+AND variable_name NOT LIKE 'innodb_disallow_writes'
 ORDER BY variable_name;
 
 include/assert.inc [Expect 500+ variables in the table. Due to open Bugs, we are checking for fewer ]

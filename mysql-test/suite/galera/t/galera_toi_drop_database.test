@@ -1,0 +1,50 @@
+#
+# Test the operation of DDLs that affect multiple database objects
+#
+# The test starts transactions for tables database1.t1 and
+# database1.t2 on node_1 and runs DROP DATABASE database1 on
+# node_2. It is expected that both transactions fail with
+# deadlock error on COMMIT.
+#
+
+--source include/galera_cluster.inc
+
+--let $galera_connection_name = node_1a
+--let $galera_server_number = 1
+--source include/galera_connect.inc
+
+--connection node_1
+CREATE DATABASE database1;
+USE database1;
+
+CREATE TABLE t1 (f1 INTEGER) ENGINE=InnoDB;
+CREATE TABLE t2 (f1 INTEGER) ENGINE=InnoDB;
+
+START TRANSACTION;
+INSERT INTO t1 (f1) VALUES (1);
+
+--connection node_1a
+USE database1;
+START TRANSACTION;
+INSERT INTO t2 (f1) VALUES (1);
+
+--connection node_2
+DROP DATABASE database1;
+
+--connection node_1
+--error ER_LOCK_DEADLOCK
+COMMIT;
+
+--connection node_1a
+--error ER_LOCK_DEADLOCK
+COMMIT;
+
+--connection node_1
+SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'database1';
+--error ER_BAD_DB_ERROR
+USE database1;
+
+--connection node_2
+SELECT COUNT(*) = 0 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'database1';
+--error ER_BAD_DB_ERROR
+USE database1;
