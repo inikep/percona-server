@@ -302,6 +302,8 @@ TABLE_CATEGORY get_table_category(const LEX_CSTRING &db,
                                   const LEX_CSTRING &name) {
   assert(db.str != nullptr);
   assert(name.str != nullptr);
+  assert(db.str != nullptr);
+  assert(name.str != nullptr);
 
   if (is_infoschema_db(db.str, db.length)) return TABLE_CATEGORY_INFORMATION;
 
@@ -310,6 +312,10 @@ TABLE_CATEGORY get_table_category(const LEX_CSTRING &db,
   if ((db.length == MYSQL_SCHEMA_NAME.length) &&
       (my_strcasecmp(system_charset_info, MYSQL_SCHEMA_NAME.str, db.str) ==
        0)) {
+#ifdef WITH_WSREP
+    if (my_strcasecmp(system_charset_info, "wsrep_streaming_log", name.str) == 0)
+      return TABLE_CATEGORY_RPL_INFO;
+#endif /* WITH_WSREP */
     if (is_acl_table_name(name.str)) return TABLE_CATEGORY_ACL_TABLE;
 
     if (is_system_table_name(name.str, name.length))
@@ -5607,8 +5613,17 @@ void TABLE::mark_columns_needed_for_delete(THD *thd) {
         in mark_columns_per_binlog_row_image, if not, then use
         the hidden primary key
       */
+#ifdef WITH_WSREP
+      /* this does not affect wsrep patch as long as we use RBR only,
+	 but this condition is just preparing for possible future STATEMENT 
+	 format support
+      */
+      if (!((WSREP_EMULATE_BINLOG(current_thd) || mysql_bin_log.is_open()) && 
+          thd->is_current_stmt_binlog_format_row()))
+#else
       if (!(mysql_bin_log.is_open() &&
             thd->is_current_stmt_binlog_format_row()))
+#endif /* WITH_WSREP */
         file->use_hidden_primary_key();
     } else
       mark_columns_used_by_index_no_reset(s->primary_key, read_set);
@@ -5685,8 +5700,17 @@ void TABLE::mark_columns_needed_for_update(THD *thd, bool mark_binlog_columns) {
         in mark_columns_per_binlog_row_image, if not, then use
         the hidden primary key
       */
+#ifdef WITH_WSREP
+      /* this does not affect wsrep patch as long as we use RBR only,
+	 but this condition is just preparing for possible future STATEMENT 
+	 format support
+      */
+      if (!((WSREP_EMULATE_BINLOG(current_thd) || mysql_bin_log.is_open()) && 
+            thd->is_current_stmt_binlog_format_row()))
+#else
       if (!(mysql_bin_log.is_open() &&
             thd->is_current_stmt_binlog_format_row()))
+#endif /* WITH_WSREP */
         file->use_hidden_primary_key();
     } else
       mark_columns_used_by_index_no_reset(s->primary_key, read_set);
@@ -5740,7 +5764,12 @@ void TABLE::mark_columns_per_binlog_row_image(THD *thd) {
     If in RBR we may need to mark some extra columns,
     depending on the binlog-row-image command line argument.
    */
+#ifdef WITH_WSREP
+  if (((WSREP_EMULATE_BINLOG(current_thd) || mysql_bin_log.is_open()) &&
+       thd->is_current_stmt_binlog_format_row() &&
+#else
   if ((mysql_bin_log.is_open() && thd->is_current_stmt_binlog_format_row() &&
+#endif /* WITH_WSREP */
        !ha_check_storage_engine_flag(s->db_type(), HTON_NO_BINLOG_ROW_OPT))) {
     /* if there is no PK, then mark all columns for the BI. */
     if (s->primary_key >= MAX_KEY) bitmap_set_all(read_set);

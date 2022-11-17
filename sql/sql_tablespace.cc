@@ -65,6 +65,10 @@
 #include "sql/system_variables.h"
 #include "sql/thd_raii.h"
 #include "sql/transaction.h"  // trans_commit_stmt
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 namespace {
 
@@ -455,6 +459,13 @@ bool Sql_cmd_create_tablespace::execute(THD *thd) {
     return true;
   }
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
+
   handlerton *hton = nullptr;
   if (get_stmt_hton(thd, m_options->engine_name, m_tablespace_name.str,
                     "CREATE TABLESPACE", &hton)) {
@@ -656,6 +667,13 @@ bool Sql_cmd_drop_tablespace::execute(THD *thd) {
   if (check_global_access(thd, CREATE_TABLESPACE_ACL)) {
     return true;
   }
+
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
 
   if (lock_tablespace_names(thd, m_tablespace_name)) {
     return true;
@@ -902,6 +920,58 @@ static bool upgrade_lock_for_tables_in_tablespace(
 Sql_cmd_alter_tablespace::Sql_cmd_alter_tablespace(
     const LEX_STRING &ts_name, const Tablespace_options *options)
     : Sql_cmd_tablespace{ts_name, options} {}
+#ifdef WITH_WSREP
+static TABLE_LIST* wsrep_TOI(THD* thd, dd::Tablespace_table_ref_vec& ts_refs,
+                             const LEX_STRING m_tablespace_name) {
+  TABLE_LIST *tables = nullptr;
+  TABLE_LIST *prev = nullptr;
+  auto &dc = *thd->dd_client();
+  dd::cache::Dictionary_client::Auto_releaser releaser(&dc);
+
+  if (lock_tablespace_names(thd, m_tablespace_name)) {
+    return nullptr;
+  }
+  auto tsmp = get_mod_pair<dd::Tablespace>(&dc, m_tablespace_name.str);
+  if (tsmp.first == nullptr) {
+    my_error(ER_TABLESPACE_MISSING_WITH_NAME, MYF(0), m_tablespace_name.str);
+    return nullptr;
+  }
+
+  if (dd::fetch_tablespace_table_refs(thd, *tsmp.first, &ts_refs)) {
+    return nullptr;
+  }
+  for (auto &ts : ts_refs) {
+    WSREP_DEBUG("tablespace table: %s,%s", ts.m_schema_name.c_str(), ts.m_name.c_str());
+    if (!tables) {
+      tables = new TABLE_LIST(ts.m_schema_name.c_str(),
+			      strlen(ts.m_schema_name.c_str()),
+			      ts.m_name.c_str(),
+			      strlen(ts.m_name.c_str()), nullptr,
+			      TL_WRITE_DEFAULT);
+      if (tables == nullptr) {
+	WSREP_WARN("alter tablespace failure with wsrep replication");
+	return nullptr;
+      }
+      prev = tables;
+    } else {
+      TABLE_LIST *tbl = new TABLE_LIST(ts.m_schema_name.c_str(),
+				       strlen(ts.m_schema_name.c_str()),
+				       ts.m_name.c_str(),
+				       strlen(ts.m_name.c_str()), nullptr,
+				       TL_WRITE_DEFAULT);
+      if (tbl == nullptr) {
+	WSREP_WARN("alter tablespace failure with wsrep replication");
+	delete tables;
+	return nullptr;
+      }
+      prev->next_global = tbl;
+      prev = tbl;
+    }
+  }
+
+  return tables;
+}
+#endif
 
 bool Sql_cmd_alter_tablespace::execute(THD *thd) {
   Rollback_guard rollback_on_return{thd};
@@ -921,6 +991,19 @@ bool Sql_cmd_alter_tablespace::execute(THD *thd) {
     my_error(ER_CANNOT_SET_TABLESPACE_ENCRYPTION, MYF(0));
     return true;
   }
+
+#ifdef WITH_WSREP
+  dd::Tablespace_table_ref_vec ts_refs;
+  TABLE_LIST *tables = wsrep_TOI(thd, ts_refs, m_tablespace_name);
+  if (tables) {
+    WSREP_TO_ISOLATION_BEGIN_IF(m_tablespace_name.str, NULL, tables)
+    {
+      delete tables;
+      return true;
+    }
+    delete tables;
+  }
+#endif /* WITH_WSREP */
 
   if (lock_tablespace_names(thd, m_tablespace_name)) {
     return true;
@@ -1061,6 +1144,12 @@ bool Sql_cmd_alter_tablespace_add_datafile::execute(THD *thd) {
     return true;
   }
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
   if (lock_tablespace_names(thd, m_tablespace_name)) {
     return true;
   }
@@ -1152,6 +1241,12 @@ bool Sql_cmd_alter_tablespace_drop_datafile::execute(THD *thd) {
     return true;
   }
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
   if (lock_tablespace_names(thd, m_tablespace_name)) {
     return true;
   }
@@ -1235,6 +1330,18 @@ bool Sql_cmd_alter_tablespace_rename::execute(THD *thd) {
     return true;
   }
 
+#ifdef WITH_WSREP
+  dd::Tablespace_table_ref_vec ts_refs;
+  TABLE_LIST *tables = wsrep_TOI(thd, ts_refs, m_tablespace_name);
+  if (tables) {
+    WSREP_TO_ISOLATION_BEGIN_IF(m_tablespace_name.str, NULL, tables)
+    {
+      delete tables;
+      return true;
+    }
+    delete tables;
+  }
+#endif
   // Can't check the name in SE, yet. Need to acquire Tablespace
   // object first, so that we can get the engine name.
 
@@ -1383,6 +1490,12 @@ bool Sql_cmd_create_undo_tablespace::execute(THD *thd) {
   if (check_global_access(thd, CREATE_TABLESPACE_ACL)) {
     return true;
   }
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_undo_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
 
   handlerton *hton = nullptr;
   if (get_stmt_hton(thd, m_options->engine_name, m_undo_tablespace_name.str,
@@ -1530,6 +1643,12 @@ bool Sql_cmd_alter_undo_tablespace::execute(THD *thd) {
   if (check_global_access(thd, CREATE_TABLESPACE_ACL)) {
     return true;
   }
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_undo_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
 
   handlerton *hton = nullptr;
   if (get_stmt_hton(thd, m_options->engine_name, m_undo_tablespace_name.str,
@@ -1621,6 +1740,12 @@ bool Sql_cmd_drop_undo_tablespace::execute(THD *thd) {
   if (check_global_access(thd, CREATE_TABLESPACE_ACL)) {
     return true;
   }
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_undo_tablespace_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
 
   handlerton *hton = nullptr;
   if (get_stmt_hton(thd, m_options->engine_name, m_undo_tablespace_name.str,
@@ -1724,6 +1849,12 @@ bool Sql_cmd_logfile_group::execute(THD *thd) {
   if (check_global_access(thd, CREATE_TABLESPACE_ACL)) {
     return true;
   }
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(m_undofile_name.str, NULL, NULL)
+  {
+    return true;
+  }
+#endif
 
   handlerton *hton = nullptr;
   if (get_stmt_hton(thd, m_options->engine_name, m_logfile_group_name.str,

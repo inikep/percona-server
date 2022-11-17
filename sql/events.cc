@@ -84,6 +84,10 @@
 #include "sql/transaction.h"
 #include "sql/tztime.h"  // Time_zone
 #include "sql_string.h"  // String
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 /**
   @addtogroup Event_Scheduler
@@ -353,6 +357,12 @@ bool Events::create_event(THD *thd, Event_parse_data *parse_data,
                    false, false))
     return true;
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL)
+  {
+    return true;
+  }
+#endif /* WITH_WSREP */
   // Acquire exclusive MDL lock.
   if (lock_object_name(thd, MDL_key::EVENT, parse_data->dbname.str,
                        parse_data->name.str))
@@ -488,6 +498,12 @@ bool Events::update_event(THD *thd, Event_parse_data *parse_data,
                    false, false))
     return true;
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL)
+  {
+     return true;
+  }
+#endif /* WITH_WSREP */
   if (lock_object_name(thd, MDL_key::EVENT, parse_data->dbname.str,
                        parse_data->name.str))
     return true;
@@ -641,6 +657,12 @@ bool Events::drop_event(THD *thd, LEX_CSTRING dbname, LEX_CSTRING name,
   if (check_access(thd, EVENT_ACL, dbname.str, nullptr, nullptr, false, false))
     return true;
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL)
+  {
+    return true;
+  }
+#endif /* WITH_WSREP */
   // Acquire exclusive MDL lock.
   if (lock_object_name(thd, MDL_key::EVENT, dbname.str, name.str)) return true;
 
@@ -1192,6 +1214,20 @@ static bool load_events_from_db(THD *thd, Event_queue *event_queue) {
       }
       if (created) et.release();
 
+#ifdef WITH_WSREP_TODO
+      // when SST from master node who initials event, the event status is ENABLED
+      // this is problematic because there are two nodes with same events and both enabled.
+      if (et->m_originator != thd->server_id)
+      {
+        store_record(table, record[1]);
+        table->field[ET_FIELD_STATUS]->
+	  store((longlong) Event_parse_data::SLAVESIDE_DISABLED,
+		true);
+        (void) table->file->ha_update_row(table->record[1], table->record[0]);
+        delete et;
+        continue;
+      }
+#endif /* WITH_WSREP */
       if (drop_event) {
         /*
           If not created, a stale event - drop if immediately if
@@ -1239,6 +1275,48 @@ static bool load_events_from_db(THD *thd, Event_queue *event_queue) {
   return error;
 }
 
+#ifdef WITH_WSREP
+int wsrep_create_event_query(THD *thd, uchar** buf, size_t* buf_len)
+{
+  String log_query;
+
+  if (create_query_string(thd, &log_query))
+  {
+    WSREP_WARN("events create string failed: schema: %s, query: %s",
+               (thd->db().str ? thd->db().str : "(null)"), WSREP_QUERY(thd));
+    return 1;
+  }
+  return wsrep_to_buf_helper(thd, log_query.ptr(), log_query.length(), buf, buf_len);
+}
+static int
+wsrep_alter_query_string(THD *thd, String *buf)
+{
+  /* Append the "ALTER" part of the query */
+  if (buf->append(STRING_WITH_LEN("ALTER ")))
+    return 1;
+  /* Append definer */
+  append_definer(thd, buf, thd->lex->definer->user, thd->lex->definer->host);
+  /* Append the left part of thd->query after event name part */
+  if (buf->append(thd->lex->stmt_definition_begin,
+                  thd->lex->stmt_definition_end -
+                  thd->lex->stmt_definition_begin))
+    return 1;
+ 
+  return 0;
+}
+int wsrep_alter_event_query(THD *thd, uchar** buf, size_t* buf_len)
+{
+  String log_query;
+ 
+  if (wsrep_alter_query_string(thd, &log_query))
+  {
+    WSREP_WARN("events create string failed: schema: %s, query: %s",
+               (thd->db().str ? thd->db().str : "(null)"), WSREP_QUERY(thd));
+    return 1;
+  }
+  return wsrep_to_buf_helper(thd, log_query.ptr(), log_query.length(), buf, buf_len);
+}
+#endif /* WITH_WSREP */
 /**
   @} (End of group Event_Scheduler)
 */

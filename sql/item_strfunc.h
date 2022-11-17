@@ -1792,4 +1792,49 @@ class Item_func_internal_get_dd_column_extra final : public Item_str_func {
   String *val_str(String *) override;
 };
 
+#ifdef WITH_WSREP
+#include "wsrep/gtid.hpp"
+class Item_func_wsrep_last_written_gtid : public Item_str_ascii_func {
+  String gtid_str;
+
+ public:
+  Item_func_wsrep_last_written_gtid(const POS &pos MY_ATTRIBUTE((unused)))
+      : Item_str_ascii_func() {}
+  const char *func_name() const override { return "wsrep_last_written_gtid"; }
+  String *val_str_ascii(String *) override;
+  bool resolve_type(THD *) override {
+    set_data_type_string(uint32(wsrep::gtid_c_str_len()));
+    set_nullable(true);
+    return false;
+  }
+};
+
+class Item_func_wsrep_last_seen_gtid : public Item_str_ascii_func {
+  String gtid_str;
+
+ public:
+  Item_func_wsrep_last_seen_gtid(const POS &pos MY_ATTRIBUTE((unused)))
+      : Item_str_ascii_func() {}
+  const char *func_name() const override { return "wsrep_last_seen_gtid"; }
+  String *val_str_ascii(String *) override;
+  bool resolve_type(THD *) override {
+    set_data_type_string(uint32(wsrep::gtid_c_str_len()));
+    set_nullable( true);
+    return false;
+  }
+};
+
+class Item_func_wsrep_sync_wait_upto : public Item_int_func {
+  String value;
+
+ public:
+  Item_func_wsrep_sync_wait_upto(const POS &pos, Item *a)
+      : Item_int_func(pos, a) {}
+  Item_func_wsrep_sync_wait_upto(const POS &pos, Item *a, Item *b)
+      : Item_int_func(pos, a, b) {}
+  const char *func_name() const override { return "wsrep_sync_wait_upto_gtid"; }
+  longlong val_int() override;
+};
+#endif /* WITH_WSREP */
+
 #endif /* ITEM_STRFUNC_INCLUDED */

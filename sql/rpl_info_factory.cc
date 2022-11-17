@@ -981,6 +981,9 @@ bool Rpl_info_factory::configure_channel_replication_filters(
     inherit from global filters.
   */
   if (channel_map.is_group_replication_channel_name(channel_name)) return false;
+#ifdef WITH_WSREP
+  if (channel_map.is_wsrep_replication_channel_name(channel_name)) return false;
+#endif /* WITH_WSREP */
 
   if (Master_info::is_configured(rli->mi)) {
     /*

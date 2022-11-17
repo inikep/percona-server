@@ -25,6 +25,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 #include "my_systime.h"           // my_micro_time()
 #include "sql/log.h"  // log_write_errstream(), log_prio_from_label()
 
+#ifdef WITH_WSREP
+#include "sql/wsrep_status.h"
+#endif /* WITH_WSREP */
+
 extern int log_item_inconsistent(log_item *li);
 
 /**
@@ -238,6 +242,11 @@ int log_sink_trad(void *instance [[maybe_unused]], log_line *ll) {
           msg = ll->item[c].data.data_string.str;
           msg_len = ll->item[c].data.data_string.length;
 
+#ifdef WITH_WSREP
+          /* Provider may want to log multiline messages so skip the newline
+           * sanitation below. */
+          if (5 == subsys_len && !strcmp(subsys, "WSREP")) break;
+#endif /* WITH_WSREP */
           /*
             If the message contains a newline, copy the message and
             replace the newline so we may print a valid log line,
@@ -389,6 +398,12 @@ int log_sink_trad(void *instance [[maybe_unused]], log_line *ll) {
 
       // write log-event to log-file
       log_write_errstream(buff_line, len);
+#ifdef WITH_WSREP
+      if (ERROR_LEVEL == prio)
+        Wsrep_status::report_log_msg(wsrep::reporter::error, buff_line);
+      else if (WARNING_LEVEL == prio)
+        Wsrep_status::report_log_msg(wsrep::reporter::warning, buff_line);
+#endif /* WITH_WSREP */
     }
   }
 

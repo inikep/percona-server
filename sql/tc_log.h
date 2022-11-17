@@ -131,6 +131,14 @@ class TC_LOG {
   virtual int prepare(THD *thd, bool all) = 0;
 };
 
+#ifdef WITH_WSREP
+/*
+  Wrappers to MYSQL_BIN_LOG commit()/rollback() when wsrep_emulate_bin_log
+  is on.
+ */
+TC_LOG::enum_result wsrep_thd_binlog_commit(THD* thd, bool all);
+int wsrep_thd_binlog_rollback(THD * thd, bool all);
+#endif /* WITH_WSREP */
 class TC_LOG_DUMMY : public TC_LOG  // use it to disable the logging
 {
  public:

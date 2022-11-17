@@ -329,6 +329,10 @@ bool Event_db_repository::update_timing_fields_for_event(
   DBUG_TRACE;
   // Turn off autocommit.
   Disable_autocommit_guard autocommit_guard(thd);
+#ifdef WITH_WSREP
+  // Turn off wsrep_on when writing to system tables
+  Disable_wsrep_on_guard wsrep_on_guard(thd);
+#endif
 
   /*
     Turn off row binlogging of this statement and use statement-based

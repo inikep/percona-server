@@ -55,6 +55,10 @@
 #include "sql/tc_log.h"
 #include "sql/transaction_info.h"
 #include "sql/xa.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_trans_observer.h"
+#endif /* WITH_WSREP */
 
 /**
   Helper: Tell tracker (if any) that transaction ended.
@@ -140,6 +144,12 @@ bool trans_begin(THD *thd, uint flags) {
         ~(SERVER_STATUS_IN_TRANS | SERVER_STATUS_IN_TRANS_READONLY);
     DBUG_PRINT("info", ("clearing SERVER_STATUS_IN_TRANS"));
     res = ha_commit_trans(thd, true);
+#ifdef WITH_WSREP
+    if (wsrep_thd_is_local(thd))
+    {
+      res= res || wsrep_after_statement(thd);
+    }
+#endif /* WITH_WSREP */
   }
 
   thd->variables.option_bits &= ~OPTION_BEGIN;
@@ -177,9 +187,22 @@ bool trans_begin(THD *thd, uint flags) {
 
   DBUG_EXECUTE_IF("dbug_set_high_prio_trx", {
     assert(thd->tx_priority == 0);
+#ifdef WITH_WSREP
+    WSREP_WARN("InnoDB High Priority being used: %d -> %d", thd->tx_priority, 1);
+#endif /* WITH_WSREP */
     thd->tx_priority = 1;
   });
 
+#ifdef WITH_WSREP
+  if (wsrep_thd_is_local(thd))
+  {
+    if (wsrep_sync_wait(thd))
+      return true;
+    if (!thd->tx_read_only &&
+        wsrep_start_transaction(thd, thd->wsrep_next_trx_id()))
+      return true;
+  }
+#endif /* WITH_WSREP */
   thd->variables.option_bits |= OPTION_BEGIN;
   thd->server_status |= SERVER_STATUS_IN_TRANS;
   if (thd->tx_read_only) thd->server_status |= SERVER_STATUS_IN_TRANS_READONLY;
@@ -336,7 +359,21 @@ bool trans_commit_implicit(THD *thd, bool ignore_global_read_lock) {
     thd->server_status &=
         ~(SERVER_STATUS_IN_TRANS | SERVER_STATUS_IN_TRANS_READONLY);
     DBUG_PRINT("info", ("clearing SERVER_STATUS_IN_TRANS"));
+#ifdef WITH_WSREP
+    /*
+      Transaction may have committed and replicated during trans_commit_stmt() call,
+      skip wsrep commit time hooks, if this is the case
+      Such situation may happen at least with CTAS execution
+    */
+    if (thd->wsrep_trx().state() == wsrep::transaction::s_committed) {
+      WSREP_DEBUG("transaction is committed in trans_commit_implicit");
+      thd->get_transaction()->m_flags.wsrep_skip_hooks= true;
+    }
+#endif /* WITH_WSREP */
     res = ha_commit_trans(thd, true, ignore_global_read_lock);
+#ifdef WITH_WSREP
+    thd->get_transaction()->m_flags.wsrep_skip_hooks= false;
+#endif /* WITH_WSREP */
   } else if (tc_log)
     res = tc_log->commit(thd, true);
 
@@ -539,8 +576,15 @@ bool trans_commit_stmt(THD *thd, bool ignore_global_read_lock) {
             thd))
       LogErr(WARNING_LEVEL, ER_TRX_GTID_COLLECT_REJECT);
   /* In autocommit=1 mode the transaction should be marked as complete in P_S */
+#ifdef WITH_WSREP
+  /* Wsrep may run trans_commit_stmt() during fragment removal. */
+  assert(!wsrep_is_committing(thd) ||
+         thd->in_active_multi_stmt_transaction() ||
+         thd->m_transaction_psi == NULL);
+#else
   assert(thd->in_active_multi_stmt_transaction() ||
          thd->m_transaction_psi == nullptr);
+#endif /* WITH_WSREP */
 
   thd->get_transaction()->reset(Transaction_ctx::STMT);
 
@@ -612,10 +656,19 @@ bool trans_rollback_stmt(THD *thd) {
   if (is_atomic_ddl_commit_on_slave(thd)) thd->rli_slave->post_rollback();
 
   /* In autocommit=1 mode the transaction should be marked as complete in P_S */
+#ifdef WITH_WSREP
+  /* Wsrep may run trans_commit_stmt() during fragment removal. */
+  assert(!wsrep_is_committing(thd) ||
+         thd->in_active_multi_stmt_transaction() ||
+         thd->m_transaction_psi == nullptr ||
+         /* Todo: BUG#20488921 is in the way. */
+         DBUG_EVALUATE_IF("simulate_xa_commit_log_failure", true, false));
+#else
   assert(thd->in_active_multi_stmt_transaction() ||
          thd->m_transaction_psi == nullptr ||
          /* Todo: BUG#20488921 is in the way. */
          DBUG_EVALUATE_IF("simulate_xa_commit_log_failure", true, false));
+#endif /* WITH_WSREP */
 
   thd->get_transaction()->reset(Transaction_ctx::STMT);
 
@@ -766,6 +819,9 @@ bool trans_rollback_to_savepoint(THD *thd, LEX_STRING name) {
   int res = false;
   SAVEPOINT *sv = *find_savepoint(thd, name);
   DBUG_TRACE;
+#ifdef WITH_WSREP
+  DEBUG_SYNC(thd, "wsrep_rollback_to_savepoint");
+#endif /* WITH_WSREP */
 
   if (sv == nullptr) {
     my_error(ER_SP_DOES_NOT_EXIST, MYF(0), "SAVEPOINT", name.str);
@@ -803,7 +859,6 @@ bool trans_rollback_to_savepoint(THD *thd, LEX_STRING name) {
       statements will be able to drop these tables before events will get
       into binary log,
   */
-
   if (!res && ha_rollback_to_savepoint_can_release_mdl(thd))
     thd->mdl_context.rollback_to_savepoint(sv->mdl_savepoint);
 

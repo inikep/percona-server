@@ -74,6 +74,10 @@
 #include "sql/window.h"
 #include "sql_update.h"  // Sql_cmd_update
 #include "template_utils.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP*/
 
 class PT_hint_list;
 
@@ -1848,6 +1852,16 @@ static int lex_one_token(Lexer_yystype *yylval, THD *thd) {
               state = MY_LEX_START;
               break; /* Do not treat contents as a comment.  */
             } else {
+#ifdef WITH_WSREP
+              if (version == 99997 && wsrep_thd_is_local(thd)) {
+                WSREP_DEBUG("consistency check: %s", thd->query().str);
+                thd->wsrep_consistency_check= CONSISTENCY_CHECK_DECLARED;
+                lip->yySkipn(5);
+                lip->set_echo(true);
+                state=MY_LEX_START;
+                break;  /* Do not treat contents as a comment.  */
+              }
+#endif /* WITH_WSREP */
               /*
                 Patch and skip the conditional comment to avoid it
                 being propagated infinitely (eg. to a slave).

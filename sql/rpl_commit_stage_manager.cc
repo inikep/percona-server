@@ -27,6 +27,11 @@
 #include "sql/rpl_commit_stage_manager.h"
 #include "sql/rpl_replica_commit_order_manager.h"  // Commit_order_manager
 #include "sql/rpl_rli_pdb.h"  // Slave_worker                    // Slave_worker
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "wsrep_trans_observer.h"
+#endif /* WITH_WSREP */
 
 class Slave_worker;
 class Commit_order_manager;
@@ -199,6 +204,28 @@ bool Commit_stage_manager::enroll_for(StageID stage, THD *thd,
   }
 
   unlock_queue(stage);
+#ifdef WITH_WSREP
+  /*
+    Commit order for TOI applying is released in applier code after
+    checkpoint is written to binlog.
+   */
+  /*
+    beware: there are debug sync points inside wsrep_ordered_commit, and
+    we are calling it now, after unlock_queue(stage)
+    If wsrep_commit_ordered would be called while holding stage queue lock,
+    then sync point could stop a thread's execution, and keep lock_queue
+    locked practically hanging the server
+  */
+  if (stage == BINLOG_FLUSH_STAGE && wsrep_thd_trx_seqno(thd) > 0) {
+    int rcode = wsrep_ordered_commit(thd, thd->get_transaction()->m_flags.real_commit);
+    if (rcode)
+    {
+      /* This should never happen. Once commit ordering has been established,
+         the transaction canot be BF aborted anymore. */
+      assert(0);
+    }
+  }
+#endif /* WITH_WSREP */
 
   /* Notify next transaction in commit order that it can enter the queue. */
   if (stage == BINLOG_FLUSH_STAGE) {

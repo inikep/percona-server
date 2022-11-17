@@ -86,10 +86,6 @@ class Reprepare_observer final {
     simple, we only need the THD to report an error.
   */
   bool report_error(THD *thd);
-  /**
-    @returns true if some table metadata is changed and statement should be
-                  re-prepared.
-  */
   bool is_invalidated() const { return m_invalidated; }
   void reset_reprepare_observer() { m_invalidated = false; }
   /// @returns true if prepared statement can (and will) be retried

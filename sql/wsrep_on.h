@@ -1,0 +1,70 @@
+/* Copyright 2022 Codership Oy <http://www.codership.com>
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; version 2 of the License.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
+
+#ifndef WSREP_ON_H
+#define WSREP_ON_H
+
+#ifdef WITH_WSREP
+
+extern ulong wsrep_forced_binlog_format;
+extern const char* wsrep_provider;
+extern bool wsrep_emulate_bin_log;
+
+extern MYSQL_PLUGIN_IMPORT struct System_variables global_system_variables;
+/* Other global variables */
+#define WSREP_ON                         \
+  ((global_system_variables.wsrep_on) && \
+   wsrep_provider                     && \
+   strcmp(wsrep_provider, WSREP_NONE))
+
+/* use xxxxxx_NNULL macros when thd pointer is guaranteed to be non-null to
+ * avoid compiler warnings (GCC 6 and later) */
+
+/* extended wsrep thread recognition to include wsrep_client_thread,
+   with this, also SR processing threads, which set wsrep_on==OFF for the duration
+   of commit phase, to be also treated as wsrep threads
+*/
+#define WSREP_NNULL(thd) \
+  (WSREP_ON && thd->variables.wsrep_on)
+
+#define WSREP(thd) \
+  (thd && WSREP_NNULL(thd))
+
+#define WSREP_CLIENT_NNULL(thd) \
+  (WSREP_NNULL(thd) && thd->wsrep_client_thread)
+
+#define WSREP_CLIENT(thd) \
+  (WSREP(thd) && thd->wsrep_client_thread)
+
+#define WSREP_EMULATE_BINLOG_NNULL(thd) \
+  (WSREP_NNULL(thd) && wsrep_emulate_bin_log)
+
+#define WSREP_EMULATE_BINLOG(thd) \
+  (WSREP(thd) && wsrep_emulate_bin_log)
+
+#define WSREP_BINLOG_FORMAT(my_format) \
+   ((wsrep_forced_binlog_format != BINLOG_FORMAT_UNSPEC) ? \
+   wsrep_forced_binlog_format : my_format)
+
+#else
+
+#define WSREP(T) (0)
+#define WSREP_ON  (0)
+#define WSREP_EMULATE_BINLOG(thd) (0)
+#define WSREP_EMULATE_BINLOG_NNULL(thd) (0)
+#define WSREP_BINLOG_FORMAT(my_format) ((ulong)my_format)
+
+#endif /* WITH_WSREP */
+#endif

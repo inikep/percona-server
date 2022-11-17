@@ -61,6 +61,25 @@ bool stream_copy(ISTREAM *istream, OSTREAM *ostream,
   }
   return ret;
 }
+#ifdef WITH_WSREP
+template <class ISTREAM, class OSTREAM>
+bool stream_copy(ISTREAM *istream, OSTREAM *ostream, my_off_t offset,
+                 bool *ostream_error = nullptr) {
+  unsigned char *buffer = nullptr;
+  my_off_t length = 0;
+
+  bool ret = istream->begin(offset, &buffer, &length);
+  while (!ret && length > 0) {
+    if (ostream->write(buffer, length)) {
+      if (ostream_error != nullptr) *ostream_error = true;
+      return true;
+    }
+
+    ret = istream->next(&buffer, &length);
+  }
+  return ret;
+}
+#endif /* WITH_WSREP */
 
 /**
    A binlog cache implementation based on IO_CACHE.
@@ -99,6 +118,7 @@ class IO_CACHE_binlog_cache_storage : public Truncatable_ostream {
      reset.
   */
   bool reset();
+
   /**
      Returns the file name if a temporary file is opened, otherwise nullptr is
      returned.
@@ -121,6 +141,9 @@ class IO_CACHE_binlog_cache_storage : public Truncatable_ostream {
      @retval true  Error
   */
   bool begin(unsigned char **buffer, my_off_t *length);
+#ifdef WITH_WSREP
+  bool begin(my_off_t offset, unsigned char **buffer, my_off_t *length);
+#endif /* WITH_WSREP */
   /**
      Returns next piece of data. buffer is controlled by binlog cache
      implementation, so caller should not release it. If the function sets
@@ -220,6 +243,12 @@ class Binlog_cache_storage : public Basic_ostream {
   bool copy_to(Basic_ostream *ostream, bool *ostream_error = nullptr) {
     return stream_copy(&m_file, ostream, ostream_error);
   }
+#ifdef WITH_WSREP
+  bool copy_to(Basic_ostream *ostream, my_off_t offset,
+               bool *ostream_error = nullptr) {
+    return stream_copy(&m_file, ostream, offset, ostream_error);
+  }
+#endif /* WITH_WSREP */
 
   /**
      Returns data length.

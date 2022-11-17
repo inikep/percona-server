@@ -38,6 +38,11 @@
 #include "sql/sql_connect.h"           // close_connection
 #include "sql/sql_parse.h"             // do_command
 #include "sql/sql_thd_internal_api.h"  // thd_set_thread_stack
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "sql/wsrep_trans_observer.h" /* wsrep open/close */
+#include "sql/wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 bool One_thread_connection_handler::add_connection(Channel_info *channel_info) {
   if (my_thread_init()) {
@@ -80,10 +85,22 @@ bool One_thread_connection_handler::add_connection(Channel_info *channel_info) {
     error = true;  // Returning true causes inc_aborted_connects() to be called.
   else {
     delete channel_info;
+#ifdef WITH_WSREP
+    if (WSREP(thd))
+    {
+      wsrep_open(thd);
+    }
+#endif /* WITH_WSREP */
     while (thd_connection_alive(thd)) {
       if (do_command(thd)) break;
     }
     end_connection(thd);
+#ifdef WITH_WSREP
+    if (WSREP(thd))
+    {
+      wsrep_close(thd);
+    }
+#endif /* WITH_WSREP */
   }
   close_connection(thd, 0, false, false);
   thd->release_resources();

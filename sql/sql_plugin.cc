@@ -117,7 +117,11 @@
 #include "thr_lock.h"
 #include "thr_mutex.h"
 #include "typelib.h"
-
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "sql/mysqld_thd_manager.h"  // Global_THD_manager
+#endif /* WITH_WSREP */
 /* clang-format off */
 /**
   @page page_ext_plugins Plugins
@@ -1807,7 +1811,9 @@ static void plugin_load(MEM_ROOT *tmp_root, int *argc, char **argv) {
   LEX_CSTRING db_lex_cstr = {STRING_WITH_LEN("mysql")};
   new_thd->set_db(db_lex_cstr);
   thd.get_protocol_classic()->wipe_net();
-
+#ifdef WITH_WSREP
+  new_thd->variables.wsrep_on= false;
+#endif /* WITH_WSREP */
   result = open_trans_system_tables_for_read(new_thd, &tables);
 
   if (result) {
@@ -2210,6 +2216,12 @@ static bool mysql_install_plugin(THD *thd, LEX_CSTRING name,
   if (!opt_noacl &&
       check_table_access(thd, INSERT_ACL, &tables, false, 1, false))
     return true;
+#ifdef WITH_WSREP
+ WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL)
+  {
+    return true;
+  }
+#endif /* WITH_WSREP */
 
   if (acquire_shared_global_read_lock(thd, thd->variables.lock_wait_timeout) ||
       acquire_shared_backup_lock(thd, thd->variables.lock_wait_timeout))
@@ -2425,6 +2437,13 @@ static bool mysql_uninstall_plugin(THD *thd, LEX_CSTRING name) {
       acquire_shared_backup_lock(thd, thd->variables.lock_wait_timeout))
     return true;
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL)
+  {
+    WSREP_WARN("TO isolation failed");
+    return true;
+  }
+#endif /* WITH_WSREP */
   Disable_autocommit_guard autocommit_guard(thd);
   dd::cache::Dictionary_client::Auto_releaser releaser(thd->dd_client());
   /* need to open before acquiring LOCK_plugin or it will deadlock */
@@ -2998,7 +3017,11 @@ void plugin_thdvar_init(THD *thd, bool enable_plugins) {
   thd->variables.dynamic_variables_size = 0;
   thd->variables.dynamic_variables_ptr = nullptr;
 
+#ifdef WITH_WSREP
+    if ((!WSREP(thd) || !thd->wsrep_applier) && enable_plugins) {
+#else
   if (enable_plugins) {
+#endif /* WITH_WSREP */
     mysql_mutex_lock(&LOCK_plugin);
     thd->variables.table_plugin =
         my_intern_plugin_lock(nullptr, global_system_variables.table_plugin);
@@ -3670,6 +3693,64 @@ int unlock_plugin_data() {
   DBUG_TRACE;
   return mysql_mutex_unlock(&LOCK_plugin);
 }
+#ifdef WITH_WSREP
+/*
+  Placeholder for global_system_variables.table_plugin required during
+  initialization of startup wsrep threads.
+*/
+static st_plugin_int wsrep_dummy_plugin;
+static st_plugin_int *wsrep_dummy_plugin_ptr;
+
+/*
+  Initialize wsrep_dummy_plugin and assign it to
+  global_system_variables.table_plugin.
+*/
+void wsrep_plugins_pre_init()
+{
+  wsrep_dummy_plugin_ptr= &wsrep_dummy_plugin;
+  wsrep_dummy_plugin.state= PLUGIN_IS_DISABLED;
+
+  //global_system_variables.table_plugin is reserved for mysam plugin
+#ifdef TODO
+  global_system_variables.table_plugin=
+    plugin_int_to_ref(wsrep_dummy_plugin_ptr);
+#endif
+}
+
+/*
+  This function is intended to be called after the plugins and related
+  global system variables are initialized. It re-initializes some data
+  members of wsrep startup threads with correct values, as these value
+  were not available at the time these threads were created.
+*/
+class Call_wsrep_post_init : public Do_THD_Impl
+{
+public:
+  Call_wsrep_post_init()
+  {}
+
+  virtual void operator()(THD *thd) override
+  {
+
+    if (thd->wsrep_applier)
+    {
+      // Save options_bits as it will get overwritten in plugin_thdvar_init()
+      ulonglong option_bits_saved= thd->variables.option_bits;
+      plugin_thdvar_init(thd, thd->m_enable_plugins);
+      // Restore option_bits
+      thd->variables.option_bits= option_bits_saved;
+    }
+  }
+};
+
+void wsrep_plugins_post_init()
+{
+  Global_THD_manager *thd_manager= Global_THD_manager::get_instance();
+
+  Call_wsrep_post_init call_wsrep_post_init;
+  thd_manager->do_for_all_thd(&call_wsrep_post_init);
+}
+#endif /* WITH_WSREP */
 
 bool Sql_cmd_install_plugin::execute(THD *thd) {
   bool st = mysql_install_plugin(thd, m_comment, &m_ident);

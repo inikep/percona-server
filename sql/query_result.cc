@@ -55,6 +55,9 @@
 #include "sql/sql_exchange.h"
 #include "sql/system_variables.h"
 #include "sql_string.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#endif /* WITH_WSREP */
 #include "template_utils.h"  // pointer_cast
 
 using std::min;
@@ -66,6 +69,13 @@ uint Query_result::field_count(const mem_root_deque<Item *> &fields) const {
 bool Query_result_send::send_result_set_metadata(
     THD *thd, const mem_root_deque<Item *> &list, uint flags) {
   bool res;
+#ifdef WITH_WSREP
+  if (WSREP(thd) && thd->wsrep_retry_query)
+  {
+    WSREP_DEBUG("skipping select metadata");
+    return false;
+  }
+#endif /* WITH_WSREP */
   if (!(res = thd->send_result_metadata(list, flags)))
     is_result_set_started = true;
   return res;

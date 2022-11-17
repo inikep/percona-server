@@ -179,6 +179,28 @@ bool IO_CACHE_binlog_cache_storage::begin(unsigned char **buffer,
   }
   return next(buffer, length);
 }
+#ifdef WITH_WSREP
+bool IO_CACHE_binlog_cache_storage::begin(my_off_t offset,
+                                          unsigned char **buffer,
+                                          my_off_t *length) {
+  DBUG_EXECUTE_IF("simulate_tmpdir_partition_full",
+                  { DBUG_SET("+d,simulate_file_write_error"); });
+
+  if (reinit_io_cache(&m_io_cache, READ_CACHE, offset, false, false)) {
+    DBUG_EXECUTE_IF("simulate_tmpdir_partition_full",
+                    { DBUG_SET("-d,simulate_file_write_error"); });
+
+    char errbuf[MYSYS_STRERROR_SIZE];
+    LogErr(ERROR_LEVEL, ER_FAILED_TO_WRITE_TO_FILE, tmp_file_name(), errno,
+           my_strerror(errbuf, sizeof(errbuf), errno));
+
+    if (current_thd->is_error()) current_thd->clear_error();
+    my_error(ER_ERROR_ON_WRITE, MYF(MY_WME), tmp_file_name(), errno, errbuf);
+    return true;
+  }
+  return next(buffer, length);
+}
+#endif /* WITH_WSREP */
 
 bool IO_CACHE_binlog_cache_storage::next(unsigned char **buffer,
                                          my_off_t *length) {

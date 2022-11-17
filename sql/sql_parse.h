@@ -44,6 +44,10 @@ class SQL_I_List;
   @{
 */
 
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
+
 class Comp_creator;
 class Item;
 class Object_creation_ctx;
@@ -347,6 +351,7 @@ bool set_default_collation(HA_CREATE_INFO *create_info,
 */
 #define CF_HA_CLOSE (1U << 11)
 
+
 /**
   Identifies statements that can be explained with EXPLAIN.
 */
@@ -404,6 +409,12 @@ bool set_default_collation(HA_CREATE_INFO *create_info,
   --skip-grant-tables server option.
 */
 #define CF_REQUIRE_ACL_CACHE (1U << 20)
+#ifdef WITH_WSREP
+/**
+  DDL statement that may be subject to error filtering.
+*/
+#define CF_WSREP_MAY_IGNORE_ERRORS (1U << 24)
+#endif /* WITH_WSREP */
 
 /**
   Identifies statements as SHOW commands using INFORMATION_SCHEMA system views.
@@ -428,6 +439,14 @@ bool set_default_collation(HA_CREATE_INFO *create_info,
   sent by the user (ie: stored procedure).
 */
 #define CF_SKIP_QUESTIONS (1U << 1)
+#ifdef WITH_WSREP
+/**
+  Do not check that wsrep snapshot is ready before allowing this command
+*/
+#define CF_SKIP_WSREP_CHECK     (1U << 2)
+#else
+#define CF_SKIP_WSREP_CHECK     0
+#endif /* WITH_WSREP */
 
 /**
   1U << 16 is reserved for Protocol Plugin statements and commands

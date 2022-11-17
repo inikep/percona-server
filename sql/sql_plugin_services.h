@@ -297,6 +297,46 @@ static struct security_context_service_st security_context_handler = {
     security_context_copy,       security_context_lookup,
     security_context_get_option, security_context_set_option};
 
+#ifdef WITH_WSREP
+static struct wsrep_service_st wsrep_handler = {
+  get_wsrep_recovery,
+  wsrep_consistency_check,
+  wsrep_is_wsrep_xid,
+  wsrep_xid_seqno,
+  wsrep_xid_uuid,
+  wsrep_on,
+  wsrep_is_ready,
+  wsrep_prepare_key_for_innodb,
+  wsrep_thd_LOCK,
+  wsrep_thd_UNLOCK,
+  wsrep_lock_thd_query,
+  wsrep_thd_query,
+  wsrep_thd_retry_counter,
+  wsrep_thd_ignore_table,
+  wsrep_thd_trx_seqno,
+  wsrep_thd_is_aborting,
+  wsrep_set_data_home_dir,
+  wsrep_thd_is_BF,
+  wsrep_thd_is_local,
+  wsrep_thd_is_async_slave,
+  wsrep_thd_self_abort,
+  wsrep_thd_append_key,
+  wsrep_thd_client_state_str,
+  wsrep_thd_client_mode_str,
+  wsrep_thd_transaction_state_str,
+  wsrep_thd_transaction_id,
+  wsrep_thd_bf_abort,
+  wsrep_thd_order_before,
+  wsrep_handle_SR_rollback,
+  wsrep_thd_skip_locking,
+  wsrep_get_sr_table_name,
+  wsrep_get_debug,
+  wsrep_thd_xid,
+  wsrep_commit_ordered,
+  wsrep_thd_set_wsrep_aborter,
+  wsrep_thd_set_PA_unsafe
+};
+#endif /* WITH_WSREP */
 static struct mysql_keyring_service_st mysql_keyring_handler = {
     my_key_store, my_key_fetch, my_key_remove, my_key_generate};
 
@@ -323,6 +363,9 @@ static struct st_service_ref list_of_services[] = {
      &rpl_transaction_ctx_handler},
     {"transaction_write_set_service", VERSION_transaction_write_set_service,
      &transaction_write_set_handler},
+#ifdef WITH_WSREP
+    { "wsrep_service", VERSION_wsrep, &wsrep_handler },
+#endif /* WITH_WSREP */
     {"security_context_service", VERSION_security_context_service,
      &security_context_handler},
     {"mysql_locking_service", VERSION_locking_service,

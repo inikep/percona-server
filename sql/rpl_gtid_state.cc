@@ -47,6 +47,9 @@
 #include "sql/sql_error.h"
 #include "sql/system_variables.h"
 #include "sql/thr_malloc.h"
+#ifdef WITH_WSREP
+#include "wsrep_mysqld.h"
+#endif
 
 struct TABLE_LIST;
 
@@ -492,7 +495,26 @@ enum_return_status Gtid_state::generate_automatic_gtid(
   if (global_gtid_mode.get() >= Gtid_mode::ON_PERMISSIVE) {
     Gtid automatic_gtid = {specified_sidno, specified_gno};
 
+#ifdef WITH_WSREP
+    /* 
+      Replace sidno with WSREP sidno which will be used in cluster.
+      Write next cluster seqno. Enforce consistency of GTID used for
+      replicated writeset. Fragments also reach this point so we should
+      set sidno/seqno only if transaction is flagged as commit.
+    */
+    if (WSREP(thd) && wsrep_gtid_mode &&
+        ((wsrep_thd_is_toi(thd) &&
+          (thd->wsrep_cs().toi_meta().flags() & wsrep::provider::flag::commit)) ||
+         (thd->wsrep_trx().ws_meta().flags() & wsrep::provider::flag::commit))) {
+      automatic_gtid.sidno = wsrep_local_gtid_manager.sidno();
+      // Use assigned thread seqno.
+      automatic_gtid.gno = thd->wsrep_current_gtid_seqno;
+    } else {
+#endif /* WITH_WSREP */
     if (automatic_gtid.sidno == 0) automatic_gtid.sidno = get_server_sidno();
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
 
     /*
       We need to lock the sidno if locked_sidno wasn't passed as paramenter

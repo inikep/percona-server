@@ -110,6 +110,21 @@
 #include "template_utils.h"
 #include "thr_lock.h"
 #include "violite.h"
+#include "wsrep_on.h"
+#ifdef WITH_WSREP
+#include "wsrep_api.h"
+#include "wsrep_mutex.h"
+#include "wsrep_condition_variable.h"
+#include "wsrep_client_service.h"
+#include "wsrep_client_state.h"
+class Wsrep_applier_service;
+class Format_description_log_event;
+enum wsrep_consistency_check_mode {
+  NO_CONSISTENCY_CHECK,
+  CONSISTENCY_CHECK_DECLARED,
+  CONSISTENCY_CHECK_RUNNING,
+};
+#endif /* WITH_WSREP */
 
 enum enum_check_fields : int;
 enum enum_tx_isolation : int;
@@ -1665,7 +1680,8 @@ class THD : public MDL_context_owner,
   int is_current_stmt_binlog_format_row() const {
     assert(current_stmt_binlog_format == BINLOG_FORMAT_STMT ||
            current_stmt_binlog_format == BINLOG_FORMAT_ROW);
-    return current_stmt_binlog_format == BINLOG_FORMAT_ROW;
+    return (WSREP_BINLOG_FORMAT((ulong)current_stmt_binlog_format) ==
+            BINLOG_FORMAT_ROW);
   }
 
   /**
@@ -2716,6 +2732,127 @@ class THD : public MDL_context_owner,
     query_id_t first_query_id;
   } binlog_evt_union;
 
+#ifdef WITH_WSREP
+  bool                      wsrep_applier; /* dedicated slave applier thread */
+  bool                      wsrep_rollbacker; /* dedicated rollbacker thread */
+  bool                      wsrep_applier_closing; /* applier marked to close */
+  bool                      wsrep_client_thread; /* to identify client threads*/
+  // enum wsrep_exec_mode      wsrep_exec_mode;
+  query_id_t                wsrep_last_query_id;
+  XID                       wsrep_xid;
+
+  /** This flag denotes that record locking should be skipped during INSERT
+  and gap locking during SELECT. Only used by the streaming replication thread
+  that only modifies the wsrep_schema.SR table. */
+  bool                   wsrep_skip_locking;
+
+  mysql_mutex_t             LOCK_wsrep_thd;
+  mysql_cond_t              COND_wsrep_thd;
+  // changed from wsrep_seqno_t to wsrep_trx_meta_t in wsrep API rev 75
+  // wsrep_seqno_t             wsrep_trx_seqno;
+  // wsrep_trx_meta_t          wsrep_trx_meta;
+  uint32                    wsrep_rand;
+  Relay_log_info*           wsrep_rli;
+  bool                      wsrep_converted_lock_session;
+  // wsrep_ws_handle_t         wsrep_ws_handle;
+#ifdef WSREP_PROC_INFO
+  char                      wsrep_info[128]; /* string for dynamic proc info */
+#endif /* WSREP_PROC_INFO */
+  ulong                     wsrep_retry_counter; // of autocommit
+  bool                      wsrep_PA_safe;
+  char*                     wsrep_retry_query;
+  size_t                    wsrep_retry_query_len;
+  enum enum_server_command  wsrep_retry_command;
+  enum wsrep_consistency_check_mode
+                            wsrep_consistency_check;
+  std::vector<wsrep::provider::status_variable> 
+                            wsrep_status_vars;
+  int                       wsrep_mysql_replicated;
+  const char*               wsrep_TOI_pre_query; /* a query to apply before 
+                                                    the actual TOI query */
+  size_t                    wsrep_TOI_pre_query_len;
+  wsrep_po_handle_t         wsrep_po_handle;
+  size_t                    wsrep_po_cnt;
+  bool                      wsrep_po_in_trans;
+  rpl_sid                   wsrep_po_sid;
+  Format_description_log_event* wsrep_apply_format;
+  wsrep_gtid_t              wsrep_sync_wait_gtid;
+  uint64                    wsrep_last_written_gtid_seqno;
+  uint64                    wsrep_current_gtid_seqno;
+  uchar*                    wsrep_rbr_buf;
+  ulong                     wsrep_affected_rows;
+  bool                      wsrep_has_ignored_error;
+  void*                     wsrep_gtid_event_buf;
+  ulong                     wsrep_gtid_event_buf_len;
+  bool                      wsrep_replicate_GTID;
+  bool                      wsrep_skip_wsrep_GTID;
+
+  /*
+    When enabled, do not replicate/binlog updates from the current table that's
+    being processed. At the moment, it is used to keep mysql.gtid_slave_pos
+    table updates from being replicated to other nodes via galera replication.
+  */
+  bool                      wsrep_ignore_table;
+  /* thread who has started kill for this THD */
+  my_thread_id              wsrep_aborter;
+
+  /*
+    Transaction id:
+    * m_wsrep_next_trx_id is assigned on the first query after
+      wsrep_next_trx_id() return WSREP_UNDEFINED_TRX_ID
+    * Each storage engine must assign value of wsrep_next_trx_id()
+      when the transaction starts.
+    * Effective transaction id is returned via wsrep_trx_id()
+   */
+  /*
+    Return effective transaction id
+  */
+  wsrep_trx_id_t wsrep_trx_id() const
+  {
+    return m_wsrep_client_state.transaction().id().get();
+  }
+
+
+  /*
+    Set next trx id
+   */
+  void set_wsrep_next_trx_id(query_id_t query_id)
+  {
+    m_wsrep_next_trx_id = (wsrep_trx_id_t) query_id;
+  }
+  /*
+    Return next trx id
+   */
+  wsrep_trx_id_t wsrep_next_trx_id() const
+  {
+    return m_wsrep_next_trx_id;
+  }
+
+  Vio* wsrep_get_vio() { return net.vio; }
+  void wsrep_set_vio(Vio* vio) { net.vio= vio; }
+private:
+  wsrep_trx_id_t m_wsrep_next_trx_id; /* cast from query_id_t */
+
+  /* wsrep-lib */
+  Wsrep_mutex m_wsrep_mutex;
+  Wsrep_condition_variable m_wsrep_cond;
+  Wsrep_client_service m_wsrep_client_service;
+  Wsrep_client_state m_wsrep_client_state;
+public:
+  Wsrep_client_state& wsrep_cs() { return m_wsrep_client_state; }
+  const Wsrep_client_state& wsrep_cs() const { return m_wsrep_client_state; }
+  const wsrep::transaction& wsrep_trx() const
+  { return m_wsrep_client_state.transaction(); }
+  const wsrep::streaming_context& wsrep_sr() const
+  { return m_wsrep_client_state.transaction().streaming_context(); }
+  /* Pointer to applier service for streaming THDs. This is needed to
+     be able to delete applier service object in case of background
+     rollback. */
+  Wsrep_applier_service* wsrep_applier_service;
+
+#endif /* WITH_WSREP */
+public:
+
   /**
     Internal parser state.
     Note that since the parser is not re-entrant, we keep only one parser
@@ -2755,7 +2892,11 @@ class THD : public MDL_context_owner,
   */
   bool m_audited;
 
+#ifdef WITH_WSREP
+  THD(bool enable_plugins= true, bool is_applier = false);
+#else
   THD(bool enable_plugins = true);
+#endif /* WITH_WSREP */
 
   /*
     The THD dtor is effectively split in two:
@@ -3346,6 +3487,8 @@ class THD : public MDL_context_owner,
       lex->binlog_row_based_if_mixed upwards to the caller.
     */
     if ((variables.binlog_format == BINLOG_FORMAT_MIXED) && (in_sub_stmt == 0))
+    if ((WSREP_BINLOG_FORMAT(variables.binlog_format) == BINLOG_FORMAT_MIXED)
+	&& (in_sub_stmt == 0))
       set_current_stmt_binlog_format_row();
 
     return;
@@ -3365,7 +3508,7 @@ class THD : public MDL_context_owner,
     DBUG_PRINT("debug", ("in_sub_stmt: %d, system_thread: %s", in_sub_stmt != 0,
                          show_system_thread(system_thread)));
     if (in_sub_stmt == 0) {
-      if (variables.binlog_format == BINLOG_FORMAT_ROW)
+      if (WSREP_BINLOG_FORMAT(variables.binlog_format) == BINLOG_FORMAT_ROW)
         set_current_stmt_binlog_format_row();
       else
         clear_current_stmt_binlog_format_row();
@@ -4142,6 +4285,15 @@ class THD : public MDL_context_owner,
     mysql_mutex_lock(&LOCK_thd_data);
     query_id = new_query_id;
     mysql_mutex_unlock(&LOCK_thd_data);
+#ifdef WITH_WSREP
+    if (WSREP_NNULL(this)) {
+      set_wsrep_next_trx_id(query_id);
+#ifdef WSREP_INCLUDE
+      WSREP_DEBUG("set_query_id(), assigned new next trx id: %lu",
+                  wsrep_next_trx_id());
+#endif
+    }
+#endif /* WITH_WSREP */
     MYSQL_SET_STATEMENT_QUERY_ID(m_statement_psi, new_query_id);
   }
 

@@ -21,6 +21,11 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_thd.h"
+#include "wsrep_trans_observer.h"       // wsrep transaction hooks
+#endif /* WITH_WSREP */
 #include "sql/sp_head.h"
 
 #include <stdio.h>
@@ -2219,6 +2224,13 @@ bool sp_head::execute(THD *thd, bool merge_da_on_success) {
     */
     if (thd->rewritten_query().length()) thd->reset_rewritten_query();
 
+#ifdef WITH_WSREP
+    if (thd->wsrep_next_trx_id() == WSREP_UNDEFINED_TRX_ID)
+    {
+      thd->set_wsrep_next_trx_id(thd->query_id);
+      WSREP_DEBUG("assigned new next trx ID for SP,  trx id: %lu", thd->wsrep_next_trx_id());
+    }
+#endif /* WITH_WSREP */
     err_status = i->execute(thd, &ip);
 
 #ifdef HAVE_PSI_STATEMENT_INTERFACE
@@ -2226,6 +2238,68 @@ bool sp_head::execute(THD *thd, bool merge_da_on_success) {
     thd->m_statement_psi = parent_locker;
 #endif
 
+#ifdef WITH_WSREP
+  if (WSREP(thd))
+  {
+      if (((thd->wsrep_trx().state() == wsrep::transaction::s_executing) &&
+           (thd->is_fatal_error() || thd->killed)) ||
+          thd->wsrep_trx().state() == wsrep::transaction::s_must_abort) {
+      WSREP_DEBUG("SP abort err status %d in sub %d trx state %d",
+		  err_status, thd->in_sub_stmt, thd->wsrep_trx().state());
+      err_status= 1;
+      /*
+        SP was killed, and it is not due to a wsrep conflict.
+        We skip after_command hook at this point because
+        otherwise it clears the error, and cleans up the
+        whole transaction. For now we just return and finish
+        our handling once we are back to mysql_parse.
+      */
+      WSREP_DEBUG("Skipping after_command hook for killed SP");
+    }
+    else
+    {
+      const bool must_replay= wsrep_must_replay(thd);
+      WSREP_DEBUG("MUST_REPLAY set after SP: %d err_status %d", must_replay, err_status);
+      (void) wsrep_after_statement(thd);
+
+      WSREP_DEBUG("SP must replay %d curr error %d", must_replay, wsrep_current_error(thd));
+      /*
+        Reset the return code to zero if the transaction was
+        replayed succesfully.
+      */
+      if (err_status && must_replay && !wsrep_current_error(thd))
+      {
+        err_status= 0;
+      }
+      /*
+        Final wsrep error status for statement is known only after
+        wsrep_after_statement() call. If the error is set, override
+        error in thd diagnostics area and reset wsrep client_state error
+        so that the error does not get propagated via client-server protocol.
+      */
+      if (wsrep_current_error(thd))
+      {
+        wsrep_override_error(thd, wsrep_current_error(thd),
+                             wsrep_current_error_status(thd));
+        thd->wsrep_cs().reset_error();
+        /* Reset also thd->killed if it has been set during BF abort. */
+        if (thd->killed == THD::KILL_QUERY)
+          thd->killed= THD::NOT_KILLED;
+        /* if failed transaction was not replayed, must return with error from here */
+        if (!must_replay) err_status = 1;
+      }
+    }
+  }
+#endif /* WITH_WSREP */
+
+#ifdef WITH_WSREP
+    if (m_type == enum_sp_type::PROCEDURE ||
+        m_type == enum_sp_type::EVENT)
+    {
+      thd->set_wsrep_next_trx_id(thd->query_id);
+      WSREP_DEBUG("assigned new next trx ID for SP,  trx id: %lu", thd->wsrep_next_trx_id());
+    }
+#endif /* WITH_WSREP */
     thd->m_digest = parent_digest;
 
     cleanup_items(i->m_arena.item_list());

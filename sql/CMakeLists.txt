@@ -20,7 +20,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 
-INCLUDE_DIRECTORIES(SYSTEM ${BOOST_PATCHES_DIR} ${BOOST_INCLUDE_DIR})
+INCLUDE_DIRECTORIES(SYSTEM ${BOOST_PATCHES_DIR} ${BOOST_INCLUDE_DIR} ${WSREP_INCLUDES})
 
 MY_INCLUDE_SYSTEM_DIRECTORIES(ICU)
 
@@ -740,7 +740,33 @@ ELSEIF(WIN32)
     resourcegroups/platform/thread_attrs_api_win.cc)
 ENDIF()
 
+IF(WITH_WSREP)
+  SET(WSREP_SOURCES
+    wsrep_client_service.cc
+    wsrep_high_priority_service.cc
+    wsrep_server_service.cc
+    wsrep_storage_service.cc
+    wsrep_event_service.cc
+    wsrep_server_state.cc
+    wsrep_status.cc
+    wsrep_utils.cc
+    wsrep_xid.cc
+    wsrep_check_opts.cc
+    wsrep_mysqld.cc
+    wsrep_notify.cc
+    wsrep_sst.cc
+    wsrep_var.cc
+    wsrep_binlog.cc
+    wsrep_applier.cc
+    wsrep_thd.cc
+    wsrep_schema.cc
+    wsrep_plugin.cc
+    service_wsrep.cc
+    )
+  SET(WSREP_LIB wsrep-lib wsrep_api_v26)
+ENDIF()
 SET(SQL_SOURCE
+  ${WSREP_SOURCES}
   ${GEN_SOURCES}
   ${GEN_DIGEST_SOURCES}
   ${GEN_KEYWORD_LIST_SOURCES}
@@ -887,7 +913,7 @@ ADD_DEPENDENCIES(sql_main GenBootstrapPriv)
 ADD_DEPENDENCIES(sql_main GenSysSchema)
 TARGET_LINK_LIBRARIES(sql_main ${MYSQLD_STATIC_PLUGIN_LIBS}
   mysql_server_component_services mysys strings vio
-  binlogevents_static ${LIBWRAP} ${LIBDL} ${SSL_LIBRARIES})
+  binlogevents_static ${LIBWRAP} ${LIBDL} ${SSL_LIBRARIES} ${WSREP_LIB})
 
 # sql/immutable_string.h uses
 # google::protobuf::io::CodedOutputStream::WriteVarint64ToArray

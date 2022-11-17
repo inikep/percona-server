@@ -150,6 +150,12 @@
 #include "sql_string.h"
 #include "template_utils.h"
 #include "thr_mutex.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "wsrep_thd.h"
+#include "wsrep_trans_observer.h"
+#endif /* WITH_WSREP */
 
 using std::equal_to;
 using std::hash;
@@ -1720,8 +1726,15 @@ void close_thread_table(THD *thd, TABLE **table_ptr) {
     The metadata lock must be released after giving back
     the table to the table cache.
   */
+#ifdef WITH_WSREP
+  /* if SR thread was aborted, MDL locks were released early */
+  assert(thd->variables.wsrep_trx_fragment_size > 0 ||
+      thd->mdl_context.owns_equal_or_stronger_lock(MDL_key::TABLE,
+          table->s->db.str, table->s->table_name.str, MDL_SHARED));
+#else
   assert(thd->mdl_context.owns_equal_or_stronger_lock(
       MDL_key::TABLE, table->s->db.str, table->s->table_name.str, MDL_SHARED));
+#endif /* WITH_WSREP */
   table->mdl_ticket = nullptr;
   table->pos_in_table_list = nullptr;
 
@@ -1782,8 +1795,14 @@ bool close_temporary_tables(THD *thd) {
 
   if (!thd->temporary_tables) return false;
 
+#ifdef WITH_WSREP
+  assert(!thd->slave_thread ||
+              thd->system_thread != SYSTEM_THREAD_SLAVE_WORKER ||
+	      thd->wsrep_applier);
+#else
   assert(!thd->slave_thread ||
          thd->system_thread != SYSTEM_THREAD_SLAVE_WORKER);
+#endif /* WITH_WSREP */
 
   /*
     Ensure we don't have open HANDLERs for tables we are about to close.
@@ -4644,6 +4663,19 @@ static bool open_and_process_routine(
             thd->mdl_context.acquire_lock(&mdl_request, ot_ctx->get_timeout());
         thd->pop_internal_handler();
 
+#ifdef WITH_WSREP
+        if (WSREP(thd) && !result && !executing_LT) {
+          /*
+            Append a table level shared key for the referenced/foreign table.
+            This to avoid potential MDL conflicts with concurrent DDLs.
+          */
+          const MDL_key *key(mdl_request.ticket->get_key());
+          wsrep_append_table_level_key(thd,
+                                       key->db_name(),
+                                       key->name(),
+                                       wsrep::key::shared);
+        }
+#endif
         if (result) return true;
       } else {
         /*
@@ -5999,6 +6031,26 @@ restart:
         goto err;
       }
     }
+#ifdef WITH_WSREP
+    if ((thd->lex->sql_command== SQLCOM_INSERT         ||
+         thd->lex->sql_command== SQLCOM_INSERT_SELECT  ||
+         thd->lex->sql_command== SQLCOM_REPLACE        ||
+         thd->lex->sql_command== SQLCOM_REPLACE_SELECT ||
+         thd->lex->sql_command== SQLCOM_UPDATE         ||
+         thd->lex->sql_command== SQLCOM_UPDATE_MULTI   ||
+         thd->lex->sql_command== SQLCOM_LOAD           ||
+         thd->lex->sql_command== SQLCOM_DELETE)        &&
+        wsrep_thd_is_local(thd)                        &&
+        wsrep_replicate_myisam                         &&
+        thd->get_command() != COM_STMT_PREPARE         &&
+        tbl->file->ht->db_type == DB_TYPE_MYISAM)
+    {
+      wsrep_before_rollback(thd, true);
+      wsrep_after_rollback(thd, true);
+      wsrep_after_statement(thd);
+      WSREP_TO_ISOLATION_BEGIN(NULL, NULL, (*start));
+    }
+#endif
 
     /*
       Access to ACL table in a SELECT ... LOCK IN SHARE MODE are required
@@ -6069,6 +6121,9 @@ restart:
   }  // End of for(;;)
 
 err:
+#ifdef WITH_WSREP
+wsrep_error_label:
+#endif /* WITH_WSREP */
   // If a new TABLE was introduced, it's garbage, don't link to it:
   if (error && *table_to_open && old_table != (*table_to_open)->table) {
     (*table_to_open)->table = nullptr;

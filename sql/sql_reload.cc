@@ -292,6 +292,17 @@ bool handle_reload_request(THD *thd, unsigned long options, TABLE_LIST *tables,
         thd->global_read_lock.unlock_global_read_lock(thd);
         return true;
       }
+#ifdef WITH_WSREP
+      /*
+        We need to do it second time after wsrep appliers were blocked in
+        make_global_read_lock_block_commit(thd) above since they could have
+        modified the tables too.
+      */
+      if (WSREP(thd) && 
+	  close_cached_tables(thd, tables, (options & REFRESH_FAST) ?
+                              false : true, true))
+          result= 1;
+#endif /* WITH_WSREP */
     } else {
       if (thd && thd->locked_tables_mode) {
         /*
@@ -326,6 +337,16 @@ bool handle_reload_request(THD *thd, unsigned long options, TABLE_LIST *tables,
           }
         }
       }
+#ifdef WITH_WSREP
+      if (thd && thd->wsrep_applier)
+      {
+        /*
+          In case of applier thread, do not wait for table share(s) to be
+          removed from table definition cache.
+        */
+        options|= REFRESH_FAST;
+      }
+#endif
 
       if (close_cached_tables(
               thd, tables, ((options & REFRESH_FAST) ? false : true),

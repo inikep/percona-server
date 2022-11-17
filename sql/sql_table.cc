@@ -187,6 +187,10 @@
 #include "template_utils.h"
 #include "thr_lock.h"
 #include "typelib.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 namespace dd {
 class View;
@@ -3499,6 +3503,7 @@ bool mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
     fk_invalidator->invalidate(thd);
   }
 
+
   /*
     Dropping of temporary tables cannot be rolled back. On the other hand it
     can't fail at this stage. So to get nice error handling behavior
@@ -3558,6 +3563,9 @@ bool mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
     if (drop_ctx.drop_temporary && !drop_ctx.has_tmp_trans_tables())
       built_query.add_array(drop_ctx.nonexistent_tables);
 
+#ifdef WITH_WSREP
+    thd->wsrep_skip_wsrep_GTID = true;
+#endif /* WITH_WSREP */
     thd->thread_specific_used = true;
 
     if (built_query.write_bin_log()) goto err_with_rollback;
@@ -3616,6 +3624,9 @@ bool mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
         We have GTID assigned. Rely on commit at the end of statement or
         transaction to flush changes to binary log and mark GTID as executed.
       */
+#ifdef WITH_WSREP
+      thd->wsrep_skip_wsrep_GTID = false;
+#endif /* WITH_WSREP */
     }
   }
 
@@ -3692,6 +3703,9 @@ bool mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
         thd->is_commit_in_middle_of_statement = true;
         bool error = mysql_bin_log.commit(thd, true);
         thd->is_commit_in_middle_of_statement = false;
+#ifdef WITH_WSREP
+        thd->wsrep_skip_wsrep_GTID = true;
+#endif /* WITH_WSREP */
 
         if (error) goto err_with_rollback;
       }
@@ -3786,6 +3800,9 @@ err_with_rollback:
       }
     }
   }
+#ifdef WITH_WSREP
+  thd->wsrep_skip_wsrep_GTID = false;
+#endif /* WITH_WSREP */
   return true;
 }
 
@@ -10588,6 +10605,67 @@ bool mysql_create_like_table(THD *thd, TABLE_LIST *table, TABLE_LIST *src_table,
 
   DBUG_TRACE;
 
+#ifdef WITH_WSREP
+  if (WSREP(thd) && !thd->wsrep_applier)
+  {
+    TABLE *tmp_table;
+    bool is_tmp_table= false;
+
+    for (tmp_table= thd->temporary_tables; tmp_table; tmp_table=tmp_table->next)
+    {
+      if (!strcmp(src_table->db, tmp_table->s->db.str)     &&
+          !strcmp(src_table->table_name, tmp_table->s->table_name.str))
+      {
+        is_tmp_table= true;
+        break;
+      }
+    }
+    if (create_info->options & HA_LEX_CREATE_TMP_TABLE)
+    {
+      /* CREATE TEMPORARY TABLE LIKE must be skipped from replication */
+      WSREP_DEBUG("CREATE TEMPORARY TABLE LIKE... skipped replication\n %s", 
+                  thd->query().str);
+    } 
+    else if (!is_tmp_table)
+    {
+      /* this is straight CREATE TABLE LIKE... with no tmp tables */
+      WSREP_TO_ISOLATION_BEGIN_IF(table->db, table->table_name, NULL)
+      {
+        thd->wsrep_TOI_pre_query= NULL;
+        return true;
+      }
+    }
+    else
+    {
+      /* here we have CREATE TABLE LIKE <temporary table> 
+         the temporary table definition will be needed in slaves to
+         enable the create to succeed
+       */
+      TABLE_LIST tbl;
+      tbl.db= src_table->db;
+      tbl.table_name= tbl.alias= src_table->table_name;
+      tbl.table= tmp_table;
+      char buf[2048];
+      String query(buf, sizeof(buf), system_charset_info);
+      query.length(0);  // Have to zero it since constructor doesn't
+
+      (void)  store_create_info(thd, &tbl, &query, NULL, true);
+      WSREP_DEBUG("TMP TABLE: %s", query.ptr());
+
+      thd->wsrep_TOI_pre_query=     query.ptr();
+      thd->wsrep_TOI_pre_query_len= query.length();
+      
+      WSREP_TO_ISOLATION_BEGIN_IF(table->db, table->table_name, NULL)
+      {
+        thd->wsrep_TOI_pre_query= NULL;
+        return true;
+      }
+      thd->wsrep_TOI_pre_query=      NULL;
+      thd->wsrep_TOI_pre_query_len= 0;
+    }
+  }
+
+#endif
   /*
     We the open source table to get its description in HA_CREATE_INFO
     and Alter_info objects. This also acquires a shared metadata lock
@@ -13114,6 +13192,17 @@ static bool mysql_inplace_alter_table(
 
   // It's now safe to take the table level lock.
   if (lock_tables(thd, table_list, alter_ctx->tables_opened, 0)) goto cleanup;
+#ifdef WITH_WSREP
+  DBUG_EXECUTE_IF("sync.alter_locked_tables",
+                  {
+                      const char act[]=
+                          "now "
+                          "wait_for signal.alter_locked_tables";
+                      assert(!debug_sync_set_action(thd,
+                                                         STRING_WITH_LEN(act)));
+                  };);
+
+#endif /* WITH_WSREP */
 
   if (alter_ctx->error_if_not_empty) {
     /*
@@ -13224,6 +13313,16 @@ static bool mysql_inplace_alter_table(
       }
     }
 
+#ifdef WITH_WSREP
+  DBUG_EXECUTE_IF("sync.alter_locked_tables_inplace",
+                  {
+                      const char act[]=
+                          "now "
+                          "wait_for signal.alter_locked_tables_inplace";
+                      assert(!debug_sync_set_action(thd,
+                                                         STRING_WITH_LEN(act)));
+                  };);
+#endif /* WITH_WSREP */
     DEBUG_SYNC(thd, "alter_table_inplace_after_lock_downgrade");
     THD_STAGE_INFO(thd, stage_alter_inplace);
 
@@ -16050,6 +16149,16 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
 
   DEBUG_SYNC(thd, "alter_opened_table");
 
+#ifdef WITH_WSREP
+  DBUG_EXECUTE_IF("sync.alter_opened_table",
+                  {
+                    const char act[]=
+                      "now "
+                      "wait_for signal.alter_opened_table";
+                    assert(!debug_sync_set_action(thd,
+                                                       STRING_WITH_LEN(act)));
+                  };);
+#endif // WITH_WSREP
   if (error) return true;
 
   // If we are removing a functional index, add any related hidden generated
@@ -16396,6 +16505,9 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
       }
     }
 
+#ifdef WITH_WSREP
+    DEBUG_SYNC(thd, "wsrep_alter_before_lock_table");
+#endif /* WITH_WSREP */
     if (!mdl_requests.is_empty() &&
         thd->mdl_context.acquire_locks(&mdl_requests,
                                        thd->variables.lock_wait_timeout))

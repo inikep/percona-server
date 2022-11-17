@@ -187,6 +187,11 @@ class Transaction_ctx {
     bool real_commit;  // Is this a "real" commit?
     bool commit_low;   // see MYSQL_BIN_LOG::ordered_commit
     bool run_hooks;    // Call the after_commit hook
+#ifdef WITH_WSREP
+    bool wsrep_run_hooks; // whether to run wsrep replication hooks
+                          // sticky flag to remain effective until commit
+    bool wsrep_skip_hooks; // decision to not replicate this transaction
+#endif /* WITH_WSREP */
 #ifndef NDEBUG
     bool ready_preempt;  // internal in MYSQL_BIN_LOG::ordered_commit
 #endif

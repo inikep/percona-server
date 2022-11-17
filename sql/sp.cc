@@ -2065,6 +2065,32 @@ static bool create_string(
   thd->variables.sql_mode = old_sql_mode;
   return true;
 }
+#ifdef WITH_WSREP
+bool wsrep_create_string(THD *thd, String *buf,
+			 enum_sp_type type,
+			 const char *db, size_t dblen,
+			 const char *name, size_t namelen,
+			 const char *params, size_t paramslen,
+			 const char *returns, size_t returnslen,
+			 const char *body, size_t bodylen,
+			 st_sp_chistics *chistics,
+			 const LEX_CSTRING &definer_user,
+			 const LEX_CSTRING &definer_host,
+			 sql_mode_t sql_mode)
+{
+  return create_string( thd, buf,
+                        type,
+                        db, dblen,
+                        name, namelen,
+                        params, paramslen,
+                        returns, returnslen,
+                        body, bodylen,
+                        chistics,
+                        definer_user,
+                        definer_host,
+                        sql_mode);
+}
+#endif /* WITH_WSREP */
 
 /**
   The function loads sp_head struct for information schema purposes

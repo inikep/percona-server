@@ -998,5 +998,13 @@ extern ulong rpl_read_size;
  */
 
 bool normalize_binlog_name(char *to, const char *from, bool is_relay_log);
+#ifdef WITH_WSREP
+#include "wsrep/buffer.hpp"
+bool wsrep_prepare_data_for_replication(THD *thd, size_t *data_len);
+bool wsrep_prepare_fragment_for_replication(THD *thd,
+                                            wsrep::mutable_buffer &buffer);
+size_t wsrep_get_binlog_cache_size(THD *thd);
+bool wsrep_is_binlog_cache_empty(THD *thd);
+#endif /* WITH_WSREP */
 
 #endif /* BINLOG_H_INCLUDED */

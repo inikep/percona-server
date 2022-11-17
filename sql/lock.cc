@@ -112,6 +112,11 @@
 #include "sql/system_variables.h"
 #include "sql/table.h"
 #include "thr_lock.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "wsrep_server_state.h"
+#endif /* WITH_WSREP */
 
 /**
   @defgroup Locking Locking
@@ -343,6 +348,10 @@ MYSQL_LOCK *mysql_lock_tables(THD *thd, TABLE **tables, size_t count,
   /* Copy the lock data array. thr_multi_lock() reorders its contents. */
   memcpy(sql_lock->locks + sql_lock->lock_count, sql_lock->locks,
          sql_lock->lock_count * sizeof(*sql_lock->locks));
+#ifdef WITH_WSREP
+  //thd->main_lock_id.info->in_lock_tables= thd->in_lock_tables;
+    thd->lock_info.in_lock_tables= thd->in_lock_tables;
+#endif    /* Lock on the copied half of the lock data array. */
   /* Lock on the copied half of the lock data array. */
   rc = thr_lock_errno_to_mysql[(int)thr_multi_lock(
       sql_lock->locks + sql_lock->lock_count, sql_lock->lock_count,
@@ -1095,6 +1104,17 @@ void Global_read_lock::unlock_global_read_lock(THD *thd) {
   if (m_mdl_blocks_commits_lock) {
     thd->mdl_context.release_lock(m_mdl_blocks_commits_lock);
     m_mdl_blocks_commits_lock = nullptr;
+#ifdef WITH_WSREP
+    Wsrep_server_state& server_state= Wsrep_server_state::instance();
+    if (server_state.state() == Wsrep_server_state::s_donor)
+    {
+      server_state.resume();
+    }
+    else if (WSREP(thd))
+    {
+      server_state.resume_and_resync();
+    }
+#endif /* WITH_WSREP */
   }
   thd->mdl_context.release_lock(m_mdl_global_shared_lock);
   Global_read_lock::m_atomic_active_requests--;
@@ -1124,6 +1144,14 @@ bool Global_read_lock::make_global_read_lock_block_commit(THD *thd) {
     If we didn't succeed lock_global_read_lock(), or if we already suceeded
     make_global_read_lock_block_commit(), do nothing.
   */
+#ifdef WITH_WSREP
+  if (WSREP(thd) && m_mdl_blocks_commits_lock)
+  {
+    WSREP_DEBUG("GRL was in block commit mode when entering "
+		"make_global_read_lock_block_commit");
+    return false;
+  }
+#endif /* WITH_WSREP */
   if (m_state != GRL_ACQUIRED) return false;
 
   MDL_REQUEST_INIT(&mdl_request, MDL_key::COMMIT, "", "", MDL_SHARED,
@@ -1136,6 +1164,29 @@ bool Global_read_lock::make_global_read_lock_block_commit(THD *thd) {
   m_mdl_blocks_commits_lock = mdl_request.ticket;
   m_state = GRL_ACQUIRED_AND_BLOCKS_COMMIT;
 
+#ifdef WITH_WSREP
+
+  /* Native threads should bail out before wsrep oprations to follow.
+     Donor servicing thread is an exception, it should pause provider
+     but not desync, as it is already desynced in donor state
+  */
+  Wsrep_server_state& server_state= Wsrep_server_state::instance();
+  if (!WSREP(thd) && server_state.state() != Wsrep_server_state::s_donor)
+  {
+    return false;
+  }
+
+  wsrep::seqno paused_seqno;
+  if (server_state.state() == Wsrep_server_state::s_donor)
+  {
+    paused_seqno= server_state.pause();
+  }
+  else
+  {
+    paused_seqno= server_state.desync_and_pause();
+  }
+  WSREP_INFO("Server paused at: %lld", paused_seqno.get());
+#endif /* WITH_WSREP */
   return false;
 }
 

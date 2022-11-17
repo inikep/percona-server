@@ -332,6 +332,9 @@ void Commit_order_manager::check_and_report_deadlock(THD *thd_self,
                                                      THD *thd_wait_for) {
   DBUG_TRACE;
 
+#ifdef WITH_WSREP
+  if (WSREP(thd_self)) return;
+#endif /* WITH_WSREP */
   Slave_worker *self_w = get_thd_worker(thd_self);
   Slave_worker *wait_for_w = get_thd_worker(thd_wait_for);
   Commit_order_manager *mngr = self_w->get_commit_order_manager();

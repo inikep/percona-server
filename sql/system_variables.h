@@ -316,6 +316,16 @@ struct System_variables {
   bool sysdate_is_now;
   bool binlog_rows_query_log_events;
 
+#ifdef WITH_WSREP
+  bool wsrep_on;
+  uint    wsrep_sync_wait;
+  ulong   wsrep_retry_autocommit;
+  ulong   wsrep_trx_fragment_size;
+  ulong   wsrep_trx_fragment_unit;
+  ulong   wsrep_OSU_method;
+  bool wsrep_dirty_reads;
+  ulong wsrep_auto_increment_control;
+#endif /* WITH_WSREP */
   double long_query_time_double;
 
   bool pseudo_replica_mode;

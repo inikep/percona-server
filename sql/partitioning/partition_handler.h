@@ -350,6 +350,11 @@ class Partition_handler {
     @return handler or NULL if not supported.
   */
   virtual handler *get_handler() { return nullptr; }
+#ifdef WITH_WSREP
+ public:
+  /* TODO: track if partitioning is for innodb table */
+  bool wsrep_is_innodb() { return NULL; }
+#endif /* WITH_WSREP */
 };
 
 /// Maps compare function to strict weak ordering required by Priority_queue.

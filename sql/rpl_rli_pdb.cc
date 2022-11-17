@@ -72,6 +72,10 @@
 #include "sql/table.h"
 #include "sql/transaction_info.h"
 #include "thr_mutex.h"
+#ifdef WITH_WSREP
+#include "wsrep_binlog.h" // wsrep_set_gtid_log_event
+#include "wsrep_trans_observer.h"
+#endif /* WITH_WSREP */
 
 #ifndef NDEBUG
 ulong w_rr = 0;
@@ -2545,8 +2549,49 @@ int slave_worker_exec_job_group(Slave_worker *worker, Relay_log_info *rli) {
       if (unlikely(error)) goto err;
       ptr_g->new_fd_event = nullptr;
     }
+#ifdef WITH_WSREP
+    if (WSREP_ON) {
+      if ((error = wsrep_before_statement(thd))) {
+        goto err;
+      }
+
+      if (ev->get_type_code() == binary_log::GTID_LOG_EVENT) {
+        wsrep_set_gtid_log_event(thd, ev);
+      }
+    }
+#endif /* WITH_WSREP */
 
     error = worker->slave_worker_exec_event(ev);
+
+#ifdef WITH_WSREP
+    if (WSREP_ON) {
+      mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+      const enum wsrep::transaction::state state(thd->wsrep_trx().state());
+      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+
+      switch (state) {
+      case wsrep::transaction::s_executing:
+      case wsrep::transaction::s_committed:
+      case wsrep::transaction::s_aborted:
+        wsrep_after_statement(thd);
+        break;
+      case wsrep::transaction::s_must_replay:
+        /* override error with result of replaying */
+        error = wsrep_after_statement(thd);
+        break;
+      default:
+        assert(error);
+        wsrep_after_statement(thd);
+        worker->c_rli->report(ERROR_LEVEL, ER_UNKNOWN_COM_ERROR,
+                              "Node has dropped from cluster");
+        break;
+      }
+
+      if (error) {
+        goto err;
+      }
+    }
+#endif /* WITH_WSREP */
 
     set_timespec_nsec(&worker->ts_exec[1], 0);  // pre-exec
     worker->stats_exec_time +=

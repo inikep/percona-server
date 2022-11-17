@@ -378,6 +378,9 @@ extern ulong opt_server_id_mask;
 extern const char *load_default_groups[];
 extern struct my_option my_long_early_options[];
 extern bool mysqld_server_started;
+#ifdef WITH_WSREP
+extern int mysqld_server_initialized;
+#endif /* WITH_WSREP */
 extern "C" MYSQL_PLUGIN_IMPORT int orig_argc;
 extern "C" MYSQL_PLUGIN_IMPORT char **orig_argv;
 extern my_thread_attr_t connection_attrib;
@@ -465,6 +468,11 @@ extern PSI_mutex_key key_LOCK_group_replication_connection_mutex;
 
 extern PSI_mutex_key key_commit_order_manager_mutex;
 extern PSI_mutex_key key_mutex_replica_worker_hash;
+#ifdef WITH_WSREP
+extern PSI_mutex_key key_LOCK_wsrep_thd;
+extern PSI_cond_key  key_COND_wsrep_thd;
+extern PSI_thread_key key_thread_handle_wsrep;
+#endif /* HAVE_WSREP */
 
 extern PSI_rwlock_key key_rwlock_LOCK_logger;
 extern PSI_rwlock_key key_rwlock_channel_map_lock;
@@ -831,6 +839,9 @@ extern SERVICE_TYPE_NO_CONST(registry) * srv_registry;
 extern SERVICE_TYPE(dynamic_loader_scheme_file) * scheme_file_srv;
 extern SERVICE_TYPE(dynamic_loader) * dynamic_loader_srv;
 
+#ifdef WITH_WSREP
+extern "C" void unireg_abort(int exit_code) MY_ATTRIBUTE((noreturn));
+#endif /* WITH_WSREP */
 class Deployed_components;
 extern Deployed_components *g_deployed_components;
 #endif /* MYSQLD_INCLUDED */

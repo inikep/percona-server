@@ -994,6 +994,9 @@ class MDL_ticket : public MDL_wait_for_subgraph {
   MDL_ticket **prev_in_lock;
 
  public:
+#ifdef WITH_WSREP
+  void wsrep_report(bool debug);
+#endif /* WITH_WSREP */
   bool has_pending_conflicting_lock() const;
 
   MDL_context *get_ctx() const { return m_ctx; }
@@ -1300,6 +1303,9 @@ class MDL_ticket_store {
     @return first materialized ticket for the given duration
    */
   MDL_ticket *materialized_front(int di);
+#ifdef WITH_WSREP
+  bool has_ticket_in_duration(enum_mdl_duration dur, MDL_ticket *ticket) const;
+#endif /* WITH_WSREP */
 };
 
 /**
@@ -1458,6 +1464,15 @@ class MDL_context {
 
   inline bool has_locks() const { return !m_ticket_store.is_empty(); }
 
+#ifdef WITH_WSREP
+  inline bool has_transactional_locks() const {
+    return !m_ticket_store.is_empty(MDL_TRANSACTION);
+  }
+
+  inline bool ticket_is_explicit(MDL_ticket *ticket) const {
+    return m_ticket_store.has_ticket_in_duration(MDL_EXPLICIT, ticket);
+  }
+#endif /* WITH_WSREP */
   bool has_locks(MDL_key::enum_mdl_namespace mdl_namespace) const;
 
   bool has_locks_waited_for() const;
@@ -1479,6 +1494,9 @@ class MDL_context {
 
   void release_statement_locks();
   void release_transactional_locks();
+#ifdef WITH_WSREP
+  void release_explicit_locks();
+#endif
   void rollback_to_savepoint(const MDL_savepoint &mdl_savepoint);
 
   MDL_context_owner *get_owner() const { return m_owner; }
@@ -1667,7 +1685,11 @@ class MDL_context {
   friend bool mdl_unittest::test_drive_fix_pins(MDL_context *);
   bool fix_pins();
 
+
  public:
+#ifdef WITH_WSREP
+  THD *wsrep_get_thd() const { return get_thd(); }
+#endif /* WITH_WSREP */
   void find_deadlock();
 
   bool visit_subgraph(MDL_wait_for_graph_visitor *dvisitor);

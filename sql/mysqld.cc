@@ -960,6 +960,15 @@ MySQL clients support the protocol:
 #include "sql/server_component/mysql_server_keyring_lockable_imp.h"
 #include "sql/server_component/persistent_dynamic_loader_imp.h"
 #include "sql/srv_session.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "mysql/service_wsrep.h"
+#include "wsrep_mysqld.h"
+#include "wsrep_server_state.h"
+#include "wsrep_var.h"
+#include "wsrep_thd.h"
+#include "wsrep_sst.h"
+#endif /* WITH_WSREP */
 
 using std::max;
 using std::min;
@@ -1103,6 +1112,9 @@ static PSI_mutex_key key_LOCK_socket_listener_active;
 static PSI_cond_key key_COND_socket_listener_active;
 static PSI_mutex_key key_LOCK_start_signal_handler;
 static PSI_cond_key key_COND_start_signal_handler;
+#ifdef WITH_WSREP
+PSI_thread_key key_thread_handle_wsrep;
+#endif /* WITH_WSREP */
 #endif  // _WIN32
 static PSI_mutex_key key_LOCK_server_started;
 static PSI_cond_key key_COND_server_started;
@@ -1289,6 +1301,10 @@ ulong binlog_row_metadata;
 bool opt_source_verify_checksum = false;
 bool opt_replica_sql_verify_checksum = true;
 const char *binlog_format_names[] = {"MIXED", "STATEMENT", "ROW", NullS};
+#ifdef WITH_WSREP
+const char *wsrep_binlog_format_names[]= 
+                                   {"MIXED", "STATEMENT", "ROW", "NONE", NullS};
+#endif /*WITH_WSREP */
 bool binlog_gtid_simple_recovery;
 ulong binlog_error_action;
 const char *binlog_error_action_list[] = {"IGNORE_ERROR", "ABORT_SERVER",
@@ -1577,6 +1593,9 @@ mysql_cond_t COND_socket_listener_active;
 mysql_mutex_t LOCK_start_signal_handler;
 mysql_cond_t COND_start_signal_handler;
 #endif
+#ifdef WITH_WSREP
+int mysqld_server_initialized= 0;
+#endif /* WITH_WSREP */
 
 /*
   The below lock protects access to global server variable
@@ -2175,6 +2194,12 @@ class Set_kill_conn : public Do_THD_Impl {
     if (!m_kill_dump_threads_flag) {
       // We skip slave threads & scheduler on this first loop through.
       if (killing_thd->slave_thread) return;
+#ifdef WITH_WSREP
+      /* skip wsrep system threads as well */
+      if (WSREP(killing_thd) && 
+          (wsrep_thd_is_applying(killing_thd) || killing_thd->wsrep_applier))
+        return;
+#endif /* WITH_WSREP */
 
       if (killing_thd->get_command() == COM_BINLOG_DUMP ||
           killing_thd->get_command() == COM_BINLOG_DUMP_GTID) {
@@ -2239,6 +2264,29 @@ class Call_close_conn : public Do_THD_Impl {
       */
       close_connection(closing_thd, 0, is_server_shutdown, false);
     }
+#ifdef WITH_WSREP
+    /*
+     * TODO: this code block may turn out redundant. wsrep_ptr->disconnect()
+     *       should terminate slave threads gracefully, and we don't need
+     *       to signal them here.
+     *       The code here makes sure mysqld will not hang during shutdown
+     *       even if wsrep provider has problems in shutting down.
+     */
+    if (WSREP(closing_thd) && wsrep_thd_is_applying(closing_thd))
+    {
+      sql_print_information("closing wsrep system thread");
+
+      mysql_mutex_lock(&closing_thd->LOCK_thd_data);
+      closing_thd->killed= THD::KILL_CONNECTION;
+      if (closing_thd->current_cond)
+      {
+        mysql_mutex_lock(closing_thd->current_mutex);
+        mysql_cond_broadcast(closing_thd->current_cond);
+        mysql_mutex_unlock(closing_thd->current_mutex);
+      }
+      mysql_mutex_unlock(&closing_thd->LOCK_thd_data);
+    }
+#endif /* WITH_WSREP */
   }
 
  private:
@@ -2383,7 +2431,11 @@ void kill_mysql(void) {
   DBUG_PRINT("quit", ("After pthread_kill"));
 }
 
+#ifdef WITH_WSREP
+void unireg_abort(int exit_code) {
+#else
 static void unireg_abort(int exit_code) {
+#endif /* WITH_WSREP */
   DBUG_TRACE;
 
   if (errno) {
@@ -2409,6 +2461,39 @@ static void unireg_abort(int exit_code) {
 
   if (!daemon_launcher_quiet && exit_code) LogErr(ERROR_LEVEL, ER_ABORTING);
 
+#ifdef WITH_WSREP
+  if (Wsrep_server_state::is_instance_initialized() &&
+      Wsrep_server_state::instance().state() != wsrep::server_state::s_disconnected)
+  {
+    WSREP_DEBUG("unireg_abort");
+    /* This is an abort situation, we cannot expect to gracefully close all
+     * wsrep threads here, we can only diconnect from service */
+    wsrep_close_client_connections(true);
+    wsrep_close_threads(NULL);
+    Wsrep_server_state::instance().disconnect();
+
+    THD* thd = current_thd;
+    if (thd)
+    {
+      Global_THD_manager *thd_manager= Global_THD_manager::get_instance();
+      WSREP_DEBUG("closing aborting applier THD: %u", thd->thread_id());
+      thd->release_resources();
+      thd_manager->remove_thd(thd);
+    
+      delete thd;
+    }
+
+    wsrep_wait_appliers_close(NULL);
+    WSREP_INFO("Service disconnected.");
+
+    sleep(1); /* so give some time to exit for those which can */
+    WSREP_INFO("Some threads may fail to exit.");
+  }
+  if (WSREP_ON && wsrep_inited) {
+    wsrep_deinit(true);
+    wsrep_deinit_server();
+  }
+#endif // WITH_WSREP
   mysql_audit_notify(MYSQL_AUDIT_SERVER_SHUTDOWN_SHUTDOWN,
                      MYSQL_AUDIT_SERVER_SHUTDOWN_REASON_ABORT, exit_code);
 #ifndef _WIN32
@@ -2587,6 +2672,9 @@ static void clean_up(bool print_message) {
   free_tmpdir(&mysql_tmpdir_list);
   my_free(opt_bin_logname);
   free_max_user_conn();
+#ifdef WITH_WSREP
+  wsrep_thr_deinit();
+#endif /* WITH_WSREP */
   delete binlog_filter;
   rpl_channel_filters.clean_up();
   end_ssl();
@@ -3647,7 +3735,20 @@ extern "C" void *signal_hand(void *arg [[maybe_unused]]) {
           }
           mysql_mutex_unlock(&LOCK_socket_listener_active);
 
+#ifdef WITH_WSREP
+          /* Stop wsrep threads in case they are running. */
+          if (wsrep_running_threads > 0)
+            wsrep_stop_replication(NULL);
+          /* Release threads if they are waiting in WSREP_SYNC_WAIT_UPTO_GTID */
+          wsrep_local_gtid_manager.signal_waiters(0, true);
+#endif /* WITH_WSREP */
           close_connections();
+#ifdef WITH_WSREP
+          if (wsrep_inited) {
+            wsrep_deinit(true);
+            wsrep_deinit_server();
+          }
+#endif /* WITH_WSREP */
         }
         my_thread_end();
         my_thread_exit(nullptr);
@@ -4778,6 +4879,13 @@ int init_common_variables() {
     opt_bin_log = false;
   }
 
+#ifdef WITH_WSREP
+  if (0 == wsrep_node_name || 0 == wsrep_node_name[0])
+  {
+    my_free(const_cast<char*>(wsrep_node_name));
+    wsrep_node_name= my_strdup(key_memory_wsrep, glob_hostname, MYF(MY_WME));
+  }
+#endif /* WITH_WSREP */
   strmake(pidfile_name, default_logfile_name, sizeof(pidfile_name) - 5);
   my_stpcpy(fn_ext(pidfile_name), ".pid");  // Add proper extension
 
@@ -4838,6 +4946,11 @@ int init_common_variables() {
                     SQLCOM_END + 12,
                 "");
 #endif
+#ifdef WITH_WSREP
+  /* This is a protection against mutually incompatible option values. */
+  if (WSREP_ON && wsrep_check_opts (remaining_argc, remaining_argv))
+    return 1;
+#endif /* WITH_WSREP */
 
   if (get_options(&remaining_argc, &remaining_argv)) return 1;
 
@@ -5669,6 +5782,51 @@ static void setup_error_log() {
   log_error_stage_set(les);
 }
 
+#ifdef WITH_WSREP /* WSREP BEFORE SE */
+static void wsrep_init_wsrep_before_SE() {
+  /*
+    Wsrep initialization must happen at this point, because:
+    - opt_bin_logname must be known when starting replication
+    since SST may need it
+    - SST may modify binlog index file, so it must be opened
+    after SST has happened
+  */
+  /* It's now safe to use thread specific memory */
+  mysqld_server_initialized= 1;
+  wsrep_thr_init();
+  if (wsrep_init_server()) unireg_abort(1);
+
+  if (!wsrep_recovery) {
+    if (opt_initialize) {
+      /* bootsrap option given - disable wsrep functionality */
+      wsrep_provider_init(WSREP_NONE);
+      if (wsrep_init()) unireg_abort(1);
+    } else  {
+      /* full wsrep initialization */
+
+      // add basedir/bin to PATH to resolve wsrep script names
+      char* const tmp_path((char*)alloca(strlen(mysql_home) +
+                                           strlen("/bin") + 1));
+      if (tmp_path) {
+        strcpy(tmp_path, mysql_home);
+        strcat(tmp_path, "/bin");
+        wsrep_prepend_PATH(tmp_path);
+      } else {
+        WSREP_ERROR("Could not append %s/bin to PATH", mysql_home);
+      }
+      if (wsrep_before_SE()) {
+        if (gtid_server_init()) {
+          sql_print_error("Failed to initialize GTID structures.");
+          unireg_abort(MYSQLD_ABORT_EXIT);
+        }
+        set_ports(); // this is also called in network_init() later but we need
+                     // to know mysqld_port now - lp:1071882
+        wsrep_init_startup(true);
+      }
+    }
+  }
+}
+#endif /* WITH_WSREP */
 /**
   Try to read the previous run's error log and make it available in
   performance_schema.error_log. Activate all error logging services
@@ -6001,9 +6159,15 @@ static int init_server_components() {
   if (opt_log_replica_updates && !opt_bin_log) {
     LogErr(WARNING_LEVEL, ER_NEED_LOG_BIN, "--log-replica-updates");
   }
+#ifdef WITH_WSREP
+  if (!WSREP_ON && binlog_format_used && !opt_bin_log)
+#else
   if (binlog_format_used && !opt_bin_log)
+#endif /* WITH_WSREP */
     LogErr(WARNING_LEVEL, ER_NEED_LOG_BIN, "--binlog-format");
-
+#ifdef WITH_WSREP
+  if (!opt_bin_log)  wsrep_emulate_bin_log= 1;
+#endif /* WITH_WSREP */
   /* Check that we have not let the format to unspecified at this point */
   assert((uint)global_system_variables.binlog_format <=
          array_elements(binlog_format_names) - 1);
@@ -6066,6 +6230,9 @@ static int init_server_components() {
       my_free(opt_bin_logname);
       opt_bin_logname = my_strdup(key_memory_opt_bin_logname, buf, MYF(0));
     }
+#ifdef WITH_WSREP /* WSREP BEFORE SE */
+    wsrep_init_wsrep_before_SE();
+#endif /* WITH_WSREP */
 
     /*
       Skip opening the index file if we start with --help. This is necessary
@@ -6077,6 +6244,9 @@ static int init_server_components() {
       unireg_abort(MYSQLD_ABORT_EXIT);
     }
   }
+#ifdef WITH_WSREP /* WSREP BEFORE SE */
+  else  wsrep_init_wsrep_before_SE();
+#endif /* WITH_WSREP */
 
   if (opt_bin_log) {
     /*
@@ -6218,10 +6388,16 @@ static int init_server_components() {
   /* Allow storage engine to give real error messages */
   if (ha_init_errors()) return 1;
 
+#ifdef WITH_WSREP
+  if (!wsrep_before_SE()) {
+#endif /* WITH_WSREP */
   if (gtid_server_init()) {
     LogErr(ERROR_LEVEL, ER_CANT_INITIALIZE_GTID);
     unireg_abort(MYSQLD_ABORT_EXIT);
   }
+#ifdef WITH_WSREP
+  }
+#endif /* WITH_WSREP */
 
   if (opt_log_replica_updates && replicate_same_server_id) {
     if (opt_bin_log && global_gtid_mode.get() != Gtid_mode::ON) {
@@ -6631,13 +6807,31 @@ static int init_server_components() {
     if (opt_bin_log)
       tc_log = &mysql_bin_log;
     else
+#ifdef WITH_WSREP
+      if (WSREP_ON)
+        tc_log=  &tc_log_dummy;
+      else
+        /*
+         * wsrep hton grows total_ha_2pc count to 2, even in native mysql mode.
+         * Have to force using tc_log_dummy here, as tc_log_mmap segfaults
+         */
+        tc_log=  &tc_log_dummy;
+#else
       tc_log = &tc_log_mmap;
+#endif /* WITH_WSREP */
   }
 
   if (Recovered_xa_transactions::init()) {
     LogErr(ERROR_LEVEL, ER_OOM);
     unireg_abort(MYSQLD_ABORT_EXIT);
   }
+#ifdef WITH_WSREP
+  WSREP_DEBUG("Initial TC log open: %s", 
+              (tc_log == &mysql_bin_log) ? "binlog" :
+              (tc_log == &tc_log_mmap) ? "mmap" :
+              (tc_log == &tc_log_dummy) ? "dummy" : "unknown"
+              );
+#endif
 
   if (tc_log->open(opt_bin_log ? opt_bin_logname : opt_tc_log_file)) {
     LogErr(ERROR_LEVEL, ER_CANT_INIT_TC_LOG);
@@ -6665,6 +6859,10 @@ static int init_server_components() {
     unireg_abort(MYSQLD_ABORT_EXIT);
   }
 
+#ifdef WITH_WSREP
+  if (!wsrep_recovery)
+  {
+#endif /* WITH_WSREP */
   if (global_gtid_mode.get() == Gtid_mode::ON &&
       _gtid_consistency_mode != GTID_CONSISTENCY_MODE_ON) {
     LogErr(ERROR_LEVEL, ER_RPL_GTID_MODE_REQUIRES_ENFORCE_GTID_CONSISTENCY_ON);
@@ -6716,6 +6914,9 @@ static int init_server_components() {
     if (expire_logs_days_supplied)
       LogErr(WARNING_LEVEL, ER_NEED_LOG_BIN, "--expire_logs_days");
   }
+#ifdef WITH_WSREP
+  }
+#endif /* WITH_WSREP */
 
   if (opt_myisam_log) (void)mi_log(1);
 
@@ -6943,6 +7144,10 @@ int mysqld_main(int argc, char **argv)
     return 1;
   }
 #endif /* _WIN32 */
+#ifdef WITH_WSREP
+  wsrep_filter_new_cluster (&argc, argv);
+  wsrep_sst_set_defaults(argc, argv);
+#endif /* WITH_WSREP */
 
   orig_argc = argc;
   orig_argv = argv;
@@ -7467,8 +7672,26 @@ int mysqld_main(int argc, char **argv)
   /* Determine default TCP port and unix socket name */
   set_ports();
 
+#ifdef WITH_WSREP
+  /*
+    Make sure that SSL library gets initialized before WSREP provider
+    is loaded. This is to ensure that possible server side initialization
+    does not have any side effects while the provider is already running
+    with open SSL sessions.
+  */
+  if (WSREP_ON) {
+    ssl_start();
+  }
+#endif /* */
   if (init_server_components()) unireg_abort(MYSQLD_ABORT_EXIT);
 
+#ifdef WITH_WSREP /* WSREP AFTER SE */
+  if (wsrep_recovery)
+  {
+    wsrep_recover();
+    unireg_abort(0);
+  }
+#endif /* WITH_WSREP */
   if (!server_id_supplied)
     LogErr(INFORMATION_LEVEL, ER_WARN_NO_SERVERID_SPECIFIED);
 
@@ -7775,6 +7998,16 @@ int mysqld_main(int argc, char **argv)
   if (Events::init(opt_noacl || opt_initialize))
     unireg_abort(MYSQLD_ABORT_EXIT);
 
+#ifdef WITH_WSREP /* WSREP AFTER SE */
+  if (opt_initialize) {
+    /*! bootstrap wsrep init was taken care of above */
+  } else {
+    if (!wsrep_before_SE())
+      wsrep_init_startup(false);
+    wsrep_init_globals();
+    wsrep_create_appliers(wsrep_slave_threads - 1);
+  }
+#endif /* WITH_WSREP */
 #ifndef _WIN32
   //  Start signal handler thread.
   start_signal_handler();
@@ -9575,6 +9808,33 @@ SHOW_VAR status_vars[] = {
     {"Uptime_since_flush_status", (char *)&show_flushstatustime, SHOW_FUNC,
      SHOW_SCOPE_GLOBAL},
 #endif
+#ifdef WITH_WSREP
+    {"wsrep_connected", (char*) &wsrep_connected, SHOW_BOOL, SHOW_SCOPE_GLOBAL},
+    {"wsrep_ready", (char*) &wsrep_show_ready, SHOW_FUNC, SHOW_SCOPE_GLOBAL},
+    {"wsrep_cluster_state_uuid", (char*) &wsrep_cluster_state_uuid,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep_cluster_conf_id", (char*) &wsrep_cluster_conf_id,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"wsrep_cluster_status", (char*) &wsrep_cluster_status,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep_cluster_size", (char*) &wsrep_cluster_size,
+     SHOW_LONG_NOFLUSH, SHOW_SCOPE_GLOBAL},
+    {"wsrep_local_index", (char*) &wsrep_local_index,
+     SHOW_LONG_NOFLUSH, SHOW_SCOPE_GLOBAL},
+    {"wsrep_local_bf_aborts", (char*) &wsrep_show_bf_aborts,
+     SHOW_FUNC, SHOW_SCOPE_GLOBAL},
+    {"wsrep_provider_name", (char*) &wsrep_provider_name,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep_provider_version", (char*) &wsrep_provider_version,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep_provider_vendor", (char*) &wsrep_provider_vendor,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep_provider_capabilities", (char*) &wsrep_provider_capabilities,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep_cluster_capabilities", (char*) &wsrep_cluster_capabilities,
+     SHOW_CHAR_PTR, SHOW_SCOPE_GLOBAL},
+    {"wsrep", (char*) &wsrep_show_status, SHOW_FUNC, SHOW_SCOPE_ALL},
+#endif
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_ALL}};
 
 void add_terminator(vector<my_option> *options) {
@@ -9807,6 +10067,11 @@ static int mysql_init_variables() {
 #if defined(_WIN32)
   shared_memory_base_name = default_shared_memory_base_name;
 #endif
+
+#ifdef WITH_WSREP
+  if (wsrep_init_vars())
+    return 1;
+#endif /* WITH_WSREP */
 
   return 0;
 }
@@ -10255,6 +10520,14 @@ bool mysqld_get_one_option(int optid,
     case OPT_LOWER_CASE_TABLE_NAMES:
       lower_case_table_names_used = true;
       break;
+#ifdef WITH_WSREP
+  case OPT_WSREP_START_POSITION:
+    wsrep_start_position_init (argument);
+    break;
+  case OPT_WSREP_SST_AUTH:
+    wsrep_sst_auth_init ();
+    break;
+#endif
 #if defined(ENABLED_DEBUG_SYNC)
     case OPT_DEBUG_SYNC_TIMEOUT:
       /*
@@ -10702,6 +10975,14 @@ static int get_options(int *argc_ptr, char ***argv_ptr) {
   read_only = super_read_only ? super_read_only : read_only;
   opt_readonly = read_only;
 
+#ifdef WITH_WSREP
+  /* if server is started with --help (--verbose) options, there is no need
+     to start replication, skipping wsrep initialization
+  */
+  if (opt_help) {
+    wsrep_provider_init(WSREP_NONE);
+  }
+#endif /* WITH_WSREP */
   return 0;
 }
 
@@ -11246,6 +11527,9 @@ void refresh_status() {
 
   /* Reset some global variables. */
   reset_status_vars();
+#ifdef WITH_WSREP
+  Wsrep_server_state::instance().provider().reset_status();
+#endif /* WITH_WSREP */
 
   /* Reset the counters of all key caches (default and named). */
   process_key_caches(reset_key_cache_counters);

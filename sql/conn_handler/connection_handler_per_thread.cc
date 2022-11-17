@@ -61,6 +61,11 @@
 #include "sql/sql_parse.h"             // do_command
 #include "sql/sql_thd_internal_api.h"  // thd_set_thread_stack
 #include "thr_mutex.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "sql/wsrep_trans_observer.h" /* wsrep open/close */
+#include "sql/wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 // Initialize static members
 ulong Per_thread_connection_handler::blocked_pthread_count = 0;
@@ -298,10 +303,16 @@ static void *handle_connection(void *arg) {
     if (thd_prepare_connection(thd))
       handler_manager->inc_aborted_connects();
     else {
+#ifdef WITH_WSREP
+      wsrep_open(thd);
+#endif /* WITH_WSREP */
       while (thd_connection_alive(thd)) {
         if (do_command(thd)) break;
       }
       end_connection(thd);
+#ifdef WITH_WSREP
+      wsrep_close(thd);
+#endif /* WITH_WSREP */
     }
     close_connection(thd, 0, false, false);
 
@@ -323,12 +334,27 @@ static void *handle_connection(void *arg) {
     PSI_THREAD_CALL(delete_current_thread)();
 #endif /* HAVE_PSI_THREAD_INTERFACE */
 
+#ifdef WITH_WSREP
+    bool wsrep_applier = (WSREP(thd) && thd->wsrep_applier);
+#endif /* WITH_WSREP */
     delete thd;
 
     // Server is shutting down so end the pthread.
     if (connection_events_loop_aborted()) break;
 
+#ifdef WITH_WSREP
+    if (wsrep_applier)
+    {
+      WSREP_DEBUG("avoiding thread re-use for applier");
+      channel_info = NULL;
+    }
+    else
+    {
+#endif /* WITH_WSREP */
     channel_info = Per_thread_connection_handler::block_until_new_connection();
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
     if (channel_info == nullptr) break;
     pthread_reused = true;
     if (connection_events_loop_aborted()) {

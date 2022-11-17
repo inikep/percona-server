@@ -121,6 +121,10 @@ int Rpl_info_table::do_init_info(enum_find_method method, uint instance) {
   ulonglong saved_options = thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_BIN_LOG;
 
+#ifdef WITH_WSREP
+  bool saved_wsrep_on = thd->variables.wsrep_on;
+  thd->variables.wsrep_on = false;
+#endif
   /*
     Opens and locks the rpl_info table before accessing it.
   */
@@ -163,6 +167,9 @@ end:
     Unlocks and closes the rpl_info table.
   */
   error = access->close_table(thd, table, &backup, error) || error;
+#ifdef WITH_WSREP
+  thd->variables.wsrep_on = saved_wsrep_on;
+#endif
   thd->variables.sql_mode = saved_mode;
   thd->variables.option_bits = saved_options;
   access->drop_thd(thd);
@@ -187,6 +194,11 @@ int Rpl_info_table::do_flush_info(const bool force) {
   ulonglong saved_options = thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_BIN_LOG;
   thd->is_operating_substatement_implicitly = true;
+ 
+#ifdef WITH_WSREP
+  bool saved_wsrep_on = thd->variables.wsrep_on;
+  thd->variables.wsrep_on = false;
+#endif
 
   /*
     Opens and locks the rpl_info table before accessing it.
@@ -266,6 +278,9 @@ end:
   thd->is_operating_substatement_implicitly = false;
   thd->variables.sql_mode = saved_mode;
   thd->variables.option_bits = saved_options;
+#ifdef WITH_WSREP
+  thd->variables.wsrep_on = saved_wsrep_on;
+#endif
   access->drop_thd(thd);
   return error;
 }
@@ -286,6 +301,11 @@ int Rpl_info_table::do_clean_info() {
   saved_mode = thd->variables.sql_mode;
   ulonglong saved_options = thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_BIN_LOG;
+#ifdef WITH_WSREP
+  bool saved_wsrep_on = thd->variables.wsrep_on;
+  thd->variables.wsrep_on = false;
+#endif
+
 
   /*
     Opens and locks the rpl_info table before accessing it.
@@ -316,6 +336,9 @@ end:
   error = access->close_table(thd, table, &backup, error) || error;
   thd->variables.sql_mode = saved_mode;
   thd->variables.option_bits = saved_options;
+#ifdef WITH_WSREP
+  thd->variables.wsrep_on = saved_wsrep_on;
+#endif
   access->drop_thd(thd);
   return error;
 }
@@ -355,6 +378,10 @@ int Rpl_info_table::do_reset_info(uint nparam, const char *param_schema,
   ulonglong saved_options = thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_BIN_LOG;
 
+#ifdef WITH_WSREP
+  bool saved_wsrep_on = thd->variables.wsrep_on;
+  thd->variables.wsrep_on = false;
+#endif
   /*
     Opens and locks the rpl_info table before accessing it.
   */
@@ -416,6 +443,9 @@ end:
   error = info->access->close_table(thd, table, &backup, error) || error;
   thd->variables.sql_mode = saved_mode;
   thd->variables.option_bits = saved_options;
+#ifdef WITH_WSREP
+  thd->variables.wsrep_on = saved_wsrep_on;
+#endif
   info->access->drop_thd(thd);
   delete info;
   return error;
@@ -814,6 +844,10 @@ bool Rpl_info_table::do_update_is_transactional() {
   ulonglong saved_options = thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_BIN_LOG;
 
+#ifdef WITH_WSREP
+  bool saved_wsrep_on = thd->variables.wsrep_on;
+  thd->variables.wsrep_on = false;
+#endif
   /*
     Opens and locks the rpl_info table before accessing it.
   */
@@ -829,6 +863,9 @@ end:
   error = access->close_table(thd, table, &backup, false) || error;
   thd->variables.sql_mode = saved_mode;
   thd->variables.option_bits = saved_options;
+#ifdef WITH_WSREP
+  thd->variables.wsrep_on = saved_wsrep_on;
+#endif
   access->drop_thd(thd);
   return error;
 }

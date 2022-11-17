@@ -48,6 +48,9 @@ enum enum_mts_parallel_type {
   MTS_PARALLEL_TYPE_DB_NAME = 0,
   /* Parallel slave based on group information from Binlog group commit */
   MTS_PARALLEL_TYPE_LOGICAL_CLOCK = 1
+#ifdef WITH_WSREP
+  ,MTS_PARALLEL_TYPE_WSREP
+#endif /* WITH_WSREP */
 };
 
 // Extend the following class as per requirement for each sub mode
@@ -94,6 +97,46 @@ class Mts_submode {
   virtual ~Mts_submode() = default;
 };
 
+#ifdef WITH_WSREP
+/**
+  void submode for wsrep replication providers
+  which handle parallel applying on their own
+*/
+class Mts_submode_wsrep: public Mts_submode
+{
+public:
+  Mts_submode_wsrep()
+  {
+    type= MTS_PARALLEL_TYPE_WSREP;
+  }
+  int schedule_next_event(Relay_log_info* rli MY_ATTRIBUTE((unused)),
+                          Log_event *ev MY_ATTRIBUTE((unused))) override
+  { return 0; }
+
+  void attach_temp_tables(THD *thd MY_ATTRIBUTE((unused)),
+                          const Relay_log_info* rli MY_ATTRIBUTE((unused)),
+                          Query_log_event *ev MY_ATTRIBUTE((unused))) override
+  { return; }
+
+  void detach_temp_tables(THD *thd MY_ATTRIBUTE((unused)),
+                          const Relay_log_info* rli MY_ATTRIBUTE((unused)),
+                          Query_log_event *ev MY_ATTRIBUTE((unused))) override
+  { return; }
+
+  Slave_worker* get_least_occupied_worker(Relay_log_info* rli MY_ATTRIBUTE((unused)),
+                                          Slave_worker_array *ws MY_ATTRIBUTE((unused)),
+                                          Log_event *ev MY_ATTRIBUTE((unused)))
+      override
+  { return NULL; }
+
+  ~Mts_submode_wsrep() = default;
+
+  int wait_for_workers_to_finish(Relay_log_info  *rli MY_ATTRIBUTE((unused)),
+                                 Slave_worker *ignore MY_ATTRIBUTE((unused)))
+      override
+  { return 0; }
+};
+#endif /* WITH_WSREP */
 /**
   DB partitioned submode
   For significance of each method check definition of Mts_submode

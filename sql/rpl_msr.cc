@@ -36,6 +36,9 @@
 const char *Multisource_info::default_channel = "";
 const char *Multisource_info::group_replication_channel_names[] = {
     "group_replication_applier", "group_replication_recovery"};
+#ifdef WITH_WSREP
+const char *Multisource_info::wsrep_replication_channel_name = "wsrep";
+#endif /* WITH_WSREP */
 
 bool Multisource_info::add_mi(const char *channel_name, Master_info *mi) {
   DBUG_TRACE;

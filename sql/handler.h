@@ -165,6 +165,9 @@ st_plugin_int *remove_hton2plugin(uint slot);
 extern const char *ha_row_type[];
 extern const char *tx_isolation_names[];
 extern const char *binlog_format_names[];
+#ifdef WITH_WSREP
+extern const char *wsrep_binlog_format_names[];
+#endif /* WITH_WSREP */
 extern TYPELIB tx_isolation_typelib;
 extern ulong total_ha_2pc;
 
@@ -668,6 +671,7 @@ enum legacy_db_type {
   DB_TYPE_MARIA,
   /** Performance schema engine. */
   DB_TYPE_PERFORMANCE_SCHEMA,
+  DB_TYPE_WSREP,
   DB_TYPE_TEMPTABLE,
   DB_TYPE_FIRST_DYNAMIC = 42,
   DB_TYPE_DEFAULT = 127  // Must be last
@@ -1535,6 +1539,11 @@ typedef int (*find_files_t)(handlerton *hton, THD *thd, const char *db,
 typedef int (*table_exists_in_engine_t)(handlerton *hton, THD *thd,
                                         const char *db, const char *name);
 
+typedef int (*wsrep_abort_transaction_t)(handlerton *hton, THD *bf_thd, 
+       	                               THD *victim_thd, bool signal);
+typedef int (*wsrep_set_checkpoint_t)(handlerton *hton, const XID* xid,
+                                      bool full_sync);
+typedef int (*wsrep_get_checkpoint_t)(handlerton *hton, XID* xid);
 /**
   Check if the given db.tablename is a system table for this SE.
 
@@ -2486,7 +2495,9 @@ struct handlerton {
   find_files_t find_files;
   table_exists_in_engine_t table_exists_in_engine;
   is_supported_system_table_t is_supported_system_table;
-
+  wsrep_abort_transaction_t wsrep_abort_transaction;
+  wsrep_set_checkpoint_t wsrep_set_checkpoint;
+  wsrep_get_checkpoint_t wsrep_get_checkpoint;
   /*
     APIs for retrieving Serialized Dictionary Information by tablespace id
   */
@@ -7005,6 +7016,9 @@ int ha_rollback_to_savepoint(THD *thd, SAVEPOINT *sv);
 bool ha_rollback_to_savepoint_can_release_mdl(THD *thd);
 int ha_savepoint(THD *thd, SAVEPOINT *sv);
 int ha_release_savepoint(THD *thd, SAVEPOINT *sv);
+#ifdef WITH_WSREP
+int ha_wsrep_abort_transaction(THD *bf_thd, THD *victim_thd, bool signal);
+#endif /* WITH_WSREP */
 
 /* these are called by storage engines */
 void trans_register_ha(THD *thd, bool all, handlerton *ht,
@@ -7022,6 +7036,9 @@ void ha_binlog_wait(THD *thd);
 
 /* It is required by basic binlog features on both MySQL server and libmysqld */
 int ha_binlog_end(THD *thd);
+#ifdef WITH_WSREP
+void wsrep_brute_force_aborts();
+#endif /* WITH_WSREP */
 
 const char *get_canonical_filename(handler *file, const char *path,
                                    char *tmp_path);

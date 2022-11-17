@@ -71,6 +71,11 @@
 // calc_time_diff.
 #include "sql/tztime.h"  // my_tz_find, my_tz_OFFSET0
 #include "sql_string.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "mysql/service_wsrep.h"
+#include "wsrep_trans_observer.h"
+#endif /* WITH_WSREP */
 
 class Item;
 
@@ -1015,6 +1020,10 @@ bool Event_job_data::execute(THD *thd, bool drop) {
 
   DBUG_TRACE;
 
+#ifdef WITH_WSREP
+  wsrep_open(thd);
+  wsrep_before_command(thd);
+#endif /* WITH_WSREP */
   mysql_reset_thd_for_next_command(thd);
 
   /*
@@ -1169,7 +1178,35 @@ end:
       bool save_tx_read_only = thd->tx_read_only;
       thd->tx_read_only = false;
 
+#ifdef WITH_WSREP
+      /* 
+         This code is processing event execution and does not have client 
+         connection. Here, event execution will now execute a prepared 
+         DROP EVENT statement, but thd->lex->sql_command is set to 
+         SQLCOM_CREATE_PROCEDURE 
+         DROP EVENT will be logged in binlog, and we have to
+         replicate it to make all nodes have consistent event definitions
+         Wsrep DDL replication is triggered inside Events::drop_event(), 
+         and here we need to prepare the THD so that DDL replication is
+         possible, essentially it requires setting sql_command to 
+         SQLCOMM_DROP_EVENT, we will switch sql_command for the duration
+         of DDL replication only.
+      */
+      const enum_sql_command sql_command_save= thd->lex->sql_command;
+      const bool sql_command_set= WSREP(thd);
+      if (sql_command_set)
+      {
+        thd->lex->sql_command = SQLCOM_DROP_EVENT;
+      }
+#endif
       ret = Events::drop_event(thd, m_schema_name, m_event_name, false);
+#ifdef WITH_WSREP
+      if (sql_command_set)
+      {
+        WSREP_TO_ISOLATION_END;
+        thd->lex->sql_command = sql_command_save;
+      }
+#endif
 
       thd->tx_read_only = save_tx_read_only;
       thd->security_context()->set_master_access(saved_master_access);
@@ -1182,6 +1219,10 @@ end:
     set_system_user_flag(thd);
   }
 
+#ifdef WITH_WSREP
+  wsrep_after_command_ignore_result(thd);
+  wsrep_close(thd);
+#endif /* WITH_WSREP */
   thd->lex->cleanup(thd, true);
   thd->end_statement();
   thd->cleanup_after_query();

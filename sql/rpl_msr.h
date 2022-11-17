@@ -127,6 +127,9 @@ class Multisource_info {
   static const char *default_channel;
   Master_info *default_channel_mi;
   static const char *group_replication_channel_names[];
+#ifdef WITH_WSREP
+  static const char *wsrep_replication_channel_name;
+#endif /* WITH_WSREP */
 
   /**
     This lock was designed to protect the channel_map from adding or removing
@@ -331,6 +334,24 @@ class Multisource_info {
   bool is_group_replication_channel_name(const char *channel,
                                          bool is_applier = false);
 
+#ifdef WITH_WSREP
+  /**
+    Returns if a channel name is one of the reserved group replication names
+
+    @param channel    the channel name to test
+    @param is_applier compare only with applier name
+
+    @return
+      @retval      true   the name is a reserved name
+      @retval      false  non reserved name
+  */
+  bool is_wsrep_replication_channel_name(const char *channel) {
+    return !strcmp(channel, wsrep_replication_channel_name);
+  }
+  const char* get_wsrep_replication_channel_name() {
+    return wsrep_replication_channel_name;
+  }
+#endif /* WITH_WSREP */
   /**
      Forward iterators to initiate traversing of a map.
 

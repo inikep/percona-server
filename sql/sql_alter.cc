@@ -52,6 +52,11 @@
 #include "sql/table.h"
 #include "template_utils.h"  // delete_container_pointers
 
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "sql_parse.h"
+#endif /* WITH_WSREP */
 bool has_external_data_or_index_dir(partition_info &pi);
 
 Alter_info::Alter_info(const Alter_info &rhs, MEM_ROOT *mem_root)
@@ -316,6 +321,24 @@ bool Sql_cmd_alter_table::execute(THD *thd) {
 
   if (check_grant(thd, priv_needed, first_table, false, UINT_MAX, false))
     return true; /* purecov: inspected */
+#ifdef WITH_WSREP
+  TABLE *find_temporary_table(THD *thd, const TABLE_LIST *tl);
+  if (WSREP(thd) && 
+      (!thd->is_current_stmt_binlog_format_row() ||
+       !find_temporary_table(thd, first_table)))
+  {
+    wsrep::key_array keys;
+    wsrep_append_fk_parent_table(thd, first_table, &keys);
+
+    WSREP_TO_ISOLATION_BEGIN_ALTER(((lex->name.str) ? query_block->db : NULL),
+                                   ((lex->name.str) ? lex->name.str : NULL),
+                                   first_table, &alter_info, &keys) {
+      WSREP_DEBUG("TOI replication for ALTER failed");
+      return true;
+    }
+
+  }
+#endif /* WITH_WSREP */
 
   if (alter_info.new_table_name.str &&
       !test_all_bits(priv, INSERT_ACL | CREATE_ACL)) {

@@ -150,6 +150,10 @@
 #include "storage/perfschema/pfs_server.h"
 #include "storage/perfschema/terminology_use_previous.h"
 #endif /* WITH_PERFSCHEMA_STORAGE_ENGINE */
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#endif /* WITH_WSREP */
+
 
 TYPELIB bool_typelib = {array_elements(bool_values) - 1, "", bool_values,
                         nullptr};
@@ -6335,6 +6339,393 @@ static bool check_locale(sys_var *self, THD *thd, set_var *var) {
   }
   return false;
 }
+#ifdef WITH_WSREP
+#include "wsrep_var.h"
+#include "wsrep_sst.h"
+#include "wsrep_binlog.h"
+
+static Sys_var_charptr Sys_wsrep_provider(
+       "wsrep_provider", "Path to replication provider library",
+       PREALLOCATED READ_ONLY GLOBAL_VAR(wsrep_provider),
+       CMD_LINE(REQUIRED_ARG, OPT_WSREP_PROVIDER),
+       IN_FS_CHARSET, DEFAULT(wsrep_provider), 
+       //       IN_FS_CHARSET, DEFAULT(wsrep_provider_default), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_provider_check), ON_UPDATE(wsrep_provider_update));
+
+static Sys_var_charptr Sys_wsrep_provider_options(
+       "wsrep_provider_options", "provider specific options",
+       PREALLOCATED GLOBAL_VAR(wsrep_provider_options), 
+       CMD_LINE(REQUIRED_ARG, OPT_WSREP_PROVIDER_OPTIONS),
+       IN_FS_CHARSET, DEFAULT(wsrep_provider_options), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_provider_options_check), 
+       ON_UPDATE(wsrep_provider_options_update));
+
+static Sys_var_charptr Sys_wsrep_data_home_dir(
+       "wsrep_data_home_dir", "home directory for wsrep provider",
+       READ_ONLY GLOBAL_VAR(wsrep_data_home_dir), CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(""), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static Sys_var_charptr Sys_wsrep_cluster_name(
+       "wsrep_cluster_name", "Name for the cluster",
+       PREALLOCATED GLOBAL_VAR(wsrep_cluster_name), CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_cluster_name), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_cluster_name_check),
+       ON_UPDATE(wsrep_cluster_name_update));
+
+static PolyLock_mutex PLock_wsrep_cluster_config(&LOCK_wsrep_cluster_config);
+static Sys_var_charptr Sys_wsrep_cluster_address (
+       "wsrep_cluster_address", "Address to initially connect to cluster",
+       PREALLOCATED GLOBAL_VAR(wsrep_cluster_address), 
+       CMD_LINE(REQUIRED_ARG, OPT_WSREP_CLUSTER_ADDRESS),
+       IN_FS_CHARSET, DEFAULT(wsrep_cluster_address),
+       &PLock_wsrep_cluster_config, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_cluster_address_check), 
+       ON_UPDATE(wsrep_cluster_address_update));
+
+static Sys_var_charptr Sys_wsrep_node_name (
+       "wsrep_node_name", "Node name",
+       PREALLOCATED GLOBAL_VAR(wsrep_node_name), CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_node_name), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static Sys_var_charptr Sys_wsrep_node_address (
+       "wsrep_node_address", "Node address",
+       PREALLOCATED GLOBAL_VAR(wsrep_node_address), CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_node_address), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_node_address_check), 
+       ON_UPDATE(wsrep_node_address_update));
+
+static Sys_var_charptr Sys_wsrep_node_incoming_address(
+       "wsrep_node_incoming_address", "Client connection address",
+       PREALLOCATED GLOBAL_VAR(wsrep_node_incoming_address),CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_node_incoming_address), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static Sys_var_ulong Sys_wsrep_applier_threads(
+       "wsrep_applier_threads", "Number of applier threads to launch",
+       GLOBAL_VAR(wsrep_slave_threads), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(1, 512), DEFAULT(1), BLOCK_SIZE(1),
+       &PLock_wsrep_cluster_config, NOT_IN_BINLOG,
+       ON_CHECK(NULL),
+       ON_UPDATE(wsrep_slave_threads_update));
+
+static Sys_var_deprecated_alias Sys_wsrep_slave_threads(
+       "wsrep_slave_threads", Sys_wsrep_applier_threads);
+
+static Sys_var_charptr Sys_wsrep_dbug_option(
+       "wsrep_dbug_option", "DBUG options to provider library",
+       GLOBAL_VAR(wsrep_dbug_option),CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(""),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static const char *wsrep_debug_names[]=
+{ "NONE", "SERVER", "TRANSACTION", "STREAMING", "CLIENT", NullS };
+static Sys_var_enum Sys_wsrep_debug(
+       "wsrep_debug", "WSREP debug level logging",
+       GLOBAL_VAR(wsrep_debug), CMD_LINE(REQUIRED_ARG),
+       wsrep_debug_names, DEFAULT(0),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(0), ON_UPDATE(wsrep_debug_update));
+
+static Sys_var_bool Sys_wsrep_convert_LOCK_to_trx(
+       "wsrep_convert_LOCK_to_trx", "To convert locking sessions "
+       "into transactions",
+       GLOBAL_VAR(wsrep_convert_LOCK_to_trx), 
+       CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_ulong Sys_wsrep_retry_autocommit(
+      "wsrep_retry_autocommit", "Max number of times to retry "
+      "a failed autocommit statement",
+       SESSION_VAR(wsrep_retry_autocommit), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(0, 10000), DEFAULT(1), BLOCK_SIZE(1));
+
+static Sys_var_bool Sys_wsrep_auto_increment_control(
+       "wsrep_auto_increment_control", "To automatically control the "
+       "assignment of autoincrement variables",
+       GLOBAL_VAR(wsrep_auto_increment_control), 
+       CMD_LINE(OPT_ARG), DEFAULT(true));
+
+static Sys_var_bool Sys_wsrep_drupal_282555_workaround(
+       "wsrep_drupal_282555_workaround", "To use a workaround for"
+       "bad autoincrement value", 
+       GLOBAL_VAR(wsrep_drupal_282555_workaround), 
+       CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_charptr sys_wsrep_sst_method(
+       "wsrep_sst_method", "State snapshot transfer method",
+       GLOBAL_VAR(wsrep_sst_method),CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_sst_method), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_sst_method_check)); 
+
+static Sys_var_charptr Sys_wsrep_sst_receive_address( 
+       "wsrep_sst_receive_address", "Address where node is waiting for "
+       "SST contact", 
+       GLOBAL_VAR(wsrep_sst_receive_address),CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_sst_receive_address), NO_MUTEX_GUARD, 
+       NOT_IN_BINLOG,
+       ON_CHECK(wsrep_sst_receive_address_check),
+       ON_UPDATE(wsrep_sst_receive_address_update)); 
+
+static Sys_var_charptr Sys_wsrep_sst_auth(
+       "wsrep_sst_auth", "Authentication for SST connection",
+       PREALLOCATED GLOBAL_VAR(wsrep_sst_auth), CMD_LINE(REQUIRED_ARG, OPT_WSREP_SST_AUTH),
+       IN_FS_CHARSET, DEFAULT(wsrep_sst_auth), NO_MUTEX_GUARD, 
+       NOT_IN_BINLOG,
+       ON_CHECK(wsrep_sst_auth_check),
+       ON_UPDATE(wsrep_sst_auth_update)); 
+
+static Sys_var_charptr Sys_wsrep_sst_donor(
+       "wsrep_sst_donor", "preferred donor node for the SST",
+       GLOBAL_VAR(wsrep_sst_donor),CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(""), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_sst_donor_check),
+       ON_UPDATE(wsrep_sst_donor_update)); 
+
+static Sys_var_bool Sys_wsrep_sst_donor_rejects_queries(
+       "wsrep_sst_donor_rejects_queries", "Reject client queries "
+       "when donating state snapshot transfer", 
+       GLOBAL_VAR(wsrep_sst_donor_rejects_queries), 
+       CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_bool Sys_wsrep_on (
+       "wsrep_on", "To enable wsrep replication ",
+       SESSION_VAR(wsrep_on), 
+       CMD_LINE(OPT_ARG), DEFAULT(true), 
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(wsrep_on_check),
+       ON_UPDATE(wsrep_on_update));
+
+static Sys_var_charptr Sys_wsrep_start_position (
+       "wsrep_start_position", "global transaction position to start from ",
+       PREALLOCATED GLOBAL_VAR(wsrep_start_position), 
+       CMD_LINE(REQUIRED_ARG, OPT_WSREP_START_POSITION),
+       IN_FS_CHARSET, DEFAULT(wsrep_start_position),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_start_position_check), 
+       ON_UPDATE(wsrep_start_position_update));
+
+static Sys_var_ulong Sys_wsrep_max_ws_size (
+       "wsrep_max_ws_size", "Max write set size (bytes)",
+       GLOBAL_VAR(wsrep_max_ws_size), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(1024, WSREP_MAX_WS_SIZE), DEFAULT(WSREP_MAX_WS_SIZE),
+       BLOCK_SIZE(1), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(wsrep_max_ws_size_update));
+
+static Sys_var_ulong Sys_wsrep_max_ws_rows (
+       "wsrep_max_ws_rows", "Max number of rows in write set",
+       GLOBAL_VAR(wsrep_max_ws_rows), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(0, 1048576), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_charptr Sys_wsrep_notify_cmd(
+       "wsrep_notify_cmd", "",
+       READ_ONLY GLOBAL_VAR(wsrep_notify_cmd), CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(""), NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static Sys_var_charptr Sys_wsrep_status_file(
+       "wsrep_status_file", "wsrep status output filename",
+       READ_ONLY GLOBAL_VAR(wsrep_status_file), CMD_LINE(REQUIRED_ARG),
+       IN_FS_CHARSET, DEFAULT(""), NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static Sys_var_bool Sys_wsrep_certify_nonPK(
+       "wsrep_certify_nonPK", "Certify tables with no primary key",
+       GLOBAL_VAR(wsrep_certify_nonPK), 
+       CMD_LINE(OPT_ARG), DEFAULT(true));
+
+static const char *wsrep_certification_rules_names[]= { "strict", "optimized", NullS };
+static Sys_var_enum Sys_wsrep_certification_rules(
+       "wsrep_certification_rules",
+       "Certification rules to use in the cluster. Possible values are: "
+       "\"strict\": stricter rules that could result in more certification "
+       "failures. "
+       "\"optimized\": relaxed rules that allow more concurrency and "
+       "cause less certification failures.",
+       GLOBAL_VAR(wsrep_certification_rules), CMD_LINE(REQUIRED_ARG),
+       wsrep_certification_rules_names, DEFAULT(WSREP_CERTIFICATION_RULES_OPTIMIZED),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),ON_UPDATE(0),
+       DEPRECATED_VAR(""));
+
+static Sys_var_uint Sys_wsrep_sync_wait(
+       "wsrep_sync_wait", "Ensure \"synchronous\" read view before executing an operation of the type specified by bitmask: 1 - READ(includes SELECT, SHOW and BEGIN/START TRANSACTION); 2 - UPDATE and DELETE; 4 - INSERT and REPLACE",
+       SESSION_VAR(wsrep_sync_wait),
+       CMD_LINE(OPT_ARG),
+       VALID_RANGE(WSREP_SYNC_WAIT_NONE, WSREP_SYNC_WAIT_MAX),
+       DEFAULT(WSREP_SYNC_WAIT_NONE),
+       BLOCK_SIZE(1),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(0));
+
+static const char *wsrep_mode_names[]= 
+{ "IGNORE_NATIVE_REPLICATION_FILTER_RULES",
+  "IGNORE_CASCADING_FK_DELETE_MISSING_ROW_ERROR",
+  NullS
+};
+
+static Sys_var_set Sys_wsrep_mode(
+       "wsrep_mode",
+       "Set of WSREP features that are enabled. Legal values:"
+       " IGNORE_NATIVE_REPLICATION_FILTER_RULES ",
+       GLOBAL_VAR(wsrep_mode), CMD_LINE(REQUIRED_ARG),
+       wsrep_mode_names,
+       DEFAULT(0),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static const char *wsrep_OSU_method_names[]= { "TOI", "RSU", NullS };
+static Sys_var_enum Sys_wsrep_OSU_method(
+       "wsrep_OSU_method", "Method for Online Schema Upgrade",
+       SESSION_VAR(wsrep_OSU_method), CMD_LINE(OPT_ARG),
+       wsrep_OSU_method_names, DEFAULT(WSREP_OSU_TOI),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(0));
+
+static PolyLock_mutex PLock_wsrep_desync(&LOCK_wsrep_desync);
+static Sys_var_bool Sys_wsrep_desync (
+       "wsrep_desync", "To desynchronize the node from the cluster",
+       GLOBAL_VAR(wsrep_desync), 
+       CMD_LINE(OPT_ARG), DEFAULT(false),
+       &PLock_wsrep_desync, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_desync_check),
+       ON_UPDATE(wsrep_desync_update));
+
+static const char *wsrep_reject_queries_names[]= { "NONE", "ALL", "ALL_KILL", NullS };
+static Sys_var_enum Sys_wsrep_reject_queries(
+       "wsrep_reject_queries", "Variable to set to reject queries",
+       GLOBAL_VAR(wsrep_reject_queries), CMD_LINE(OPT_ARG),
+       wsrep_reject_queries_names, DEFAULT(WSREP_REJECT_NONE),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(wsrep_reject_queries_update));
+
+static Sys_var_enum Sys_wsrep_forced_binlog_format(
+       "wsrep_forced_binlog_format", "binlog format to take effect over user's choice",
+       GLOBAL_VAR(wsrep_forced_binlog_format), 
+       CMD_LINE(REQUIRED_ARG, OPT_BINLOG_FORMAT),
+       wsrep_binlog_format_names, DEFAULT(BINLOG_FORMAT_UNSPEC),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(0));
+
+static Sys_var_bool Sys_wsrep_recover_datadir(
+       "wsrep_recover", "Recover database state after crash and exit",
+       READ_ONLY GLOBAL_VAR(wsrep_recovery),
+       CMD_LINE(OPT_ARG, OPT_WSREP_RECOVER), DEFAULT(false));
+
+static Sys_var_bool Sys_wsrep_replicate_myisam(
+       "wsrep_replicate_myisam", "To enable myisam replication",
+       GLOBAL_VAR(wsrep_replicate_myisam), CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_bool Sys_wsrep_log_conflicts(
+       "wsrep_log_conflicts", "To log cluster write conflicts",
+       GLOBAL_VAR(wsrep_log_conflicts), CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_ulong Sys_wsrep_mysql_replication_bundle(
+      "wsrep_mysql_replication_bundle",
+      "mysql replication group commit. "
+      "This variable is deprecated and will be removed in a future release.",
+      GLOBAL_VAR(wsrep_mysql_replication_bundle), CMD_LINE(REQUIRED_ARG),
+      VALID_RANGE(0, 1000), DEFAULT(0), BLOCK_SIZE(1),
+      NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(0),
+      DEPRECATED_VAR(""));
+
+static Sys_var_bool Sys_wsrep_preordered(
+       "wsrep_preordered",
+       "To enable preordered write set processing. "
+       "This variable is deprecated and will be removed in a future release.",
+       GLOBAL_VAR(wsrep_preordered_opt), CMD_LINE(OPT_ARG), DEFAULT(false),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(0),
+       DEPRECATED_VAR(""));
+
+static Sys_var_bool Sys_wsrep_load_data_splitting(
+       "wsrep_load_data_splitting", "To commit LOAD DATA "
+       "transaction after every 10K rows inserted (deprecating)",
+       GLOBAL_VAR(wsrep_load_data_splitting), 
+       CMD_LINE(OPT_ARG), DEFAULT(true));
+
+static Sys_var_bool Sys_wsrep_applier_FK_checks(
+       "wsrep_applier_FK_checks", "Should applier thread do "
+       "foreign key constraint checks",
+       GLOBAL_VAR(wsrep_slave_FK_checks), 
+       CMD_LINE(OPT_ARG), DEFAULT(true));
+
+static Sys_var_deprecated_alias Sys_wsrep_slave_FK_checks(
+      "wsrep_slave_FK_checks", Sys_wsrep_applier_FK_checks);
+
+static Sys_var_bool Sys_wsrep_applier_UK_checks(
+       "wsrep_applier_UK_checks", "Should applier thread do "
+       "secondary index uniqueness checks",
+       GLOBAL_VAR(wsrep_slave_UK_checks), 
+       CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_deprecated_alias Sys_wsrep_slave_UK_checks(
+      "wsrep_slave_UK_checks", Sys_wsrep_applier_UK_checks);
+
+static Sys_var_bool Sys_wsrep_restart_replica(
+       "wsrep_restart_replica", "Should MySQL replica be restarted automatically, when node joins back to cluster",
+       GLOBAL_VAR(wsrep_restart_slave), CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_deprecated_alias Sys_wsrep_restart_slave(
+       "wsrep_restart_slave", Sys_wsrep_restart_replica);
+
+static Sys_var_ulong Sys_wsrep_trx_fragment_size(
+      "wsrep_trx_fragment_size",
+      "Size of transaction fragments for streaming replication (measured in "
+      "units of 'wsrep_trx_fragment_unit')",
+       SESSION_VAR(wsrep_trx_fragment_size), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(0, WSREP_MAX_WS_SIZE), DEFAULT(0), BLOCK_SIZE(1),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+      ON_CHECK(wsrep_trx_fragment_size_check),
+      ON_UPDATE(wsrep_trx_fragment_size_update));
+
+extern const char *wsrep_fragment_units[];
+
+static Sys_var_enum Sys_wsrep_trx_fragment_unit(
+      "wsrep_trx_fragment_unit",
+      "Unit for streaming replication transaction fragments' size: bytes, "
+      "rows, statements",
+      SESSION_VAR(wsrep_trx_fragment_unit), CMD_LINE(REQUIRED_ARG),
+      wsrep_fragment_units,
+      DEFAULT(WSREP_FRAG_BYTES),
+      NO_MUTEX_GUARD, NOT_IN_BINLOG,
+      ON_CHECK(0),
+      ON_UPDATE(wsrep_trx_fragment_unit_update));
+
+static Sys_var_bool Sys_wsrep_dirty_reads(
+       "wsrep_dirty_reads",
+       "Allow reads from a node is not in primary component",
+       SESSION_VAR(wsrep_dirty_reads),
+       CMD_LINE(OPT_ARG), DEFAULT(false), NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+static Sys_var_uint Sys_wsrep_ignore_apply_errors (
+       "wsrep_ignore_apply_errors", "Ignore replication errors",
+       GLOBAL_VAR(wsrep_ignore_apply_errors), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(WSREP_IGNORE_ERRORS_NONE, WSREP_IGNORE_ERRORS_MAX),
+       DEFAULT(7), BLOCK_SIZE(1));
+
+static char *wsrep_local_gtid_ptr;
+static Sys_var_charptr_dynamic_read Sys_wsrep_local_gtid (
+       "wsrep_local_gtid", "Update local GTID",
+       PREALLOCATED GLOBAL_VAR(wsrep_local_gtid_ptr),
+       CMD_LINE(OPT_ARG),
+       IN_FS_CHARSET, DEFAULT(wsrep_local_gtid),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_local_gtid_check),
+       ON_UPDATE(wsrep_local_gtid_update),
+       ON_READ(wsrep_local_gtid_read));
+
+static Sys_var_uint Sys_wsrep_cluster_server_id (
+       "wsrep_cluster_server_id", "Set specific server id for binlog events "
+       "which are going to be replicated in cluser",
+       GLOBAL_VAR(wsrep_local_gtid_manager.server_id), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(0, 65536), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_bool Sys_wsrep_gtid_mode(
+       "wsrep_gtid_mode", "Enable wsrep gtid cluster mode. Nodes with "
+       "wsrep_gtid_mode enabled contain same UUID and advance replicated "
+       "events synchronously.",
+       GLOBAL_VAR(wsrep_gtid_mode), CMD_LINE(OPT_ARG), DEFAULT(true));
+
+#endif /* WITH_WSREP */
 
 namespace {
 struct Get_locale_name {

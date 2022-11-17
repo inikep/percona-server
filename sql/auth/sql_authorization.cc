@@ -4054,7 +4054,9 @@ bool check_grant_all_columns(THD *thd, ulong want_access_arg,
   Grant_table_aggregate aggr;
   DEBUG_SYNC(thd, "in_check_grant_all_columns");
   Acl_cache_lock_guard acl_cache_lock(thd, Acl_cache_lock_mode::READ_MODE);
+  DBUG_EXECUTE_IF("wsrep_skip_after_acl_cache_lock_guard", return false;);
   if (!acl_cache_lock.lock()) return true;
+  DEBUG_SYNC(thd, "wsrep_after_acl_cache_lock_guard");
 
   for (; !fields->end_of_fields(); fields->next()) {
     // Skip invisible columns.

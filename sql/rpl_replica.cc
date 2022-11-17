@@ -163,6 +163,13 @@
 #include "rpl_debug_points.h"
 #endif
 
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "mysql/service_wsrep.h"
+#include "wsrep_mysqld.h"
+#include "wsrep_trans_observer.h"
+#include "wsrep_binlog.h" // wsrep_set_gtid_log_event
+#endif /* WITH_WSREP */
 struct mysql_cond_t;
 struct mysql_mutex_t;
 
@@ -181,6 +188,9 @@ bool use_slave_mask = false;
 MY_BITMAP slave_error_mask;
 char slave_skip_error_names[SHOW_VAR_FUNC_BUFF_SIZE];
 
+#ifdef WITH_WSREP
+Master_info *active_mi= 0;
+#endif /* WITH_WSREP */
 char *replica_load_tmpdir = nullptr;
 bool replicate_same_server_id;
 ulonglong relay_log_space_limit = 0;
@@ -337,6 +347,10 @@ static void set_thd_tx_priority(THD *thd, int priority) {
   assert(thd->system_thread == SYSTEM_THREAD_SLAVE_SQL ||
          thd->system_thread == SYSTEM_THREAD_SLAVE_WORKER);
 
+#ifdef WITH_WSREP
+  if (priority > 0)
+    WSREP_WARN("InnoDB High Priority being used for slave: %d -> %d", thd->thd_tx_priority, priority);
+#endif /* WITH_WSREP */
   thd->thd_tx_priority = priority;
   DBUG_EXECUTE_IF("dbug_set_high_prio_sql_thread",
                   { thd->thd_tx_priority = 1; });
@@ -455,6 +469,12 @@ int init_replica() {
     LogErr(ERROR_LEVEL,
            ER_RPL_SLAVE_FAILED_TO_CREATE_OR_RECOVER_INFO_REPOSITORIES);
 
+#ifdef WITH_WSREP
+  /*
+     for only wsrep, create active_mi, for async slave restart purpose
+   */
+  active_mi= channel_map.get_default_channel_mi();
+#endif /* WITH_WSREP */
   group_replication_cleanup_after_clone();
 
 #ifndef NDEBUG
@@ -674,6 +694,17 @@ bool start_slave_cmd(THD *thd) {
     my_error(ER_SLAVE_CONFIGURATION, MYF(0));
     goto err;
   }
+#ifdef WITH_WSREP
+  if (WSREP_ON && !opt_log_replica_updates)
+  {
+    /*
+       bad configuration, mysql replication would not be forwarded to wsrep cluster
+       which would lead to immediate inconsistency
+    */
+    my_message(ER_SLAVE_CONFIGURATION, "bad configuration no log_replica_updates defined, slave would not replicate further to wsrep cluster", MYF(0));
+    goto err;
+  }
+#endif /* WITH_WSREP */
 
   if (!lex->mi.for_channel) {
     /*
@@ -2293,6 +2324,10 @@ const char *print_slave_db_safe(const char *db) {
 }
 
 bool is_network_error(uint errorno) {
+#ifdef WITH_WSREP
+  if (errorno == ER_UNKNOWN_COM_ERROR)
+    return true;
+#endif /* WITH_WSREP */
   return errorno == CR_CONNECTION_ERROR || errorno == CR_CONN_HOST_ERROR ||
          errorno == CR_SERVER_GONE_ERROR || errorno == CR_SERVER_LOST ||
          errorno == ER_CON_COUNT_ERROR || errorno == ER_SERVER_SHUTDOWN ||
@@ -4389,6 +4424,29 @@ apply_event_and_update_pos(Log_event **ptr_ev, THD *thd, Relay_log_info *rli) {
       return SLAVE_APPLY_EVENT_AND_UPDATE_POS_OK;
 
     exec_res = ev->apply_event(rli);
+#ifdef WITH_WSREP
+    if (WSREP_ON && exec_res) {
+      mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+
+      switch(thd->wsrep_trx().state()) {
+      case wsrep::transaction::s_executing: break;
+      case wsrep::transaction::s_must_replay:
+        /* this transaction will be replayed,
+           so not raising slave error here */
+        WSREP_DEBUG("SQL apply failed for MUST_REPLAY, res %d", exec_res);
+        exec_res = 0;
+        break;
+      default:
+        WSREP_DEBUG("SQL apply failed, res %d conflict state: %s",
+                    exec_res, wsrep_thd_transaction_state_str(thd));
+        rli->abort_slave = 1;
+        rli->report(ERROR_LEVEL, ER_UNKNOWN_COM_ERROR,
+                    "Node has dropped from cluster");
+        break;
+      }
+      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+    }
+#endif /* WITH_WSREP */
 
     DBUG_EXECUTE_IF("simulate_stop_when_mta_in_group",
                     if (rli->mts_group_status == Relay_log_info::MTS_IN_GROUP &&
@@ -4767,6 +4825,22 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
   Log_event **ptr_ev = nullptr;
   RLI_current_event_raii rli_c_ev(rli, ev);
 
+#ifdef WITH_WSREP
+  DBUG_EXECUTE_IF("wsrep_rpl_slave_apply_delay",
+                  if (ev)
+                  {
+                    WSREP_DEBUG("Delaying event type: %d pos: %lu",
+                                ev->get_type_code(),
+                                (ulong)rli->get_event_relay_log_pos());
+                    if (ev->get_type_code() == binary_log::WRITE_ROWS_EVENT ||
+                        ev->get_type_code() == binary_log::UPDATE_ROWS_EVENT ||
+                        ev->get_type_code() == binary_log::DELETE_ROWS_EVENT)
+                    {
+                      usleep(300000);
+                    }
+                  }
+                  );
+#endif /* WITH_WSREP */
   if (ev != nullptr) {
     /*
       To avoid assigned event groups exceeding rli->checkpoint_group, it
@@ -4797,6 +4871,13 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
   }
 
   if (ev) {
+#ifdef WITH_WSREP
+    if (wsrep_before_statement(thd))
+    {
+      WSREP_INFO("Wsrep before statement error");
+      return 1;
+    }
+#endif /* WITH_WSREP */
     if (rli->is_row_format_required()) {
       bool info_error{false};
       binary_log::Log_event_basic_info log_event_info;
@@ -4859,6 +4940,9 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
       */
       rli->abort_slave = true;
       mysql_mutex_unlock(&rli->data_lock);
+#ifdef WITH_WSREP
+      wsrep_after_statement(thd);
+#endif /* WITH_WSREP */
       delete ev;
       return SLAVE_APPLY_EVENT_UNTIL_REACHED;
     }
@@ -4901,8 +4985,31 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
           In the case of an error, coord_handle_partial_binlogged_transaction
           will not try to get the rli->data_lock again.
         */
+#ifdef WITH_WSREP
+      {
+        wsrep_after_statement(thd);
         return 1;
+      }
+#else
+      return 1;
+#endif /* WITH_WSREP */
     }
+#ifdef WITH_WSREP
+    /* ROW format replication does not set query_id, and we use it for
+       identifying transactions in wsrep_provider
+       So, we decide to pick unique query id here for wsrep replication
+       purposes only
+    */
+    if (WSREP_ON &&
+        ((*ptr_ev)->get_type_code() == binary_log::WRITE_ROWS_EVENT   ||
+         (*ptr_ev)->get_type_code() == binary_log::UPDATE_ROWS_EVENT  ||
+         (*ptr_ev)->get_type_code() == binary_log::DELETE_ROWS_EVENT) &&
+        thd->wsrep_next_trx_id() == WSREP_UNDEFINED_TRX_ID)
+    {
+      /* pick new query_id to represent this transaction in wsrep_provider */
+      thd->set_wsrep_next_trx_id(next_query_id());
+    }
+#endif /* WITH_WSREP */
 
     /* ptr_ev can change to NULL indicating MTS coorinator passed to a Worker */
     exec_res = apply_event_and_update_pos(ptr_ev, thd, rli);
@@ -4939,6 +5046,23 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
       */
       if (ev->get_type_code() != binary_log::FORMAT_DESCRIPTION_EVENT &&
           ev->get_type_code() != binary_log::ROWS_QUERY_LOG_EVENT) {
+#ifdef WITH_WSREP
+        if (ev->get_type_code() == binary_log::GTID_LOG_EVENT && WSREP_ON) {
+          wsrep_set_gtid_log_event(thd, ev);
+        }
+        /*
+           With filtering we have still BEGIN/COMMIT, but without anything
+           done so do wsrep_empty_commit.
+           Commands which failed when applying (rollback, communication error)
+           needs to be excluded from this.
+         */
+        if (wsrep_on(thd) && 
+            (ev->get_type_code() == binary_log::XID_EVENT ||
+             ev->get_type_code() == binary_log::GTID_LOG_EVENT) &&
+            !exec_res && wsrep_not_committed(thd) &&
+	    thd->wsrep_trx().state() != wsrep::transaction::s_must_replay)
+          wsrep_commit_empty(thd, true);
+#endif /* WITH_WSREP */
         DBUG_PRINT("info", ("Deleting the event after it has been executed"));
         delete ev;
         /*
@@ -4960,9 +5084,21 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
     */
     if (exec_res >= SLAVE_APPLY_EVENT_AND_UPDATE_POS_UPDATE_POS_ERROR) {
       delete ev;
+#ifdef WITH_WSREP
+      wsrep_after_statement(thd);
+#endif /* WITH_WSREP */
       return 1;
     }
 
+#ifdef WITH_WSREP
+    wsrep::client_error wsrep_error = wsrep::e_success;
+    if (WSREP_ON) {
+      mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+      wsrep_error = thd->wsrep_cs().current_error();
+      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+    }
+    if (wsrep_error == wsrep::e_success)
+#endif /* WITH_WSREP */
     if (slave_trans_retries) {
       int temp_err = 0;
       bool silent = false;
@@ -5064,6 +5200,9 @@ static int exec_relay_log_event(THD *thd, Relay_log_info *rli,
                             rli->trans_retries));
       }
     }
+#ifdef WITH_WSREP
+    wsrep_after_statement(thd);
+#endif /* WITH_WSREP */
     if (exec_res) {
       delete ev;
       /* Raii object is explicitly updated 'cos this branch doesn't end func */
@@ -5889,10 +6028,20 @@ static void *handle_slave_worker(void *arg) {
     rli->initialize_security_context(w->info_thd);  // Worker security context
                                                     // initialization with
                                                     // `PRIVILEGE_CHECKS_USER`
+#ifdef WITH_WSREP
+  wsrep_open(thd);
+  error = wsrep_before_command(thd);
+#endif /* WITH_WSREP */
 
   while (!error) {
     error = slave_worker_exec_job_group(w, rli);
   }
+
+#ifdef WITH_WSREP
+  wsrep_after_command_before_result(thd);
+  wsrep_after_command_after_result(thd);
+  wsrep_close(thd);
+#endif /* WITH_WSREP */
 
   /*
      Cleanup after an error requires clear_error() go first.
@@ -6774,6 +6923,9 @@ extern "C" void *handle_slave_sql(void *arg) {
   my_off_t saved_log_pos = 0;
   my_off_t saved_master_log_pos = 0;
   my_off_t saved_skip = 0;
+#ifdef WITH_WSREP
+  bool wsrep_node_dropped= false;
+#endif /* WITH_WSREP */
 
   Relay_log_info *rli = ((Master_info *)arg)->rli;
   const char *errmsg;
@@ -6789,6 +6941,10 @@ extern "C" void *handle_slave_sql(void *arg) {
   my_thread_init();
   {
     DBUG_TRACE;
+#ifdef WITH_WSREP
+wsrep_restart_point:
+  WSREP_INFO("Restart point");
+#endif /* WITH_WSREP */
 
     assert(rli->inited);
     mysql_mutex_lock(&rli->run_lock);
@@ -7050,6 +7206,14 @@ extern "C" void *handle_slave_sql(void *arg) {
     }
     mysql_mutex_unlock(&rli->data_lock);
 
+#ifdef WITH_WSREP
+    wsrep_open(thd);
+    if (wsrep_before_command(thd))
+    {
+      WSREP_WARN("Slave SQL before command failed");
+      goto err;
+    }
+#endif /* WITH_WSREP */
     /* Read queries from the IO/THREAD until this thread is killed */
 
     while (!main_loop_error && !sql_slave_killed(thd, rli)) {
@@ -7097,6 +7261,14 @@ extern "C" void *handle_slave_sql(void *arg) {
         case SLAVE_APPLY_EVENT_AND_UPDATE_POS_UPDATE_POS_ERROR:
           /** fall through */
         case SLAVE_APPLY_EVENT_AND_UPDATE_POS_APPEND_JOB_ERROR:
+#ifdef WITH_WSREP
+          mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+          if (thd->wsrep_cs().current_error()) {
+            wsrep_node_dropped = 1;
+            rli->abort_slave   = 1;
+          }
+          mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+#endif /* WITH_WSREP */
           main_loop_error = true;
           break;
 
@@ -7132,6 +7304,10 @@ extern "C" void *handle_slave_sql(void *arg) {
     rli->current_mts_submode = nullptr;
     rli->clear_mts_recovery_groups();
 
+#ifdef WITH_WSREP
+  wsrep_after_command_before_result(thd);
+  wsrep_after_command_after_result(thd);
+#endif /* WITH_WSREP */
     /*
       Some events set some playgrounds, which won't be cleared because thread
       stops. Stopping of this thread may not be known to these events ("stop"
@@ -7205,6 +7381,31 @@ extern "C" void *handle_slave_sql(void *arg) {
     set_thd_in_use_temporary_tables(
         rli);  // (re)set info_thd in use for saved temp tables
 
+#ifdef WITH_WSREP
+    /* if slave stopped due to node going non primary, we set global flag to
+       trigger automatic restart of slave when node joins back to cluster
+    */
+    if (wsrep_node_dropped && wsrep_restart_slave) {
+      if (wsrep_ready_get()) {
+        WSREP_INFO("Slave error due to node temporarily non-primary"
+                   "SQL slave will continue");
+        wsrep_node_dropped= false;
+        mysql_mutex_unlock(&rli->run_lock);
+        mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+        WSREP_DEBUG("wsrep_conflict_state now: %s",
+                    wsrep_thd_transaction_state_str(thd));
+        WSREP_INFO("slave restart: %s", wsrep_thd_transaction_state_str(thd));
+        mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+        goto wsrep_restart_point;
+      } else {
+        WSREP_INFO("Slave error due to node going non-primary");
+        WSREP_INFO("wsrep_restart_slave was set and therefore slave will be "
+                   "automatically restarted when node joins back to cluster");
+        wsrep_restart_slave_activated= true;
+      }
+    }
+    wsrep_close(thd);
+#endif /* WITH_WSREP */
     thd->release_resources();
     THD_CHECK_SENTRY(thd);
     if (thd_added) thd_manager->remove_thd(thd);
@@ -11166,6 +11367,18 @@ static void check_replica_configuration_restrictions() {
 */
 static bool check_replica_configuration_errors(Master_info *mi,
                                                int thread_mask) {
+#ifdef WITH_WSREP
+  if (WSREP_ON && !opt_log_replica_updates)
+  {
+    /*
+       bad configuration, mysql replication would not be forwarded to wsrep cluster
+       which would lead to immediate inconsistency
+    */
+    WSREP_WARN("Cannot start MySQL slave, when log_replica_updates is not set");
+    my_error(ER_SLAVE_CONFIGURATION, MYF(0), "bad configuration no log_replica_updates defined, slave would not replicate further to wsrep cluster");
+    return true;
+  }
+#endif /* WITH_WSREP */
   if (global_gtid_mode.get() != Gtid_mode::ON) {
     if (mi->is_auto_position() && (thread_mask & SLAVE_IO) &&
         global_gtid_mode.get() == Gtid_mode::OFF) {

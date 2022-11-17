@@ -20,6 +20,9 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+
 #include "sql/sql_view.h"
 
 #include <sys/types.h>
@@ -473,6 +476,7 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
 
   lex->link_first_table_back(view, link_to_local);
   view->open_type = OT_BASE_ONLY;
+  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL);
 
   /*
     No pre-opening of temporary tables is possible since must
@@ -763,6 +767,10 @@ err_with_rollback:
   */
   trans_rollback(thd);
 
+
+#ifdef WITH_WSREP
+ wsrep_error_label:
+#endif /* WITH_WSREP */
 err:
   THD_STAGE_INFO(thd, stage_end);
   lex->link_first_table_back(view, link_to_local);

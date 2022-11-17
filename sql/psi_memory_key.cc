@@ -142,6 +142,9 @@ PSI_memory_key key_memory_user_var_entry;
 PSI_memory_key key_memory_user_var_entry_value;
 PSI_memory_key key_memory_sp_cache;
 PSI_memory_key key_memory_write_set_extraction;
+#ifdef WITH_WSREP
+PSI_memory_key key_memory_wsrep;
+#endif /* WITH_WSREP */
 
 #ifdef HAVE_PSI_INTERFACE
 

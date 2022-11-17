@@ -178,6 +178,9 @@ When one supplies long data for a placeholder:
 #include "sql/window.h"
 #include "sql_string.h"
 #include "violite.h"
+#ifdef WITH_WSREP
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 namespace resourcegroups {
 class Resource_group;
@@ -1287,6 +1290,10 @@ bool Prepared_statement::prepare_query() {
   if (sql_command_flags[sql_command] & CF_PREOPEN_TMP_TABLES) {
     if (open_temporary_tables(thd, tables)) return true;
   }
+#ifdef WITH_WSREP
+  if (wsrep_sync_wait(thd, sql_command))
+    return true;
+#endif
 
   switch (sql_command) {
     case SQLCOM_CREATE_VIEW:
@@ -2950,9 +2957,7 @@ bool Prepared_statement::check_parameter_types() {
   validation error, prepare a new copy of the prepared statement,
   swap the old and the new statements, and try again.
   If there is a validation error again, repeat the above, but
-  perform not more than a maximum number of times. Reprepare_observer
-  ensures that a prepared statement execution is retried not more than a
-  maximum number of times.
+  perform no more than MAX_REPREPARE_ATTEMPTS.
 
   @note We have to try several times in a loop since we
   release metadata locks on tables after prepared statement

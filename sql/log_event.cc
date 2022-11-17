@@ -159,6 +159,11 @@ Error_log_throttle slave_ignored_err_throttle(
     "Error log throttle: %lu time(s) Error_code: 1237"
     " \"Slave SQL thread ignored the query because of"
     " replicate-*-table rules\" got suppressed.");
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 #endif /* MYSQL_SERVER */
 
 #include "libbinlogevents/include/codecs/binary.h"
@@ -3798,7 +3803,11 @@ bool is_atomic_ddl(THD *thd, bool using_trans_arg) {
     case SQLCOM_CREATE_VIEW:
     case SQLCOM_DROP_VIEW:
 
+#ifdef WITH_WSREP
+      assert(WSREP(thd) || using_trans_arg || thd->slave_thread || lex->drop_if_exists);
+#else
       assert(using_trans_arg || thd->slave_thread || lex->drop_if_exists);
+#endif /* WITH_WSREP */
 
       break;
 
@@ -3807,8 +3816,13 @@ bool is_atomic_ddl(THD *thd, bool using_trans_arg) {
         trx cache is *not* used if event already exists and IF NOT EXISTS clause
         is used in the statement or if call is from the slave applier.
       */
+#ifdef WITH_WSREP
+      assert(WSREP(thd) || using_trans_arg || thd->slave_thread ||
+             (lex->create_info->options & HA_LEX_CREATE_IF_NOT_EXISTS));
+#else
       assert(using_trans_arg || thd->slave_thread ||
              (lex->create_info->options & HA_LEX_CREATE_IF_NOT_EXISTS));
+#endif /* WITH_WSREP */
       break;
 
     default:
@@ -3854,6 +3868,14 @@ Query_log_event::Query_log_event(THD *thd_arg, const char *query_arg,
                       : Log_event::EVENT_STMT_CACHE,
           Log_event::EVENT_NORMAL_LOGGING, header(), footer()),
       data_buf(nullptr) {
+#ifdef WITH_WSREP
+  /*
+    If Query_log_event will contain non trans keyword (not BEGIN, COMMIT,
+    SAVEPOINT or ROLLBACK) we disable PA for this transaction.
+   */
+  if (!is_trans_keyword())
+    thd->wsrep_PA_safe= false;
+#endif /* WITH_WSREP */
   /* save the original thread id; we already know the server id */
   slave_proxy_id = thd_arg->variables.pseudo_thread_id;
   common_header->set_is_valid(query != nullptr);
@@ -4990,7 +5012,13 @@ int Query_log_event::do_apply_event(Relay_log_info const *rli,
             ER_THD(thd, ER_INCONSISTENT_ERROR),
             ER_THD_NONCONST(thd, expected_error), expected_error,
             (actual_error ? thd->get_stmt_da()->message_text() : "no error"),
+#ifdef WITH_WSREP
+            actual_error, print_slave_db_safe(db),
+            (!opt_general_log_raw) && thd->rewritten_query().length()
+            ? thd->rewritten_query().ptr() : query_arg);
+#else
             actual_error, print_slave_db_safe(db), query_arg);
+#endif /* WITH_WSREP */
         thd->is_slave_error = true;
       } else {
         rli->report(
@@ -5041,9 +5069,23 @@ int Query_log_event::do_apply_event(Relay_log_info const *rli,
                     "Error '%s' on query. Default database: '%s'. Query: '%s'",
                     (actual_error ? thd->get_stmt_da()->message_text()
                                   : "unexpected success or fatal error"),
+#ifdef WITH_WSREP
+                    print_slave_db_safe(db),
+                    (!opt_general_log_raw) && thd->rewritten_query().length()
+                    ? thd->rewritten_query().ptr() : query_arg);
+#else
                     print_slave_db_safe(thd->db().str), query_arg);
+#endif /* WITH_WSREP */
       }
       thd->is_slave_error = true;
+#ifdef WITH_WSREP
+      if (wsrep_thd_is_toi(thd) && wsrep_must_ignore_error(thd))
+      {
+        clear_all_errors(thd, const_cast<Relay_log_info*>(rli));
+        thd->killed= THD::NOT_KILLED;
+        thd->wsrep_has_ignored_error= true;
+      }
+#endif /* WITH_WSREP */
     }
 
     /*
@@ -6012,6 +6054,9 @@ Log_event::enum_skip_reason Rand_log_event::do_shall_skip(Relay_log_info *rli) {
 bool slave_execute_deferred_events(THD *thd) {
   bool res = false;
   Relay_log_info *rli = thd->rli_slave;
+#ifdef WITH_WSREP
+  if (thd->wsrep_applier) rli = thd->wsrep_rli;
+#endif /* WITH_WSREP */
 
   assert(rli && (!rli->deferred_events_collecting || rli->deferred_events));
 
@@ -6323,6 +6368,16 @@ int Xid_apply_log_event::do_apply_event(Relay_log_info const *rli) {
   error = do_commit(thd);
   mysql_mutex_lock(&rli_ptr->data_lock);
   if (error) {
+#ifdef WITH_WSREP
+    /*
+       We could have error here because of WSREP, but no DA message
+       will be generated, so skip report.
+       Example for this case is galera.galera_as_slave_nonprim.
+       Error need to be handled in calling function.
+     */
+    if (!(wsrep_on(thd) &&
+          thd->wsrep_trx().state() != wsrep::transaction::s_executing)) 
+#endif /* WITH_WSREP */
     rli->report(ERROR_LEVEL, thd->get_stmt_da()->mysql_errno(),
                 "Error in Xid_log_event: Commit could not be completed, '%s'",
                 thd->get_stmt_da()->message_text());
@@ -8703,6 +8758,13 @@ int Rows_log_event::handle_idempotent_and_ignored_errors(
                              (rbr_exec_mode == RBR_EXEC_MODE_IDEMPOTENT));
     bool ignored_error =
         (idempotent_error == 0 ? ignored_error_code(actual_error) : 0);
+#ifdef WITH_WSREP
+    if (WSREP(thd) && thd->wsrep_applier && wsrep_ignored_error_code(this, actual_error, m_table))
+    {
+      idempotent_error= true;
+      thd->wsrep_has_ignored_error= true;
+    }
+#endif /* WITH_WSREP */
 
     if (idempotent_error || ignored_error) {
       loglevel ll;
@@ -9551,11 +9613,19 @@ int Rows_log_event::do_apply_event(Relay_log_info const *rli) {
     */
     if (get_flags(NO_FOREIGN_KEY_CHECKS_F))
       thd->variables.option_bits |= OPTION_NO_FOREIGN_KEY_CHECKS;
+#ifdef WITH_WSREP
+    else if (thd->wsrep_applier)
+      wsrep_setup_fk_checks(thd);
+#endif /* WITH_WSREP */
     else
       thd->variables.option_bits &= ~OPTION_NO_FOREIGN_KEY_CHECKS;
 
     if (get_flags(RELAXED_UNIQUE_CHECKS_F))
       thd->variables.option_bits |= OPTION_RELAXED_UNIQUE_CHECKS;
+#ifdef WITH_WSREP
+    else if (thd->wsrep_applier)
+      wsrep_setup_uk_checks(thd);
+#endif /* WITH_WSREP */
     else
       thd->variables.option_bits &= ~OPTION_RELAXED_UNIQUE_CHECKS;
 
@@ -9572,6 +9642,18 @@ int Rows_log_event::do_apply_event(Relay_log_info const *rli) {
     if (open_and_lock_tables(thd, rli->tables_to_lock, 0)) {
       if (thd->is_error()) {
         uint actual_error = thd->get_stmt_da()->mysql_errno();
+#ifdef WITH_WSREP
+	if (WSREP(thd))
+        {
+	  WSREP_WARN("BF applier failed to open_and_lock_tables: %u, fatal: %d "
+                     "wsrep = (exec_mode: %s conflict_state: %s seqno: %lld)",
+                     thd->get_stmt_da()->mysql_errno(),
+                     thd->is_fatal_error(),
+                     wsrep_thd_client_mode_str(thd),
+                     wsrep_thd_transaction_state_str(thd),
+                     (long long)wsrep_thd_trx_seqno(thd));
+	} 
+#endif /* WITH_WSREP */
         if (ignored_error_code(actual_error)) {
           if (log_error_verbosity >= 2)
             rli->report(WARNING_LEVEL, actual_error,
@@ -10086,6 +10168,12 @@ int Rows_log_event::do_apply_event(Relay_log_info const *rli) {
     */
     thd->reset_current_stmt_binlog_format_row();
     thd->is_slave_error = true;
+#ifdef WITH_WSREP
+    // We could have open tables at this point, we need to close tables
+    // if we call THD::cleanup
+    if (wsrep_on(thd) && wsrep_thd_is_applying(thd))
+      const_cast<Relay_log_info *>(rli)->slave_close_thread_tables(thd);
+#endif
     return error;
   }
 
@@ -10704,7 +10792,12 @@ static enum_tbl_map_status check_table_map(Relay_log_info const *rli,
   DBUG_TRACE;
   enum_tbl_map_status res = OK_TO_PROCESS;
 
+
   if (rli->info_thd->slave_thread /* filtering is for slave only */ &&
+#ifdef WITH_WSREP
+      (!(WSREP(rli->info_thd) && rli->info_thd->wsrep_applier &&
+         wsrep_check_mode(WSREP_MODE_IGNORE_NATIVE_REPLICATION_FILTER_RULES))) &&
+#endif /* WITH_WSREP */
       (!rli->rpl_filter->db_ok(table_list->db) ||
        (rli->rpl_filter->is_on() &&
         !rli->rpl_filter->tables_ok("", table_list))))
@@ -12204,8 +12297,24 @@ error:
 
 int Write_rows_log_event::do_exec_row(const Relay_log_info *const rli) {
   assert(m_table != nullptr);
+#ifdef WITH_WSREP
+#ifdef WSREP_PROC_INFO
+  char info[64];
+  info[sizeof(info) - 1] = '\0';
+  snprintf(info, sizeof(info) - 1, "Write_rows_log_event::write_row(%lld)",
+           (long long) wsrep_thd_trx_seqno(thd));
+  const char* tmp = (WSREP(thd)) ? thd_proc_info(thd, info) : NULL;
+#else
+  const char* tmp = (WSREP(thd)) ?
+    thd_proc_info(thd,"Write_rows_log_event::write_row()") :  NULL;
+#endif /* WSREP_PROC_INFO */
+#endif /* WITH_WSREP */
+  assert(m_table != nullptr);
   int error = write_row(rli, rbr_exec_mode == RBR_EXEC_MODE_IDEMPOTENT);
 
+#ifdef WITH_WSREP
+  if (WSREP(thd)) thd_proc_info(thd, tmp);
+#endif /* WITH_WSREP */
   if (error && !thd->is_error()) {
     assert(0);
     my_error(ER_UNKNOWN_ERROR, MYF(0));

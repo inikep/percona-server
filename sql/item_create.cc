@@ -1331,6 +1331,11 @@ Item *Create_sp_func::create(THD *thd, LEX_STRING db, LEX_STRING name,
   - Sun Studio does not allow the Create_func pointer to be constexpr.
 */
 static const std::pair<const char *, Create_func *> func_array[] = {
+#ifdef WITH_WSREP
+    {"WSREP_LAST_WRITTEN_GTID", SQL_FN(Item_func_wsrep_last_written_gtid, 0)},
+    {"WSREP_LAST_SEEN_GTID", SQL_FN(Item_func_wsrep_last_seen_gtid, 0)},
+    {"WSREP_SYNC_WAIT_UPTO_GTID", SQL_FN_V(Item_func_wsrep_sync_wait_upto, 1, 2)},
+#endif /* WITH_WSREP */
     {"ABS", SQL_FN(Item_func_abs, 1)},
     {"ACOS", SQL_FN(Item_func_acos, 1)},
     {"ADDTIME", SQL_FN(Item_func_add_time, 2)},

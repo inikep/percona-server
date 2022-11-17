@@ -68,6 +68,10 @@
 #include "sql/transaction.h"               // trans_commit_stmt, trans_commit
 #include "sql_string.h"
 #include "thr_lock.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 namespace dd {
 class Schema;
@@ -393,9 +397,16 @@ bool Sql_cmd_create_trigger::execute(THD *thd) {
     applies to them too.
   */
   Security_context *sctx = thd->security_context();
+#ifdef WITH_WSREP
+  if (!trust_function_creators &&
+      (WSREP_EMULATE_BINLOG(thd) || mysql_bin_log.is_open())  &&
+      !(sctx->check_access(SUPER_ACL) ||
+        sctx->has_global_grant(STRING_WITH_LEN("SET_USER_ID")).first)) {
+#else
   if (!trust_function_creators && mysql_bin_log.is_open() &&
       !(sctx->check_access(SUPER_ACL) ||
         sctx->has_global_grant(STRING_WITH_LEN("SET_USER_ID")).first)) {
+#endif /* WITH_WSREP */
     my_error(ER_BINLOG_CREATE_ROUTINE_NEED_SUPER, MYF(0));
     return true;
   }
@@ -408,6 +419,10 @@ bool Sql_cmd_create_trigger::execute(THD *thd) {
     return true;
   }
 
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, m_trigger_table)
+    return true;
+#endif /* WITH_WSREP */
   MDL_ticket *mdl_ticket = nullptr;
   TABLE *table = open_and_lock_subj_table(thd, m_trigger_table, &mdl_ticket);
   if (table == nullptr) return true;
@@ -430,6 +445,16 @@ bool Sql_cmd_create_trigger::execute(THD *thd) {
   String stmt_query;
   stmt_query.set_charset(system_charset_info);
 
+#ifdef WITH_WSREP
+  DBUG_EXECUTE_IF("sync.mdev_20225",
+                  {
+                    const char act[]=
+                      "now "
+                      "wait_for signal.mdev_20225_continue";
+                    assert(!debug_sync_set_action(thd,
+                                                       STRING_WITH_LEN(act)));
+                  };);
+#endif /* WITH_WSREP */
   bool result = table->triggers->create_trigger(thd, &stmt_query);
 
   result |= finalize_trigger_ddl(thd, m_trigger_table->db, table, stmt_query,
@@ -525,6 +550,10 @@ bool Sql_cmd_drop_trigger::execute(THD *thd) {
   }
 
   if (check_trg_priv_on_subj_table(thd, tables)) return true;
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, tables)
+    return true;
+#endif /* WITH_WSREP */
 
   MDL_ticket *mdl_ticket = nullptr;
   TABLE *table = open_and_lock_subj_table(thd, tables, &mdl_ticket);
@@ -549,6 +578,16 @@ bool Sql_cmd_drop_trigger::execute(THD *thd) {
     return true;
   }
 
+#ifdef WITH_WSREP
+  DBUG_EXECUTE_IF("sync.mdev_20225",
+                  {
+                    const char act[]=
+                      "now "
+                      "wait_for signal.mdev_20225_continue";
+                    assert(!debug_sync_set_action(thd,
+                                                       STRING_WITH_LEN(act)));
+                  };);
+#endif /* WITH_WSREP */
   dd_table->drop_trigger(dd_trig_obj);
   bool result = thd->dd_client()->update(dd_table);
 

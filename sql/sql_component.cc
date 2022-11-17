@@ -42,6 +42,8 @@
 #include "sql/sql_class.h"        // THD
 #include "sql/sql_plugin.h"       // end_transaction
 #include "sql/thd_raii.h"
+#include <wsrep.h>
+#include "sql/wsrep_mysqld.h"
 
 #include "sql/sql_component.h"
 
@@ -58,6 +60,10 @@ bool Sql_cmd_install_component::execute(THD *thd) {
 
   if (acquire_shared_backup_lock(thd, thd->variables.lock_wait_timeout))
     return true;
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL) {
+    WSREP_WARN("TOI failed for INSTALL COMPONENT");
+    return true;
+  }
 
   Disable_autocommit_guard autocommit_guard(thd);
   dd::cache::Dictionary_client::Auto_releaser releaser(thd->dd_client());
@@ -93,6 +99,10 @@ bool Sql_cmd_uninstall_component::execute(THD *thd) {
   if (acquire_shared_backup_lock(thd, thd->variables.lock_wait_timeout))
     return true;
 
+  WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, NULL, NULL) {
+    WSREP_WARN("TOI failed for UNINSTALL COMPONENT");
+    return true;
+  }
   Disable_autocommit_guard autocommit_guard(thd);
   dd::cache::Dictionary_client::Auto_releaser releaser(thd->dd_client());
 

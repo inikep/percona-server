@@ -64,6 +64,8 @@
 #include "sql/transaction.h"  // trans_commit_stmt
 #include "sql_string.h"
 #include "thr_lock.h"
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
 
 class partition_element;
 
@@ -110,9 +112,15 @@ bool Sql_cmd_alter_table_exchange_partition::execute(THD *thd) {
 
   /* Not allowed with EXCHANGE PARTITION */
   assert(!create_info.data_file_name && !create_info.index_file_name);
+  WSREP_TO_ISOLATION_BEGIN_WRTCHK(NULL, NULL, first_table);
 
   thd->enable_slow_log = opt_log_slow_admin_statements;
   return exchange_partition(thd, first_table, &alter_info);
+#ifdef WITH_WSREP
+ wsrep_error_label:
+  /* handle errors in TO_ISOLATION here */
+  return true;
+#endif /* WITH_WSREP */
 }
 
 /**
@@ -607,6 +615,18 @@ bool Sql_cmd_alter_table_truncate_partition::execute(THD *thd) {
 
   if (check_one_table_access(thd, DROP_ACL, first_table)) return true;
 
+#ifdef WITH_WSREP
+  TABLE *find_temporary_table(THD *thd, const TABLE_LIST *tl);
+
+  if (WSREP(thd) && (!thd->is_current_stmt_binlog_format_row() ||
+       !find_temporary_table(thd, first_table))  &&
+      wsrep_to_isolation_begin(
+        thd, first_table->db, first_table->table_name, NULL)
+      )
+  {
+    return true;
+  }
+#endif /* WITH_WSREP */
   if (open_tables(thd, &first_table, &table_counter, 0)) return true;
 
   if (!first_table->table || first_table->is_view() ||

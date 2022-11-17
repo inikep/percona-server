@@ -1553,7 +1553,11 @@ bool sync_meta_data(THD *thd) {
                                                        "UPGRADE_TARGET_SCHEMA");
 
   if (actual_schema_exists || target_schema_exists)
+#ifdef WITH_WSREP
     return dd::end_transaction(thd, false);
+#else
+    return dd::end_transaction(thd, false);
+#endif /* WITH_WSREP */
 
   return false;
 }

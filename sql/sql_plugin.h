@@ -196,6 +196,10 @@ extern bool plugin_foreach_with_mask(THD *thd, plugin_foreach_func **funcs,
 int lock_plugin_data();
 int unlock_plugin_data();
 
+#ifdef WITH_WSREP
+extern void wsrep_plugins_pre_init();
+extern void wsrep_plugins_post_init();
+#endif /* WITH_WSREP */
 bool end_transaction(THD *thd, bool error);
 
 /**
@@ -204,3 +208,4 @@ bool end_transaction(THD *thd, bool error);
 bool plugin_early_load_one(int *argc, char **argv, const char *plugin);
 
 #endif
+

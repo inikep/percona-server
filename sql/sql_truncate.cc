@@ -64,6 +64,10 @@
 #include "sql/transaction_info.h"
 #include "sql_string.h"
 #include "thr_lock.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 namespace dd {
 class Table;
@@ -495,6 +499,23 @@ void Sql_cmd_truncate_table::truncate_base(THD *thd, TABLE_LIST *table_ref) {
   });
   if (mdl_locker.ensure_locked(table_ref->db)) return;
 
+#ifdef WITH_WSREP
+  if (WSREP(thd) && wsrep_thd_is_local(thd))
+  {
+    wsrep::key_array keys;
+    wsrep_append_fk_parent_table(thd, table_ref, &keys);
+    if (keys.empty())
+    {
+      WSREP_TO_ISOLATION_BEGIN_IF(table_ref->db, table_ref->table_name, NULL) {
+        return;
+      }
+    } else {
+      WSREP_TO_ISOLATION_BEGIN_FK_TABLES(NULL, NULL, table_ref, &keys) {
+        return;
+      }
+    }
+  }
+#endif /* WITH_WSREP */
   if (lock_table(thd, table_ref)) return;
 
   dd::Table *table_def = nullptr;

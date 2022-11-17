@@ -417,5 +417,19 @@ bool sp_eval_expr(THD *thd, Field *result_field, Item **expr_item_ptr);
 String *sp_get_item_value(THD *thd, Item *item, String *str);
 
 ///////////////////////////////////////////////////////////////////////////
+#ifdef WITH_WSREP
+void sp_returns_type(THD *thd, String &result, sp_head *sp);
+bool create_string(THD *thd, String *buf,
+                          enum_sp_type type,
+                          const char *db, ulong dblen,
+                          const char *name, ulong namelen,
+                          const char *params, ulong paramslen,
+                          const char *returns, ulong returnslen,
+                          const char *body, ulong bodylen,
+                          st_sp_chistics *chistics,
+                          const LEX_STRING *definer_user,
+                          const LEX_STRING *definer_host,
+		   sql_mode_t sql_mode);
 
+#endif /* WITH_WSREP */
 #endif /* _SP_H_ */

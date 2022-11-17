@@ -95,6 +95,10 @@
 #ifdef HAVE_ARPA_INET_H
 #include <arpa/inet.h>
 #endif
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_trans_observer.h" /* wsrep open/close */
+#endif /* WITH_WSREP */
 
 using std::max;
 using std::min;
@@ -110,6 +114,9 @@ using std::min;
 #define SSL_HANDSHAKE_SIZE 2
 #define NORMAL_HANDSHAKE_SIZE 6
 #define MIN_HANDSHAKE_SIZE 2
+#ifdef WITH_WSREP
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 /*
   Get structure for logging connection data for the current user
@@ -889,6 +896,9 @@ bool thd_prepare_connection(THD *thd) {
   if (rc) return rc;
 
   prepare_new_connection_state(thd);
+#ifdef WITH_WSREP
+  thd->wsrep_client_thread= true;
+#endif /* WITH_WSREP */
   return false;
 }
 

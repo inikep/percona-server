@@ -2820,4 +2820,35 @@ class Sys_var_binlog_encryption : public Sys_var_bool {
   bool global_update(THD *thd, set_var *var) override;
 };
 
+#ifdef WITH_WSREP
+class Sys_var_charptr_dynamic_read : public Sys_var_charptr {
+  typedef const char* (*on_read_function)(THD *thd);
+  on_read_function read_function;
+ public:
+  Sys_var_charptr_dynamic_read(
+      const char *name_arg, const char *comment, int flag_args, ptrdiff_t off,
+      size_t size MY_ATTRIBUTE((unused)), CMD_LINE getopt,
+      enum charset_enum is_os_charset_arg, const char *def_val,
+      PolyLock *lock = 0,
+      enum binlog_status_enum binlog_status_arg = VARIABLE_NOT_IN_BINLOG,
+      on_check_function on_check_func = 0,
+      on_update_function on_update_func = 0,
+      on_read_function on_read_func = 0,
+      const char *substitute = 0, int parse_flag = PARSE_NORMAL)
+    : Sys_var_charptr(name_arg, comment, flag_args, off, size,
+                      getopt, is_os_charset_arg, def_val,
+                      lock, binlog_status_arg, on_check_func, on_update_func,
+                      substitute, parse_flag),
+      read_function(on_read_func) {}
+
+  virtual const uchar *global_value_ptr(THD *thd, LEX_STRING *base) override {
+    DBUG_TRACE;
+    const uchar *value = Sys_var_charptr::global_value_ptr(thd, base);
+    if (read_function) {
+      value = (const uchar *)read_function(thd);
+    }
+    return value;
+  }
+};
+#endif
 #endif /* SYS_VARS_H_INCLUDED */

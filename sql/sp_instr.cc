@@ -25,6 +25,10 @@
 #include "my_config.h"
 
 #include <algorithm>
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_trans_observer.h"       // wsrep transaction hooks
+#endif /* WITH_WSREP */
 #include <atomic>
 #include <functional>
 
@@ -60,6 +64,7 @@
 #include "sql/sp_head.h"      // sp_head
 #include "sql/sp_pcontext.h"  // sp_pcontext
 #include "sql/sp_rcontext.h"  // sp_rcontext
+#include "sql/sql_audit.h"    // mysql_audit_notify
 #include "sql/sql_base.h"     // open_temporary_tables
 #include "sql/sql_const.h"
 #include "sql/sql_digest_stream.h"
@@ -897,6 +902,12 @@ bool sp_instr_stmt::execute(THD *thd, uint *nextp) {
 
     thd->send_statement_status();
   }
+
+  const std::string &cn = Command_names::str_global(COM_QUERY);
+  mysql_audit_notify(
+    thd, AUDIT_EVENT(MYSQL_AUDIT_GENERAL_STATUS),
+    thd->get_stmt_da()->is_error() ? thd->get_stmt_da()->mysql_errno() : 0,
+    cn.data(), cn.size());
 
   if (!rc && unlikely(log_slow_applicable(thd))) {
     /*

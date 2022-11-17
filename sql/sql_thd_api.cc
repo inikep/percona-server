@@ -65,7 +65,11 @@
 #include "sql/xa.h"
 #include "sql_string.h"
 #include "violite.h"
-
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 struct MYSQL_LEX_STRING;
 
 using std::min;
@@ -399,6 +403,17 @@ int thd_tx_priority(const MYSQL_THD thd) {
 MYSQL_THD thd_tx_arbitrate(MYSQL_THD requestor, MYSQL_THD holder) {
   /* Should be different sessions. */
   assert(holder != requestor);
+#ifdef WITH_WSREP
+  bool is_bf_requestor = wsrep_thd_is_BF(requestor, true);
+  bool is_bf_holder = wsrep_thd_is_BF(holder, true);
+  if (is_bf_requestor) {
+    if (is_bf_holder) {
+      WSREP_WARN("two BF threads in conflict");
+      return (wsrep_thd_order_before(requestor, holder)) ? requestor : holder;
+    }
+    return holder;
+  } else if (is_bf_holder) return requestor;
+#endif /* WITH_WSREP */
 
   return (thd_tx_priority(requestor) == thd_tx_priority(holder)
               ? requestor
@@ -498,6 +513,12 @@ char *thd_security_context(MYSQL_THD thd, char *buffer, size_t length,
 }
 
 void thd_get_xid(const MYSQL_THD thd, MYSQL_XID *xid) {
+#ifdef WITH_WSREP
+  if (!thd->wsrep_xid.is_null()) {
+    //    *xid = *(MYSQL_XID *) &thd->wsrep_xid;
+    *xid = *pointer_cast<const MYSQL_XID *>(&thd->wsrep_xid);
+  } else
+#endif /* WITH_WSREP */
   *xid = *pointer_cast<const MYSQL_XID *>(
       thd->get_transaction()->xid_state()->get_xid());
 }

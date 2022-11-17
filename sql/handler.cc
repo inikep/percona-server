@@ -128,6 +128,16 @@
 #include "template_utils.h"
 #include "uniques.h"  // Unique_on_insert
 #include "varlen_sort.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "partitioning/partition_handler.h"
+#include "mysql/service_wsrep.h"
+#include "wsrep_mysqld.h"
+#include "wsrep_binlog.h"
+#include "wsrep_xid.h"
+#include "wsrep_thd.h" /* wsrep_override_error() */
+#include "wsrep_trans_observer.h" /* wsrep transaction hooks */
+#endif
 
 /**
   @def MYSQL_TABLE_IO_WAIT
@@ -559,6 +569,9 @@ handlerton *ha_checktype(THD *thd, enum legacy_db_type database_type,
   }
 
   (void)RUN_HOOK(transaction, after_rollback, (thd, false));
+#ifdef WITH_WSREP
+  (void)wsrep_after_rollback(thd, false);
+#endif /* WITH_WSREP */
 
   switch (database_type) {
     case DB_TYPE_MRG_ISAM:
@@ -944,6 +957,13 @@ static bool kill_handlerton(THD *thd, plugin_ref plugin, void *) {
 }
 
 void ha_kill_connection(THD *thd) {
+#ifdef WITH_WSREP
+  if (thd->wsrep_aborter)
+  {
+    WSREP_DEBUG("thd is already aborted in innodb: %u", thd->wsrep_aborter);
+    return;
+  }
+#endif /* WITH_WSREP */
   plugin_foreach(thd, kill_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN, nullptr);
 }
 
@@ -1625,6 +1645,9 @@ int ha_commit_trans(THD *thd, bool all, bool ignore_global_read_lock) {
 #endif  // NDEBUG
   Ha_trx_info *ha_info = trn_ctx->ha_trx_info(trx_scope);
   XID_STATE *xid_state = trn_ctx->xid_state();
+#ifdef WITH_WSREP
+  const bool wsrep_run_hooks= wsrep_run_commit_hook(thd, all);
+#endif /* WITH_WSREP */
 
   DBUG_TRACE;
 
@@ -1695,6 +1718,9 @@ int ha_commit_trans(THD *thd, bool all, bool ignore_global_read_lock) {
 
   MDL_request mdl_request;
   bool release_mdl = false;
+#ifdef WITH_WSREP
+  bool trans_was_empty= true;
+#endif /* WITH_WSREP */
   if (ha_info && !error) {
     uint rw_ha_count = 0;
     bool rw_trans;
@@ -1729,8 +1755,15 @@ int ha_commit_trans(THD *thd, bool all, bool ignore_global_read_lock) {
                        MDL_INTENTION_EXCLUSIVE, MDL_EXPLICIT);
 
       DBUG_PRINT("debug", ("Acquire MDL commit lock"));
+#ifdef WITH_WSREP
+      if (!WSREP(thd) &&
+          thd->mdl_context.acquire_lock(&mdl_request,
+                                        thd->variables.lock_wait_timeout)) {
+        WSREP_DEBUG("Error in MDL acquire lock -> ha_commit_trans()");
+#else
       if (thd->mdl_context.acquire_lock(&mdl_request,
                                         thd->variables.lock_wait_timeout)) {
+#endif /* WITH_WSREP */
         ha_rollback_trans(thd, all);
         return 1;
       }
@@ -1747,7 +1780,27 @@ int ha_commit_trans(THD *thd, bool all, bool ignore_global_read_lock) {
     }
 
     if (!trn_ctx->no_2pc(trx_scope) && (trn_ctx->rw_ha_count(trx_scope) > 1))
+#ifdef WITH_WSREP
+    {
+      WSREP_DEBUG("handler prepare for CTAS");
+      if (wsrep_run_hooks && wsrep_before_prepare(thd, all))
+      {
+        ha_rollback_trans(thd, all);
+        error= 1;
+        goto end;
+      }
+#endif /* WITH_WSREP */
       error = tc_log->prepare(thd, all);
+#ifdef WITH_WSREP
+      DEBUG_SYNC(thd, "ha_commit_trans_after_prepare");
+      if (!error && wsrep_run_hooks && wsrep_after_prepare(thd, all))
+      {
+        ha_rollback_trans(thd, all);
+        error= 2; // error during commit, data may be inconsistent
+        goto end;
+      }
+    }
+#endif /* WITH_WSREP */
   }
   /*
     The state of XA transaction is changed to Prepared, intermediately.
@@ -1762,7 +1815,23 @@ int ha_commit_trans(THD *thd, bool all, bool ignore_global_read_lock) {
 
     xid_state->set_state(XID_STATE::XA_PREPARED);
   }
+#ifdef WITH_WSREP
+  if (trn_ctx->rw_ha_count(trx_scope) > 0)
+  {
+    trans_was_empty= false;
+  }
+  if (wsrep_run_hooks && wsrep_before_commit(thd, all))
+  {
+    ha_rollback_trans(thd, all);
+    error= 1;
+    goto end;
+  }
+#endif /* WITH_WSREP */
   if (error || (error = tc_log->commit(thd, all))) {
+#ifdef WITH_WSREP
+    WSREP_DEBUG("Error from tc_log->prepare() or tc_log->commit() (%d) -> "
+                "ha_rollback_trans()", error);
+#endif /* WITH_WSREP */
     ha_rollback_trans(thd, all);
     error = 1;
     goto end;
@@ -1780,6 +1849,15 @@ int ha_commit_trans(THD *thd, bool all, bool ignore_global_read_lock) {
   DBUG_EXECUTE_IF("crash_commit_after",
                   if (!thd->is_operating_gtid_table_implicitly)
                       DBUG_SUICIDE(););
+#ifdef WITH_WSREP
+  if (wsrep_run_hooks && wsrep_after_commit(thd, all))
+  {
+    WSREP_ERROR("wsrep_after_commit() returned error");
+    error= 1;
+    goto end;
+  }
+  DEBUG_SYNC(thd, "after_group_after_commit");
+#endif /* WITH_WSREP */
 end:
   if (release_mdl && mdl_request.ticket) {
     /*
@@ -1792,6 +1870,13 @@ end:
     thd->mdl_context.release_lock(mdl_request.ticket);
   }
   /* Free resources and perform other cleanup even for 'empty' transactions. */
+#ifdef WITH_WSREP
+  if (WSREP(thd) && wsrep_is_active(thd) && is_real_trans && !error &&
+      (trans_was_empty || all) && wsrep_not_committed(thd))
+  {
+    wsrep_commit_empty(thd, all);
+  }
+#endif /* WITH_WSREP */
   if (is_real_trans) {
     trn_ctx->cleanup();
     thd->tx_priority = 0;
@@ -1870,6 +1955,17 @@ int ha_commit_low(THD *thd, bool all, bool run_after_commit) {
 
   DBUG_TRACE;
 
+#ifdef WITH_WSREP
+#ifdef WSREP_PROC_INFO
+  char info[64]= { 0, };
+  snprintf (info, sizeof(info) - 1, "ha_commit_one_phase(%lld)",
+            (long long)wsrep_thd_trx_seqno(thd));
+#else
+  const char info[]="ha_commit_one_phase()";
+#endif /* WSREP_PROC_INFO */
+  const char* tmp_info= NULL;
+  if (WSREP(thd)) tmp_info= thd_proc_info(thd, info);
+#endif /* WITH_WSREP */
   if (ha_info) {
     bool restore_backup_ha_data = false;
     /*
@@ -1972,6 +2068,12 @@ int ha_commit_low(THD *thd, bool all, bool run_after_commit) {
 err:
   /* Free resources and perform other cleanup even for 'empty' transactions. */
   if (all) trn_ctx->cleanup();
+#ifdef WITH_WSREP
+  if (WSREP(thd))
+  {
+    thd_proc_info(thd, tmp_info);
+  }
+#endif /* WITH_WSREP */
   /*
     When the transaction has been committed, we clear the commit_low
     flag. This allow other parts of the system to check if commit_low
@@ -2001,6 +2103,9 @@ int ha_rollback_low(THD *thd, bool all) {
 
   (void)RUN_HOOK(transaction, before_rollback, (thd, all));
 
+#ifdef WITH_WSREP
+  (void) wsrep_before_rollback(thd, all);
+#endif // WITH_WSREP
   if (ha_info) {
     bool restore_backup_ha_data = false;
     /*
@@ -2018,6 +2123,16 @@ int ha_rollback_low(THD *thd, bool all) {
       int err;
       handlerton *ht = ha_info->ht();
       if ((err = ht->rollback(ht, thd, all))) {  // cannot happen
+#ifdef WITH_WSREP
+        WSREP_INFO("rollback failed for ht: %d, conf: %s SQL %s",
+                   ht->db_type, wsrep_thd_transaction_state_str(thd), thd->query().str);
+        Diagnostics_area *da= thd->get_stmt_da();
+        if (da)
+        {
+          WSREP_INFO("stmt DA %d %s",
+                     da->status(), (da->is_error()) ? da->message_text() : "void");
+        }
+#endif /* WITH_WSREP */
         char errbuf[MYSQL_ERRMSG_SIZE];
         my_error(ER_ERROR_DURING_ROLLBACK, MYF(0), err,
                  my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
@@ -2054,6 +2169,10 @@ int ha_rollback_low(THD *thd, bool all) {
     trn_ctx->xid_state()->set_error(thd);
 
   (void)RUN_HOOK(transaction, after_rollback, (thd, all));
+#ifdef WITH_WSREP
+  (void) wsrep_after_rollback(thd, all);
+  DEBUG_SYNC(thd, "after_rollback");
+#endif /* WITH_WSREP */
   return error;
 }
 
@@ -2109,6 +2228,12 @@ int ha_rollback_trans(THD *thd, bool all) {
   }
 #endif
 
+#ifdef WITH_WSREP
+  if (thd->is_error())
+    WSREP_DEBUG("ha_rollback_trans(%u, %s) rolled back: %s: %s; is_real %d",
+                thd->thread_id(), all?"TRUE":"FALSE", WSREP_QUERY(thd),
+                thd->get_stmt_da()->message_text(), is_real_trans);
+#endif
   /* Always cleanup. Even if nht==0. There may be savepoints. */
   if (is_real_trans) {
     trn_ctx->cleanup();
@@ -2288,12 +2413,26 @@ int ha_rollback_to_savepoint(THD *thd, SAVEPOINT *sv) {
        ha_info = ha_info_next) {
     int err;
     handlerton *ht = ha_info->ht();
+#ifdef WITH_WSREP
+    if (ht->db_type == DB_TYPE_INNODB)
+    {
+      WSREP_DEBUG("ha_rollback_to_savepoint: run before_rollback hook");
+      (void) wsrep_before_rollback(thd, !thd->in_sub_stmt);
+    }
+#endif // WITH_WSREP
     if ((err = ht->rollback(ht, thd, !thd->in_sub_stmt))) {  // cannot happen
       char errbuf[MYSQL_ERRMSG_SIZE];
       my_error(ER_ERROR_DURING_ROLLBACK, MYF(0), err,
                my_strerror(errbuf, MYSQL_ERRMSG_SIZE, err));
       error = 1;
     }
+#ifdef WITH_WSREP
+    if (ht->db_type == DB_TYPE_INNODB)
+    {
+      WSREP_DEBUG("ha_rollback_to_savepoint: run after_rollback hook");
+      (void) wsrep_after_rollback(thd, !thd->in_sub_stmt);
+    }
+#endif // WITH_WSREP
     assert(!thd->status_var_aggregated);
     thd->status_var.ha_rollback_count++;
     ha_info_next = ha_info->next();
@@ -2349,6 +2488,18 @@ int ha_prepare_low(THD *thd, bool all) {
   SAVEPOINT is *not* transaction-initiating SQL-statement
 */
 int ha_savepoint(THD *thd, SAVEPOINT *sv) {
+#ifdef WITH_WSREP
+  /*
+    Register binlog hton for savepoint processing if wsrep binlog
+    emulation is on.
+   */
+  if (WSREP_EMULATE_BINLOG(thd) && wsrep_thd_is_local(thd))
+  {
+    WSREP_DEBUG("ha_savepoint: register binlog handler");
+    thd->binlog_setup_trx_data();
+    register_binlog_handler(thd, thd->in_multi_stmt_transaction_mode());
+  }
+#endif /* WITH_WSREP */
   int error = 0;
   Transaction_ctx::enum_trx_scope trx_scope =
       !thd->in_sub_stmt ? Transaction_ctx::SESSION : Transaction_ctx::STMT;
@@ -3871,7 +4022,12 @@ int handler::update_auto_increment() {
                                           variables->auto_increment_increment);
     auto_inc_intervals_count++;
     /* Row-based replication does not need to store intervals in binlog */
+#ifdef WITH_WSREP
+    if (((WSREP_EMULATE_BINLOG(thd)) || mysql_bin_log.is_open()) &&
+	!thd->is_current_stmt_binlog_format_row())
+#else
     if (mysql_bin_log.is_open() && !thd->is_current_stmt_binlog_format_row())
+#endif /* WITH_WSREP */
       thd->auto_inc_intervals_in_cur_stmt_for_binlog.append(
           auto_inc_interval_for_cur_row.minimum(),
           auto_inc_interval_for_cur_row.values(),
@@ -7654,7 +7810,13 @@ static bool check_table_binlog_row_based(THD *thd, TABLE *table) {
   return (thd->is_current_stmt_binlog_format_row() &&
           table->s->cached_row_logging_check &&
           (thd->variables.option_bits & OPTION_BIN_LOG) &&
+#ifdef WITH_WSREP
+	  /* applier and replayer should not binlog */
+          ((WSREP_EMULATE_BINLOG(thd) && wsrep_thd_is_local(thd)) ||
+           mysql_bin_log.is_open()));
+#else
           mysql_bin_log.is_open());
+#endif
 }
 
 /** @brief
@@ -7781,6 +7943,21 @@ int binlog_log_row(TABLE *table, const uchar *before_record,
   bool error = false;
   THD *const thd = table->in_use;
 
+#ifdef WITH_WSREP
+  /* only InnoDB tables will be replicated through binlog emulation */
+  if (WSREP_EMULATE_BINLOG(thd) &&
+      table->file->ht->db_type != DB_TYPE_INNODB &&
+      !(table->file->ht->db_type == DB_TYPE_PARTITION_DB &&
+        (((Partition_handler*)(table->file))->wsrep_is_innodb())))
+#ifdef NOT_IMPLEMENTED
+  if ((WSREP_EMULATE_BINLOG(thd) &&
+       !(table->file->partition_ht()->flags & HTON_WSREP_REPLICATION)) ||
+      thd->wsrep_ignore_table == true)
+#endif
+  {
+      return 0;
+  }
+#endif /* WITH_WSREP */
   if (check_table_binlog_row_based(thd, table)) {
     if (thd->variables.transaction_write_set_extraction != HASH_ALGORITHM_OFF) {
       try {
@@ -7918,6 +8095,28 @@ int handler::ha_reset() {
   return retval;
 }
 
+#ifdef WITH_WSREP
+static int wsrep_after_row(THD *thd)
+{
+ DBUG_TRACE;
+ 
+  /* enforce wsrep_max_ws_rows */
+  thd->wsrep_affected_rows++;
+  if (wsrep_max_ws_rows &&
+      wsrep_thd_is_local(thd) &&
+      thd->wsrep_affected_rows > wsrep_max_ws_rows)
+  {
+    trans_rollback_stmt(thd) || trans_rollback(thd);
+    my_message(ER_ERROR_DURING_COMMIT, "wsrep_max_ws_rows exceeded", MYF(0));
+    return ER_ERROR_DURING_COMMIT;
+  }
+  else if (wsrep_after_row(thd, false))
+  {
+    return ER_LOCK_DEADLOCK;
+  }
+   return 0;
+}
+#endif /* WITH_WSREP */
 int handler::ha_write_row(uchar *buf) {
   int error;
   Log_func *log_func = Write_rows_log_event::binlog_row_logging_function;
@@ -7942,6 +8141,14 @@ int handler::ha_write_row(uchar *buf) {
   if (unlikely((error = binlog_log_row(table, nullptr, buf, log_func))))
     return error; /* purecov: inspected */
 
+#ifdef WITH_WSREP
+  THD *thd= current_thd;
+  if (table_share->tmp_table == NO_TMP_TABLE &&
+      WSREP(thd) && (error= wsrep_after_row(thd)))
+  {
+    return error;
+  }
+#endif /* WITH_WSREP */
   DEBUG_SYNC_C("ha_write_row_end");
   return 0;
 }
@@ -7971,6 +8178,26 @@ int handler::ha_update_row(const uchar *old_data, uchar *new_data) {
   if (unlikely(error)) return error;
   if (unlikely((error = binlog_log_row(table, old_data, new_data, log_func))))
     return error;
+#ifdef WITH_WSREP
+  THD *thd= current_thd;
+  /* for SR, the followin wsrep_after_row() may replicate a fragment, so we have to
+     declare potential PA unsafe before that*/
+  if (WSREP(thd) && wsrep_thd_is_local(thd) &&
+      table->s->primary_key == MAX_KEY)
+  {
+    WSREP_DEBUG("marking trx as PA unsafe pk %d", table->s->primary_key);
+    if (thd->wsrep_cs().mark_transaction_pa_unsafe())
+    {
+      WSREP_DEBUG("session does not have active transaction, can not mark as PA unsafe");
+    }
+  }
+
+  if (table_share->tmp_table == NO_TMP_TABLE &&
+      WSREP(thd) && (error= wsrep_after_row(thd)))
+  {
+    return error;
+  }
+#endif /* WITH_WSREP */
   return 0;
 }
 
@@ -7997,6 +8224,26 @@ int handler::ha_delete_row(const uchar *buf) {
   if (unlikely(error)) return error;
   if (unlikely((error = binlog_log_row(table, buf, nullptr, log_func))))
     return error;
+#ifdef WITH_WSREP
+  THD *thd= current_thd;
+  /* for SR, the followin wsrep_after_row() may replicate a fragment, so we have to
+     declare potential PA unsafe before that*/
+  if (WSREP(thd) && wsrep_thd_is_local(thd) &&
+      table->s->primary_key == MAX_KEY)
+  {
+    WSREP_DEBUG("marking trx as PA unsafe pk %d", table->s->primary_key);
+    if (thd->wsrep_cs().mark_transaction_pa_unsafe())
+    {
+      WSREP_DEBUG("session does not have active transaction, can not mark as PA unsafe");
+    }
+  }
+
+  if (table_share->tmp_table == NO_TMP_TABLE &&
+      WSREP(thd) && (error= wsrep_after_row(thd)))
+  {
+    return error;
+  }
+#endif /* WITH_WSREP */
   return 0;
 }
 
@@ -8072,6 +8319,61 @@ void handler::unlock_shared_ha_data() {
   if (table_share->tmp_table == NO_TMP_TABLE)
     mysql_mutex_unlock(&table_share->LOCK_ha_data);
 }
+#ifdef WITH_WSREP
+/**
+  @details
+  This function makes the storage engine to force the victim transaction
+  to abort. Currently, only innodb has this functionality, but any SE
+  implementing the wsrep API should provide this service to support
+  multi-master operation.
+
+  @param bf_thd       brute force THD asking for the abort
+  @param victim_thd   victim THD to be aborted
+
+  @return
+    always 0
+*/
+
+int ha_wsrep_abort_transaction(THD *bf_thd, THD *victim_thd, bool signal)
+{
+  DBUG_TRACE;
+  if (!WSREP(bf_thd) &&
+      !(bf_thd->variables.wsrep_OSU_method == WSREP_OSU_RSU &&
+        wsrep_thd_is_toi(bf_thd))) {
+    return 0;
+  }
+
+  handlerton *hton= installed_htons[DB_TYPE_INNODB];
+  if (hton && hton->wsrep_abort_transaction)
+  {
+    /* call handlerton's wsrep_abort_transaction only if hton
+     * has active transaction started, otherwise abort the victim
+     * in wsrep provider level, and use THD::awake() to signal the
+     * victim to abort
+     */
+    mysql_mutex_lock(&victim_thd->LOCK_thd_data);
+    Ha_trx_info *ha_info= victim_thd->get_ha_data(hton->slot)->ha_info + 1;
+    if (ha_info && ha_info->is_started())
+    {
+      mysql_mutex_unlock(&victim_thd->LOCK_thd_data);
+      hton->wsrep_abort_transaction(hton, bf_thd, victim_thd, signal);
+    }
+    else
+    {
+      /* victim does not have transaction in SE */
+      WSREP_DEBUG("BF victim does not have active transaction in InnoDB ");
+      mysql_mutex_unlock(&victim_thd->LOCK_thd_data);
+      wsrep_thd_bf_abort(bf_thd, victim_thd, signal);
+    }
+  }
+  else
+  {
+    WSREP_WARN("cannot abort InnoDB transaction");
+  }
+
+  return 0;
+}
+#endif /* WITH_WSREP */
 
 /**
   This structure is a helper structure for passing the length and pointer of

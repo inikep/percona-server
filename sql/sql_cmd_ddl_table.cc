@@ -20,6 +20,10 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 #include "sql/sql_cmd_ddl_table.h"
 
 #include <string.h>
@@ -235,6 +239,18 @@ bool Sql_cmd_create_table::execute(THD *thd) {
 
   if (!query_block->field_list_is_empty())  // With select
   {
+#ifdef WITH_WSREP
+    if (WSREP(thd) && thd->variables.wsrep_trx_fragment_size > 0) {
+      my_message(ER_NOT_ALLOWED_COMMAND, "CREATE TABLE AS SELECT is not supported with streaming replication",
+                 MYF(0)); /* purecov: inspected */
+      return true;
+    }
+    if (WSREP(thd) && create_info.db_type->db_type != DB_TYPE_INNODB) {
+      my_message(ER_NOT_ALLOWED_COMMAND, "CREATE TABLE AS SELECT not supported for non InnoDB tables.",
+                 MYF(0)); /* purecov: inspected */
+      return true;
+    }
+#endif /* WITH_WSREP*/
     /*
       CREATE TABLE...IGNORE/REPLACE SELECT... can be unsafe, unless
       ORDER BY PRIMARY KEY clause is used in SELECT statement. We therefore
@@ -429,6 +445,21 @@ bool Sql_cmd_create_table::execute(THD *thd) {
       res = mysql_create_like_table(thd, create_table, query_expression_tables,
                                     &create_info);
     } else {
+#ifdef WITH_WSREP
+      /* in STATEMENT format, we probably have to replicate also temporary
+	 tables, like mysql replication does
+      */
+      if (!thd->is_current_stmt_binlog_format_row() ||
+          !(create_info.options & HA_LEX_CREATE_TMP_TABLE))
+      {
+        WSREP_TO_ISOLATION_BEGIN_ALTER(create_table->db, create_table->table_name,
+                                       create_table, &alter_info, nullptr)
+        {
+	  WSREP_WARN("CREATE TABLE isolation failure");
+          return (true);
+        }
+      }
+#endif /* WITH_WSREP */
       /* Regular CREATE TABLE */
       res = mysql_create_table(thd, create_table, &create_info, &alter_info);
     }
@@ -521,6 +552,10 @@ bool Sql_cmd_create_or_drop_index_base::execute(THD *thd) {
     return true;             // OOM
 
   if (check_one_table_access(thd, INDEX_ACL, all_tables)) return true;
+#ifdef WITH_WSREP
+  WSREP_TO_ISOLATION_BEGIN(first_table->db, first_table->table_name, NULL)
+  {
+#endif /* WITH_WSREP */
   /*
     Currently CREATE INDEX or DROP INDEX cause a full table rebuild
     and thus classify as slow administrative statements just like
@@ -542,6 +577,11 @@ bool Sql_cmd_create_or_drop_index_base::execute(THD *thd) {
   /* Pop Strict_error_handler */
   if (thd->is_strict_mode()) thd->pop_internal_handler();
   return res;
+#ifdef WITH_WSREP
+  }
+ wsrep_error_label:
+  return true;
+#endif /* WITH_WSREP */
 }
 
 bool Sql_cmd_cache_index::execute(THD *thd) {

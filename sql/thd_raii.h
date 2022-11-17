@@ -295,6 +295,25 @@ class Swap_mem_root_guard {
   MEM_ROOT *m_old_mem_root;
 };
 
+#ifdef WITH_WSREP
+/**
+  RAII class to temporarily disable @@wsrep_on in THD
+*/
+class Disable_wsrep_on_guard {
+ public:
+  Disable_wsrep_on_guard(THD *thd)
+      : m_thd(thd),
+        m_old_wsrep_on(thd->variables.wsrep_on) {
+    if (WSREP(thd)) thd->variables.wsrep_on = false;
+  }
+
+  ~Disable_wsrep_on_guard() { m_thd->variables.wsrep_on = m_old_wsrep_on; }
+
+ private:
+  THD *m_thd;
+  bool m_old_wsrep_on;
+};
+#endif
 /**
   A simple holder for Internal_error_handler.
   The class utilizes RAII technique to not forget to pop the handler.

@@ -99,6 +99,8 @@
 #include "sql_string.h"
 #include "thr_lock.h"
 #include "violite.h"
+#include <wsrep.h>
+#include "wsrep_mysqld.h"
 
 bool Column_name_comparator::operator()(const String *lhs,
                                         const String *rhs) const {
@@ -1573,6 +1575,7 @@ bool Sql_cmd_analyze_table::execute(THD *thd) {
   if (get_histogram_command() != Histogram_command::NONE) {
     res = handle_histogram_command(thd, first_table);
   } else {
+    WSREP_TO_ISOLATION_BEGIN_WRTCHK(NULL, NULL, first_table);
     res = mysql_admin_table(thd, first_table, &thd->lex->check_opt, "analyze",
                             lock_type, true, false, 0, nullptr,
                             &handler::ha_analyze, 0, m_alter_info, true);
@@ -1589,6 +1592,9 @@ bool Sql_cmd_analyze_table::execute(THD *thd) {
   thd->lex->query_tables = first_table;
 
 error:
+#ifdef WITH_WSREP
+wsrep_error_label:
+#endif
   return res;
 }
 
@@ -1600,6 +1606,7 @@ bool Sql_cmd_check_table::execute(THD *thd) {
 
   if (check_table_access(thd, SELECT_ACL, first_table, true, UINT_MAX, false))
     goto error; /* purecov: inspected */
+  WSREP_TO_ISOLATION_BEGIN_WRTCHK(NULL, NULL, first_table);
   thd->enable_slow_log = opt_log_slow_admin_statements;
 
   res = mysql_admin_table(thd, first_table, &thd->lex->check_opt, "check",
@@ -1610,6 +1617,9 @@ bool Sql_cmd_check_table::execute(THD *thd) {
   thd->lex->query_tables = first_table;
 
 error:
+#ifdef WITH_WSREP
+wsrep_error_label:
+#endif
   return res;
 }
 
@@ -1622,6 +1632,7 @@ bool Sql_cmd_optimize_table::execute(THD *thd) {
                          UINT_MAX, false))
     goto error; /* purecov: inspected */
   thd->enable_slow_log = opt_log_slow_admin_statements;
+  WSREP_TO_ISOLATION_BEGIN_WRTCHK(NULL, NULL, first_table);
   res = (specialflag & SPECIAL_NO_NEW_FUNC)
             ? mysql_recreate_table(thd, first_table, true)
             : mysql_admin_table(thd, first_table, &thd->lex->check_opt,
@@ -1638,6 +1649,9 @@ bool Sql_cmd_optimize_table::execute(THD *thd) {
   thd->lex->query_tables = first_table;
 
 error:
+#ifdef WITH_WSREP
+wsrep_error_label:
+#endif
   return res;
 }
 
@@ -1650,6 +1664,7 @@ bool Sql_cmd_repair_table::execute(THD *thd) {
                          UINT_MAX, false))
     goto error; /* purecov: inspected */
   thd->enable_slow_log = opt_log_slow_admin_statements;
+  WSREP_TO_ISOLATION_BEGIN_WRTCHK(NULL, NULL, first_table);
   res = mysql_admin_table(
       thd, first_table, &thd->lex->check_opt, "repair", TL_WRITE, true,
       thd->lex->check_opt.sql_flags & TT_USEFRM, HA_OPEN_FOR_REPAIR,
@@ -1666,6 +1681,9 @@ bool Sql_cmd_repair_table::execute(THD *thd) {
   thd->lex->query_tables = first_table;
 
 error:
+#ifdef WITH_WSREP
+wsrep_error_label:
+#endif
   return res;
 }
 

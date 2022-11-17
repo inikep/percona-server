@@ -104,6 +104,10 @@
 #include "sql/log.h"
 #include "sql/mysqld.h"
 #include "sql/sql_rewrite.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "sql/wsrep_mysqld.h"
+#endif /* WITH_WSREP */
 
 #include <openssl/rand.h>  // RAND_bytes
 /**
@@ -151,6 +155,9 @@ bool check_change_password(THD *thd, const char *host, const char *user,
   assert(initialized);
   sctx = thd->security_context();
   if (!thd->slave_thread &&
+#ifdef WITH_WSREP
+      (!WSREP(thd) || !thd->wsrep_applier) &&
+#endif /* WITH_WSREP */
       (strcmp(sctx->user().str, user) ||
        my_strcasecmp(system_charset_info, host, sctx->priv_host().str))) {
     if (sctx->password_expired()) {
@@ -177,6 +184,9 @@ bool check_change_password(THD *thd, const char *host, const char *user,
   }
 
   if (!thd->slave_thread && likely((get_server_state() == SERVER_OPERATING)) &&
+#ifdef WITH_WSREP
+      (!WSREP(thd) || !thd->wsrep_applier) &&
+#endif  /* WITH_WSREP */
       !strcmp(thd->security_context()->priv_user().str, "")) {
     my_error(ER_PASSWORD_ANONYMOUS_USER, MYF(0));
     return true;
@@ -1915,6 +1925,9 @@ bool change_password(THD *thd, LEX_USER *lex_user, const char *new_password,
   bool is_role;
   int ret;
   sql_mode_t old_sql_mode = thd->variables.sql_mode;
+#ifdef WITH_WSREP
+  const LEX_CSTRING query_save = thd->query();
+#endif /* WITH_WSREP */
 
   DBUG_TRACE;
   assert(lex_user && lex_user->host.str);
@@ -1927,6 +1940,24 @@ bool change_password(THD *thd, LEX_USER *lex_user, const char *new_password,
                             retain_current_password))
     return true;
 
+#ifdef WITH_WSREP
+  if (WSREP(thd) && !thd->wsrep_applier)
+  {
+    char buff[2048];
+    size_t query_length= sprintf(buff, "SET PASSWORD FOR '%-.120s'@'%-.120s'='%-.120s'",
+				 lex_user->user.str ? lex_user->user.str : "",
+				 lex_user->host.str ? lex_user->host.str : "",
+				 new_password);
+    //thd->set_query(buff, query_length, system_charset_info);
+    thd->set_query(buff, query_length);
+
+    WSREP_TO_ISOLATION_BEGIN_IF(WSREP_MYSQL_DB, "user", NULL)
+    {
+      WSREP_ERROR("Replication of SET PASSWORD failed: %s", buff);
+      return result;
+    }
+  }
+#endif /* WITH_WSREP */
   Acl_cache_lock_guard acl_cache_lock(thd, Acl_cache_lock_mode::WRITE_MODE);
   /*
     This statement will be replicated as a statement, even when using
@@ -2049,7 +2080,6 @@ bool change_password(THD *thd, LEX_USER *lex_user, const char *new_password,
     users.insert(combo);
 
   end:
-
     User_params user_params(&users);
     commit_result = log_and_commit_acl_ddl(thd, transactional_tables, &users,
                                            &user_params, false, !result);
@@ -2058,6 +2088,14 @@ bool change_password(THD *thd, LEX_USER *lex_user, const char *new_password,
         thd, AUDIT_EVENT(MYSQL_AUDIT_AUTHENTICATION_CREDENTIAL_CHANGE),
         thd->is_error() || result, lex_user->user.str, lex_user->host.str,
         authentication_plugin.c_str(), is_role, nullptr, nullptr);
+#ifdef WITH_WSREP
+  if (WSREP(thd) && !thd->wsrep_applier)
+  {
+    WSREP_TO_ISOLATION_END;
+
+    thd->set_query(query_save);
+  }
+#endif /* WITH_WSREP */
   } /* Critical section */
 
   /* Notify storage engines (including rewrite list) */

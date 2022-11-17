@@ -75,6 +75,12 @@
 #include "sql/sql_thd_internal_api.h"  // thd_set_thread_stack
 #include "sql/system_variables.h"
 #include "thr_mutex.h"
+#ifdef WITH_WSREP
+#include <wsrep.h>
+#include "mysql/service_wsrep.h"
+#include "wsrep_mysqld.h"
+#include "wsrep_trans_observer.h" /* wsrep transaction hooks */
+#endif /* WITH_WSREP */
 
 struct decimal_t;
 
@@ -847,6 +853,23 @@ bool Srv_session::open() {
 
   server_session_list.add(&thd, plugin, this);
 
+#ifdef WITH_WSREP
+  bool wait_for_ready(false);
+  while (WSREP_ON && !wsrep_ready_get())
+  {
+    if (!wait_for_ready) {
+      WSREP_INFO("node is not ready to accept X-protocol connections");
+    }
+    my_sleep(10000);
+    wait_for_ready = true;
+  }
+  if (wait_for_ready) {
+      WSREP_INFO("X-protocol connections now accepted");
+  }
+  if (WSREP((&thd))) {
+    wsrep_open(&thd);
+  }
+#endif /* WITH_WSREP */
   state = SRV_SESSION_OPENED;
 
   return false;
@@ -1034,6 +1057,11 @@ bool Srv_session::close() {
   set_psi(nullptr);
 #endif
 
+#ifdef WITH_WSREP
+  if (WSREP((&thd))) {
+      wsrep_close(&thd);
+  }
+#endif /* WITH_WSREP */
   thd.release_resources();
 
   Global_THD_manager::get_instance()->remove_thd(&thd);
@@ -1057,6 +1085,31 @@ void Srv_session::set_attached(const char *stack) {
   thd_set_thread_stack(&thd, stack);
 }
 
+#ifdef WITH_WSREP
+bool wsrep_allow_command_non_PC( enum enum_server_command command ) {
+  switch (command) {
+  case COM_STATISTICS:
+  case COM_PING:
+  case COM_STMT_PREPARE:
+  case COM_STMT_EXECUTE:
+  case COM_STMT_FETCH:
+  case COM_STMT_CLOSE:
+  case COM_STMT_RESET:
+  case COM_STMT_SEND_LONG_DATA:
+  case COM_QUIT:
+  case COM_PROCESS_INFO:
+  case COM_SLEEP:
+  case COM_TIME:
+  case COM_INIT_DB:
+  case COM_END:
+  case COM_QUERY:
+  case COM_SET_OPTION:
+    return true;
+  default:
+    return false;
+  }
+}
+#endif /* WITH_WSREP */
 /**
   Changes the state of a session to detached
 */
@@ -1112,13 +1165,79 @@ int Srv_session::execute_command(enum enum_server_command command,
     COM_INIT_DB, for example
   */
   if (command != COM_QUERY) thd.reset_for_next_command();
+#ifdef WITH_WSREP
+  /*
+    Aborted by background rollbacker thread.
+    Handle error here and jump straight to out
+  */
+  if (wsrep_before_command(&thd)) {
+    thd.store_globals();
+    WSREP_LOG_THD(&thd, "enter found BF aborted");
+    assert(!thd.mdl_context.has_locks());
+    assert(!thd.get_stmt_da()->is_set());
+    /* We let COM_QUIT and COM_STMT_CLOSE to execute even if wsrep aborted. */
+    if (command != COM_STMT_CLOSE &&
+        command != COM_QUIT) {
+      my_error(ER_LOCK_DEADLOCK, MYF(0));
+      WSREP_DEBUG("Deadlock error for: %s", thd.query().str);
+      thd.killed               = THD::NOT_KILLED;
+      thd.wsrep_retry_counter  = 0;
+
+      /* Instrument this broken statement as "statement/com/error" */
+      thd.m_statement_psi= MYSQL_REFINE_STATEMENT(thd.m_statement_psi,
+                                                 com_statement_info[COM_END].
+                                                 m_key);
+
+      /* The error must be set. */
+      assert(thd.is_error());
+      thd.send_statement_status();
+
+      /* Mark the statement completed. */
+      MYSQL_END_STATEMENT(thd.m_statement_psi, thd.get_stmt_da());
+      thd.m_statement_psi= NULL;
+      thd.m_digest= NULL;
+
+      wsrep_after_command_before_result(&thd);
+      wsrep_after_command_after_result(&thd);
+      thd.pop_protocol();
+      return 1;
+    }
+  }
+  /*
+   * bail out if DB snapshot has not been installed. We however,
+   * allow some queries, e.g. "SET" and "SHOW", they are checked and
+   * potentially trapped later in execute_command()
+   */
+  if (WSREP((&thd)) &&
+      !(thd.wsrep_applier) &&
+      (!wsrep_ready_get() || wsrep_reject_queries != WSREP_REJECT_NONE) &&
+      !wsrep_allow_command_non_PC(command)) {
+    my_message(ER_UNKNOWN_COM_ERROR,
+               "WSREP has not yet prepared node for application use", MYF(0));
+    thd.end_statement();
+
+    /* Performance Schema Interface instrumentation end */
+    MYSQL_END_STATEMENT(thd.m_statement_psi, thd.get_stmt_da());
+    thd.m_statement_psi= NULL;
+    thd.m_digest= NULL;
+
+    wsrep_after_command_before_result(&thd);
+    wsrep_after_command_after_result(&thd);
+    thd.pop_protocol();
+    return 1;
+  }
+#endif /* WITH_WSREP */
 
   assert(thd.m_statement_psi == nullptr);
   thd.m_statement_psi = MYSQL_START_STATEMENT(
       &thd.m_statement_state, stmt_info_new_packet.m_key, thd.db().str,
       thd.db().length, thd.charset(), nullptr);
   int ret = dispatch_command(&thd, data, command);
-
+#ifdef WITH_WSREP
+  /* there was a command to process, and before_command() has been called */
+  wsrep_after_command_after_result(&thd);
+#endif /* WITH_WSREP */
+ 
   thd.pop_protocol();
   assert(thd.get_protocol() == &protocol_error);
   return ret;
