@@ -90,6 +90,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #endif /* !UNIV_HOTBACKUP */
 #include "ut0mem.h"
 
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif
 #ifdef UNIV_HOTBACKUP
 #include "page0size.h"
 #else
@@ -417,6 +420,9 @@ srv_printf_innodb_monitor() will request mutex acquisition
 with mutex_enter(), which will wait until it gets the mutex. */
 #define MUTEX_NOWAIT(mutex_skipped) ((mutex_skipped) < MAX_MUTEX_NOWAIT)
 
+#ifdef WITH_INNODB_DISALLOW_WRITES
+os_event_t srv_allow_writes_event;
+#endif /* WITH_INNODB_DISALLOW_WRITES */
 /** Dedicated server setting */
 bool srv_dedicated_server = true;
 /** Requested size in bytes */
@@ -1189,6 +1195,14 @@ static void srv_init(void) {
 
   dict_ind_init();
 
+#ifdef WITH_INNODB_DISALLOW_WRITES
+  /* Writes have to be enabled on init or else we hang. Thus, we
+     always set the event here regardless of innobase_disallow_writes.
+     That flag will always be 0 at this point because it isn't settable
+     via my.cnf or command line arg. */
+  srv_allow_writes_event = os_event_create();
+  os_event_set(srv_allow_writes_event);
+#endif /* WITH_INNODB_DISALLOW_WRITES */
   /* Initialize some INFORMATION SCHEMA internal structures */
   trx_i_s_cache_init(trx_i_s_cache);
 
@@ -1769,6 +1783,11 @@ loop:
 
   os_event_wait_time_low(srv_monitor_event, std::chrono::seconds{5}, sig_count);
 
+#ifdef WITH_WSREP
+  if (innodb_wsrep_applier_lock_wait_timeout) {
+    wsrep_run_BF_lock_wait_watchdog();
+  }
+#endif /* WITH_WSREP */
   auto current_time = std::chrono::steady_clock::now();
 
   auto time_elapsed = current_time - last_monitor_time;
@@ -1874,7 +1893,20 @@ loop:
 
   if (sync_array_print_long_waits(&waiter, &sema) && sema == old_sema &&
       waiter == old_waiter) {
+#if defined(WITH_WSREP) && defined(WITH_INNODB_DISALLOW_WRITES)
+    if (os_event_is_set(srv_allow_writes_event)) {
+#endif /* WITH_WSREP */
     fatal_cnt++;
+#if defined(WITH_WSREP) && defined(WITH_INNODB_DISALLOW_WRITES)
+    } else {
+      fprintf(stderr,
+              "WSREP: avoiding InnoDB self crash due to long "
+              "semaphore wait of  > %lu seconds\n"
+              "Server is processing SST donor operation, "
+              "fatal_cnt now: %lu",
+	      (ulong) srv_fatal_semaphore_wait_threshold, fatal_cnt);
+    }
+#endif /* WITH_WSREP */
     if (fatal_cnt > 10) {
       ib::fatal(UT_LOCATION_HERE, ER_IB_MSG_1047,
                 ulonglong{srv_fatal_semaphore_wait_threshold});

@@ -695,7 +695,7 @@ dberr_t lock_prdt_lock(buf_block_t *block,  /*!< in/out: buffer block of rec */
 
     trx_mutex_enter(trx);
     lock = rec_lock.create(trx);
-    trx_mutex_exit(trx);
+   trx_mutex_exit(trx);
 
     status = LOCK_REC_SUCCESS_CREATED;
 

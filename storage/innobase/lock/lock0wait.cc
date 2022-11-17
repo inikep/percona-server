@@ -43,6 +43,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0mysql.h"
 #include "srv0mon.h"
 #include "srv0start.h"
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 
 #include "my_dbug.h"
 
@@ -194,6 +197,22 @@ static srv_slot_t *lock_wait_table_reserve_slot(
 
 void lock_wait_request_check_for_cycles() { lock_set_timeout_event(); }
 
+#ifdef WITH_WSREP
+/*********************************************************************//**
+Check if lock timeout was for priority thread.
+@return	false for regular lock timeout */
+static ibool
+wsrep_is_BF_lock_timeout(
+/*====================*/
+    trx_t* trx) /* in: trx to check for lock priority */
+{
+  if (wsrep_on(trx->mysql_thd) &&
+      wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+#endif /* WITH_WSREP */
 /** Puts a user OS thread to wait for a lock to be released. If an error
  occurs during the wait trx->error_state associated with thr is
  != DB_SUCCESS when we return. DB_LOCK_WAIT_TIMEOUT and DB_DEADLOCK
@@ -300,9 +319,19 @@ void lock_wait_suspend_thread(que_thr_t *thr) /*!< in: query thread associated
                                                        : THD_WAIT_TABLE_LOCK);
 
   DEBUG_SYNC_C("lock_wait_will_wait");
+#ifdef WITH_WSREP
+  if (wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+      wsrep_BF_waiting_count.fetch_add(1, std::memory_order_relaxed);
+  }
+#endif /* WITH_WSREP */
 
   os_event_wait(slot->event);
 
+#ifdef WITH_WSREP
+  if (wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+      wsrep_BF_waiting_count.fetch_sub(1, std::memory_order_relaxed);
+  }
+#endif /* WITH_WSREP */
   DEBUG_SYNC_C("lock_wait_has_finished_waiting");
 
   thd_wait_end(trx->mysql_thd);
@@ -357,6 +386,10 @@ void lock_wait_suspend_thread(que_thr_t *thr) /*!< in: query thread associated
   }
 
   if (lock_wait_timeout < std::chrono::seconds(100000000) &&
+#ifdef WITH_WSREP
+      (!wsrep_on(trx->mysql_thd) ||
+        (!wsrep_is_BF_lock_timeout(trx) && trx->error_state != DB_DEADLOCK)) &&
+#endif /* WITH_WSREP */
       wait_time > lock_wait_timeout && !trx_is_high_priority(trx)) {
     trx->error_state = DB_LOCK_WAIT_TIMEOUT;
 
@@ -503,7 +536,13 @@ static void lock_wait_check_and_cancel(
     if (trx->lock.wait_lock != nullptr && !trx_is_high_priority(trx)) {
       ut_a(trx->lock.que_state == TRX_QUE_LOCK_WAIT);
 
+#ifdef WITH_WSREP
+      if (!wsrep_is_BF_lock_timeout(trx)) {
+#endif /* WITH_WSREP */
       lock_cancel_waiting_and_release(trx->lock.wait_lock);
+#ifdef WITH_WSREP
+      }
+#endif /* WITH_WSREP */
     }
 
     trx_mutex_exit(trx);
@@ -924,11 +963,18 @@ static trx_t *lock_wait_choose_victim(
   auto sorted_trxs = lock_wait_order_for_choosing_victim(cycle_ids, infos);
 
   for (auto *trx : sorted_trxs) {
+#ifdef WITH_WSREP
+      /* avoid choosing BF priority thread as victim */
+      if (!wsrep_thd_is_BF(trx->mysql_thd, false))
+#endif /* WITH_WSREP */
     if (chosen_victim == nullptr) {
       chosen_victim = trx;
       continue;
     }
 
+#ifdef WITH_WSREP
+    if (chosen_victim) {
+#endif /* WITH_WSREP */
     if (trx_is_high_priority(chosen_victim) || trx_is_high_priority(trx)) {
       auto victim = trx_arbitrate(trx, chosen_victim);
 
@@ -942,6 +988,11 @@ static trx_t *lock_wait_choose_victim(
       }
     }
 
+#ifdef WITH_WSREP
+    }
+    /* avoid choosing BF priority thread as victim */
+    if (!wsrep_thd_is_BF(trx->mysql_thd, false))
+#endif /* WITH_WSREP */
     if (trx_weight_ge(chosen_victim, trx)) {
       /* The joining transaction is 'smaller',
       choose it as the victim and roll it back. */
@@ -950,6 +1001,9 @@ static trx_t *lock_wait_choose_victim(
   }
 
   ut_a(chosen_victim);
+#ifdef WITH_WSREP
+  ut_ad(!wsrep_thd_is_BF(chosen_victim->mysql_thd, false));
+#endif /* WITH_WSREP */
   return chosen_victim;
 }
 

@@ -69,6 +69,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fts0types.h"
 #include "row0row.h"
 #include "row0sel.h"
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif
 #include "trx0rec.h"
 #endif /* !UNIV_HOTBACKUP */
 #include <algorithm>
@@ -168,6 +171,31 @@ static ibool row_upd_index_is_referenced(dict_index_t *index, /*!< in: index */
 
   return (is_referenced);
 }
+#ifdef WITH_WSREP
+static
+ibool
+wsrep_row_upd_index_is_foreign(
+/*========================*/
+dict_index_t*	index,	/*!< in: index */
+  trx_t*		trx)	/*!< in: transaction */
+{
+  dict_table_t*	table		= index->table;
+  ibool		is_referenced	= FALSE;
+
+  if (table->foreign_set.empty()) {
+    return(FALSE);
+  }
+
+  dict_foreign_set::iterator	it
+    = std::find_if(table->foreign_set.begin(),
+		   table->foreign_set.end(),
+		   dict_foreign_with_foreign_index(index));
+  
+  is_referenced = (it != table->foreign_set.end());
+
+  return(is_referenced);
+}
+#endif /* WITH_WSREP */
 
 /** Checks if possible foreign key constraints hold after a delete of the record
  under pcur.
@@ -276,6 +304,94 @@ func_exit:
   DEBUG_SYNC_C("foreign_constraint_check_for_update_done");
   return err;
 }
+#ifdef WITH_WSREP
+static MY_ATTRIBUTE((warn_unused_result)) dberr_t
+    wsrep_row_upd_check_foreign_constraints(
+        upd_node_t* node,    /*!< in: row update node */
+        btr_pcur_t* pcur,    /*!< in: cursor positioned on a record; NOTE: the
+                                     cursor position is lost in this function! */
+        dict_table_t* table, /*!< in: table in question */
+        dict_index_t* index, /*!< in: index of the cursor */
+        ulint* offsets,      /*!< in/out: rec_get_offsets(pcur.rec, index) */
+        que_thr_t* thr,	     /*!< in: query thread */
+        mtr_t* mtr)	     /*!< in: mtr */
+{
+  dict_foreign_t*  foreign;
+  mem_heap_t*      heap;
+  dtuple_t*        entry;
+  trx_t*           trx;
+  const rec_t*     rec;
+  dberr_t          err = DB_SUCCESS;
+  ibool	           opened          = FALSE;
+
+  DBUG_TRACE;
+  /* TODO: NEWDD: WL#6049 Ignore FK on DD system tables for now */
+  if (table->is_dd_table) {
+    return(DB_SUCCESS);
+  }
+
+  if (table->foreign_set.empty()) {
+    return(DB_SUCCESS);
+  }
+
+  trx = thr_get_trx(thr);
+
+  /* TODO: make native slave thread bail out here */
+  
+  rec = btr_pcur_get_rec(pcur);
+  ut_ad(rec_offs_validate(rec, index, offsets));
+  
+  heap = mem_heap_create(500);
+  
+  entry = row_rec_to_index_entry(rec, index, offsets, heap);
+  
+  mtr_commit(mtr);
+  
+  mtr_start(mtr);
+
+  for (dict_foreign_set::iterator it = table->foreign_set.begin();
+       it != table->foreign_set.end(); ++it) {
+    foreign = *it;
+
+    /* Note that we may have an update which updates the index
+       record, but does NOT update the first fields which are
+       referenced in a foreign key constraint. Then the update does
+       NOT break the constraint. */
+    
+    if (foreign->foreign_index == index &&
+        (node->is_delete ||
+         row_upd_changes_first_fields_binary(entry, index, node->update,
+                                             foreign->n_fields))) {
+      
+      if (foreign->referenced_table == nullptr) {
+        MDL_ticket *mdl;
+	foreign->referenced_table = dd_table_open_on_name(
+	trx->mysql_thd, &mdl, foreign->referenced_table_name_lookup,
+	false, DICT_ERR_IGNORE_NONE);
+	opened = (foreign->referenced_table) ? true : false;
+      }
+      
+      /* NOTE that if the thread ends up waiting for a lock
+	 we will release dict_operation_lock temporarily!
+	 But the counter on the table protects 'foreign' from
+	 being dropped while the check is running. */
+      
+      err = row_ins_check_foreign_constraint(
+          true, foreign, table, entry, thr);
+      if (foreign->referenced_table) {
+	if (opened) {
+	  dict_table_close(foreign->referenced_table, false, false);
+	  opened = false;
+	}
+      }
+    }
+  }
+
+  mem_heap_free(heap);
+  
+  return(err);
+}
+#endif /* WITH_WSREP */
 
 /** Creates an update node for a query graph.
  @return own: update node */
@@ -1992,6 +2108,17 @@ static void srv_mbr_print(const byte *data) {
   ib::info(ER_IB_MSG_1043) << "GIS MBR INFO: " << a << " and " << b << ", " << c
                            << ", " << d << "\n";
 }
+#ifdef WITH_WSREP
+static inline
+bool
+row_upd_parent_has_cascade(
+	const que_node_t* parent)
+{
+	return(parent != NULL &&
+	       que_node_get_type(parent) == QUE_NODE_UPDATE &&
+	       ((const upd_node_t*) parent)->cascade_node != NULL);
+}
+#endif /* WITH_WSREP */
 
 /** Delete mark a secondary index entry of a row, when the index
 is built on multi-value field
@@ -2201,7 +2328,10 @@ code or DB_LOCK_WAIT */
   });
 
   referenced = row_upd_index_is_referenced(index, trx);
-
+#ifdef WITH_WSREP
+  ibool foreign = wsrep_row_upd_index_is_foreign(index, trx);
+#endif /* WITH_WSREP */
+ 
   heap = mem_heap_create(1024);
 
   if (!node->is_delete && dict_index_is_spatial(index) &&
@@ -2363,10 +2493,54 @@ code or DB_LOCK_WAIT */
       delete marked if we return after a lock wait in
       row_ins_sec_index_entry() below */
       if (!rec_get_deleted_flag(rec, dict_table_is_comp(index->table))) {
+#ifdef WITH_WSREP
+        que_node_t *parent = que_node_get_parent(node);
+#endif /* WITH_WSREP */
         err = btr_cur_del_mark_set_sec_rec(flags, btr_cur, TRUE, thr, &mtr);
         if (err != DB_SUCCESS) {
           break;
         }
+#ifdef WITH_WSREP
+	if (wsrep_on(trx->mysql_thd)                          &&
+	    !wsrep_thd_is_BF(trx->mysql_thd, FALSE)           &&
+	    err == DB_SUCCESS && !referenced && foreign       &&
+	    !row_upd_parent_has_cascade(parent)
+	    ) {
+	  ulint*	offsets =
+	    rec_get_offsets(
+			    rec, index, NULL, ULINT_UNDEFINED,
+			    &heap);
+	  err = wsrep_row_upd_check_foreign_constraints(
+							node, &pcur, index->table,
+							index, offsets, thr, &mtr);
+	  switch (err) {
+	  case DB_SUCCESS:
+	  case DB_NO_REFERENCED_ROW:
+	    err = DB_SUCCESS;
+	    break;
+	  case DB_DEADLOCK:
+	    if (wsrep_debug) {
+	      ib::warn() << "WSREP: sec index FK check fail for deadlock"
+			 << " index " << index->name
+			 << " table " << index->table->name;
+	    }
+	    break;
+	  case DB_LOCK_WAIT_TIMEOUT:
+	  case DB_LOCK_WAIT:
+	    err = DB_LOCK_WAIT_TIMEOUT;
+	    break;
+	  default:
+	    ib::error() <<  "WSREP: referenced FK check fail: " << ut_strerr(err)
+			<< " index " << index->name
+			<< " table " << index->table->name;
+	    break;
+	  }
+	}
+	
+	if (err != DB_SUCCESS) {
+	  break;
+	}
+#endif /* WITH_WSREP */
       }
 
       ut_ad(err == DB_SUCCESS);
@@ -2586,6 +2760,9 @@ static bool row_upd_clust_rec_by_insert_inherit_func(
     que_thr_t *thr,      /*!< in: query thread */
     ibool referenced,    /*!< in: TRUE if index may be referenced in
                       a foreign key constraint */
+#ifdef WITH_WSREP
+    ibool foreign,      /*!< in: TRUE if index is foreign key index */
+#endif /* WITH_WSREP */
     mtr_t *mtr)          /*!< in/out: mtr; gets committed here */
 {
   mem_heap_t *heap;
@@ -2598,6 +2775,9 @@ static bool row_upd_clust_rec_by_insert_inherit_func(
   rec_t *rec;
   ulint *offsets = nullptr;
 
+#ifdef WITH_WSREP
+  que_node_t *parent = que_node_get_parent(node);
+#endif /* WITH_WSREP */
   ut_ad(node);
   ut_ad(index->is_clustered());
 
@@ -2683,6 +2863,35 @@ static bool row_upd_clust_rec_by_insert_inherit_func(
           goto err_exit;
         }
       }
+#ifdef WITH_WSREP
+      else if (wsrep_on(trx->mysql_thd) && foreign                        &&
+	       !row_upd_parent_has_cascade(parent)
+	       ) {
+	err = wsrep_row_upd_check_foreign_constraints(
+						      node, pcur, table, index, offsets, thr, mtr);
+	switch (err) {
+	case DB_SUCCESS:
+	case DB_NO_REFERENCED_ROW:
+	  err = DB_SUCCESS;
+	  break;
+	case DB_DEADLOCK:
+	  if (wsrep_debug) {
+	    ib::warn() << "WSREP: insert FK check fail for deadlock"
+		       << " index " << index->name
+		       << " table " << index->table->name;
+	  }
+	  break;
+	default:
+	  ib::error() <<  "WSREP: referenced FK check fail: " << ut_strerr(err)
+		      << " index " << index->name
+		      << " table " << index->table->name;
+	  break;
+	}
+	if (err != DB_SUCCESS) {
+	  goto err_exit;
+	}
+      }
+#endif /* WITH_WSREP */
   }
 
   mtr_commit(mtr);
@@ -2940,11 +3149,17 @@ func_exit:
     ibool referenced,
     /*!< in: TRUE if index may be referenced in
     a foreign key constraint */
+#ifdef WITH_WSREP
+    ibool foreign,/*!< in: TRUE if index is foreign key index */
+#endif /* WITH_WSREP */
     mtr_t *mtr) /*!< in: mtr; gets committed here */
 {
   btr_pcur_t *pcur;
   btr_cur_t *btr_cur;
   dberr_t err;
+#ifdef WITH_WSREP
+  que_node_t *parent = que_node_get_parent(node);
+#endif /* WITH_WSREP */
   trx_t *trx = thr_get_trx(thr);
 
   ut_ad(node);
@@ -2973,6 +3188,32 @@ func_exit:
                                                offsets, thr, mtr);
   }
 
+#ifdef WITH_WSREP
+  else if (trx && wsrep_on(trx->mysql_thd)  &&  err == DB_SUCCESS  &&
+	   !row_upd_parent_has_cascade(parent)
+	   ) {
+    err = wsrep_row_upd_check_foreign_constraints(
+						  node, pcur, index->table, index, offsets, thr, mtr);
+    switch (err) {
+    case DB_SUCCESS:
+    case DB_NO_REFERENCED_ROW:
+      err = DB_SUCCESS;
+      break;
+    case DB_DEADLOCK:
+      if (wsrep_debug) {
+	ib::warn() << "WSREP: clust rec  FK check fail for deadlock"
+		   << " index " << index->name
+		   << " table " << index->table->name;
+      }
+      break;
+    default:
+      ib::error() <<  "WSREP: referenced FK check fail: " << ut_strerr(err)
+		  << " index " << index->name
+		  << " table " << index->table->name;
+      break;
+    }
+  }
+#endif /* WITH_WSREP */
   mtr_commit(mtr);
 
   return (err);
@@ -3002,6 +3243,10 @@ func_exit:
   index = node->table->first_index();
 
   referenced = row_upd_index_is_referenced(index, trx);
+#ifdef WITH_WSREP
+  ibool foreign = wsrep_row_upd_index_is_foreign(
+           index, thr_get_trx(thr));
+#endif /* WITH_WSREP */
 
   pcur = node->pcur;
 
@@ -3074,7 +3319,11 @@ func_exit:
 
   if (node->is_delete) {
     err = row_upd_del_mark_clust_rec(flags, node, index, offsets, thr,
+#ifdef WITH_WSREP
+                                     referenced, foreign, &mtr);
+#else
                                      referenced, &mtr);
+#endif /* WITH_WSREP */
 
     if (err == DB_SUCCESS) {
       node->state = UPD_NODE_UPDATE_ALL_SEC;
@@ -3116,8 +3365,11 @@ func_exit:
     externally! */
 
     err =
+#ifdef WITH_WSREP
+      row_upd_clust_rec_by_insert(flags, node, index, thr, referenced, foreign, &mtr);
+#else
         row_upd_clust_rec_by_insert(flags, node, index, thr, referenced, &mtr);
-
+#endif /* WITH_WSREP */
     if (err != DB_SUCCESS) {
       goto exit_func;
     }

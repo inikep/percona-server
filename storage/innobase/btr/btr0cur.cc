@@ -91,6 +91,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0rec.h"
 #include "trx0roll.h"
 #endif /* !UNIV_HOTBACKUP */
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 
 #include <array>
 
@@ -2588,8 +2591,20 @@ bool btr_cur_open_at_rnd_pos_func(
           flags, rec, btr_cur_get_block(cursor), index, thr, mtr, &prdt);
       *inherit = false;
     } else {
+#ifdef WITH_WSREP
+      if (!index->is_clustered() && (index->type & DICT_UNIQUE) &&
+          wsrep_thd_is_BF(thr_get_trx(thr)->mysql_thd, false)) {
+        thr_get_trx(thr)->wsrep_UK_scan = true;
+      }
+#endif /* WITH_WSREP */
       err = lock_rec_insert_check_and_lock(
           flags, rec, btr_cur_get_block(cursor), index, thr, mtr, inherit);
+#ifdef WITH_WSREP
+      if (!index->is_clustered() && (index->type & DICT_UNIQUE) &&
+          wsrep_thd_is_BF(thr_get_trx(thr)->mysql_thd, false)) {
+        thr_get_trx(thr)->wsrep_UK_scan = false;
+      }
+#endif /* WITH_WSREP */
     }
   }
 

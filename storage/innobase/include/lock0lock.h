@@ -1034,6 +1034,22 @@ extern lock_sys_t *lock_sys;
     lock_sys->wait_mutex.exit(); \
   } while (0)
 
+#ifdef WITH_WSREP
+#define INNODB_WSREP_APPLIER_LOCK_WAIT_TIMEOUT_DEFAULT 5
+extern uint innodb_wsrep_applier_lock_wait_timeout;
+
+/** Cancels a waiting lock request and releases possible other transactions
+waiting behind it.
+@param[in,out]	lock		Waiting lock request
+*/
+void lock_cancel_waiting_and_release(lock_t *lock);
+/* Count of wsrep BF threads waiting for a lock. */
+extern std::atomic<size_t> wsrep_BF_waiting_count;
+/** Checks if wsrep BF transactions have been waiting for lock for too
+long time and attempts to kill local transactions to release BF thread
+lock wait. */
+void wsrep_run_BF_lock_wait_watchdog();
+#endif /* WITH_WSREP */
 #include "lock0lock.ic"
 
 namespace locksys {

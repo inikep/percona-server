@@ -64,6 +64,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0new.h"
 #include "ut0pool.h"
 #include "ut0vec.h"
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 
 #include "my_dbug.h"
 #include "mysql/plugin.h"
@@ -227,6 +230,10 @@ static void trx_init(trx_t *trx) {
 
     trx->in_innodb &= TRX_FORCE_ROLLBACK_MASK;
   }
+#ifdef WITH_WSREP
+  trx->wsrep_killed_by_query = 0;
+  trx->wsrep_UK_scan = false;
+#endif /* WITH_WSREP */
 
   trx->flush_observer = nullptr;
 
@@ -354,6 +361,10 @@ struct TrxFactory {
 
     ut_ad(trx->killed_by == std::thread::id{});
 
+#ifdef WITH_WSREP
+    ut_ad(trx->wsrep_killed_by_query == 0);
+    ut_ad(trx->wsrep_UK_scan == false);
+#endif /* WITH_WSREP */
     return (true);
   }
 };
@@ -664,6 +675,10 @@ void trx_disconnect_prepared(trx_t *trx) {
 /** Free a transaction object for MySQL.
 @param[in,out]	trx	transaction */
 void trx_free_for_mysql(trx_t *trx) {
+#ifdef WITH_WSREP
+  /* for sanity, this may not have been cleared yet */
+  trx->wsrep_killed_by_query = 0;
+#endif /* WITH_WSREP */
   trx_disconnect_plain(trx);
   trx_free_for_background(trx);
 }
@@ -1307,6 +1322,12 @@ static void trx_start_low(
                           std::memory_order_relaxed);
   }
 
+#ifdef WITH_WSREP
+  trx->xid->reset();
+  if (trx->mysql_thd && wsrep_thd_is_BF(trx->mysql_thd, false) &&
+      !wsrep_thd_is_local_toi(trx->mysql_thd))
+    trx->skip_lock_inheritance = true;
+#endif /* WITH_WSREP */
   /* The initial value for trx->no: TRX_ID_MAX is used in
   read_view_open_now: */
 
@@ -1620,6 +1641,23 @@ static bool trx_write_serialisation_history(
 
   MONITOR_INC(MONITOR_TRX_COMMIT_UNDO);
 
+#ifdef WITH_WSREP
+  trx_sysf_t* sys_header = trx_sysf_get(mtr);
+  if (wsrep_is_wsrep_xid(trx->xid))
+  {
+    if (trx->lock.was_chosen_as_wsrep_victim)
+    {
+#ifdef UNIV_DEBUG
+      ib::info() << "trx->lock_was_chosen_as_wsrep_victim is on, "
+                 << "skipping wsrep XID update";
+#endif /* UNIV_DEBUG */
+    }
+    else
+    {
+      trx_sys_update_wsrep_checkpoint(trx->xid, sys_header, mtr);
+    }
+  }
+#endif /* WITH_WSREP */
   /* Update the latest MySQL binlog name and offset information
   in trx sys header only if MySQL binary logging is on and clone
   is has ensured commit order at final stage. */
@@ -2067,6 +2105,12 @@ written */
   if (trx->fts_trx != nullptr) {
     trx_finalize_for_fts(trx, trx->undo_no != 0);
   }
+#ifdef WITH_WSREP
+  /* WSREP_TODO: this should be obsolete */
+  if (wsrep_on(trx->mysql_thd) && trx->lock.was_chosen_as_wsrep_victim) {
+    trx->lock.was_chosen_as_wsrep_victim = false;
+  }
+#endif
 
   trx_mutex_enter(trx);
   trx->dict_operation = TRX_DICT_OP_NONE;
@@ -2211,6 +2255,16 @@ void trx_commit(trx_t *trx) /*!< in/out: transaction */
   }
 
   trx_commit_low(trx, mtr);
+#ifdef WITH_WSREP
+  /* Serialization history has been written and the
+     transaction is committed in memory, which makes
+     this commit ordered. Release commit order critical
+     section. */
+  if (wsrep_on(trx->mysql_thd))
+  {
+    wsrep_commit_ordered(trx->mysql_thd);
+  }
+#endif /* WITH_WSREP */
 }
 
 /** Cleans up a transaction at database startup. The cleanup is needed if
@@ -2449,6 +2503,125 @@ void trx_commit_complete_for_mysql(trx_t *trx) /*!< in/out: transaction */
   trx->ddl_must_flush = false;
 }
 
+#ifdef WITH_WSREP
+/**********************************************************************//**
+Prints info about a transaction.
+Transaction information may be retrieved without having trx_sys->mutex acquired
+so it may not be completely accurate. The caller must own lock_sys->mutex
+and the trx must have some locks to make sure that it does not escape
+without locking lock_sys->mutex. */
+void
+wsrep_trx_print_locking(
+/*==========*/
+	FILE*		f,
+			/*!< in: output stream */
+	const trx_t*	trx,
+			/*!< in: transaction */
+	ulint		max_query_len)
+			/*!< in: max query length to print,
+			or 0 to use the default max length */
+{
+  ibool		newline;
+  const char*	op_info;
+
+  fprintf(f, "TRANSACTION " TRX_ID_FMT, trx->id);
+
+  /* trx->state may change since trx_sys->mutex is not required */
+  const auto trx_state = trx->state.load(std::memory_order_relaxed);
+
+  switch (trx_state) {
+  case TRX_STATE_NOT_STARTED:
+    fputs(", not started", f);
+    goto state_ok;
+  case TRX_STATE_FORCED_ROLLBACK:
+    fputs(", FORCED ROLLBACK", f);
+    goto state_ok;
+  case TRX_STATE_ACTIVE:
+    fprintf(f, ", ACTIVE %lu sec",
+            (ulong)std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now() -
+               trx->start_time.load(std::memory_order_relaxed))
+               .count());
+    goto state_ok;
+  case TRX_STATE_PREPARED:
+    fprintf(f, ", ACTIVE (PREPARED) %lu sec",
+           (ulong)std::chrono::duration_cast<std::chrono::seconds>(
+              std::chrono::system_clock::now() -
+              trx->start_time.load(std::memory_order_relaxed))
+              .count());
+    goto state_ok;
+  case TRX_STATE_COMMITTED_IN_MEMORY:
+    fputs(", COMMITTED IN MEMORY", f);
+    goto state_ok;
+  }
+  fprintf(f, ", state %lu", (ulong) trx->state);
+  ut_ad(0);
+state_ok:
+
+  /* prevent a race condition */
+  op_info = trx->op_info;
+
+  if (*op_info) {
+    putc(' ', f);
+    fputs(op_info, f);
+  }
+
+  if (trx->is_recovered) {
+    fputs(" recovered trx", f);
+  }
+
+  if (trx->declared_to_be_inside_innodb) {
+    fprintf(f, ", thread declared inside InnoDB %lu",
+            (ulong) trx->n_tickets_to_enter_innodb);
+  }
+
+  putc('\n', f);
+
+  if (trx->n_mysql_tables_in_use > 0 || trx->mysql_n_tables_locked > 0) {
+    fprintf(f, "mysql tables in use %lu, locked %lu\n",
+            (ulong) trx->n_mysql_tables_in_use,
+            (ulong) trx->mysql_n_tables_locked);
+  }
+
+  newline = TRUE;
+
+  /* trx->lock.que_state of an ACTIVE transaction may change
+     while we are not holding trx->mutex. We perform a dirty read
+     for performance reasons. */
+
+  switch (trx->lock.que_state) {
+  case TRX_QUE_RUNNING:
+    newline = FALSE; break;
+  case TRX_QUE_LOCK_WAIT:
+    fputs("LOCK WAIT ", f); break;
+  case TRX_QUE_ROLLING_BACK:
+    fputs("ROLLING BACK ", f); break;
+  case TRX_QUE_COMMITTING:
+    fputs("COMMITTING ", f); break;
+  default:
+    fprintf(f, "que state %lu ", (ulong) trx->lock.que_state);
+  }
+
+  if (trx->has_search_latch) {
+    newline = TRUE;
+    fputs(", holds adaptive hash latch", f);
+  }
+
+  if (trx->undo_no != 0) {
+    newline = TRUE;
+    fprintf(f, ", undo log entries " TRX_ID_FMT, trx->undo_no);
+  }
+
+  if (newline) {
+    putc('\n', f);
+  }
+
+  if (trx_state != TRX_STATE_NOT_STARTED && trx->mysql_thd != nullptr) {
+    innobase_mysql_print_thd(f, trx->mysql_thd,
+                             static_cast<uint>(max_query_len));
+  }
+}
+#endif /* WITH_WSREP */
 /** Marks the latest SQL statement ended. */
 void trx_mark_sql_stat_end(trx_t *trx) /*!< in: trx handle */
 {
@@ -3247,6 +3420,10 @@ void trx_start_if_not_started_low(trx_t *trx, bool read_write) {
   switch (trx->state.load(std::memory_order_relaxed)) {
     case TRX_STATE_NOT_STARTED:
     case TRX_STATE_FORCED_ROLLBACK:
+#ifdef WITH_WSREP
+    ut_d(trx->start_file = __FILE__);
+    ut_d(trx->start_line = __LINE__);
+#endif /* WITH_WSREP */
 
       trx_start_low(trx, read_write);
       return;
@@ -3345,11 +3522,15 @@ void trx_kill_blocking(trx_t *trx) {
   if (!trx_is_high_priority(trx)) {
     return;
   }
+
   hit_list_t hit_list;
   lock_make_trx_hit_list(trx, hit_list);
   if (hit_list.empty()) {
     return;
   }
+#ifdef WITH_WSREP
+  if (wsrep_debug) ib::info() << "trx_kill_blocking";
+#endif /* WITH_WSREP */
 
   DEBUG_SYNC_C("trx_kill_blocking_enter");
 
@@ -3394,7 +3575,6 @@ void trx_kill_blocking(trx_t *trx) {
 
     trx_mutex_enter(victim_trx);
     ut_ad(version <= victim_trx->version);
-
     ulint loop_count = 0;
     /* start with optimistic sleep time of 20 micro seconds. */
     ulint sleep_time = 20;
@@ -3437,6 +3617,13 @@ void trx_kill_blocking(trx_t *trx) {
       srv_conc_force_enter_innodb(trx);
       trx_mutex_enter(victim_trx);
     }
+#ifdef WITH_WSREP
+    if (wsrep_on(trx->mysql_thd)) {
+      victim_trx->in_innodb &= ~TRX_FORCE_ROLLBACK;
+      trx_mutex_exit(victim_trx);
+      continue;
+    }
+#endif
 
     /* Compare the version to check if the transaction has
     already finished */
@@ -3470,7 +3657,6 @@ void trx_kill_blocking(trx_t *trx) {
     id = victim_trx->id;
 #endif /* UNIV_DEBUG */
     trx_rollback_for_mysql(victim_trx);
-
 #ifdef UNIV_DEBUG
     ib::info(ER_IB_MSG_1211)
         << "High Priority Transaction (ID): " << trx->id

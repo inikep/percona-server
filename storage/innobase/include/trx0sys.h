@@ -52,6 +52,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <unordered_map>
 #include <vector>
 #include "trx0trx.h"
+#ifdef WITH_WSREP
+#include "trx0xa.h"
+#endif /* WITH_WSREP */
 
 #ifndef UNIV_HOTBACKUP
 
@@ -211,6 +214,19 @@ is yet to update the binary log position in SE.
 bool trx_sys_write_binlog_position(const char *last_file, uint64_t last_offset,
                                    const char *file, uint64_t offset);
 
+#ifdef WITH_WSREP
+/** Update WSREP checkpoint XID in sys header. */
+void
+trx_sys_update_wsrep_checkpoint(
+        const XID*      xid,         /*!< in: WSREP XID */
+        trx_sysf_t*     sys_header,  /*!< in: sys_header */
+        mtr_t*          mtr);        /*!< in: mtr       */
+
+void
+/** Read WSREP checkpoint XID from sys header. */
+trx_sys_read_wsrep_checkpoint(
+        XID* xid); /*!< out: WSREP XID */
+#endif /* WITH_WSREP */
 /** Updates the offset information about the end of the MySQL binlog entry
 which corresponds to the transaction being committed, external XA transaction
 being prepared or rolled back. In a MySQL replication slave updates the latest
@@ -334,6 +350,19 @@ are persisted to table */
 #define TRX_SYS_TRX_NUM_GTID \
   (TRX_SYS_MYSQL_LOG_INFO + TRX_SYS_MYSQL_LOG_NAME + TRX_SYS_MYSQL_LOG_NAME_LEN)
 #define TRX_SYS_TRX_NUM_END = (TRX_SYS_TRX_NUM_GTID + 8)
+#ifdef WITH_WSREP
+/* The offset to WSREP XID headers */
+#define TRX_SYS_WSREP_XID_INFO (ut_max((UNIV_PAGE_SIZE - 3500), 1596UL))
+#define TRX_SYS_WSREP_XID_MAGIC_N_FLD 0
+#define TRX_SYS_WSREP_XID_MAGIC_N 0x77737265
+
+/* XID field: formatID, gtrid_len, bqual_len, xid_data */
+#define TRX_SYS_WSREP_XID_LEN        (4 + 4 + 4 + XIDDATASIZE)
+#define TRX_SYS_WSREP_XID_FORMAT     4
+#define TRX_SYS_WSREP_XID_GTRID_LEN  8
+#define TRX_SYS_WSREP_XID_BQUAL_LEN 12
+#define TRX_SYS_WSREP_XID_DATA      16
+#endif /* WITH_WSREP*/
 
 /** Doublewrite buffer */
 /** @{ */

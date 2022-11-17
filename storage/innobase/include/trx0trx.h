@@ -245,6 +245,23 @@ static inline ReadView *trx_get_read_view(trx_t *trx);
 /** @return the transaction's read view or NULL if one not assigned. */
 static inline const ReadView *trx_get_read_view(const trx_t *trx);
 
+#ifdef WITH_WSREP
+/**********************************************************************//**
+Prints info about a transaction.
+Transaction information may be retrieved without having trx_sys->mutex acquired
+so it may not be completely accurate. The caller must own lock_sys->mutex
+and the trx must have some locks to make sure that it does not escape
+without locking lock_sys->mutex. */
+void
+wsrep_trx_print_locking(
+/*==============*/
+	FILE*		f,		/*!< in: output stream */
+	const trx_t*	trx,		/*!< in: transaction */
+	ulint		max_query_len)	/*!< in: max query length to print,
+					or 0 to use the default max length */
+	MY_ATTRIBUTE((nonnull));
+#endif /* WITH_WSREP */
+
 /** Prepares a transaction for commit/rollback. */
 void trx_commit_or_rollback_prepare(trx_t *trx); /*!< in/out: transaction */
 /** Creates a commit command node struct.
@@ -669,6 +686,11 @@ struct trx_lock_t {
   */
   que_thr_t *wait_thr;
 
+#ifdef WITH_WSREP
+  bool was_chosen_as_wsrep_victim; /*!< high priority wsrep 
+                                     thread has
+                                     marked this trx to abort */
+#endif /* WITH_WSREP */
   /** Pre-allocated record locks. Protected by trx->mutex. */
   lock_pool_t rec_pool;
 
@@ -1008,6 +1030,10 @@ struct trx_t {
                             mark and the actual async kill because
                             the running thread can change. */
 
+#ifdef WITH_WSREP
+  query_id_t	wsrep_killed_by_query;
+  bool wsrep_UK_scan;
+#endif /* WITH_wSREP */
   /* These fields are not protected by any mutex. */
   const char *op_info; /*!< English text describing the
                        current operation, or an empty
@@ -1464,7 +1490,13 @@ class TrxInInnoDB {
       trx_mutex_enter(trx);
       if (!is_forced_rollback(trx) && is_started(trx) &&
           !trx_is_autocommit_non_locking(trx)) {
+#ifdef WITH_WSREP
+	if (!trx->abort) {
+#endif /* WITH_WSREP */
         ut_ad(trx->killed_by == std::thread::id{});
+#ifdef WITH_WSREP
+	}
+#endif /* WITH_WSREP */
 
         /* This transaction has crossed the point of
         no return and cannot be rolled back

@@ -43,6 +43,9 @@ Atomic writes handling. */
 #include <iostream>
 #include <regex>
 #include <vector>
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 
 /** Doublewrite buffer */
 
@@ -2261,7 +2264,13 @@ void recv::Pages::recover(fil_space_t *space) noexcept {
   if (!dblwr::enabled || recv_sys->is_cloned_db) {
     return;
   }
-
+#ifdef WITH_WSREP
+  /* if node is recovering after SST, should not use doublewrite recovery */
+  if (!wsrep_is_ready()) {
+    ib::info() << "WSREP not ready state, skipped innodb doublewrite recovery";
+    return;
+  }
+#endif /* WITH_WSREP */
   auto recover_all = (space == nullptr);
 
   for (const auto &page : m_pages) {

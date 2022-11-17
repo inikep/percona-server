@@ -29,6 +29,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 /* The InnoDB handler: the interface between MySQL and InnoDB. */
 
+#ifdef WITH_WSREP
+#include "wsrep_api.h"
+#include <mysql/service_wsrep.h>
+#endif /* WITH_WSREP */
 #include <assert.h>
 #include <sys/types.h>
 #include "handler.h"
@@ -82,6 +86,13 @@ class Dictionary_client;
 
 /** The class defining a handle to an InnoDB table */
 class ha_innobase : public handler {
+#ifdef WITH_WSREP
+  int wsrep_append_keys(
+        THD *thd,
+        Wsrep_service_key_type key_type,
+        const uchar* record0,
+        const uchar* record1);
+#endif
  public:
   ha_innobase(handlerton *hton, TABLE_SHARE *table_arg);
   ~ha_innobase() override = default;
@@ -555,6 +566,10 @@ class ha_innobase : public handler {
   int general_fetch(uchar *buf, uint direction, uint match_mode);
 
   virtual dict_index_t *innobase_get_index(uint keynr);
+#ifdef WITH_WSREP
+  int wsrep_append_keys(THD *thd, wsrep_key_type key_type,
+       const uchar* record0, const uchar* record1);
+#endif
 
   /** Builds a 'template' to the m_prebuilt struct. The template is used in fast
   retrieval of just those column values MySQL needs in its processing.

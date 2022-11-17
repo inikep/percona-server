@@ -144,6 +144,14 @@ void innobase_casedn_path(char *a); /*!< in/out: string to put in lower case */
  @return connection character set */
 const CHARSET_INFO *innobase_get_charset(
     THD *thd); /*!< in: MySQL thread handle */
+#ifdef WITH_WSREP
+int wsrep_signal_replicator(trx_t *victim_trx, trx_t *bf_trx);
+bool wsrep_innobase_kill_one_trx(THD *const thd_ptr, const trx_t *bf_trx,
+                                trx_t *victim_trx, ibool signal);
+int wsrep_innobase_mysql_sort(int mysql_type, uint charset_number,
+                              unsigned char* str, unsigned int str_length,
+                              unsigned int buf_length);
+#endif /* WITH_WSREP */
 
 /** Determines the current SQL statement.
 Thread unsafe, can only be called from the thread owning the THD.

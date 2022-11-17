@@ -53,6 +53,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0mysql.h"
 #include "srv0srv.h"
 #include "trx0trx.h"
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif
 
 /** Number of times a thread is allowed to enter InnoDB within the same
 SQL query after it has once got the ticket. */
@@ -119,6 +122,23 @@ static dberr_t srv_conc_enter_innodb_with_atomics(
 
   for (;;) {
     ulint sleep_in_us;
+#ifdef WITH_WSREP
+    /* We need to take `thd->LOCK_thd_data` to check WSREP thread state */
+    if (wsrep_on(trx->mysql_thd)) {
+      wsrep_thd_LOCK(trx->mysql_thd);
+    }
+    if (wsrep_on(trx->mysql_thd) &&  wsrep_thd_is_aborting(trx->mysql_thd)) {
+      wsrep_thd_UNLOCK(trx->mysql_thd);
+      if (wsrep_debug) {
+        ib::info() << "srv_conc_enter due to MUST_ABORT";
+      }
+      srv_conc_force_enter_innodb(trx);
+      return DB_SUCCESS;
+    }
+    if (wsrep_on(trx->mysql_thd)) {
+      wsrep_thd_UNLOCK(trx->mysql_thd);
+    }
+#endif /* WITH_WSREP */
 
     if (srv_thread_concurrency == 0) {
       if (notified_mysql) {
@@ -275,6 +295,21 @@ void srv_conc_force_exit_innodb(trx_t *trx) /*!< in: transaction object
 #endif /* UNIV_DEBUG */
 }
 
+#ifdef WITH_WSREP
+void
+wsrep_srv_conc_cancel_wait(
+/*==================*/
+	trx_t*	trx)	/*!< in: transaction object associated with the
+			thread */
+{
+  /* aborting transactions will enter innodb by force in 
+     srv_conc_enter_innodb_with_atomics(). No need to cancel here,
+     thr will wake up after os_sleep and let to enter innodb
+  */
+  if (wsrep_debug)
+    ib::info() << "WSREP: conc slot cancel, no atomics";
+}
+#endif /* WITH_WSREP */
 /** Get the count of threads waiting inside InnoDB. */
 int32_t srv_conc_get_waiting_threads(void) {
   return srv_conc.n_waiting.load(std::memory_order_relaxed);

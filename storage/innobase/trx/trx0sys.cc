@@ -47,6 +47,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "mtr0log.h"
 #include "os0file.h"
 #include "read0read.h"
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#endif /* */
 #include "srv0srv.h"
 #include "srv0start.h"
 #include "trx0purge.h"
@@ -134,6 +137,127 @@ void trx_sys_write_max_trx_id(void) {
     mtr_commit(&mtr);
   }
 }
+#ifdef WITH_WSREP
+
+#ifdef UNIV_DEBUG
+static long long trx_sys_cur_xid_seqno = -1;
+static unsigned char trx_sys_cur_xid_uuid[16];
+
+long long read_wsrep_xid_seqno(const XID* xid)
+{
+    long long seqno;
+    //char data[XIDDATASIZE];
+    //data = xid->get_data();
+    memcpy(&seqno, xid->get_data() + 24, sizeof(long long));
+    //memcpy(&seqno, xid->data + 24, sizeof(long long));
+    return seqno;
+}
+
+void read_wsrep_xid_uuid(const XID* xid, unsigned char* buf)
+{
+	memcpy(buf, xid->get_data() + 8, 16);
+    //memcpy(buf, xid->data + 8, 16);
+}
+
+#endif /* UNIV_DEBUG */
+
+void
+trx_sys_update_wsrep_checkpoint(
+        const XID*      xid,        /*!< in: transaction XID */
+        trx_sysf_t*     sys_header, /*!< in: sys_header */
+        mtr_t*          mtr)        /*!< in: mtr */
+{
+
+#ifdef UNIV_DEBUG
+        {
+            /* Check that seqno is monotonically increasing */
+            unsigned char xid_uuid[16];
+            long long xid_seqno = read_wsrep_xid_seqno(xid);
+            read_wsrep_xid_uuid(xid, xid_uuid);
+            if (!memcmp(xid_uuid, trx_sys_cur_xid_uuid, 8) &&
+                xid_seqno != -1)
+            {
+                ut_ad(trx_sys_cur_xid_seqno == 0 || xid_seqno > trx_sys_cur_xid_seqno);
+            }
+            else
+            {
+                memcpy(trx_sys_cur_xid_uuid, xid_uuid, 16);
+            }
+            trx_sys_cur_xid_seqno = xid_seqno;
+        }
+#endif /* UNIV_DEBUG */
+
+        ut_ad(xid && mtr && sys_header);
+        ut_a(xid->get_format_id() == -1 || wsrep_is_wsrep_xid(xid));
+
+        if (mach_read_from_4(sys_header + TRX_SYS_WSREP_XID_INFO
+                             + TRX_SYS_WSREP_XID_MAGIC_N_FLD)
+            != TRX_SYS_WSREP_XID_MAGIC_N) {
+                mlog_write_ulint(sys_header + TRX_SYS_WSREP_XID_INFO
+                                 + TRX_SYS_WSREP_XID_MAGIC_N_FLD,
+                                 TRX_SYS_WSREP_XID_MAGIC_N,
+                                 MLOG_4BYTES, mtr);
+        }
+
+        mlog_write_ulint(sys_header + TRX_SYS_WSREP_XID_INFO
+                         + TRX_SYS_WSREP_XID_FORMAT,
+                         (int)xid->get_format_id(),
+                         MLOG_4BYTES, mtr);
+        mlog_write_ulint(sys_header + TRX_SYS_WSREP_XID_INFO
+                         + TRX_SYS_WSREP_XID_GTRID_LEN,
+                         (int)xid->get_gtrid_length(),
+                         MLOG_4BYTES, mtr);
+        mlog_write_ulint(sys_header + TRX_SYS_WSREP_XID_INFO
+                         + TRX_SYS_WSREP_XID_BQUAL_LEN,
+                         (int)xid->get_bqual_length(),
+                         MLOG_4BYTES, mtr);
+        mlog_write_string(sys_header + TRX_SYS_WSREP_XID_INFO
+                          + TRX_SYS_WSREP_XID_DATA,
+                          (const unsigned char*) xid->get_data(),
+                          XIDDATASIZE, mtr);
+
+}
+
+void
+trx_sys_read_wsrep_checkpoint(XID* xid)
+/*===================================*/
+{
+        trx_sysf_t* sys_header;
+        mtr_t       mtr;
+        ulint       magic;
+
+        ut_ad(xid);
+
+        mtr_start(&mtr);
+
+        sys_header = trx_sysf_get(&mtr);
+
+        if ((magic = mach_read_from_4(sys_header + TRX_SYS_WSREP_XID_INFO
+                                      + TRX_SYS_WSREP_XID_MAGIC_N_FLD))
+            != TRX_SYS_WSREP_XID_MAGIC_N) {
+                xid->reset();
+                trx_sys_update_wsrep_checkpoint(xid, sys_header, &mtr);
+                mtr_commit(&mtr);
+                return;
+        }
+
+        xid->set_format_id((long)mach_read_from_4(
+                sys_header
+                + TRX_SYS_WSREP_XID_INFO + TRX_SYS_WSREP_XID_FORMAT));
+        xid->set_gtrid_length((long)mach_read_from_4(
+                sys_header
+                + TRX_SYS_WSREP_XID_INFO + TRX_SYS_WSREP_XID_GTRID_LEN));
+        xid->set_bqual_length((long)mach_read_from_4(
+                sys_header
+                + TRX_SYS_WSREP_XID_INFO + TRX_SYS_WSREP_XID_BQUAL_LEN));
+        xid->set_data(
+                sys_header
+                + TRX_SYS_WSREP_XID_INFO + TRX_SYS_WSREP_XID_DATA, XIDDATASIZE);
+
+        mtr_commit(&mtr);
+}
+
+#endif /* WITH_WSREP */
 
 void trx_sys_persist_gtid_num(trx_id_t gtid_trx_no) {
   mtr_t mtr;

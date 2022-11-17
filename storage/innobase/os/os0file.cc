@@ -216,6 +216,11 @@ static const ulint OS_AIO_MERGE_N_CONSECUTIVE = 64;
 /** Checks if the page_cleaner is in active state. */
 bool buf_flush_page_cleaner_is_active();
 
+#ifdef WITH_INNODB_DISALLOW_WRITES
+#define WAIT_ALLOW_WRITES() os_event_wait(srv_allow_writes_event)
+#else
+#define WAIT_ALLOW_WRITES() do { } while (0)
+#endif /* WITH_INNODB_DISALLOW_WRITES */
 #ifndef UNIV_HOTBACKUP
 /**********************************************************************
 
@@ -1626,6 +1631,7 @@ void AIO::release_with_mutex(Slot *slot) {
 #ifndef UNIV_HOTBACKUP
 FILE *os_file_create_tmpfile() {
   FILE *file = nullptr;
+  WAIT_ALLOW_WRITES();
   int fd = innobase_mysql_tmpfile(mysql_tmpdir);
 
   if (fd >= 0) {
@@ -2066,6 +2072,7 @@ ssize_t SyncFileIO::execute(const IORequest &request) {
     n_bytes = pread(m_fh, m_buf, m_n, m_offset);
   } else {
     ut_ad(request.is_write());
+    WAIT_ALLOW_WRITES();
     n_bytes = pwrite(m_fh, m_buf, m_n, m_offset);
   }
 
@@ -2862,6 +2869,7 @@ static int os_file_fsync_posix(os_file_t file) {
 #ifdef UNIV_HOTBACKUP
     meb_mutex.unlock();
 #endif /* UNIV_HOTBACKUP */
+    WAIT_ALLOW_WRITES();
 
 #if defined(HAVE_FDATASYNC) && defined(HAVE_DECL_FDATASYNC)
     const auto ret = srv_use_fdatasync ? fdatasync(file) : fsync(file);
@@ -3128,7 +3136,9 @@ but reports the error and returns false.
 @param[in]	fail_if_exists	if true, pre-existing directory is treated as
                                 an error.
 @return true if call succeeds, false on error */
+
 bool os_file_create_directory(const char *pathname, bool fail_if_exists) {
+  WAIT_ALLOW_WRITES();
   int rcode = mkdir(pathname, 0770);
 
   if (!(rcode == 0 || (errno == EEXIST && !fail_if_exists))) {
@@ -3186,6 +3196,8 @@ pfs_os_file_t os_file_create_func(const char *name, ulint create_mode,
                                   bool *success) {
   bool on_error_no_exit;
   bool on_error_silent;
+  if (create_mode != OS_FILE_OPEN && create_mode != OS_FILE_OPEN_RAW)
+    WAIT_ALLOW_WRITES();
   pfs_os_file_t file;
 
   *success = false;
@@ -3350,6 +3362,8 @@ pfs_os_file_t os_file_create_simple_no_error_handling_func(const char *name,
   ut_a(!(create_mode & OS_FILE_ON_ERROR_SILENT));
   ut_a(!(create_mode & OS_FILE_ON_ERROR_NO_EXIT));
 
+  if (create_mode != OS_FILE_OPEN && create_mode != OS_FILE_OPEN_RAW)
+    WAIT_ALLOW_WRITES();
   *success = false;
 
   if (create_mode == OS_FILE_OPEN) {
@@ -3363,6 +3377,7 @@ pfs_os_file_t os_file_create_simple_no_error_handling_func(const char *name,
       ut_a(access_type == OS_FILE_READ_WRITE ||
            access_type == OS_FILE_READ_ALLOW_DELETE);
 
+      WAIT_ALLOW_WRITES();
       create_flag = O_RDWR;
     }
 
@@ -3370,6 +3385,7 @@ pfs_os_file_t os_file_create_simple_no_error_handling_func(const char *name,
     create_flag = O_RDONLY;
 
   } else if (create_mode == OS_FILE_CREATE) {
+    WAIT_ALLOW_WRITES();
     create_flag = O_RDWR | O_CREAT | O_EXCL;
 
   } else {
@@ -3400,6 +3416,7 @@ pfs_os_file_t os_file_create_simple_no_error_handling_func(const char *name,
 @param[out]	exist		indicate if file pre-exist
 @return true if success */
 bool os_file_delete_if_exists_func(const char *name, bool *exist) {
+  WAIT_ALLOW_WRITES();
   if (!os_file_can_delete(name)) {
     return (false);
   }
@@ -3428,6 +3445,7 @@ bool os_file_delete_if_exists_func(const char *name, bool *exist) {
 @param[in]	name		file path as a null-terminated string
 @return true if success */
 bool os_file_delete_func(const char *name) {
+  WAIT_ALLOW_WRITES();
   int ret = unlink(name);
 
   if (ret != 0) {
@@ -3457,6 +3475,7 @@ bool os_file_rename_func(const char *oldpath, const char *newpath) {
   /* Old path must exist. */
   ut_ad(os_file_exists(oldpath));
 #endif /* UNIV_DEBUG */
+  WAIT_ALLOW_WRITES();
 
   int ret = rename(oldpath, newpath);
 
@@ -3614,6 +3633,7 @@ size of the file.
 @return true if success */
 static bool os_file_truncate_posix(const char *pathname, pfs_os_file_t file,
                                    os_offset_t size) {
+  WAIT_ALLOW_WRITES();
   int res = ftruncate(file.m_file, size);
   if (res == -1) {
     bool retry;
@@ -3632,6 +3652,7 @@ static bool os_file_truncate_posix(const char *pathname, pfs_os_file_t file,
 @return true if success */
 bool os_file_set_eof(FILE *file) /*!< in: file to be truncated */
 {
+  WAIT_ALLOW_WRITES();
   return (!ftruncate(fileno(file), ftell(file)));
 }
 
@@ -3910,6 +3931,7 @@ Flushes the write buffers of a given file to the disk.
 @param[in]	file		handle to a file
 @return true if success */
 bool os_file_flush_func(os_file_t file) {
+  WAIT_ALLOW_WRITES();
   ++os_n_fsyncs;
 
   BOOL ret = FlushFileBuffers(file);
@@ -5143,6 +5165,8 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
   static meb::Mutex meb_mutex;
 #endif /* UNIV_HOTBACKUP */
 
+  WAIT_ALLOW_WRITES();
+
   ut_ad(type.validate());
 
 #ifdef UNIV_HOTBACKUP
@@ -5182,6 +5206,7 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
                                                 const file::Block *e_block) {
   dberr_t err(DB_ERROR_UNSET);
 
+  WAIT_ALLOW_WRITES();
   ut_ad(type.validate());
   ut_ad(n > 0);
 
@@ -5521,7 +5546,7 @@ bool os_file_set_size_fast(const char *name, pfs_os_file_t pfs_file,
   ut_a(size >= offset);
 
   static bool print_message = true;
-
+  WAIT_ALLOW_WRITES();
   int ret =
       fallocate(pfs_file.m_file, FALLOC_FL_ZERO_RANGE, offset, size - offset);
 
@@ -5551,6 +5576,7 @@ bool os_file_set_size(const char *name, pfs_os_file_t file, os_offset_t offset,
   /* Write up to FSP_EXTENT_SIZE bytes at a time. */
   ulint buf_size = 0;
 
+  WAIT_ALLOW_WRITES();
   if (size <= UNIV_PAGE_SIZE) {
     buf_size = 1;
   } else {
@@ -5656,6 +5682,7 @@ bool os_file_truncate(const char *pathname, pfs_os_file_t file,
   if (size >= size_bytes) {
     return (true);
   }
+  WAIT_ALLOW_WRITES();
 
 #ifdef _WIN32
   return (os_file_truncate_win32(pathname, file, size));

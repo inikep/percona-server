@@ -63,6 +63,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "my_dbug.h"
 
+#ifdef WITH_WSREP
+#include "wsrep.h"
+#include "mysql/service_wsrep.h"
+#endif /* WITH_WSREP */
 /*************************************************************************
 IMPORTANT NOTE: Any operation that generates redo MUST check that there
 is enough space in the redo log before for that operation. This is
@@ -827,6 +831,14 @@ static void row_ins_foreign_report_add_err(
 
   mutex_exit(&dict_foreign_err_mutex);
 }
+#ifdef WITH_WSREP
+dberr_t wsrep_append_foreign_key(trx_t *trx,  
+				 dict_foreign_t*	foreign,
+				 const rec_t*		clust_rec,
+				 dict_index_t*		clust_index,
+				 ibool			referenced,
+				 Wsrep_service_key_type	key_type);
+#endif /* WITH_WSREP */
 
 /** Fill virtual column information in cascade node for the child table.
 @param[in]	trx		current transaction
@@ -1281,6 +1293,14 @@ func_exit:
 
   cascade->state = UPD_NODE_UPDATE_CLUSTERED;
 
+#ifdef WITH_WSREP
+  err = wsrep_append_foreign_key(trx, foreign, clust_rec, clust_index,
+				       FALSE, WSREP_SERVICE_KEY_EXCLUSIVE);
+  if (err != DB_SUCCESS) {
+    ib::warn() << "WSREP: foreign key append failed: " << err;
+  } else
+     wsrep_thd_set_PA_unsafe(trx->mysql_thd);
+#endif
   err = row_update_cascade_for_mysql(thr, cascade, foreign->foreign_table);
 
   /* Release the data dictionary latch for a while, so that we do not
@@ -1346,7 +1366,6 @@ static dberr_t row_ins_set_rec_lock(lock_mode mode, ulint type,
                                            block, rec, index, offsets,
                                            SELECT_ORDINARY, mode, type, thr);
   }
-
   return (err);
 }
 
@@ -1388,6 +1407,9 @@ dberr_t row_ins_check_foreign_constraint(
   mem_heap_t *heap = nullptr;
   ulint offsets_[REC_OFFS_NORMAL_SIZE];
   ulint *offsets = offsets_;
+#ifdef WITH_WSREP
+  upd_node= NULL;
+#endif /* WITH_WSREP */
 
   bool skip_gap_lock;
   MDL_ticket *mdl = nullptr;
@@ -1609,6 +1631,18 @@ dberr_t row_ins_check_foreign_constraint(
 
         if (check_ref) {
           err = DB_SUCCESS;
+#ifdef WITH_WSREP
+	  err = wsrep_append_foreign_key(
+					 thr_get_trx(thr),
+					 foreign,
+					 rec,
+					 check_index,
+					 check_ref,
+					 (upd_node != NULL
+					  && wsrep_protocol_version < 4)
+					 ? WSREP_SERVICE_KEY_SHARED
+					 : WSREP_SERVICE_KEY_REFERENCE);
+#endif /* WITH_WSREP */
 
           goto end_scan;
         } else if (foreign->type != 0) {
@@ -1711,6 +1745,22 @@ do_possible_lock_wait:
     trx_kill_blocking(trx);
 
     lock_wait_suspend_thread(thr);
+#ifdef WITH_WSREP
+    ut_ad(!trx_mutex_own(trx));
+    switch (trx->error_state) {
+    case DB_DEADLOCK:
+      if (wsrep_debug) {
+	ib::info() <<
+	  "WSREP: innodb trx state changed during wait "
+		   << " trx: " << trx->id << " with error_state: "
+		   << trx->error_state << " err: " << err;
+      }
+      err = trx->error_state;
+      break;
+    default:
+      break;
+    }
+#endif /* WITH_WSREP */
 
     if (trx->error_state != DB_SUCCESS) {
       err = trx->error_state;
@@ -3116,8 +3166,24 @@ and return. don't execute actual insert. */
 
   if (!index->table->is_intrinsic()) {
     log_free_check();
+#ifdef WITH_WSREP
+  const bool skip_locking
+    = wsrep_thd_skip_locking(thr_get_trx(thr)->mysql_thd);
+  flags = (index->table->is_temporary() || skip_locking)
+    ? BTR_NO_LOCKING_FLAG : 0;
+#ifdef UNIV_DEBUG
+  if (skip_locking && strcmp(wsrep_get_sr_table_name(),
+                             index->table->name.m_name)) {
+    WSREP_ERROR("Record locking is disabled in this thread, "
+                "but the table being modified is not "
+                "`%s`: `%s`.", wsrep_get_sr_table_name(),
+                index->table->name.m_name);
+    ut_error;
+  }
+#endif /* UNIV_DEBUG */
+#else
     flags = index->table->is_temporary() ? BTR_NO_LOCKING_FLAG : 0;
-
+#endif /* WITH_WSREP */
     /* For intermediate table of copy alter operation,
     skip undo logging and record lock checking for
     insertion operation. */

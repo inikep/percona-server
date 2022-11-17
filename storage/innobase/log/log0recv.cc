@@ -77,6 +77,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #else /* !UNIV_HOTBACKUP */
 #include "../meb/mutex.h"
 #endif /* !UNIV_HOTBACKUP */
+#ifdef WITH_WSREP
+#include "wsrep_sst.h"
+#endif /* WITH_WSREP */
 
 std::list<space_id_t> recv_encr_ts_list;
 
@@ -4058,10 +4061,23 @@ dberr_t recv_recovery_from_checkpoint_start(log_t &log, lsn_t flush_lsn) {
   } else if (log_block_get_first_rec_group(log_buf_block) == 0) {
     /* Again, if it was zero, for any reason, we prefer to fix it
     before starting (we emit warning). */
-
-    ib::warn(ER_IB_RECV_FIRST_REC_GROUP_INVALID, uint(0),
+#ifdef WITH_WSREP
+    /* WSREP TODO: this fails after xtrabackup reload,
+       skipping warning until xtrabackup is fixed
+    */
+    if (!strcmp(wsrep_sst_method, WSREP_SST_XTRABACKUPV2)) {
+      ib::info()
+	<< "xtrabackup SST caused warning: \n"
+	<< "The last block of redo had corrupted first_rec_group and became fixed (0 -> 12)\n"
+	<< "changed the warning to information level message";
+    } else {
+#else
+  ib::warn(ER_IB_RECV_FIRST_REC_GROUP_INVALID, uint(0),
              uint(recovered_lsn % OS_FILE_LOG_BLOCK_SIZE));
-
+#endif /* WITH_WSREP */
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
     log_block_set_first_rec_group(log_buf_block,
                                   recovered_lsn % OS_FILE_LOG_BLOCK_SIZE);
   }
