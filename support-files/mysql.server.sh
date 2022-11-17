@@ -24,6 +24,16 @@
 # Short-Description: start and stop MySQL
 # Description: MySQL is a very fast and reliable SQL database engine.
 ### END INIT INFO
+
+# Prevent OpenSUSE's init scripts from calling systemd, so that
+# both 'bootstrap' and 'start' are handled entirely within this script
+
+SYSTEMD_NO_WRAP=1
+
+# Prevent Debian's init scripts from calling systemctl
+
+SYSTEMCTL_SKIP_REDIRECT=true
+_SYSTEMCTL_SKIP_REDIRECT=true
  
 # If you install MySQL on some other places than @prefix@, then you
 # have to do one of the following things for this script to work:
@@ -315,7 +325,10 @@ case "$mode" in
     # Stop the service and regardless of whether it was
     # running or not, start it again.
     if $0 stop  $other_args; then
-      $0 start $other_args
+      if ! $0 start $other_args; then
+        log_failure_msg "Failed to restart server."
+        exit 1
+      fi
     else
       log_failure_msg "Failed to stop running server, so refusing to try to start."
       exit 1
@@ -365,10 +378,16 @@ case "$mode" in
       fi
     fi
     ;;
+    'bootstrap')
+      # Bootstrap the cluster, start the first node
+      # that initiate the cluster
+      echo $echo_n "Bootstrapping the cluster"
+      $0 start $other_args --wsrep-new-cluster
+      ;;
     *)
       # usage
       basename=`basename "$0"`
-      echo "Usage: $basename  {start|stop|restart|reload|force-reload|status}  [ MySQL server options ]"
+      echo "Usage: $basename  {start|stop|restart|reload|force-reload|status|bootstrap}  [ MySQL server options ]"
       exit 1
     ;;
 esac
