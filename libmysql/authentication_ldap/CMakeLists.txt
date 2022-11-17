@@ -70,6 +70,7 @@ ELSE()
     "Building authentication_ldap_sasl_client WITHOUT Kerberos")
 ENDIF()
 
+MESSAGE(STATUS "SASL_LIBRARY      = ${SASL_LIBRARY}")
 MYSQL_ADD_PLUGIN(authentication_ldap_sasl_client
   auth_ldap_sasl_client.cc
   auth_ldap_sasl_mechanism.cc

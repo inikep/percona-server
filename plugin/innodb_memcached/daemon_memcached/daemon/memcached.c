@@ -2176,8 +2176,6 @@ static void process_bin_sasl_auth(conn *c) {
     int nkey = c->binary_header.request.keylen;
     int vlen = c->binary_header.request.bodylen - nkey;
 
-    assert(vlen >= 0);
-
     if (nkey > MAX_SASL_MECH_LEN) {
       write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINVAL, vlen);
       c->write_and_go = conn_swallow;
@@ -3251,8 +3249,6 @@ static void process_bin_append_prepend(conn *c) {
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
     vlen = c->binary_header.request.bodylen - nkey;
-
-    assert(vlen >= 0);
 
     if (settings.verbose > 1) {
       settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,

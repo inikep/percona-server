@@ -1,0 +1,26 @@
+Codership Oy
+https://www.galeracluster.com/
+<info@codership.com>
+
+DISCLAIMER
+
+THIS SOFTWARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER
+EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+IN NO EVENT SHALL CODERSHIP OY BE HELD LIABLE TO ANY PARTY FOR ANY DAMAGES
+RESULTING DIRECTLY OR INDIRECTLY FROM THE USE OF THIS SOFTWARE.
+
+Trademark Information.
+
+MySQL is a trademark or registered trademark of Oracle and/or its affiliates.
+Other trademarks are the property of their respective owners.
+
+Licensing Information.
+
+Please see file COPYING that came with this distribution
+
+Source code can be found at
+wsrep API:    https://github.com/codership/wsrep-API
+MySQL patch:  https://github.com/codership/mysql-wsrep
+
+Documentation can be found at https://galeracluster.com/library/documentation/

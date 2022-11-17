@@ -253,6 +253,7 @@
 #cmakedefine EDITLINE_HAVE_COMPLETION_INT 1
 
 
+
 /*
  * Libedit
  */
@@ -346,6 +347,10 @@
 /* For default value of --early_plugin_load */
 #cmakedefine DEFAULT_EARLY_PLUGIN_LOAD @DEFAULT_EARLY_PLUGIN_LOAD@
 
+/*
+ * Needed by wsrep
+ */
+#define HAVE_GETIFADDRS 1
 /* For default value of --partial_revokes */
 #define DEFAULT_PARTIAL_REVOKES @DEFAULT_PARTIAL_REVOKES@
 

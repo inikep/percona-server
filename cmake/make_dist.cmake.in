@@ -36,6 +36,7 @@ SET(CMAKE_GENERATOR "@CMAKE_GENERATOR@")
 SET(CMAKE_MAKE_PROGRAM "@CMAKE_MAKE_PROGRAM@")
 SET(CMAKE_SYSTEM_NAME "@CMAKE_SYSTEM_NAME@")
 SET(BUILD_IS_SINGLE_CONFIG "@BUILD_IS_SINGLE_CONFIG@")
+SET(WITH_WSREP "@WITH_WSREP@")
 
 SET(VERSION "@VERSION@")
 
@@ -64,33 +65,63 @@ IF(GIT_EXECUTABLE)
   ENDIF()
 ENDIF()
 
-IF(GIT_EXECUTABLE)
-  MESSAGE(STATUS "Running git archive -o ${PACKAGE_DIR}.tar")
-  EXECUTE_PROCESS(
-    COMMAND "${GIT_EXECUTABLE}" archive --format=tar
-    --prefix=${CPACK_SOURCE_PACKAGE_FILE_NAME}/ -o ${PACKAGE_DIR}.tar HEAD
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    RESULT_VARIABLE RESULT
-  )
-  IF(NOT RESULT EQUAL 0)
-    SET(GIT_EXECUTABLE)
-  ELSE()
-    # Unpack tarball
-    MESSAGE(STATUS "Unpacking tarball")
+IF(WITH_WSREP)
+  IF(GIT_EXECUTABLE)
+    MESSAGE(STATUS "Running git checkout-index")
     EXECUTE_PROCESS(
-      COMMAND ${CMAKE_COMMAND} -E tar xf ${PACKAGE_DIR}.tar
-      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-      RESULT_VARIABLE TAR_RESULT
+      COMMAND "${GIT_EXECUTABLE}" checkout-index --all --prefix=${PACKAGE_DIR}/
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      RESULT_VARIABLE RESULT
+      )
+    IF(NOT RESULT EQUAL 0)
+      SET(GIT_EXECUTABLE)
+    ENDIF()
+    EXECUTE_PROCESS(
+      COMMAND "${GIT_EXECUTABLE}" submodule foreach "${GIT_EXECUTABLE} checkout-index --all --prefix=${PACKAGE_DIR}/$path/"
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      RESULT_VARIABLE RESULT
     )
-    IF(NOT TAR_RESULT EQUAL 0)
+    IF(NOT RESULT EQUAL 0)
+      SET(GIT_EXECUTABLE)
+    ENDIF()
+    EXECUTE_PROCESS(
+      COMMAND "${GIT_EXECUTABLE}" submodule foreach "${GIT_EXECUTABLE} checkout-index --all --prefix=${PACKAGE_DIR}/wsrep-lib/$path/"
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/wsrep-lib
+      RESULT_VARIABLE RESULT
+    )
+    IF(NOT RESULT EQUAL 0)
+      SET(GIT_EXECUTABLE)
+    ENDIF()
+  ENDIF()
+ELSE()
+  IF(GIT_EXECUTABLE)
+    MESSAGE(STATUS "Running git archive -o ${PACKAGE_DIR}.tar")
+    EXECUTE_PROCESS(
+      COMMAND "${GIT_EXECUTABLE}" archive --format=tar
+      --prefix=${CPACK_SOURCE_PACKAGE_FILE_NAME}/ -o ${PACKAGE_DIR}.tar HEAD
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      RESULT_VARIABLE RESULT
+    )
+    IF(NOT RESULT EQUAL 0)
       SET(GIT_EXECUTABLE)
     ELSE()
-      # Remove tarball after unpacking
-      MESSAGE(STATUS "Removing tarball")
+      # Unpack tarball
+      MESSAGE(STATUS "Unpacking tarball")
       EXECUTE_PROCESS(
-        COMMAND ${CMAKE_COMMAND} -E remove ${PACKAGE_DIR}.tar
+        COMMAND ${CMAKE_COMMAND} -E tar xf ${PACKAGE_DIR}.tar
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        RESULT_VARIABLE TAR_RESULT
       )
+      IF(NOT TAR_RESULT EQUAL 0)
+        SET(GIT_EXECUTABLE)
+      ELSE()
+        # Remove tarball after unpacking
+        MESSAGE(STATUS "Removing tarball")
+        EXECUTE_PROCESS(
+          COMMAND ${CMAKE_COMMAND} -E remove ${PACKAGE_DIR}.tar
+          WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+      ENDIF()
     ENDIF()
   ENDIF()
 ENDIF()
@@ -171,10 +202,9 @@ SET($ENV{GZIP} "--best")
 
 IF(GNUTAR)
   SET(PACK_COMMAND 
-  ${GNUTAR} cfz
+  ${GNUTAR} --exclude-vcs --owner=0 --group=0 -czf
   ${CPACK_SOURCE_PACKAGE_FILE_NAME}.tar.gz 
   ${CPACK_SOURCE_PACKAGE_FILE_NAME}
-  --owner=0 --group=0
   )
 ELSE()
   SET(PACK_COMMAND ${CMAKE_COMMAND} -E tar cfz

@@ -31,6 +31,22 @@
 
 #include <sys/types.h>
 
+#ifdef WITH_WSREP
+#ifndef MYSQL_THD
+#ifdef __cplusplus
+class THD;
+#define MYSQL_THD THD *
+#else
+#define MYSQL_THD void *
+#endif
+#endif
+  typedef bool (* wsrep_thd_is_brute_force_fun)(MYSQL_THD, bool);
+  typedef bool(* wsrep_abort_thd_fun)(MYSQL_THD, MYSQL_THD, bool);
+  typedef bool (* wsrep_on_fun)(const MYSQL_THD);
+  void wsrep_thr_lock_init(
+    wsrep_thd_is_brute_force_fun bf_fun, wsrep_abort_thd_fun abort_fun,
+    bool debug, bool convert_LOCK_to_trx, wsrep_on_fun on_fun);
+#endif
 #include "my_inttypes.h"
 #include "my_list.h"
 #include "my_thread_local.h"
@@ -117,6 +133,10 @@ extern enum thr_lock_type thr_upgraded_concurrent_insert_lock;
 
 struct THR_LOCK_INFO {
   my_thread_id thread_id;
+#ifdef WITH_WSREP
+  void *mysql_thd;        // THD pointer
+  bool in_lock_tables; // true, if inside locking session
+#endif
   mysql_cond_t *suspend;
 };
 

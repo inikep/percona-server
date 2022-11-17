@@ -22,6 +22,12 @@
 
 MESSAGE(STATUS "Running cmake version ${CMAKE_VERSION}")
 
+# wsrep:
+# - Use C++11 standard
+# - Do not warn about deprecated-declarations (auto_ptr)
+#SET(CMAKE_CXX_STANDARD 11)
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+
 IF(WIN32)
   # Load policies. This is needed in order to parse the wmic version check.
   CMAKE_MINIMUM_REQUIRED(VERSION 3.5.1)
@@ -740,6 +746,7 @@ ENDIF()
 INCLUDE(CMakePushCheckState)
 
 # Add macros
+INCLUDE(wsrep)
 INCLUDE(add_custom_target)
 INCLUDE(pkg-config)
 INCLUDE(character_sets)
@@ -1349,6 +1356,13 @@ OPTION(WITH_CLIENT_PROTOCOL_TRACING
 OPTION(WITH_TEST_TRACE_PLUGIN
   "Have a built-in test protocol trace plugin in libmysql (requires WITH_CLIENT_PROTOCOL_TRACING option)" OFF)
 
+OPTION(WITH_INNODB_DISALLOW_WRITES "InnoDB freeze writes patch from Google" ${WITH_WSREP})
+IF (WITH_INNODB_DISALLOW_WRITES)
+  MESSAGE(STATUS "INNODB_DISALLOW_WRITES")
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_INNODB_DISALLOW_WRITES")
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWITH_INNODB_DISALLOW_WRITES")
+ENDIF()
+
 # Sanity checks for protocol tracing options
 
 IF(WITH_TEST_TRACE_PLUGIN AND NOT WITH_CLIENT_PROTOCOL_TRACING)
@@ -1881,6 +1895,13 @@ ELSE()
   ENDIF()
 ENDIF()
 
+IF(WITH_WSREP)
+ADD_SUBDIRECTORY(wsrep-lib)
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/wsrep-lib/include)
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/wsrep-lib/wsrep-API/v26)
+LINK_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/wsrep-lib/src)
+LINK_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/wsrep-lib/wsrep-API)
+ENDIF()
 IF(WITH_ICU STREQUAL "bundled")
   IF(IS_ABSOLUTE "${INSTALL_PRIV_LIBDIR}")
     SET(MYSQL_ICU_DATADIR "${INSTALL_PRIV_LIBDIR}"
@@ -2152,7 +2173,10 @@ IF(NOT INSTALL_LAYOUT MATCHES "RPM")
     ${CMAKE_BINARY_DIR}/Docs/INFO_BIN
     DESTINATION ${INSTALL_DOCDIR} COMPONENT Info
     )
-
+  IF (WITH_WSREP)
+    INSTALL(FILES Docs/README-wsrep
+      DESTINATION ${INSTALL_DOCREADMEDIR} COMPONENT Readme)
+  ENDIF()
   # MYSQL_DOCS_LOCATON is used in "make dist",
   # points to the documentation directory
   SET(MYSQL_DOCS_LOCATION "" CACHE PATH
@@ -2167,6 +2191,7 @@ IF(NOT INSTALL_LAYOUT MATCHES "RPM")
     PATTERN "mysql.info" EXCLUDE
     PATTERN "sp-imp-spec.txt" EXCLUDE
     PATTERN "README.build" EXCLUDE
+    PATTERN "README-wsrep" EXCLUDE
   )
 ENDIF()
 

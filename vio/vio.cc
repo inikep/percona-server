@@ -361,6 +361,11 @@ bool vio_reset(Vio *vio, enum enum_vio_type type, my_socket sd,
   /* Preserve perfschema info for this connection */
   new_vio.mysql_socket.m_psi = vio->mysql_socket.m_psi;
 
+#ifdef WITH_WSREP
+  /* Preserve thread_id & signal_mask for this connection */
+  new_vio.thread_id = vio->thread_id;
+  new_vio.signal_mask = vio->signal_mask;
+#endif 
   new_vio.ssl_arg = ssl;
 
   /*

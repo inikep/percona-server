@@ -66,3 +66,20 @@ int compute_md5_hash(char *digest, const char *buf, int len) {
   }
   return retval;
 }
+#ifdef WITH_WSREP
+void *wsrep_md5_init()
+{
+  MD5_CTX *ctx = new MD5_CTX();
+  MD5_Init (ctx);
+  return (void *)ctx;
+}
+void wsrep_md5_update(void *ctx, char* buf, int len)
+{
+  MD5_Update((MD5_CTX*)(ctx), buf, len);
+}
+void wsrep_compute_md5_hash(char *digest, void *ctx)
+{
+  MD5_Final ((unsigned char*)digest, (MD5_CTX*)ctx);
+  delete (MD5_CTX*)ctx;
+}
+#endif
