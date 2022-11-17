@@ -38,6 +38,9 @@ if (POLICY CMP0075)
     cmake_policy(SET CMP0075 NEW)
 endif()
 
+# This is only used by plugins, so we need -fPIC
+STRING_APPEND (CMAKE_C_FLAGS " ${CMAKE_SHARED_LIBRARY_C_FLAGS}")
+
 # if(NOT CMAKE_BUILD_TYPE)
 #     set(CMAKE_BUILD_TYPE Release
 #         CACHE STRING "Set build type to Debug o Release (default Release)" FORCE)
@@ -848,6 +851,7 @@ if (NOT EVENT__DISABLE_OPENSSL)
 #   SSL is configured in cmake/ssl.cmake
 #   find_package(OpenSSL REQUIRED)
 
+    INCLUDE_DIRECTORIES(BEFORE SYSTEM ${SSL_INCLUDE_DIRS})
     set(EVENT__HAVE_OPENSSL 1)
 
     list(APPEND SRC_OPENSSL bufferevent_openssl.c)
