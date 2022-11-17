@@ -34,3 +34,4 @@ usr/share/mysql-@MYSQL_BASE_VERSION@/mysqld_multi.server
 # legal
 usr/share/mysql-@MYSQL_BASE_VERSION@/LICENSE usr/share/doc/mysql-@DEB_PRODUCTNAME@-server/
 usr/share/mysql-@MYSQL_BASE_VERSION@/README usr/share/doc/mysql-@DEB_PRODUCTNAME@-server/
+@DEB_INSTALL_WSREP_SERVER_EXTRAS@

@@ -26,6 +26,12 @@
 %global mysql_vendor Oracle and/or its affiliates
 %global mysqldatadir /var/lib/mysql
 
+# Pass --define 'with_wsrep 1' to build with wsrep
+%{!?with_wsrep: %global with_wsrep 0}
+# Hard code WITH_AUTHENTICATION_CLIENT_PLUGINS to ON. Upstream uses
+# PB2WORKDIR environment variable to turn this on.
+%{?with_wsrep: %global wsrep_option -DWITH_WSREP=1 -DWSREP_VERSION=@WSREP_VERSION@ -DWITH_AUTHENTICATION_CLIENT_PLUGINS:BOOL=ON}
+
 # Pass --define 'with_cluster 1' to build with cluster support
 %{?with_cluster: %global cluster 1}
 
@@ -88,7 +94,11 @@
 # multiarch
 %global multiarchs            ppc %{power64} %{ix86} x86_64 %{sparc}
 
+%if 0%{?with_wsrep}
+%global src_dir               %{src_base}-wsrep-@VERSION_SRC@
+%else
 %global src_dir               %{src_base}-@VERSION_SRC@
+%endif
 
 %if 0%{?without_debuginfo}
 %global _enable_debug_package 0
@@ -110,7 +120,11 @@ Name:           mysql%{?cluster:-cluster}-%{product_suffix}
 Summary:        A very fast and reliable SQL database server
 Group:          Applications/Databases
 Version:        @MYSQL_NO_DASH_VERSION@
+%if 0%{with_wsrep}
+Release:        @WSREP_VERSION@%{?dist}
+%else
 Release:        1@MYSQL_VERSION_EXTRA_DOT@%{?commercial:.1}%{?dist}
+%endif
 License:        Copyright (c) 2000, @MYSQL_COPYRIGHT_YEAR@, %{mysql_vendor}. Under %{?license_type} license as shown in the Description field.
 Source0:        https://cdn.mysql.com/Downloads/MySQL-@MYSQL_BASE_VERSION@/%{src_dir}.tar.gz
 URL:            http://www.mysql.com/
@@ -288,6 +302,13 @@ Requires(post):   /sbin/chkconfig
 Requires(preun):  /sbin/chkconfig
 Requires(preun):  /sbin/service
 %endif
+%if 0%{?with_wsrep}
+# SST script dependencies
+Requires: lsof
+Requires: rsync
+Requires: socat
+Requires: stunnel
+%endif
 
 %description    server
 The MySQL(TM) software delivers a very fast, multi-threaded, multi-user,
@@ -441,6 +462,9 @@ Obsoletes:      mysql-test < %{version}-%{release}
 Obsoletes:      mariadb-test
 Provides:       mysql-test = %{version}-%{release}
 Provides:       mysql-test%{?_isa} = %{version}-%{release}
+%if 0%{?with_wsrep}
+Requires:       perl-XML-Simple
+%endif
 
 %description    test
 This package contains the MySQL regression test suite for MySQL
@@ -805,6 +829,7 @@ mkdir debug
   # Attempt to remove any optimisation flags from the debug build
   optflags=$(echo "%{optflags}" | sed -e 's/-O2 / /' -e 's/-Wp,-D_FORTIFY_SOURCE=2/ /')
   %{cmake3} ../%{src_dir} \
+           %{?wsrep_option:} \
            -DBUILD_CONFIG=mysql_release \
            -DINSTALL_LAYOUT=RPM \
            -DCMAKE_BUILD_TYPE=Debug \
@@ -848,6 +873,7 @@ mkdir release
 (
   cd release
   %{cmake3} ../%{src_dir} \
+           %{?wsrep_option:} \
            -DBUILD_CONFIG=mysql_release \
            -DINSTALL_LAYOUT=RPM \
            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -1108,9 +1134,26 @@ fi
 %attr(755, root, root) %{_libdir}/mysql/private/libprotobuf-lite.so.3.11.4
 %attr(755, root, root) %{_libdir}/mysql/private/libprotobuf.so.3.11.4
 
+%if 0%{?with_wsrep}
+%attr(755, root, root) %{_bindir}/mysqld_bootstrap
+%attr(755, root, root) %{_bindir}/wsrep_recover
+%attr(755, root, root) %{_bindir}/wsrep_sst_clone
+%attr(755, root, root) %{_bindir}/wsrep_sst_common
+%attr(755, root, root) %{_bindir}/wsrep_sst_mysqldump
+%attr(755, root, root) %{_bindir}/wsrep_sst_rsync
+%attr(755, root, root) %{_bindir}/wsrep_sst_xtrabackup
+%attr(755, root, root) %{_bindir}/wsrep_sst_xtrabackup-v2
+%attr(644, root, root) %{_datadir}/mysql-*/wsrep_notify
+%attr(644, root, root) %{_datadir}/mysql-*/wsrep.cnf
+%endif # with_wsrep
+
 %dir %{_libdir}/mysql/plugin
 %attr(755, root, root) %{_libdir}/mysql/plugin/adt_null.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/audit_log.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/auth_pam.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/auth_pam_compat.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/auth_socket.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/authentication_ldap_simple.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/group_replication.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/component_log_sink_syseventlog.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/component_log_sink_json.so
@@ -1122,6 +1165,7 @@ fi
 %attr(755, root, root) %{_libdir}/mysql/plugin/component_reference_cache.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/connection_control.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/ddl_rewriter.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/dialog.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/ha_example.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/ha_mock.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/keyring_file.so
@@ -1195,7 +1239,11 @@ fi
 %attr(755, root, root) %{_sbindir}/mysqld-debug
 %dir %{_libdir}/mysql/plugin/debug
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/adt_null.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/audit_log.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/auth_pam.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/auth_pam_compat.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/auth_socket.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/authentication_ldap_simple.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/group_replication.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/component_log_sink_syseventlog.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/component_log_sink_json.so
@@ -1207,6 +1255,7 @@ fi
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/component_reference_cache.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/connection_control.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/ddl_rewriter.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/dialog.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/ha_example.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/ha_mock.so
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/keyring_file.so
@@ -2198,7 +2247,8 @@ fi
 
 * Mon Nov 16 2009 Joerg Bruehe <joerg.bruehe@sun.com>
 
-- remove erroneous traces of the InnoDB plugin (that is 5.1 only).
+- Fix some problems with the directives around "tcmalloc" (experimental),
+  remove erroneous traces of the InnoDB plugin (that is 5.1 only).
 
 * Tue Oct 06 2009 Magnus Blaudd <mvensson@mysql.com>
 

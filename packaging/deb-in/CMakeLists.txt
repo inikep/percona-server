@@ -127,6 +127,7 @@ usr/lib/mysql/plugin/keyring_aws.so
   IF (WITH_CURL)
     SET (DEB_CMAKE_EXTRAS "${DEB_CMAKE_EXTRAS} -DWITH_CURL=${WITH_CURL}")
   ENDIF()
+
   SET (DEB_REMOVEPATTERN "gpl.in")
   INCLUDE (deb_commercial.cmake)
 
@@ -134,13 +135,64 @@ usr/lib/mysql/plugin/keyring_aws.so
     INCLUDE(deb_meb.cmake)
   ENDIF()
 ELSE()
-  SET (DEB_PRODUCT "${DEB_BASE_PRODUCT}community")
-  SET (DEB_COPYRIGHT_UPSTREAMNAME "MySQL Server ${MYSQL_BASE_VERSION}")
-  SET (DEB_PRODUCTNAME "${DEB_BASE_PRODUCT}community")
-  SET (DEB_PRODUCTNAMEC "${DEB_BASE_PRODUCTC}Community")
-  SET (DEB_NOTPRODUCTNAME "${DEB_BASE_PRODUCT}commercial")
-  SET (DEB_LICENSENAME "GPL")
-  SET (DEB_SERVERVERSION "${DEB_BASE_VERSION}-1")
+  IF (WITH_WSREP)
+    SET (DEB_PRODUCT "${DEB_BASE_PRODUCT}wsrep")
+    SET (DEB_COPYRIGHT_UPSTREAMNAME "MySQL-wsrep Server ${MYSQL_BASE_VERSION}")
+    SET (DEB_PRODUCTNAME "${DEB_BASE_PRODUCT}wsrep")
+    SET (DEB_PRODUCTNAMEC "${DEB_BASE_PRODUCTC}Wsrep")
+    SET (DEB_NOTPRODUCTNAME "${DEB_BASE_PRODUCT}wsrep")
+    SET (DEB_LICENSENAME "GPL")
+    SET (DEB_SERVERVERSION "${DEB_BASE_VERSION}+1")
+
+    # Wsrep SST scripts and files under usr/share.
+    SET (DEB_INSTALL_WSREP_SERVER_CORE_EXTRAS
+"
+usr/bin/mysqld_bootstrap
+usr/bin/wsrep_recover
+usr/bin/wsrep_sst_clone
+usr/bin/wsrep_sst_common
+usr/bin/wsrep_sst_mysqldump
+usr/bin/wsrep_sst_rsync
+usr/bin/wsrep_sst_xtrabackup
+usr/bin/wsrep_sst_xtrabackup-v2
+usr/share/mysql-${MYSQL_BASE_VERSION}/wsrep_notify
+usr/share/mysql-${MYSQL_BASE_VERSION}/README-wsrep
+usr/share/mysql-${MYSQL_BASE_VERSION}/wsrep.cnf
+")
+
+  # Add mysql-wsrep-${MYSQL_BASE_VERSION} meta package
+    SET (DEB_WSREP_CONTROL_EXTRAS
+"
+Package: mysql-${DEB_PRODUCTNAME}-${MYSQL_BASE_VERSION}
+Architecture: any
+Depends: mysql-${DEB_PRODUCTNAME}-server (= \${binary:Version}),
+ mysql-${DEB_PRODUCTNAME}-client (= \${binary:Version}),
+ lsof,
+ rsync,
+ socat,
+ stunnel,
+ pv,
+ \${shlibs:Depends}, \${misc:Depends}
+Description: MySQL-wsrep meta package
+ This package will install all required components and dependencies
+ to run write-set replication enabled cluster.
+")
+
+    # Set SYSTEMD_SERVICE_NAME for mysqld_bootstrap.
+    SET (DEB_CMAKE_EXTRAS "${DEB_CMAKE_EXTRAS} -DSYSTEMD_SERVICE_NAME=mysql")
+    # Hard code WITH_AUTHENTICATION_CLIENT_PLUGINS to ON. Upstream uses
+    # PB2WORKDIR environment variable to turn this on.
+    SET (DEB_CMAKE_EXTRAS "${DEB_CMAKE_EXTRAS} -DWITH_AUTHENTICATION_CLIENT_PLUGINS:BOOL=ON")
+    SET (DEB_WSREP_CONTROL_TEST_DEPS "libxml-simple-perl")
+  ELSE()
+    SET (DEB_PRODUCT "${DEB_BASE_PRODUCT}community")
+    SET (DEB_COPYRIGHT_UPSTREAMNAME "MySQL Server ${MYSQL_BASE_VERSION}")
+    SET (DEB_PRODUCTNAME "${DEB_BASE_PRODUCT}community")
+    SET (DEB_PRODUCTNAMEC "${DEB_BASE_PRODUCTC}Community")
+    SET (DEB_NOTPRODUCTNAME "${DEB_BASE_PRODUCT}commercial")
+    SET (DEB_LICENSENAME "GPL")
+    SET (DEB_SERVERVERSION "${DEB_BASE_VERSION}-1")
+  ENDIF()
   SET (DEB_REMOVEPATTERN "com.in")
 ENDIF()
 

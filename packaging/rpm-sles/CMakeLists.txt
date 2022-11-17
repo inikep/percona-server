@@ -24,5 +24,8 @@ IF(UNIX)
   SET(prefix ${CMAKE_INSTALL_PREFIX})
   SET(spec "mysql.spec")
   CONFIGURE_FILE(${spec}.in ${CMAKE_CURRENT_BINARY_DIR}/${spec} @ONLY)
+  IF (WITH_WSREP)
+    CONFIGURE_FILE(mysql-wsrep.spec.in ${CMAKE_CURRENT_BINARY_DIR}/mysql-wsrep.spec @ONLY)
+  ENDIF()
 ENDIF()
 

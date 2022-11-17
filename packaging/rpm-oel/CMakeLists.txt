@@ -28,6 +28,9 @@ IF(UNIX)
 
   # Left in current directory, to be taken during build
   CONFIGURE_FILE(mysql.spec.in ${CMAKE_CURRENT_BINARY_DIR}/${SPECFILENAME} @ONLY)
+  IF (WITH_WSREP)
+    CONFIGURE_FILE(mysql-wsrep.spec.in ${CMAKE_CURRENT_BINARY_DIR}/mysql-wsrep.spec @ONLY)
+  ENDIF()
 
   FOREACH(fedfile mysql.init)
     CONFIGURE_FILE(${fedfile} ${CMAKE_CURRENT_BINARY_DIR}/${fedfile} COPYONLY)

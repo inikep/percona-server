@@ -294,7 +294,8 @@ Architecture: any
 Depends: mysql-@DEB_PRODUCTNAME@-server (= ${binary:Version}),
  mysql-@DEB_PRODUCTNAME@-client (= ${binary:Version}),
  libmysqlclient-dev, libjson-perl, mecab-ipadic-utf8,
- ${shlibs:Depends}, ${misc:Depends}, @DEB_NDB_CONTROL_TEST_DEPS@
+ ${shlibs:Depends}, ${misc:Depends}, @DEB_NDB_CONTROL_TEST_DEPS@,
+ @DEB_WSREP_CONTROL_TEST_DEPS@
 Breaks: mysql-@DEB_PRODUCTNAME@-server (<< 8.0),
  mysql-community-server-core ( << 8.0.20 ),
  mysql-@DEB_PRODUCTNAME@-client (<< 5.7.14)
@@ -317,3 +318,4 @@ Description: MySQL Test Run MTR - The MySQL testsuite
 @DEB_NDB_CONTROL_DBGSYM@
 @DEB_NDB_CONTROL_EXTRAS@
 @DEB_COMMERCIAL_CONTROL_EXTRAS@
+@DEB_WSREP_CONTROL_EXTRAS@

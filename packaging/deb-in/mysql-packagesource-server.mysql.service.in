@@ -34,10 +34,13 @@ WantedBy=multi-user.target
 [Service]
 User=mysql
 Group=mysql
-Type=notify
+# WSREP note: The service type was changed to exec. This was done to
+# circumvent the problem on Ubuntu/Bionic where the MYSQLD_OPTS env
+# was not passed to ExecStart if the type was notify.
+Type=exec
 PermissionsStartOnly=true
 ExecStartPre=/usr/share/mysql-@MYSQL_BASE_VERSION@/mysql-systemd-start pre
-ExecStart=/usr/sbin/mysqld
+ExecStart=/usr/sbin/mysqld $MYSQLD_OPTS $MYSQLD_RECOVER_START
 TimeoutSec=0
 LimitNOFILE = 10000
 Restart=on-failure

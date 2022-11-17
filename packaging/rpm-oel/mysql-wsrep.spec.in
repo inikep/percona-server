@@ -1,0 +1,36 @@
+# Copyright (C) 2019 Codership Oy <info@codership.com>
+#
+# mysql-wsrep Meta package. This is provided to maintain backwards
+# compatibility with package naming with earlier MySQL-wsrep packages.
+
+%global series 8.0
+%define debug_package %{nil}
+
+Name:     mysql-wsrep-%{series}
+Version:  @MYSQL_NO_DASH_VERSION@
+Release:  @WSREP_VERSION@%{?dist}
+Summary:  MySQL-wsrep convenience meta package
+Packager: Codership Oy <info@codership.com>
+Vendor:   Codership Oy <info@codership.com>
+License:  Copyright (C) 2019 Codership Oy <info@codership.com>
+Requires: mysql-wsrep-common = %{version}-%{release}
+Requires: mysql-wsrep-client = %{version}-%{release}
+Requires: mysql-wsrep-libs = %{version}-%{release}
+Requires: mysql-wsrep-server = %{version}-%{release}
+%if 0%{?rhel} < 8
+Requires: mysql-wsrep-libs-compat = %{version}-%{release}
+%endif
+
+%description
+MySQL-wsrep convenience meta package.
+
+%prep
+%setup -c -T
+
+%build
+
+%install
+
+%files
+
+%changelog

@@ -105,6 +105,8 @@ override_dh_installinit:
 override_dh_install:
 	dh_install --fail-missing \
 		-Xusr/bin/i_mysql_client_test \
+		-Xusr/bin/mysqld_multi \
+		-Xusr/bin/mysqld_safe \
 		-Xmysql.server \
 		-Xmysql.info \
 		-XChangeLog \

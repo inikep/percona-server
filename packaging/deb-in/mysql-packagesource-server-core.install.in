@@ -95,6 +95,12 @@ usr/lib/mysql/plugin/version_token.so
 usr/lib/mysql/plugin/group_replication.so
 usr/lib/mysql/plugin/connection_control.so
 usr/lib/mysql/plugin/component_keyring_file.so
+# wsrep additional plugins
+usr/lib/mysql/plugin/audit_log.so
+usr/lib/mysql/plugin/auth_pam.so
+usr/lib/mysql/plugin/auth_pam_compat.so
+usr/lib/mysql/plugin/dialog.so
+usr/lib/mysql/plugin/authentication_ldap_simple.so
 # support files
 usr/share/mysql-@MYSQL_BASE_VERSION@/dictionary.txt
 usr/share/mysql-@MYSQL_BASE_VERSION@/mysql-log-rotate
@@ -105,3 +111,4 @@ usr/share/mysql-@MYSQL_BASE_VERSION@/messages_to_clients.txt
 # legal
 usr/share/mysql-@MYSQL_BASE_VERSION@/LICENSE usr/share/doc/mysql-@DEB_PRODUCTNAME@-server-core/
 usr/share/mysql-@MYSQL_BASE_VERSION@/README usr/share/doc/mysql-@DEB_PRODUCTNAME@-server-core/
+@DEB_INSTALL_WSREP_SERVER_CORE_EXTRAS@

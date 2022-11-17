@@ -42,8 +42,12 @@ sanity () {
 		echo "MySQL configuration not found at /etc/mysql/my.cnf. Please install one."
 		exit 1
 	fi
+	# wsrep: Read and export recovery position
+	get_recover_pos $1
 }
 
 case $1 in
 	"pre")  sanity $2 ;;
+	# wsrep: Post clears recovery position from systemctl env
+	"post") clear_recover_pos $2;;
 esac

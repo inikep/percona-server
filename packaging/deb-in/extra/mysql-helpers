@@ -205,3 +205,37 @@ verify_server () {
 	return 1
 }
 
+# Wsrep recovery
+get_recover_pos () {
+    local instance=$1
+    wsrep_start_position_opt=""
+    err_log="$(get_mysql_option ${INSTANCE} log-error "/var/log/mysql/error.log")"
+    data_dir="$(get_mysql_option mysqld datadir "/var/lib/mysql")"
+    mysqld ${instance:+--defaults-group-suffix=@$instance} \
+                     --datadir="${data_dir}" --user=mysql --log-error-verbosity=3 --wsrep_recover 2>> "${err_log}"
+
+    local rp="$(grep '\[WSREP\] Recovered position:' "${err_log}" | tail -n 1)"
+    if [ -z "$rp" ]; then
+         local skipped="$(grep WSREP "${err_log}" | grep 'skipping position recovery')"
+         if [ -z "$skipped" ]; then
+             systemd-cat -t mysql -p err echo "WSREP: Failed to recover position:"
+             exit 1
+         else
+             systemd-cat -t mysql -p info echo "WSREP: Position recovery skipped"
+         fi
+    else
+         local start_pos="$(echo $rp | sed 's/.*\[WSREP\]\ Recovered\ position://' \
+              | sed 's/^[ \t]*//')"
+         systemd-cat -t mysql -p info echo "WSREP: Recovered position $start_pos"
+         wsrep_start_position_opt="--wsrep_start_position=$start_pos"
+    fi
+
+    if [ -n "$start_pos" ]; then
+        systemctl set-environment MYSQLD_RECOVER_START${instance:+_$instance}="$wsrep_start_position_opt"
+    fi
+}
+
+clear_recover_pos () {
+    local instance=$1
+    systemctl unset-environment MYSQLD_RECOVER_START${instance:+_$instance}
+}
