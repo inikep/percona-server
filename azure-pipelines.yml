@@ -1,3 +1,31 @@
+trigger:
+  branches:
+    include:
+    - '*'
+  paths:
+    exclude:
+    - doc
+    - build-ps
+    - mysql-test
+    - packaging
+    - policy
+    - scripts
+    - support-files
+
+pr:
+  branches:
+    include:
+    - '*'
+  paths:
+    exclude:
+    - doc
+    - build-ps
+    - mysql-test
+    - packaging
+    - policy
+    - scripts
+    - support-files
+
 jobs:
 - job: BiDiScan
   pool:
