@@ -55,147 +55,11 @@ jobs:
         BuildType: RelWithDebInfo
 
       ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-14 Release INVERTED=ON:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 14
-          BuildType: RelWithDebInfo
-          Inverted: ON
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
         Ubuntu Bionic clang-14 Debug:
           imageName: 'ubuntu-18.04'
           Compiler: clang
           CompilerVer: 14
           BuildType: Debug
-
-      Ubuntu Bionic clang-14 Debug INVERTED=ON:
-        imageName: 'ubuntu-18.04'
-        Compiler: clang
-        CompilerVer: 14
-        BuildType: Debug
-        Inverted: ON
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-13 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 13
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic clang-13 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: clang
-        CompilerVer: 13
-        BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-12 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 12
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-12 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 12
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-11 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 11
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic clang-11 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: clang
-        CompilerVer: 11
-        BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-10 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 10
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-10 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 10
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-9 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 9
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic clang-9 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: clang
-        CompilerVer: 9
-        BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-8 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 8
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-8 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 8
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-7 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 7
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic clang-7 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: clang
-        CompilerVer: 7
-        BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-6 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 6.0
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-6 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 6.0
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic clang-5 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: clang
-          CompilerVer: 5.0
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic clang-5 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: clang
-        CompilerVer: 5.0
-        BuildType: Debug
 
       # gcc-5 and newer compilers
       Ubuntu Bionic gcc-11 Release:
@@ -209,88 +73,6 @@ jobs:
         Compiler: gcc
         CompilerVer: 11
         BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-10 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 10
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-10 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 10
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-9 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 9
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic gcc-9 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: gcc
-        CompilerVer: 9
-        BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-8 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 8
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-8 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 8
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-7 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 7
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic gcc-7 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: gcc
-        CompilerVer: 7
-        BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-6 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 6
-          BuildType: RelWithDebInfo
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-6 Debug:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 6
-          BuildType: Debug
-
-      ${{ if ne(variables['Build.Reason'], 'IndividualCI') }}:
-        Ubuntu Bionic gcc-5 Release:
-          imageName: 'ubuntu-18.04'
-          Compiler: gcc
-          CompilerVer: 5
-          BuildType: RelWithDebInfo
-
-      Ubuntu Bionic gcc-5 Debug:
-        imageName: 'ubuntu-18.04'
-        Compiler: gcc
-        CompilerVer: 5
-        BuildType: Debug
-
 
   steps:
   - script: |
@@ -355,14 +137,6 @@ jobs:
       echo '##vso[task.prependpath]/usr/lib/ccache'
 
     displayName: '*** Install Build Dependencies'
-
-  - task: Cache@2
-    continueOnError: true
-    inputs:
-      key: ccache | $(Agent.OS)-$(Compiler)-$(CompilerMajorVer)-$(BuildType) | $(Build.SourceVersion)
-      restoreKeys: ccache | $(Agent.OS)-$(Compiler)-$(CompilerMajorVer)-$(BuildType)
-      path: $(CCACHE_DIR)
-    displayName: '*** Download/upload ccached files'
 
   - task: Cache@2
     continueOnError: true
@@ -478,13 +252,11 @@ jobs:
   - script: |
       df -Th
       cd bin
-      make -j2 || exit 1
-      ccache --show-stats
+      # make -j2 || exit 1
+      # ccache --show-stats
+      git log --oneline -16
 
       BUILD_TIME=$SECONDS
       echo --- Total time $(($BUILD_TIME + $UPDATE_TIME + $CMAKE_TIME)) seconds. Build time $BUILD_TIME seconds. CMake took $CMAKE_TIME seconds. Packages updated in $UPDATE_TIME seconds.
-      df -Th
-      rm -rf *
-      df -Th
 
     displayName: '*** Compile'
