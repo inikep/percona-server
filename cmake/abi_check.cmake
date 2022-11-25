@@ -29,6 +29,7 @@
 # only be run  on Unix and only if gcc is used. On some Unixes,
 # (Solaris) sed or diff might act differently from GNU, so we run only 
 # on systems we can trust.
+# test  only 1
 IF(APPLE OR CMAKE_SYSTEM_NAME MATCHES "Linux")
  SET(RUN_ABI_CHECK 1)
 ELSE()
