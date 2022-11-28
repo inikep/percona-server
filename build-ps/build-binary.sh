@@ -8,6 +8,7 @@
 # supplied and the current directory is not empty, it will issue an error in
 # order to avoid polluting the current directory after a test run.
 #
+# test only 1 
 
 # Bail out on errors, be strict
 set -ue
