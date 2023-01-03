@@ -27,6 +27,7 @@ on:
 
 jobs:
   BiDiScan:
+    if: github.repository == 'percona/percona-server'
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v3
@@ -52,13 +53,18 @@ jobs:
           #  Compiler: clang
           #  BuildType: Debug
           #  INVERTED: ON
-          - name: clang-14 Release [Ubuntu 20.04 Focal]
+          - name: clang-14 Debug [Ubuntu 20.04 Focal]
             imageName: ubuntu-20.04
             Compiler: clang
             CompilerVer: 14
-            BuildType: RelWithDebInfo
-          - name: clang-14 Release [Ubuntu 22.04 Jammy]
-            imageName: cirun-ubuntu-22.04--${{ github.run_id }}-${{ github.run_number }}
+            BuildType: Debug
+          - name: clang-14 Debug [Ubuntu 22.04 Jammy]
+            imageName: cirun-ubuntu-22.04--${{ github.run_number }}-clang-14-Debug
+            Compiler: clang
+            CompilerVer: 14
+            BuildType: Debug
+          - name: clang-14 RelWithDebInfo [Ubuntu 22.04 Jammy]
+            imageName: cirun-ubuntu-22.04--${{ github.run_number }}-clang-14-RelWithDebInfo
             Compiler: clang
             CompilerVer: 14
             BuildType: RelWithDebInfo
@@ -67,37 +73,25 @@ jobs:
     env:
       UBUNTU_CODE_NAME: focal
       BOOST_VERSION: boost_1_77_0
-      BOOST_DIR: ${{ github.workspace }}/mount/boost
+      BOOST_DIR: ${{ github.workspace }}/boost
       USE_CCACHE: 1
-      CCACHE_DIR: ${{ github.workspace }}/mount/ccache
+      CCACHE_DIR: ${{ github.workspace }}/ccache
       CCACHE_COMPRESS: 1
       CCACHE_COMPRESSLEVEL: 9
       CCACHE_CPP2: 1
       CCACHE_MAXSIZE: 2G
       PARENT_BRANCH: "8.0"
-      MOUNT_POINT: /data
-      MOUNT_DIR: ${{ github.workspace }}/mount
-      REPO_DIR: ${{ github.workspace }}/mount/repo
-      BUILD_DIR: ${{ github.workspace }}/mount/build
+      REPO_DIR: ${{ github.workspace }}/repo
+      BUILD_DIR: ${{ github.workspace }}/build
+      RESULTS_DIR: ${{ github.workspace }}/results
+
     steps:
-    - name: '*** Mount disk'
+    - name: '*** Disk info'
       run: |
         lsblk
         lsblk -f
         df -Th
-        if [[ "${{ matrix.imageName }}" == "ubuntu-20.04" ]]; then
-          mkdir -p $REPO_DIR
-        else
-          sudo mkfs -t xfs /dev/nvme1n1
-          sudo mkdir $MOUNT_POINT
-          sudo mount /dev/nvme1n1 $MOUNT_POINT
-          ln -s $MOUNT_POINT $MOUNT_DIR
-          sudo chown runnerx:runnerx $MOUNT_DIR
-          mkdir -p $REPO_DIR
-          ls -l $MOUNT_DIR
-          ls -l /data
-        fi
-        df -Th
+        mkdir -p $REPO_DIR
 
     - name: '*** Install Build Dependencies'
       run: |
@@ -135,8 +129,8 @@ jobs:
         if [[ "${{ runner.os }}" == "Linux" ]]; then
           sudo -E apt-add-repository -y "ppa:ubuntu-toolchain-r/test"
           sudo -E apt-get -yq update >> ~/apt-get-update.log 2>&1
-          PACKAGES_TO_INSTALL="g++ unzip ca-certificates pkg-config dpkg-dev make cmake cmake-curses-gui ccache bison"
-          PACKAGES_LIBS="libjson-perl libudev-dev libaio-dev libmecab-dev libnuma-dev liblzma-dev libssl-dev libreadline-dev libpam-dev libcurl4-openssl-dev libldap2-dev libkrb5-dev libsasl2-dev libsasl2-modules-gssapi-mit"
+          PACKAGES_TO_INSTALL="g++ unzip zstd ca-certificates pkg-config dpkg-dev make cmake cmake-curses-gui ccache bison perl gawk"
+          PACKAGES_LIBS="libxml-simple-perl libjson-perl libudev-dev libaio-dev libmecab-dev libnuma-dev liblzma-dev libssl-dev libreadline-dev libpam-dev libcurl4-openssl-dev libldap2-dev libkrb5-dev libsasl2-dev libsasl2-modules-gssapi-mit"
           PACKAGES_LIBS_INVERTED="libevent-dev libreadline-dev liblz4-dev protobuf-compiler libprotobuf-dev libprotoc-dev libicu-dev"
           sudo -E apt-get -yq --no-install-suggests --no-install-recommends --allow-unauthenticated install $PACKAGES $PACKAGES_TO_INSTALL $PACKAGES_LIBS || exit 1;
           if [[ "${{ env.INVERTED }}" != "ON" ]]; then
@@ -179,10 +173,10 @@ jobs:
       uses: actions/checkout@v3
       with:
         fetch-depth: 32
-        path: mount/repo
+        path: repo
     - name: '*** Update git submodules'
       run: |
-        ls -l $MOUNT_POINT
+        ls -l $GITHUB_WORKSPACE
         ls -l $REPO_DIR
         cd $REPO_DIR
         df -Th
@@ -280,7 +274,20 @@ jobs:
 
         echo --- CMAKE_OPT=\"$CMAKE_OPT\"
         echo --- COMPILE_OPT=\"${COMPILE_OPT[@]}\"
-        mkdir $BUILD_DIR; cd $BUILD_DIR
+
+        if [[ "${{ matrix.imageName }}" == "ubuntu-20.04" ]]; then
+          mkdir $BUILD_DIR
+        else
+          sudo mkdir /build
+          sudo chown runnerx:runnerx /build
+          ln -s /build $BUILD_DIR
+          BUILD_DIR=/build
+          echo "BUILD_DIR=$BUILD_DIR" >> $GITHUB_ENV
+        fi
+
+        cd $BUILD_DIR
+        ls -l
+
         cmake $REPO_DIR $CMAKE_OPT "${COMPILE_OPT[@]}" || exit 1
         rm -f ${{ env.BOOST_DIR }}/${{ env.BOOST_VERSION }}.tar.gz
 
@@ -291,7 +298,7 @@ jobs:
         echo "CMAKE_TIME=$CMAKE_TIME" >> $GITHUB_ENV
     - name: '*** Compile'
       run: |
-        ls -l $MOUNT_POINT
+        ls -l $GITHUB_WORKSPACE
         ls -l $REPO_DIR
         ls -l $BUILD_DIR
         df -Th
@@ -304,16 +311,53 @@ jobs:
         df -Th
     - name: '*** Run MTR'
       run: |
-        ls -l $MOUNT_POINT
+        ls -l $GITHUB_WORKSPACE
         ls -l $REPO_DIR
         ls -l $BUILD_DIR
         cd $BUILD_DIR
+
+        if [[ "${{ matrix.imageName }}" == "ubuntu-20.04" ]]; then
+          MTR_TESTS=1st
+        else
+          MTR_TESTS=--suite=main
+        fi
+
         NPROC=`nproc --all`
         echo "Start testing with $NPROC threads"
-        mysql-test/mysql-test-run.pl 1st --parallel=$NPROC --junit-output=result.xml --mysqld-env=LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libeatmydata.so --force --max-test-fail=0 --retry-failure=0 --debug-server || echo Ignore mysql_test_run.pl errorcode
+        mkdir -p $RESULTS_DIR
+        RESULT_XML=results-${{ github.run_number }}-$IMAGE_NAME-${{ matrix.Compiler }}-${{ matrix.CompilerVer }}-${{ matrix.BuildType }}.xml
+        echo "RESULT_XML=$RESULT_XML" >> $GITHUB_ENV
+
+        mysql-test/mysql-test-run.pl $MTR_TESTS --parallel=$NPROC --junit-output=$RESULTS_DIR/$RESULT_XML --junit-package=$IMAGE_NAME.${{ matrix.Compiler }}.$REAL_COMPILER_VER.${{ matrix.BuildType }} --mysqld-env=LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libeatmydata.so --force --max-test-fail=0 --retry-failure=0 --debug-server || echo Ignore mysql_test_run.pl errorcode
         echo "Finished testing with $NPROC threads"
-    - name: 'Upload Artifact'
+        cat $RESULTS_DIR/$RESULT_XML | tr '&' '_' >$RESULTS_DIR/${RESULT_XML}_conv
+        mv $RESULTS_DIR/${RESULT_XML}_conv $RESULTS_DIR/${RESULT_XML}
+
+    - name: '*** Upload Artifact'
       uses: actions/upload-artifact@v3
       with:
-        name: MTR results
-        path: $REPO_DIR/result.xml
+        name: XML results
+        path: ${{ env.RESULTS_DIR }}/${{ env.RESULT_XML }}
+
+  processResults:
+    runs-on: ubuntu-latest
+    needs: compileServer
+    if: success() || failure()
+    steps:
+    - name: '*** Download artifacts'
+      uses: actions/download-artifact@v3
+      with:
+        path: ${{ github.workspace }}/results
+
+    - name: '*** Merge results'
+      run: |
+        sudo apt -yq --no-install-suggests --no-install-recommends --allow-unauthenticated install npm
+        sudo npm install -g junit-viewer
+        ls -l results/
+        junit-viewer --results=results/ --save=results/results.html
+
+    - name: '*** Upload Artifact'
+      uses: actions/upload-artifact@v3
+      with:
+        name: results.html
+        path: ${{ github.workspace }}/results/results.html
