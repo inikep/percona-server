@@ -26,6 +26,8 @@ SET PERSIST group_replication_auto_evict_timeout = @@GLOBAL.group_replication_au
 SET PERSIST group_replication_auto_increment_increment = @@GLOBAL.group_replication_auto_increment_increment;
 SET PERSIST group_replication_autorejoin_tries = @@GLOBAL.group_replication_autorejoin_tries;
 SET PERSIST group_replication_bootstrap_group = @@GLOBAL.group_replication_bootstrap_group;
+SET PERSIST group_replication_certification_loop_chunk_size = @@GLOBAL.group_replication_certification_loop_chunk_size;
+SET PERSIST group_replication_certification_loop_sleep_time = @@GLOBAL.group_replication_certification_loop_sleep_time;
 SET PERSIST group_replication_clone_threshold = @@GLOBAL.group_replication_clone_threshold;
 SET PERSIST group_replication_communication_debug_options = @@GLOBAL.group_replication_communication_debug_options;
 SET PERSIST group_replication_communication_max_message_size = @@GLOBAL.group_replication_communication_max_message_size;
@@ -106,6 +108,8 @@ RESET PERSIST group_replication_auto_evict_timeout;
 RESET PERSIST group_replication_auto_increment_increment;
 RESET PERSIST group_replication_autorejoin_tries;
 RESET PERSIST group_replication_bootstrap_group;
+RESET PERSIST group_replication_certification_loop_chunk_size;
+RESET PERSIST group_replication_certification_loop_sleep_time;
 RESET PERSIST group_replication_clone_threshold;
 RESET PERSIST group_replication_communication_debug_options;
 RESET PERSIST group_replication_communication_max_message_size;

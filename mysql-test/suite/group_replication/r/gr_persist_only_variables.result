@@ -26,6 +26,8 @@ SET PERSIST_ONLY group_replication_auto_evict_timeout = @@GLOBAL.group_replicati
 SET PERSIST_ONLY group_replication_auto_increment_increment = @@GLOBAL.group_replication_auto_increment_increment;
 SET PERSIST_ONLY group_replication_autorejoin_tries = @@GLOBAL.group_replication_autorejoin_tries;
 SET PERSIST_ONLY group_replication_bootstrap_group = @@GLOBAL.group_replication_bootstrap_group;
+SET PERSIST_ONLY group_replication_certification_loop_chunk_size = @@GLOBAL.group_replication_certification_loop_chunk_size;
+SET PERSIST_ONLY group_replication_certification_loop_sleep_time = @@GLOBAL.group_replication_certification_loop_sleep_time;
 SET PERSIST_ONLY group_replication_clone_threshold = @@GLOBAL.group_replication_clone_threshold;
 SET PERSIST_ONLY group_replication_communication_debug_options = @@GLOBAL.group_replication_communication_debug_options;
 SET PERSIST_ONLY group_replication_communication_max_message_size = @@GLOBAL.group_replication_communication_max_message_size;
@@ -86,6 +88,7 @@ SET PERSIST_ONLY group_replication_use_pqc_sign = @@GLOBAL.group_replication_use
 SET PERSIST_ONLY group_replication_view_change_uuid = @@GLOBAL.group_replication_view_change_uuid;
 
 include/assert.inc ['Expect 62 persisted variables.']
+include/assert.inc ['Expect 62 persisted variables.']
 
 ############################################################
 # 2. Restart server, it must bootstrap the group and preserve
@@ -106,6 +109,8 @@ RESET PERSIST IF EXISTS group_replication_auto_evict_timeout;
 RESET PERSIST IF EXISTS group_replication_auto_increment_increment;
 RESET PERSIST IF EXISTS group_replication_autorejoin_tries;
 RESET PERSIST IF EXISTS group_replication_bootstrap_group;
+RESET PERSIST IF EXISTS group_replication_certification_loop_chunk_size;
+RESET PERSIST IF EXISTS group_replication_certification_loop_sleep_time;
 RESET PERSIST IF EXISTS group_replication_clone_threshold;
 RESET PERSIST IF EXISTS group_replication_communication_debug_options;
 RESET PERSIST IF EXISTS group_replication_communication_max_message_size;
