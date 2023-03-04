@@ -51,7 +51,7 @@
 #include "my_bit.h"
 #include "my_stacktrace.h"
 #include "my_sys.h"
-#include "sql/json_dom.h"
+#include "sql-common/json_dom.h"
 #include "sql/sql_audit.h"
 #include "sql/sql_class.h"
 #include "sql/sql_lex.h"
@@ -6951,7 +6951,7 @@ int ha_rocksdb::rdb_error_to_mysql(const rocksdb::Status &s,
 
 /* MyRocks supports only the following collations for indexed columns */
 static const std::set<const my_core::CHARSET_INFO *> RDB_INDEX_COLLATIONS = {
-    &my_charset_bin, &my_charset_utf8_bin, &my_charset_latin1_bin};
+    &my_charset_bin, &my_charset_utf8mb3_bin, &my_charset_latin1_bin};
 
 static bool rdb_is_index_collation_supported(
     const my_core::Field *const field) {
@@ -7142,7 +7142,7 @@ int ha_rocksdb::create_cfs(
             if (collation_err != "") {
               collation_err += ", ";
             }
-            collation_err += coll->name;
+            collation_err += coll->m_coll_name;
           }
 
           if (rocksdb_error_on_suboptimal_collation) {
@@ -8379,7 +8379,7 @@ int ha_rocksdb::index_read_map_impl(uchar *const buf, const uchar *const key,
   DBUG_ENTER_FUNC();
 
   DBUG_EXECUTE_IF(
-      "myrocks_busy_loop_on_row_read", int debug_i = 0;
+      "myrocks_busy_loop_on_row_read", volatile int debug_i = 0;
       while (1) { debug_i++; });
 
   int rc = 0;
@@ -12200,7 +12200,6 @@ static int read_stats_from_ssts(
     }
   }
 
-  int num_sst = 0;
   for (const auto &it : props) {
     std::vector<Rdb_index_stats> sst_stats;
     Rdb_tbl_prop_coll::read_stats_from_tbl_props(it.second, &sst_stats);
@@ -12230,7 +12229,6 @@ static int read_stats_from_ssts(
       (*stats)[it1.m_gl_index_id].merge(
           it1, true, it_index->second->max_storage_fmt_length());
     }
-    num_sst++;
   }
 
   DBUG_RETURN(HA_EXIT_SUCCESS);
