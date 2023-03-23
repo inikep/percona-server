@@ -2,12 +2,12 @@ CREATE TABLE t1 (id INT primary key, value varchar(50), value2 varbinary(50), va
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 ALTER TABLE t1 ADD INDEX (value);
-ERROR HY000: Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 DROP TABLE t1;
 CREATE TABLE t1 (id INT primary key, value varchar(50), value2 varbinary(50), value3 text, index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 CREATE TABLE t1 (id INT primary key, value varchar(50), value2 varbinary(50), value3 text, index(value3(50))) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.t1.value3 Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t1.value3 Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_check=0;
 CREATE TABLE t1 (id INT primary key, value varchar(50), value2 varbinary(50), value3 text, index(value3(50))) engine=rocksdb charset utf8;
 Warnings:
@@ -24,11 +24,11 @@ DROP TABLE t1;
 CREATE TABLE t1 (id varchar(20), value varchar(50), value2 varchar(50), value3 text, primary key (id), index(value, value2)) engine=rocksdb charset utf8 collate utf8_bin;
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
-Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
+Warning	3778	'utf8mb3_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 DROP TABLE t1;
 CREATE TABLE t1 (id varchar(20) collate latin1_bin, value varchar(50) collate utf8_bin, value2 varchar(50) collate latin1_bin, value3 text, primary key (id), index(value, value2)) engine=rocksdb;
 Warnings:
-Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
+Warning	3778	'utf8mb3_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 DROP TABLE t1;
 SET GLOBAL rocksdb_strict_collation_exceptions=t1;
 CREATE TABLE t1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
@@ -36,21 +36,21 @@ Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t1;
 CREATE TABLE t2 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.t2.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t2.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions="t.*";
 CREATE TABLE t123 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t123;
 CREATE TABLE s123 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.s123.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.s123.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions=".t.*";
 CREATE TABLE xt123 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE xt123;
 CREATE TABLE t123 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.t123.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t123.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions="s.*,t.*";
 CREATE TABLE s1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
@@ -61,7 +61,7 @@ Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t1;
 CREATE TABLE u1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions=",s.*,t.*";
 CREATE TABLE s1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
@@ -72,7 +72,7 @@ Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t1;
 CREATE TABLE u1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions="s.*,,t.*";
 CREATE TABLE s1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
@@ -83,7 +83,7 @@ Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t1;
 CREATE TABLE u1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions="s.*,t.*,";
 CREATE TABLE s1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
@@ -94,7 +94,7 @@ Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t1;
 CREATE TABLE u1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions=",,,,,,,,s.*,,,,,,,,t.*,,,,,,,,";
 CREATE TABLE s1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
 Warnings:
@@ -105,16 +105,16 @@ Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 DROP TABLE t1;
 CREATE TABLE u1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb charset utf8;
-ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.u1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 SET GLOBAL rocksdb_strict_collation_exceptions='t1';
 CREATE TABLE t1 (id INT primary key, value varchar(50), index(value)) engine=rocksdb;
 ALTER TABLE t1 AUTO_INCREMENT=1;
 DROP TABLE t1;
 CREATE TABLE t2 (id INT primary key, value varchar(50), index(value)) engine=rocksdb;
-ERROR HY000: Unsupported collation on string indexed column test.t2.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t2.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 CREATE TABLE t2 (id INT primary key, value varchar(50)) engine=rocksdb;
 ALTER TABLE t2 ADD INDEX(value);
-ERROR HY000: Unsupported collation on string indexed column test.t2.value Use binary collation (binary, latin1_bin, utf8_bin).
+ERROR HY000: Unsupported collation on string indexed column test.t2.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 DROP TABLE t2;
 SET GLOBAL rocksdb_strict_collation_exceptions=null;
 # restart: --rocksdb_error_on_suboptimal_collation=0
@@ -122,14 +122,14 @@ SET GLOBAL rocksdb_strict_collation_check=1;
 CREATE TABLE t1 (id INT primary key, value varchar(50), value2 varbinary(50), value3 text, index(value)) engine=rocksdb charset utf8;
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
-Warning	1210	Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8_bin).
+Warning	1210	Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 DROP TABLE t1;
 CREATE TABLE t1 (id INT primary key, value varchar(50), value2 varbinary(50), value3 text) engine=rocksdb charset utf8;
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 ALTER TABLE t1 ADD INDEX (value);
 Warnings:
-Warning	1210	Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8_bin).
+Warning	1210	Unsupported collation on string indexed column test.t1.value Use binary collation (binary, latin1_bin, utf8mb3_bin).
 DROP TABLE t1;
 CREATE TABLE t1 (id varchar(20), value varchar(50), value2 varchar(50), value3 text, primary key (id), index(value, value2)) engine=rocksdb charset latin1 collate latin1_bin;
 ALTER TABLE t1 collate=latin1_general_ci;
