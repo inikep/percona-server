@@ -39,7 +39,7 @@ constexpr unsigned int ZSTD_INSTRUMENTED_BELOW_VERSION = 10505;
 // Use contiguous values.
 enum type {
   /* ZSTD compression. */
-  ZSTD = 0,
+  ALGORITHM_ZSTD = 0,
 
   /* No compression. */
   NONE = 255,
@@ -48,7 +48,7 @@ enum type {
 template <class T>
 bool type_is_valid(T t) {
   switch (t) {
-    case ZSTD:
+    case ALGORITHM_ZSTD:
       return true;
     case NONE:
       return true;
