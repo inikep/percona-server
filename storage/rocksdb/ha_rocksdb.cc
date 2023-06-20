@@ -6551,9 +6551,7 @@ static bool rocksdb_get_table_statistics(
     const dd::Properties & /*ts_se_private_data*/,
     const dd::Properties & /*tbl_se_private_data*/, uint /*stat_flags*/,
     ha_statistics *stats) {
-  std::string fullname = db_name;
-  fullname.append(".");
-  fullname.append(table_name);
+  std::string fullname = get_full_tablename(db_name, table_name);
 
   // We are called from within metadata lock MDL_EXPLICIT, so it should be
   // safe to access Rdb_tbl_def here
