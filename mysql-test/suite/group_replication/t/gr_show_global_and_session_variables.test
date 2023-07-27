@@ -30,7 +30,7 @@
 --source include/start_and_bootstrap_group_replication.inc
 --source include/stop_group_replication.inc
 
---let $gr_var_count= 66
+--let $gr_var_count= 68
 --echo
 --echo # Test#1: Basic check that there are $gr_var_count GR variables.
 
@@ -1059,4 +1059,3 @@ SET GLOBAL group_replication_recovery_tls_ciphersuites= "";
 
 
 --source include/group_replication_end.inc
-
