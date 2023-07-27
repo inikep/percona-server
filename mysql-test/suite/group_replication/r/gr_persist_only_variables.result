@@ -86,6 +86,8 @@ SET PERSIST_ONLY group_replication_transaction_size_limit = @@GLOBAL.group_repli
 SET PERSIST_ONLY group_replication_unreachable_majority_timeout = @@GLOBAL.group_replication_unreachable_majority_timeout;
 SET PERSIST_ONLY group_replication_use_pqc_sign = @@GLOBAL.group_replication_use_pqc_sign;
 SET PERSIST_ONLY group_replication_view_change_uuid = @@GLOBAL.group_replication_view_change_uuid;
+SET PERSIST_ONLY group_replication_xcom_ssl_accept_retries = @@GLOBAL.group_replication_xcom_ssl_accept_retries;
+SET PERSIST_ONLY group_replication_xcom_ssl_socket_timeout = @@GLOBAL.group_replication_xcom_ssl_socket_timeout;
 
 include/assert.inc ['Expect 62 persisted variables.']
 include/assert.inc ['Expect 62 persisted variables.']
@@ -169,6 +171,8 @@ RESET PERSIST IF EXISTS group_replication_transaction_size_limit;
 RESET PERSIST IF EXISTS group_replication_unreachable_majority_timeout;
 RESET PERSIST IF EXISTS group_replication_use_pqc_sign;
 RESET PERSIST IF EXISTS group_replication_view_change_uuid;
+RESET PERSIST IF EXISTS group_replication_xcom_ssl_accept_retries;
+RESET PERSIST IF EXISTS group_replication_xcom_ssl_socket_timeout;
 
 include/assert.inc ['Expect 0 persisted variables.']
 
