@@ -508,7 +508,6 @@ install_deps() {
         fi
         if [ "x$RHEL" = "x9" ]; then
             yum -y install libtirpc-devel
-            yum -y install gflags-devel
             yum -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-c++ gcc-toolset-12-binutils gcc-toolset-12-annobin-annocheck gcc-toolset-12-annobin-plugin-gcc
             if [ x"$ARCH" = "xx86_64" ]; then
                 pushd /opt/rh/gcc-toolset-12/root/usr/lib/gcc/x86_64-redhat-linux/12/plugin/
