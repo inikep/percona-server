@@ -352,8 +352,9 @@ enable_zenfs() {
         git clone --recursive https://github.com/percona-ysorokin/rocksdb.git -b percona_wdc $WORKDIR/TARGET/rocksdb-source
     elif [[ $mode == "debian" ]]; then
         mkdir builddir
-        rm -rf debian
-        mv build-ps/debian-zenfs debian
+        curl https://raw.githubusercontent.com/percona/percona-server/8.0/build-ps/debian/rules_zenfs --output debian/rules_zenfs
+        echo "usr/bin/zenfs" >> debian/percona-server-rocksdb.install
+        mv debian/rules_zenfs debian/rules
 
         sed -i "s:@@PERCONA_VERSION_EXTRA@@:${MYSQL_VERSION_EXTRA#-}:g" debian/rules
         sed -i "s:@@REVISION@@:${REVISION}:g" debian/rules
@@ -890,12 +891,7 @@ build_deb(){
     dpkg-source -x ${DSC}
 
     cd ${DIRNAME}
-
     dch -b -m -D "$DEBIAN_VERSION" --force-distribution -v "${VERSION}-${RELEASE}-${DEB_RELEASE}.${DEBIAN_VERSION}" 'Update distribution'
-
-    if [[ ${WITH_ZENFS} == "1" ]]; then
-        enable_zenfs debian
-    fi
 
     if [ ${DEBIAN_VERSION} != trusty -a ${DEBIAN_VERSION} != xenial -a ${DEBIAN_VERSION} != jessie -a ${DEBIAN_VERSION} != stretch -a ${DEBIAN_VERSION} != artful -a ${DEBIAN_VERSION} != bionic -a ${DEBIAN_VERSION} != focal -a "${DEBIAN_VERSION}" != disco -a "${DEBIAN_VERSION}" != buster -a "${DEBIAN_VERSION}" != hirsute -a "${DEBIAN_VERSION}" != bullseye -a "${DEBIAN_VERSION}" != jammy -a "${DEBIAN_VERSION}" != bookworm ]; then
         gcc47=$(which gcc-4.7 2>/dev/null || true)
@@ -908,6 +904,10 @@ build_deb(){
             export USE_THIS_GCC_VERSION="-4.8"
             export CXX=g++-4.8
         fi
+    fi
+
+    if [[ ${WITH_ZENFS} == "1" ]]; then
+        enable_zenfs debian
     fi
 
     if [ ${DEBIAN_VERSION} = "xenial" ]; then
