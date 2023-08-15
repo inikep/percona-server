@@ -163,6 +163,8 @@ endif
 
 	touch $@
 
+	cd $(builddir); \
+	mkdir storage/rocksdb/rocksdb/plugin/; ln -s $(CURDIR)/storage/rocksdb/rocksdb_plugins/zenfs/ $(CURDIR)/storage/rocksdb/rocksdb/plugin/; \
 override_dh_auto_install:
 	@echo "RULES.$@"
 
