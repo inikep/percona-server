@@ -16,7 +16,6 @@ Usage: $0 [OPTIONS]
         --build_deb                 If it is 1 deb will be built
         --build_tarball             If it is 1 tarball will be built
         --with_ssl                  If it is 1 tarball will also include ssl libs
-        --with_zenfs                If it is 1 tarball and packages will also include zenfs
         --install_deps              Install build dependencies(root previlages are required)
         --branch                    Branch for build
         --repo                      Repo for build
@@ -58,7 +57,6 @@ parse_arguments() {
             --get_sources=*) SOURCE="$val" ;;
             --build_tarball=*) TARBALL="$val" ;;
             --with_ssl=*) WITH_SSL="$val" ;;
-            --with_zenfs=*) WITH_ZENFS="$val" ;;
             --branch=*) BRANCH="$val" ;;
             --repo=*) REPO="$val" ;;
             --install_deps=*) INSTALL="$val" ;;
@@ -330,37 +328,8 @@ get_sources(){
     mkdir $CURDIR/source_tarball
     cp ${PSDIR}.tar.gz $WORKDIR/source_tarball
     cp ${PSDIR}.tar.gz $CURDIR/source_tarball
-    cp percona-server-8.0.properties $WORKDIR/source_tarball
-    cp percona-server-8.0.properties $CURDIR/source_tarball
     cd $CURDIR
     rm -rf percona-server
-    return
-}
-
-enable_zenfs() {
-    local mode=$1
-
-    cp $CURDIR/source_tarball/percona-server-8.0.properties $WORKDIR
-    source $WORKDIR/percona-server-8.0.properties
-
-    rm -rf storage/rocksdb/rocksdb_plugins/zenfs
-    git clone https://github.com/westerndigitalcorporation/zenfs.git storage/rocksdb/rocksdb_plugins/zenfs
-    if [[ $mode == "tarball" ]]; then
-        rm build-ps/build-binary.sh
-        curl https://raw.githubusercontent.com/percona/percona-server/8.0/build-ps/build-binary.sh --output build-ps/build-binary.sh
-        chmod +x build-ps/build-binary.sh
-        git clone --recursive https://github.com/percona-ysorokin/rocksdb.git -b percona_wdc $WORKDIR/TARGET/rocksdb-source
-    elif [[ $mode == "debian" ]]; then
-        mkdir builddir
-        curl https://raw.githubusercontent.com/percona/percona-server/8.0/build-ps/debian/rules_zenfs --output debian/rules_zenfs
-        echo "usr/bin/zenfs" >> debian/percona-server-rocksdb.install
-        mv debian/rules_zenfs debian/rules
-
-        sed -i "s:@@PERCONA_VERSION_EXTRA@@:${MYSQL_VERSION_EXTRA#-}:g" debian/rules
-        sed -i "s:@@REVISION@@:${REVISION}:g" debian/rules
-        sed -i "s:@@TOKUDB_BACKUP_VERSION@@:${TOKUDB_VERSION}:g" debian/rules
-        git clone --recursive https://github.com/percona-ysorokin/rocksdb.git -b percona_wdc builddir/rocksdb-source
-    fi
     return
 }
 
@@ -557,9 +526,6 @@ install_deps() {
             apt-get -y install libzstd-dev
         else
             apt-get -y install libzstd1-dev
-        fi
-        if [ x${DIST} = xhirsute ]; then
-            apt-get -y install libzbd-dev clang-12 pkg-config make libgflags-dev nvme-cli util-linux fio zbd-utils
         fi
         apt-get install -y libsasl2-dev libsasl2-modules-gssapi-mit libkrb5-dev
     fi
@@ -906,10 +872,6 @@ build_deb(){
         fi
     fi
 
-    if [[ ${WITH_ZENFS} == "1" ]]; then
-        enable_zenfs debian
-    fi
-
     if [ ${DEBIAN_VERSION} = "xenial" ]; then
         sed -i 's/export CFLAGS=/export CFLAGS=-Wno-error=date-time /' debian/rules
         sed -i 's/export CXXFLAGS=/export CXXFLAGS=-Wno-error=date-time /' debian/rules
@@ -938,7 +900,6 @@ build_tarball(){
         echo "Binary tarball will not be created"
         return;
     fi
-
     get_tar "source_tarball"
     cd $WORKDIR
     TARFILE=$(basename $(find . -name 'percona-server-*.tar.gz' | sort | tail -n1))
@@ -1003,10 +964,6 @@ build_tarball(){
         if [[ "${DEBUG}" == 1 ]]; then
             CMAKE_OPTS="-DWITH_ROCKSDB=1" bash -xe ./build-ps/build-binary.sh --debug --with-mecab="${MECAB_INSTALL_DIR}/usr" --with-jemalloc=../jemalloc/ ../TARGET
             DIRNAME="tarball"
-        elif [[ ${WITH_ZENFS} == 1 ]]; then
-            enable_zenfs tarball
-            CMAKE_OPTS="-DMINIMAL_RELWITHDEBINFO=OFF -DWITH_ROCKSDB=1" bash -xe ./build-ps/build-binary.sh --with-zenfs --with-mecab="${MECAB_INSTALL_DIR}/usr" --with-jemalloc=../jemalloc/ ../TARGET
-            DIRNAME="tarball"
         else
             CMAKE_OPTS="-DMINIMAL_RELWITHDEBINFO=OFF -DWITH_ROCKSDB=1" bash -xe ./build-ps/build-binary.sh --with-mecab="${MECAB_INSTALL_DIR}/usr" --with-jemalloc=../jemalloc/ ../TARGET
             DIRNAME="tarball"
@@ -1031,7 +988,6 @@ DEB=0
 SOURCE=0
 TARBALL=0
 WITH_SSL=0
-WITH_ZENFS=0
 OS_NAME=
 ARCH=
 OS=
