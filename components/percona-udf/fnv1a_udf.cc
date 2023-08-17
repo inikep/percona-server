@@ -1,4 +1,4 @@
-/* This file implements a 64-bit FNV-1 hash UDF (user-defined function) for
+/* This file implements a 64-bit FNV-1a hash UDF (user-defined function) for
  * MySQL.  The function accepts any number of arguments and returns a 64-bit
  * unsigned integer.  MySQL actually interprets the result as a signed integer,
  * but you should ignore that.  I chose not to return the number as a
@@ -8,28 +8,30 @@
  * The function never returns NULL, even when you give it NULL arguments.
  *
  * To compile and install, execute the following commands.  The function name
- * fnv_64 in the mysql command is case-sensitive!  (Of course, when you actually
- * call the function, it is case-insensitive just like any other SQL function).
+ * fnv1a_64 in the mysql command is case-sensitive!  (Of course, when you
+ * actually call the function, it is case-insensitive just like any other SQL
+ * function).
  *
- * gcc -fPIC -Wall -I/usr/include/mysql -shared -o fnv_udf.so fnv_udf.cc
- * cp fnv_udf.so /lib * OR: * cp fnv_udf.so /usr/lib
- * mysql mysql -e "CREATE FUNCTION fnv_64 RETURNS INTEGER SONAME 'fnv_udf.so'"
+ * gcc -fPIC -Wall -I/usr/include/mysql -shared -o fnv1a_udf.so fnv1a_udf.cc
+ * cp fnv1a_udf.so /lib * OR: * cp fnv1a_udf.so /usr/lib
+ * mysql mysql -e "CREATE FUNCTION fnv1a_64 RETURNS INTEGER SONAME
+ * 'fnv1a_udf.so'"
  *
  * For MySQL version 4.1 or older you must add the following flag to the gcc
  * command above: -DNO_DECIMAL_RESULT
  * Otherwise you will get an error like:
- *   fnv_udf.cc:167: `DECIMAL_RESULT' undeclared (first use this function)
+ *   fnv1a_udf.cc:167: `DECIMAL_RESULT' undeclared (first use this function)
  * (See http://code.google.com/p/maatkit/issues/detail?id=89)
  *
  * If you get the error "ERROR 1126 (HY000): Can't open shared library
- * 'fnv_udf.so' (errno: 22 fnv_udf.so: cannot open shared object file: No such
- * file or directory)" then you may need to copy the .so file to another
+ * 'fnv1a_udf.so' (errno: 22 fnv1a_udf.so: cannot open shared object file: No
+ * such file or directory)" then you may need to copy the .so file to another
  * location in your system.  Look at your environment's $LD_LIBRARY_PATH
  * variable for clues.  If none is set, you may need to set this variable to
  * something like /lib.
  *
  * If you get the error "ERROR 1126 (HY000): Can't open shared library
- * 'libfnv_udf.so' (errno: 22 /lib/libfnv_udf.so: undefined symbol:
+ * 'libfnv1a_udf.so' (errno: 22 /lib/libfnv1a_udf.so: undefined symbol:
  * __gxx_personality_v0)" then you may need to use g++ instead of gcc.
  *
  * Try both /lib and /usr/lib before changing LD_LIBRARY_PATH.
@@ -41,21 +43,21 @@
  * a faster alternative to MD5 hashing, with the added ability to hash multiple
  * arguments in a single call:
  *
- * mysql> SELECT FNV_64('hello', 'world');
+ * mysql> SELECT FNV1A_64('hello', 'world');
  *
  * Here's a way to reduce an entire table to a single order-independent hash:
  *
- * mysql> SELECT BIT_XOR(CAST(FNV_64(col1, col2, col3) AS UNSIGNED)) FROM tbl1;
+ * mysql> SELECT BIT_XOR(CAST(FNV1A_64(col1, col2, col3) AS UNSIGNED)) FROM tbl;
  *
  */
 
-/* The following header is from hash_64.c:
+/* The following header is from hash_64a.c:
  *
- * hash_64 - 64 bit Fowler/Noll/Vo-0 hash code
+ * hash_64 - 64 bit Fowler/Noll/Vo-0 FNV-1a hash code
  *
- * @(#) $Revision: 1.8 $
- * @(#) $Id: hash_64.c,v 1.8 2003/10/03 20:37:04 chongo Exp $
- * @(#) $Source: /usr/local/src/cmd/fnv/RCS/hash_64.c,v $
+ * @(#) $Revision: 5.1 $
+ * @(#) $Id: hash_64a.c,v 5.1 2009/06/30 09:01:38 chongo Exp $
+ * @(#) $Source: /usr/local/src/cmd/fnv/RCS/hash_64a.c,v $
  *
  ***
  *
@@ -85,14 +87,8 @@
  *
  ***
  *
- * NOTE: The FNV-0 historic hash is not recommended.  One should use
- *	 the FNV-1 hash instead.
- *
- * To use the 64 bit FNV-0 historic hash, pass FNV0_64_INIT as the
- * Fnv64_t hashval argument to fnv_64_buf() or fnv_64_str().
- *
- * To use the recommended 64 bit FNV-1 hash, pass FNV1_64_INIT as the
- * Fnv64_t hashval argument to fnv_64_buf() or fnv_64_str().
+ * To use the recommended 64 bit FNV-1a hash, pass FNV1A_64_INIT as the
+ * Fnv64_t hashval argument to fnv_64a_buf() or fnv_64a_str().
  *
  ***
  *
@@ -114,56 +110,49 @@
  */
 
 #include <ctype.h>
-#include <my_sys.h>
-#include <mysql.h>
 #include <string.h>
+#include "my_sys.h"
+#include "mysql.h"
+#include "percona_udf.h"
 
 /* On the first call, use this as the initial_value. */
-#define HASH_64_INIT 0x84222325cbf29ce4ULL
+#define FNV1A_64_INIT 0xcbf29ce484222325ULL
 /* Default for NULLs, just so the result is never NULL. */
 #define HASH_NULL_DEFAULT 0x0a0b0c0d
 /* Magic number for the hashing. */
 #define FNV_64_PRIME 0x100000001b3ULL
 
-/* Prototypes */
-
-extern "C" {
-ulonglong hash64(const void *buf, size_t len, ulonglong hval);
-bool fnv_64_init(UDF_INIT *initid, UDF_ARGS *args, char *message);
-ulonglong fnv_64(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *error);
-}
-
 /* Implementations */
 
-ulonglong hash64(const void *buf, size_t len, ulonglong hval) {
+ulonglong hash64a(const void *buf, size_t len, ulonglong hval) {
   const unsigned char *bp = (const unsigned char *)buf;
   const unsigned char *be = bp + len;
 
-  /* FNV-1 hash each octet of the buffer */
+  /* FNV-1a hash each octet of the buffer */
   for (; bp != be; ++bp) {
-    /* multiply by the 64 bit FNV magic prime mod 2^64 */
-    hval *= FNV_64_PRIME;
     /* xor the bottom with the current octet */
     hval ^= (ulonglong)*bp;
+    /* multiply by the 64 bit FNV magic prime mod 2^64 */
+    hval *= FNV_64_PRIME;
   }
 
   return hval;
 }
 
-bool fnv_64_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
+bool VISIBILITY_DEFAULT fnv1a_64_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
   if (args->arg_count == 0) {
-    strcpy(message, "FNV_64 requires at least one argument");
+    strcpy(message, "FNV1A_64 requires at least one argument");
     return true;
   }
   initid->maybe_null = 0; /* The result will never be NULL */
   return false;
 }
 
-ulonglong fnv_64(UDF_INIT *initid [[maybe_unused]], UDF_ARGS *args,
-                 char *is_null [[maybe_unused]],
-                 char *error [[maybe_unused]]) {
+ulonglong VISIBILITY_DEFAULT fnv1a_64(UDF_INIT *initid [[maybe_unused]], UDF_ARGS *args,
+                   char *is_null [[maybe_unused]],
+                   char *error [[maybe_unused]]) {
   uint null_default = HASH_NULL_DEFAULT;
-  ulonglong result = HASH_64_INIT;
+  ulonglong result = FNV1A_64_INIT;
   uint i;
 
   for (i = 0; i < args->arg_count; ++i) {
@@ -175,24 +164,24 @@ ulonglong fnv_64(UDF_INIT *initid [[maybe_unused]], UDF_ARGS *args,
         case DECIMAL_RESULT:
 #endif
           result =
-              hash64((const void *)args->args[i], args->lengths[i], result);
+              hash64a((const void *)args->args[i], args->lengths[i], result);
           break;
         case REAL_RESULT: {
           double real_val;
           real_val = *((double *)args->args[i]);
-          result = hash64((const void *)&real_val, sizeof(double), result);
+          result = hash64a((const void *)&real_val, sizeof(double), result);
         } break;
         case INT_RESULT: {
           long long int_val;
           int_val = *((long long *)args->args[i]);
-          result = hash64((const void *)&int_val, sizeof(ulonglong), result);
+          result = hash64a((const void *)&int_val, sizeof(ulonglong), result);
         } break;
         default:
           break;
       }
     } else {
       result =
-          hash64((const void *)&null_default, sizeof(null_default), result);
+          hash64a((const void *)&null_default, sizeof(null_default), result);
     }
   }
   return result;
