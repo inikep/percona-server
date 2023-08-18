@@ -1,6 +1,6 @@
 
 # keyring_vault mtr suite is a default suite and must be installed always,
-# regardless if the keyring_vault plugin is built and installed or not.
+# regardless if the keyring_vault component is built and installed or not.
 IF(WITH_KEYRING_VAULT_TEST)
   ADD_SUBDIRECTORY(keyring_vault-test)
 ENDIF()
@@ -13,7 +13,7 @@ IF (NOT DEFINED WITH_KEYRING_VAULT)
   SET (WITH_KEYRING_VAULT 1)
 ENDIF()
 IF (NOT WITH_KEYRING_VAULT)
-  MESSAGE (STATUS "Not building keyring_vault plugin")
+  MESSAGE (STATUS "Not building keyring_vault component")
   RETURN()
 ENDIF()
 
@@ -29,13 +29,13 @@ MACRO (CHECK_IF_LIB_FOUND lib_name project_name status_mode)
 ENDMACRO()
 
 CHECK_IF_LIB_FOUND(CURL "keyring_vault" FATAL_ERROR)
-MESSAGE (STATUS "Building keyring_vault plugin")
+MESSAGE (STATUS "Building keyring_vault component")
 
 ADD_DEFINITIONS(-DLOG_COMPONENT_TAG="keyring_vault")
 
 INCLUDE_DIRECTORIES(SYSTEM ${BOOST_PATCHES_DIR} ${BOOST_INCLUDE_DIR} ${CURL_INCLUDE_DIRS})
 
-MYSQL_ADD_PLUGIN(keyring_vault
+MYSQL_ADD_COMPONENT(keyring_vault
                  ${CMAKE_SOURCE_DIR}/plugin/keyring/common/keyring_key.cc
                  ${CMAKE_SOURCE_DIR}/plugin/keyring/common/keys_container.cc
                  ${CMAKE_SOURCE_DIR}/plugin/keyring/common/keys_iterator.cc
@@ -49,14 +49,13 @@ MYSQL_ADD_PLUGIN(keyring_vault
                  vault_curl.cc
                  vault_credentials_parser.cc
                  vault_credentials.cc
-                 vault_keyring.cc
+                 component_vault_keyring.cc
                  LINK_LIBRARIES ${CURL_LIBRARY} ${SSL_LIBRARIES}
                  MODULE_ONLY
-                 MODULE_OUTPUT_NAME "keyring_vault"
                  LINK_LIBRARIES extra::rapidjson)
 
 # We limit symbols exported on Linux to only those required by server.
 IF(LINK_FLAG_NO_UNDEFINED)
-  GET_PROPERTY(keyring_vault_link_flags TARGET keyring_vault PROPERTY LINK_FLAGS)
-  SET_PROPERTY(TARGET keyring_vault PROPERTY LINK_FLAGS "${keyring_vault_link_flags} -Wl,--version-script=${CMAKE_SOURCE_DIR}/plugin/keyring_vault/keyring_vault.version")
+  GET_PROPERTY(keyring_vault_link_flags TARGET component_keyring_vault PROPERTY LINK_FLAGS)
+  SET_PROPERTY(TARGET component_keyring_vault PROPERTY LINK_FLAGS "${keyring_vault_link_flags} -Wl,--version-script=${CMAKE_SOURCE_DIR}/components/keyring_vault/keyring_vault.version")
 ENDIF()

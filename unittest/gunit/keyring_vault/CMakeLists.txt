@@ -25,7 +25,7 @@ INCLUDE_DIRECTORIES(
         ${CMAKE_SOURCE_DIR}/sql
         ${CMAKE_SOURCE_DIR}/plugin/keyring/common
         ${CMAKE_SOURCE_DIR}/plugin/keyring
-        ${CMAKE_SOURCE_DIR}/plugin/keyring_vault
+        ${CMAKE_SOURCE_DIR}/components/keyring_vault
         ${CMAKE_SOURCE_DIR}/unittest/gunit
         ${CMAKE_SOURCE_DIR}/unittest/gunit/keyring
 )
@@ -42,15 +42,15 @@ LIST(APPEND SRC_FILES
   ${CMAKE_SOURCE_DIR}/plugin/keyring/common/keyring_key.cc
   ${CMAKE_SOURCE_DIR}/plugin/keyring/common/keys_container.cc
   ${CMAKE_SOURCE_DIR}/plugin/keyring/common/keys_iterator.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_keys_list.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_key.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_io.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_base64.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_curl.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_parser_composer.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_credentials.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_credentials_parser.cc
-  ${CMAKE_SOURCE_DIR}/plugin/keyring_vault/vault_keys_container.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_keys_list.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_key.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_io.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_base64.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_curl.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_parser_composer.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_credentials.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_credentials_parser.cc
+  ${CMAKE_SOURCE_DIR}/components/keyring_vault/vault_keys_container.cc
   ${CMAKE_SOURCE_DIR}/unittest/gunit/keyring_vault/generate_credential_file.cc
   ${CMAKE_SOURCE_DIR}/unittest/gunit/keyring_vault/vault_environment.cc
   ${CMAKE_SOURCE_DIR}/unittest/gunit/keyring_vault/vault_mount.cc

@@ -245,6 +245,8 @@ static bool keyring_vault_init_for_test() {
 #endif
   if (init_keyring_locks()) return true;
 
+  if (log_service_init()) return true;
+
   // We are using Vault_keys_container_ex which allows removing all keys created
   // in keyring
   // Its behaviour is exactly the same as Vault_keys_container
@@ -387,7 +389,7 @@ int main(int argc, char **argv) {
     std::cerr << "Could not initialize keyring_vault." << std::endl;
     return 4;
   }
-  BOOST_SCOPE_EXIT(void) { keyring_vault_deinit(NULL); }
+  BOOST_SCOPE_EXIT(void) { keyring_vault_deinit(nullptr); }
   BOOST_SCOPE_EXIT_END
 
   unsigned long long threads_number =
