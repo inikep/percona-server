@@ -297,6 +297,7 @@ our @DEFAULT_SUITES = qw(
 
   audit_log_filter
   binlog_57_decryption
+  percona
   percona-pam-for-mysql
   data_masking
   procfs
