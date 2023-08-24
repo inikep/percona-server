@@ -22,7 +22,7 @@
 #include <cstring>
 #include <type_traits>
 
-#include <decimal.h>
+#include <mysql/strings/dtoa.h>
 
 #include <mysqlpp/common_types.hpp>
 #include <mysqlpp/udf_traits.hpp>
