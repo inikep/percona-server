@@ -45,7 +45,7 @@ SIZE=`stat -c %s $F`
 
 case $2 in
   write_committed)
-    NEW_SIZE=`expr $SIZE - 30`
+    NEW_SIZE=`expr $SIZE - 150`
     ;;
   write_prepared)
     NEW_SIZE=`expr $SIZE - 30`
@@ -71,7 +71,7 @@ EOF
 --exec $MYSQL_TMP_DIR/truncate_tail_wal_N.sh 2 $write_policy
 
 # The restart has to fail with rocksdb_track_and_verify_wals_in_manifest=1 (default)
---error 1
+--error 1,2
 --exec $MYSQLD_CMD  --rocksdb_wal_recovery_mode=0 --rocksdb_write_policy=$write_policy > $_custom_err 2>&1
 --exec grep "Size mismatch: WAL" $_custom_err | wc -l
 

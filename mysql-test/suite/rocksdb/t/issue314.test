@@ -1,5 +1,7 @@
 --source include/have_rocksdb.inc
 
+# rocksdb DD doesn't support SERIALIZABLE ISOLATION
+
 --disable_warnings
 drop table if exists t1;
 --enable_warnings
