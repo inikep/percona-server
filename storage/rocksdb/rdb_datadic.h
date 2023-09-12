@@ -567,8 +567,8 @@ class Rdb_key_def {
   void setup(const TABLE &table, const Rdb_tbl_def &tbl_def);
 
   [[nodiscard]] static uint extract_ttl_duration(const TABLE &table_arg,
-                                   const Rdb_tbl_def &tbl_def_arg,
-                                   uint64 &ttl_duration);
+                                                 const Rdb_tbl_def &tbl_def_arg,
+                                                 uint64 &ttl_duration);
   [[nodiscard]] static uint extract_ttl_col(const TABLE &table_arg,
                                             const Rdb_tbl_def &tbl_def_arg,
                                             std::string &ttl_column,
@@ -1279,7 +1279,7 @@ class Rdb_seq_generator {
 };
 
 interface Rdb_tables_scanner {
-  virtual int add_table(Rdb_tbl_def * tdef) = 0;
+  virtual int add_table(Rdb_tbl_def *tdef) = 0;
   virtual ~Rdb_tables_scanner(){};
 };
 
