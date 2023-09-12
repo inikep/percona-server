@@ -4354,15 +4354,15 @@ class Rdb_transaction {
       if (!m_thd->is_system_thread() &&
           !m_thd->is_attachable_transaction_active()) {
         THD *thd = new THD();
-      thd->thread_stack = reinterpret_cast<char *>(&(thd));
-      thd->store_globals();
+        thd->thread_stack = reinterpret_cast<char *>(&(thd));
+        thd->store_globals();
 
-      const char act[] =
-          "now signal destructor_started wait_for trx_list_query";
-      assert(!debug_sync_set_action(thd, STRING_WITH_LEN(act)));
+        const char act[] =
+            "now signal destructor_started wait_for trx_list_query";
+        assert(!debug_sync_set_action(thd, STRING_WITH_LEN(act)));
 
-      thd->restore_globals();
-      delete thd;
+        thd->restore_globals();
+        delete thd;
       }
     });
     RDB_MUTEX_LOCK_CHECK(s_tx_list_mutex);
@@ -4967,9 +4967,7 @@ class Rdb_writebatch_impl : public Rdb_transaction {
   }
 
  private:
-  bool prepare() override {
-    return true;
-  }
+  bool prepare() override { return true; }
 
   bool commit_no_binlog(TABLE_TYPE table_type) override {
     assert(!is_ac_nl_ro_rc_transaction());
@@ -5011,22 +5009,16 @@ class Rdb_writebatch_impl : public Rdb_transaction {
   }
 
   /* Implementations of do_*savepoint based on rocksdB::WriteBatch savepoints */
-  void do_set_savepoint() override {
-    m_batch->SetSavePoint();
-  }
+  void do_set_savepoint() override { m_batch->SetSavePoint(); }
 
   rocksdb::Status do_pop_savepoint() override {
     return m_batch->PopSavePoint();
   }
 
-  void do_rollback_to_savepoint() override {
-    m_batch->RollbackToSavePoint();
-  }
+  void do_rollback_to_savepoint() override { m_batch->RollbackToSavePoint(); }
 
  public:
-  bool is_writebatch_trx() const override {
-    return true;
-  }
+  bool is_writebatch_trx() const override { return true; }
 
   void set_lock_timeout(int timeout_sec_arg MY_ATTRIBUTE((unused)),
                         TABLE_TYPE /*table_type*/) override {
@@ -5035,9 +5027,7 @@ class Rdb_writebatch_impl : public Rdb_transaction {
     // Nothing to do here.
   }
 
-  void set_sync(bool sync) override {
-    write_opts.sync = sync;
-  }
+  void set_sync(bool sync) override { write_opts.sync = sync; }
 
   void release_lock(const Rdb_key_def &key_descr MY_ATTRIBUTE((unused)),
                     const std::string &rowkey MY_ATTRIBUTE((unused)),
@@ -5139,9 +5129,7 @@ class Rdb_writebatch_impl : public Rdb_transaction {
     return m_batch->GetWriteBatch()->Count() > 0;
   }
 
-  rocksdb::WriteBatchBase *get_write_batch() override {
-    return m_batch;
-  }
+  rocksdb::WriteBatchBase *get_write_batch() override { return m_batch; }
 
   rocksdb::WriteBatchBase *get_indexed_write_batch(
       TABLE_TYPE table_type) override {
@@ -8142,8 +8130,8 @@ int ha_rocksdb::convert_record_from_storage_format(
     uchar *const buf) {
   int rc = m_converter->decode(m_pk_descr, buf, key, value);
 
-  DBUG_EXECUTE_IF("stimulate_corrupt_data_read",
-      if (m_tbl_def->full_tablename() == "a.t1") {
+  DBUG_EXECUTE_IF(
+      "simulate_corrupt_data_read", if (m_tbl_def->full_tablename() == "a.t1") {
         rc = HA_ERR_ROCKSDB_CORRUPT_DATA;
       });
 
@@ -11398,7 +11386,8 @@ int ha_rocksdb::check_and_lock_sk(
     const rocksdb::Slice &rkey = all_parts_used ? new_slice : iter.key();
     uint pk_size =
         kd.get_primary_key_tuple(*m_pk_descr, &rkey, m_pk_packed_tuple);
-    DBUG_EXECUTE_IF("stimulate_corrupt_data_update",
+    DBUG_EXECUTE_IF(
+        "simulate_corrupt_data_update",
         if (m_tbl_def->full_tablename() == "a.t2") {
           pk_size = RDB_INVALID_KEY_LEN;
         });
