@@ -392,7 +392,7 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   void free_key_buffers();
 
   // the buffer size should be at least 2*Rdb_key_def::INDEX_NUMBER_SIZE
-  rocksdb::Range get_range(const int i, uchar buf[]) const;
+  [[nodiscard]] rocksdb::Range get_range(int i, uchar *buf) const;
 
   /*
     Perf timers for data reads
@@ -402,7 +402,8 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
  public:
   bool refresh_tmp_table_iterator(const std::string &key);
   void extract_snapshot_keys(std::string *key);
-  static rocksdb::Range get_range(const Rdb_key_def &kd, uchar buf[]);
+  [[nodiscard]] static rocksdb::Range get_range(const Rdb_key_def &kd,
+                                                uchar *buf);
 
   /*
     Update stats
