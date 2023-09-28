@@ -913,6 +913,7 @@ static int rdb_i_s_compact_stats_fill_table(
   DBUG_RETURN(ret);
 }
 
+#if ROCKSDB_MAJOR < 8 || (ROCKSDB_MAJOR == 8 && ROCKSDB_MINOR < 7)
 namespace {
 
 using rocksdb::CompactionReason;
@@ -963,6 +964,7 @@ const char *GetCompactionReasonString(CompactionReason compaction_reason) {
 }
 
 }  // anonymous namespace
+#endif
 
 /*
   Support for INFORMATION_SCHEMA.ROCKSDB_ACTIVE_COMPACTION_STATS dynamic table
