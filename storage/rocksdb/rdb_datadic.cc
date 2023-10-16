@@ -5060,6 +5060,14 @@ bool Rdb_ddl_manager::rename(const std::string &from, const std::string &to,
   return res;
 }
 
+void Rdb_ddl_manager::reset_map() {
+  for (const auto &kv : m_ddl_map) {
+    delete kv.second;
+  }
+  m_ddl_map.clear();
+  populate(0);
+}
+
 void Rdb_ddl_manager::cleanup() {
   if (!initialized) return;
 
