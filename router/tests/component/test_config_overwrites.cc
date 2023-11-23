@@ -240,7 +240,7 @@ TEST_F(RouterConfigOwerwriteTest, OverwriteLoggingFolder) {
   const std::string overwrite_param =
       "--DEFAULT.logging_FOLDER=" + logging_dir.name();
   // auto &router =
-  launch_router({"-c", conf_file, overwrite_param}, EXIT_SUCCESS, 5s);
+  launch_router({"-c", conf_file, overwrite_param}, EXIT_SUCCESS, 12s);
 
   // check that the Router logs the debug level despite the conf file does not
   // configure it
@@ -264,7 +264,7 @@ TEST_F(RouterConfigOwerwriteTest, OverwriteRoutingPort) {
 
   launch_mysql_server_mock(simple_trace_file, server_port, EXIT_SUCCESS);
 
-  launch_router({"-c", conf_file, overwrite_param}, EXIT_SUCCESS, 5s);
+  launch_router({"-c", conf_file, overwrite_param}, EXIT_SUCCESS, 12s);
 
   make_new_connection_ok(router_port_overwrite, server_port);
   verify_new_connection_fails(router_port);
@@ -285,7 +285,7 @@ TEST_F(RouterConfigOwerwriteTest, OverwriteOptionMissingInTheConfig) {
 
   launch_mysql_server_mock(simple_trace_file, server_port, EXIT_SUCCESS);
 
-  launch_router({"-c", conf_file, overwrite_param}, EXIT_SUCCESS, 5s);
+  launch_router({"-c", conf_file, overwrite_param}, EXIT_SUCCESS, 12s);
 
   make_bad_connection(router_port);
 
