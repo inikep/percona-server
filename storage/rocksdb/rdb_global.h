@@ -284,8 +284,7 @@ const char *const RDB_PARTIAL_INDEX_THRESHOLD_QUALIFIER =
 /*
   Maximum index prefix length in bytes.
 */
-#define MAX_INDEX_COL_LEN_LARGE 3072
-#define MAX_INDEX_COL_LEN_SMALL 767
+constexpr uint MAX_INDEX_COL_LEN = 3072;
 
 /*
   MyRocks specific error codes. NB! Please make sure that you will update
