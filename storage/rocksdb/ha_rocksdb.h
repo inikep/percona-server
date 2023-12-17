@@ -1111,6 +1111,7 @@ extern std::atomic<uint64_t> rocksdb_partial_index_rows_materialized;
 extern bool rocksdb_enable_delete_range_for_drop_index;
 extern bool rocksdb_disable_instant_ddl;
 extern bool rocksdb_partial_index_ignore_killed;
+extern bool rocksdb_enable_instant_ddl_for_column_default_changes;
 
 extern unsigned long long rocksdb_converter_record_cached_length;
 }  // namespace myrocks
