@@ -1125,6 +1125,7 @@ extern bool rocksdb_partial_index_ignore_killed;
 extern bool rocksdb_enable_instant_ddl_for_column_default_changes;
 extern bool rocksdb_enable_instant_ddl_for_table_comment_changes;
 extern bool rocksdb_enable_instant_ddl_for_drop_index_changes;
+extern bool rocksdb_enable_instant_ddl_for_update_index_visibility;
 
 extern unsigned long long rocksdb_converter_record_cached_length;
 }  // namespace myrocks
