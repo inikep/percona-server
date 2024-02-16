@@ -816,6 +816,7 @@ bool rocksdb_disable_instant_ddl = false;
 bool rocksdb_enable_instant_ddl_for_column_default_changes = false;
 bool rocksdb_enable_instant_ddl_for_table_comment_changes = false;
 bool rocksdb_enable_instant_ddl_for_drop_index_changes = false;
+bool rocksdb_enable_instant_ddl_for_update_index_visibility = false;
 bool rocksdb_enable_delete_range_for_drop_index = false;
 unsigned long long rocksdb_converter_record_cached_length = 0;
 static bool rocksdb_file_checksums = false;
@@ -2466,6 +2467,12 @@ static MYSQL_SYSVAR_BOOL(
     "Enable instant ddl for index drop changes during alter table", nullptr,
     nullptr, false);
 
+static MYSQL_SYSVAR_BOOL(
+    enable_instant_ddl_for_update_index_visibility,
+    rocksdb_enable_instant_ddl_for_update_index_visibility, PLUGIN_VAR_RQCMDARG,
+    "Enable instant ddl for updating index visibility during alter table",
+    nullptr, nullptr, false);
+
 static MYSQL_SYSVAR_BOOL(enable_delete_range_for_drop_index,
                          rocksdb_enable_delete_range_for_drop_index,
                          PLUGIN_VAR_RQCMDARG,
@@ -2692,6 +2699,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(enable_instant_ddl_for_column_default_changes),
     MYSQL_SYSVAR(enable_instant_ddl_for_table_comment_changes),
     MYSQL_SYSVAR(enable_instant_ddl_for_drop_index_changes),
+    MYSQL_SYSVAR(enable_instant_ddl_for_update_index_visibility),
     MYSQL_SYSVAR(alter_table_comment_inplace),
     MYSQL_SYSVAR(column_default_value_as_expression),
     MYSQL_SYSVAR(enable_delete_range_for_drop_index),
@@ -13629,6 +13637,12 @@ ha_rocksdb::Instant_Type ha_rocksdb::rocksdb_support_instant(
     const TABLE *altered_table MY_ATTRIBUTE((unused))) const {
   if (rocksdb_disable_instant_ddl) {
     return Instant_Type::INSTANT_IMPOSSIBLE;
+  }
+
+  // If it is only updating the visibility of index
+  if (rocksdb_enable_instant_ddl_for_update_index_visibility &&
+      ha_alter_info->alter_info->flags == Alter_info::ALTER_INDEX_VISIBILITY) {
+    return Instant_Type::INSTANT_NO_CHANGE;
   }
 
   if (rocksdb_enable_instant_ddl_for_column_default_changes &&
