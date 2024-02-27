@@ -741,6 +741,7 @@ static unsigned long  // NOLINT(runtime/int)
 static ulong rocksdb_info_log_level;
 static char *rocksdb_wal_dir;
 static char *rocksdb_persistent_cache_path;
+static bool rocksdb_use_io_uring;
 static ulong rocksdb_index_type;
 static uint32_t rocksdb_flush_log_at_trx_commit;
 static uint32_t rocksdb_debug_optimizer_n_rows;
@@ -834,6 +835,11 @@ std::atomic<uint64_t> rocksdb_partial_index_groups_sorted(0);
 std::atomic<uint64_t> rocksdb_partial_index_groups_materialized(0);
 std::atomic<uint64_t> rocksdb_partial_index_rows_sorted(0);
 std::atomic<uint64_t> rocksdb_partial_index_rows_materialized(0);
+
+// RocksDB contracts
+extern "C" {
+bool RocksDbIOUringEnable() { return rocksdb_use_io_uring; }
+}
 
 static int rocksdb_trace_block_cache_access(
     THD *const thd MY_ATTRIBUTE((__unused__)),
@@ -1842,6 +1848,10 @@ static MYSQL_SYSVAR_LONGLONG(sim_cache_size, rocksdb_sim_cache_size,
                              /* max */ LLONG_MAX,
                              /* Block size */ 0);
 
+static MYSQL_SYSVAR_BOOL(use_io_uring, rocksdb_use_io_uring,
+                         PLUGIN_VAR_RQCMDARG, "Use io_uring for RocksDB",
+                         nullptr, nullptr, rocksdb_use_io_uring);
+
 static MYSQL_SYSVAR_BOOL(
     use_hyper_clock_cache, rocksdb_use_hyper_clock_cache,
     PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -2594,6 +2604,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
 
     MYSQL_SYSVAR(block_cache_size),
     MYSQL_SYSVAR(sim_cache_size),
+    MYSQL_SYSVAR(use_io_uring),
     MYSQL_SYSVAR(use_hyper_clock_cache),
     MYSQL_SYSVAR(cache_high_pri_pool_ratio),
     MYSQL_SYSVAR(cache_dump),
