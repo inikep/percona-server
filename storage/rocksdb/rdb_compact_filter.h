@@ -21,7 +21,7 @@
 #endif
 
 /* C++ system header files */
-#include <time.h>
+#include <ctime>
 #include <string>
 
 /* RocksDB includes */
