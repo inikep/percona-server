@@ -22,7 +22,6 @@
 /* C++ standard header files */
 #include <deque>
 #include <map>
-#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -30,23 +29,15 @@
 #include <vector>
 
 /* MySQL header files */
-#include "my_checksum.h"
 #include "my_dbug.h"
 #include "my_icp.h" /* icp_result */
-#include "mysql/psi/mysql_rwlock.h"
 #include "sql/handler.h"    /* handler */
 #include "sql/sql_bitmap.h" /* Key_map */
 #include "sql/table.h"
 #include "sql_string.h"
 
 /* RocksDB header files */
-#include "rocksdb/cache.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/perf_context.h"
-#include "rocksdb/sst_file_manager.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/utilities/options_util.h"
-#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 /* MyRocks header files */
