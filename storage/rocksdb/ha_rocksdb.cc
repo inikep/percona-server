@@ -40,6 +40,7 @@
 #include <queue>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /* MySQL includes */
@@ -347,17 +348,16 @@ class Rdb_open_tables_map {
 
 static Rdb_open_tables_map rdb_open_tables;
 
-static std::string rdb_normalize_dir(std::string dir) {
-  while (dir.size() > 0 && dir.back() == '/') {
-    dir.resize(dir.size() - 1);
+static std::string_view rdb_normalize_dir(std::string_view dir) {
+  while (!dir.empty() && dir.back() == '/') {
+    dir.remove_suffix(1);
   }
   return dir;
 }
 
-static int rocksdb_create_checkpoint(const char *checkpoint_dir_raw) {
-  assert(checkpoint_dir_raw);
-
-  const auto checkpoint_dir = rdb_normalize_dir(checkpoint_dir_raw);
+static int rocksdb_create_checkpoint(std::string_view checkpoint_dir_raw) {
+  const auto checkpoint_dir =
+      std::string{rdb_normalize_dir(checkpoint_dir_raw)};
   LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                   "creating checkpoint in directory: %s\n",
                   checkpoint_dir.c_str());
@@ -1153,8 +1153,9 @@ static void rocksdb_set_reset_stats(
   RDB_MUTEX_UNLOCK_CHECK(rdb_sysvars_mutex);
 }
 
-static int rocksdb_remove_checkpoint(const char *checkpoint_dir_raw) {
-  const auto checkpoint_dir = rdb_normalize_dir(checkpoint_dir_raw);
+static int rocksdb_remove_checkpoint(std::string_view checkpoint_dir_raw) {
+  const auto checkpoint_dir =
+      std::string{rdb_normalize_dir(checkpoint_dir_raw)};
   LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                   "deleting temporary checkpoint in directory : %s\n",
                   checkpoint_dir.c_str());
@@ -1163,7 +1164,7 @@ static int rocksdb_remove_checkpoint(const char *checkpoint_dir_raw) {
   op.sst_file_manager.reset(NewSstFileManager(
       rocksdb_db_options->env, rocksdb_db_options->info_log, "",
       rocksdb_sst_mgr_rate_bytes_per_sec, false /* delete_existing_trash */));
-  const auto status = rocksdb::DestroyDB(checkpoint_dir, op);
+  const auto status = rocksdb::DestroyDB(checkpoint_dir.c_str(), op);
 
   if (status.ok()) {
     return HA_EXIT_SUCCESS;
@@ -6591,17 +6592,15 @@ static bool rocksdb_get_table_statistics(
 }
 
 static rocksdb::Status check_rocksdb_options_compatibility(
-    const char *const dbpath, const rocksdb::Options &main_opts,
+    const std::string &dbpath, const rocksdb::Options &main_opts,
     const std::vector<rocksdb::ColumnFamilyDescriptor> &cf_descr) {
-  assert(rocksdb_datadir != nullptr);
-
   rocksdb::DBOptions loaded_db_opt;
   std::vector<rocksdb::ColumnFamilyDescriptor> loaded_cf_descs;
   rocksdb::ConfigOptions config_options;
   config_options.ignore_unknown_options = rocksdb_ignore_unknown_options;
   config_options.input_strings_escaped = true;
   config_options.env = rocksdb::Env::Default();
-  rocksdb::Status status = LoadLatestOptions(config_options, dbpath,
+  rocksdb::Status status = LoadLatestOptions(config_options, dbpath.c_str(),
                                              &loaded_db_opt, &loaded_cf_descs);
 
   // If we're starting from scratch and there are no options saved yet then this
@@ -6648,7 +6647,7 @@ static rocksdb::Status check_rocksdb_options_compatibility(
       rocksdb_ignore_unknown_options;
   config_options_for_check.input_strings_escaped = true;
   config_options_for_check.env = rocksdb::Env::Default();
-  status = CheckOptionsCompatibility(config_options_for_check, dbpath,
+  status = CheckOptionsCompatibility(config_options_for_check, dbpath.c_str(),
                                      main_opts, loaded_cf_descs);
 
   return status;

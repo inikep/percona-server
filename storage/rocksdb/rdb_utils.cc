@@ -21,6 +21,7 @@
 #include <array>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /* C standard header files */
@@ -260,7 +261,7 @@ std::string rdb_hexdump(const char *data, const std::size_t data_len,
 }
 
 // Return dir + '/' + file
-std::string rdb_concat_paths(const std::string &dir, const std::string &file) {
+std::string rdb_concat_paths(std::string_view dir, std::string_view file) {
   std::string result;
   result.reserve(dir.length() + file.length() + 2);
   result = dir;
@@ -272,7 +273,7 @@ std::string rdb_concat_paths(const std::string &dir, const std::string &file) {
 /*
   Attempt to access the database subdirectory to see if it exists
 */
-bool rdb_database_exists(const std::string &db_name) {
+bool rdb_database_exists(std::string_view db_name) {
   const auto dir = rdb_concat_paths(mysql_real_data_home, db_name);
   struct MY_DIR *const dir_info =
       my_dir(dir.c_str(), MYF(MY_DONT_SORT | MY_WANT_STAT));
