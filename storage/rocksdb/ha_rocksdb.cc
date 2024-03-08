@@ -1319,6 +1319,13 @@ static MYSQL_THDVAR_BOOL(
     "Check rocksdb iterator upper/lower bounds during iterating.", nullptr,
     nullptr, true);
 
+static MYSQL_THDVAR_BOOL(
+    skip_snapshot_validation, PLUGIN_VAR_OPCMDARG,
+    "Skips snapshot validation on locking reads. This makes MyRocks "
+    "Repeatable Read behavior close to InnoDB -- forcing reading the "
+    "newest data with locking reads.",
+    nullptr, nullptr, false);
+
 static void rocksdb_set_max_bottom_pri_background_compactions_internal(
     uint val) {
   // Set lower priority for compactions
@@ -2557,6 +2564,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(merge_combine_read_size),
     MYSQL_SYSVAR(merge_tmp_file_removal_delay_ms),
     MYSQL_SYSVAR(skip_bloom_filter_on_read),
+    MYSQL_SYSVAR(skip_snapshot_validation),
 
     MYSQL_SYSVAR(create_if_missing),
     MYSQL_SYSVAR(two_write_queues),
@@ -16878,9 +16886,10 @@ rocksdb::Status rdb_tx_get_for_update(Rdb_transaction *tx,
                                       rocksdb::PinnableSlice *const value,
                                       bool exclusive, bool skip_wait) {
   bool do_validate =
-      my_core::thd_tx_isolation(tx->get_thd()) > ISO_READ_COMMITTED;
-  rocksdb::Status s =
-      tx->get_for_update(kd, key, value, exclusive, do_validate, skip_wait);
+      !(my_core::thd_tx_isolation(tx->get_thd()) <= ISO_READ_COMMITTED ||
+        THDVAR(tx->get_thd(), skip_snapshot_validation));
+  rocksdb::Status s = tx->get_for_update(kd, key, value, exclusive,
+                                         do_validate, skip_wait);
 
   return s;
 }
