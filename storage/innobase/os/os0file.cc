@@ -3443,7 +3443,7 @@ pfs_os_file_t os_file_create_func(const char *name, ulint create_mode,
 
   if ((!read_only || type == OS_CLONE_DATA_FILE) && *success &&
       (type == OS_DATA_FILE || type == OS_CLONE_DATA_FILE ||
-       type == OS_DBLWR_FILE) &&
+       type == OS_DBLWR_FILE || type == OS_LOG_FILE) &&
       (srv_unix_file_flush_method == SRV_UNIX_O_DIRECT ||
        srv_unix_file_flush_method == SRV_UNIX_O_DIRECT_NO_FSYNC)) {
     os_file_set_nocache(file.m_file, name, mode_str);
