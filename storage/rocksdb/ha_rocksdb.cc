@@ -3997,7 +3997,7 @@ class Rdb_transaction {
           "status code = %d, status = %s, IngestExternalFileOptions=%s",
           s.code(), s.ToString().c_str(),
           dump_ingest_external_file_options((*args.cbegin()).options).c_str());
-
+      assert(0);
       return HA_ERR_ROCKSDB_BULK_LOAD;
     }
 
@@ -11309,6 +11309,7 @@ int ha_rocksdb::finalize_bulk_load(bool print_client_error) {
               "status code = %d, status = %s, IngestExternalFileOptions=%s",
               s.code(), s.ToString().c_str(),
               dump_ingest_external_file_options(opts).c_str());
+          assert(0);
         } else {
           // Mark the list of SST files as committed, otherwise they'll get
           // cleaned up when commit_info destructs
