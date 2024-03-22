@@ -13618,7 +13618,9 @@ int ha_rocksdb::extra(enum ha_extra_function operation) {
       // that indicates the end of REPLACE / INSERT ON DUPLICATE KEY
       m_insert_with_update = false;
       break;
-
+    case HA_EXTRA_NO_READ_LOCKING:
+      m_no_read_locking = true;
+      break;
     default:
       break;
   }
