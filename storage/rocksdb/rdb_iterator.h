@@ -70,8 +70,7 @@ class Rdb_iterator_base : public Rdb_iterator {
 
  public:
   Rdb_iterator_base(THD *thd, ha_rocksdb *rocksdb_handler,
-                    const std::shared_ptr<Rdb_key_def> kd,
-                    const std::shared_ptr<Rdb_key_def> pkd,
+                    const Rdb_key_def &kd, const Rdb_key_def &pkd,
                     const Rdb_tbl_def *tbl_def);
 
   ~Rdb_iterator_base() override;
@@ -105,10 +104,10 @@ class Rdb_iterator_base : public Rdb_iterator {
   void setup_prefix_buffer(enum ha_rkey_function find_flag,
                            const rocksdb::Slice start_key);
 
-  const std::shared_ptr<Rdb_key_def> m_kd;
+  const Rdb_key_def &m_kd;
 
   // Rdb_key_def of the primary key
-  const std::shared_ptr<Rdb_key_def> m_pkd;
+  const Rdb_key_def &m_pkd;
 
   const Rdb_tbl_def *m_tbl_def;
 
@@ -136,6 +135,11 @@ class Rdb_iterator_base : public Rdb_iterator {
   bool m_valid;
   bool m_check_iterate_bounds;
   bool m_ignore_killed;
+
+  Rdb_iterator_base(const Rdb_iterator_base &) = delete;
+  Rdb_iterator_base(Rdb_iterator_base &&) = delete;
+  Rdb_iterator_base &operator=(const Rdb_iterator_base &) = delete;
+  Rdb_iterator_base &operator=(Rdb_iterator_base &&) = delete;
 };
 
 class Rdb_iterator_partial : public Rdb_iterator_base {
@@ -204,8 +208,7 @@ class Rdb_iterator_partial : public Rdb_iterator_base {
   slice_comparator m_comparator;
 
  public:
-  Rdb_iterator_partial(THD *thd, const std::shared_ptr<Rdb_key_def> kd,
-                       const std::shared_ptr<Rdb_key_def> pkd,
+  Rdb_iterator_partial(THD *thd, const Rdb_key_def &kd, const Rdb_key_def &pkd,
                        const Rdb_tbl_def *tbl_def, TABLE *table,
                        const dd::Table *dd_table);
   ~Rdb_iterator_partial() override;
@@ -226,6 +229,11 @@ class Rdb_iterator_partial : public Rdb_iterator_base {
     assert(false);
     return false;
   }
+
+  Rdb_iterator_partial(const Rdb_iterator_partial &) = delete;
+  Rdb_iterator_partial(Rdb_iterator_partial &&) = delete;
+  Rdb_iterator_partial &operator=(const Rdb_iterator_partial &) = delete;
+  Rdb_iterator_partial &operator=(Rdb_iterator_partial &&) = delete;
 };
 
 }  // namespace myrocks
