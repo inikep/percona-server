@@ -803,6 +803,9 @@ static bool rpl_skip_tx_api_var = 0;
 static ulong rocksdb_write_policy = rocksdb::TxnDBWritePolicy::WRITE_COMMITTED;
 enum corrupt_data_action { ERROR = 0, ABORT_SERVER, WARNING };
 static ulong rocksdb_corrupt_data_action = corrupt_data_action::ERROR;
+enum class io_error_action : ulong { ABORT_SERVER = 0, IGNORE_ERROR };
+static ulong rocksdb_io_error_action =
+    static_cast<ulong>(io_error_action::ABORT_SERVER);
 static bool rocksdb_error_on_suboptimal_collation = 1;
 static uint32_t rocksdb_stats_recalc_rate = 0;
 static uint32_t rocksdb_debug_manual_compaction_delay = 0;
@@ -1061,6 +1064,14 @@ static const char *corrupt_data_action_names[] = {"ERROR", "ABORT_SERVER",
 static TYPELIB corrupt_data_action_typelib = {
     array_elements(corrupt_data_action_names) - 1,
     "corrupt_data_action_typelib", corrupt_data_action_names, nullptr};
+
+/* This enum needs to be kept up to date with io_error_action */
+static const char *io_error_action_names[] = {"ABORT_SERVER", "IGNORE_ERROR",
+                                              NullS};
+
+static TYPELIB io_error_action_typelib = {
+    array_elements(io_error_action_names) - 1, "io_error_action_typelib",
+    io_error_action_names, nullptr};
 
 static void rocksdb_set_rocksdb_info_log_level(
     THD *const thd MY_ATTRIBUTE((__unused__)),
@@ -1367,6 +1378,13 @@ static MYSQL_SYSVAR_ENUM(
     "Control behavior when hitting data corruption. We can fail the query, "
     "crash the server or pass the query and give users a warning. ",
     nullptr, nullptr, corrupt_data_action::ERROR, &corrupt_data_action_typelib);
+
+static MYSQL_SYSVAR_ENUM(
+    io_error_action, rocksdb_io_error_action, PLUGIN_VAR_RQCMDARG,
+    "Control behavior when hitting I/O error. By default MyRocks aborts server "
+    "and refuses to start. Setting IGNORE_ERROR suppresses an error instead.",
+    nullptr, nullptr, static_cast<ulong>(io_error_action::ABORT_SERVER),
+    &io_error_action_typelib);
 
 static MYSQL_THDVAR_BOOL(skip_bloom_filter_on_read, PLUGIN_VAR_RQCMDARG,
                          "Skip using bloom filter for reads", nullptr, nullptr,
@@ -2753,6 +2771,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(column_default_value_as_expression),
     MYSQL_SYSVAR(enable_delete_range_for_drop_index),
     MYSQL_SYSVAR(corrupt_data_action),
+    MYSQL_SYSVAR(io_error_action),
     MYSQL_SYSVAR(converter_record_cached_length),
     MYSQL_SYSVAR(file_checksums),
     nullptr};
@@ -6375,8 +6394,8 @@ static int rocksdb_init_internal(void *const p) {
   if (rdb_has_rocksdb_corruption()) {
     // NO_LINT_DEBUG
     LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "RocksDB: There was a corruption detected in RockDB files. "
-                    "Check error log emitted earlier for more details.");
+        "RocksDB: There was a corruption detected in RocksDB files. "
+        "Check error log emitted earlier for more details.");
     if (rocksdb_allow_to_start_after_corruption) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(
@@ -16000,6 +16019,12 @@ int rdb_get_table_perf_counters(const char *const tablename,
 // more efficiently.
 void rdb_handle_io_error(const rocksdb::Status status,
                          const RDB_IO_ERROR_TYPE err_type) {
+  if (rocksdb_io_error_action ==
+      static_cast<ulong>(io_error_action::IGNORE_ERROR)) {
+    rdb_log_status_error(status, "Ignoring I/O errors.");
+    return;
+  }
+
   if (status.IsIOError()) {
     /* skip dumping core if write failed and we are allowed to do so */
     /* TODO(yzha) - 736a451c418 removed hack to set opt_core_file in mysqld.cc
