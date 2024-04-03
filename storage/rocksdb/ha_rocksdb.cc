@@ -15206,7 +15206,7 @@ int ha_rocksdb::inplace_populate_sk(
       }
 
       if ((res = fill_virtual_columns())) {
-        ha_index_end();
+        ha_rnd_end();
         DBUG_RETURN(res);
       }
 
