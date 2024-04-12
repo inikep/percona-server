@@ -1096,17 +1096,12 @@ inline void rocksdb_smart_prev(bool seek_backward,
   }
 }
 
-// If the iterator is not valid it might be because of EOF but might be due
-// to IOError or corruption. The good practice is always check it.
-// https://github.com/facebook/rocksdb/wiki/Iterator#error-handling
-bool is_valid_iterator(rocksdb::Iterator *scan_it);
-
 bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
                              const rocksdb::Slice &ttl_rec_val,
-                             Rdb_transaction *tx);
+                             Rdb_transaction &tx);
 
 bool rdb_tx_started(Rdb_transaction *tx);
-int rdb_tx_set_status_error(Rdb_transaction *tx, const rocksdb::Status &s,
+int rdb_tx_set_status_error(Rdb_transaction &tx, const rocksdb::Status &s,
                             const Rdb_key_def &kd,
                             const Rdb_tbl_def *const tbl_def);
 
