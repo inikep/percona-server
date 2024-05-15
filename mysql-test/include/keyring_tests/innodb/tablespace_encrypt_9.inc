@@ -86,7 +86,7 @@ let SEARCH_FILE= $MYSQLTEST_VARDIR/log/my_restart.err;
 let SEARCH_PATTERN=\[ERROR\].*Encryption can\'t find master key, please check the keyring is loaded;
 --source include/search_pattern.inc
 --echo # Server shouldn't have restarted, so query should fail.
---error CR_SERVER_LOST, CR_SERVER_GONE_ERROR
+--error CR_SERVER_LOST, CR_SERVER_GONE_ERROR, CR_CONNECTION_ERROR
 SELECT * from test.t1 limit 10;
 
 --echo #########################################################################
