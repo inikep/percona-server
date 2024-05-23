@@ -276,11 +276,24 @@ jobs:
 
 
       # gcc-7 and newer compilers
-      gcc-13 RelWithDebInfo [Ubuntu 22.04 Jammy]:
-        imageName: 'ubuntu-22.04'
+      gcc-14 RelWithDebInfo [Ubuntu 24.04 Noble]:
+        imageName: 'ubuntu-24.04'
         Compiler: gcc
-        CompilerVer: 13
+        CompilerVer: 14
         BuildType: RelWithDebInfo
+
+      gcc-14 Debug [Ubuntu 24.04 Noble]:
+        imageName: 'ubuntu-24.04'
+        Compiler: gcc
+        CompilerVer: 14
+        BuildType: Debug
+
+      ${{ if or(ne(variables['Build.Reason'], 'PullRequest'), contains(variables['Build.SourceBranchName'], 'fullci')) }}:
+        gcc-13 RelWithDebInfo [Ubuntu 22.04 Jammy]:
+          imageName: 'ubuntu-22.04'
+          Compiler: gcc
+          CompilerVer: 13
+          BuildType: RelWithDebInfo
 
       gcc-13 Debug [Ubuntu 22.04 Jammy]:
         imageName: 'ubuntu-22.04'
