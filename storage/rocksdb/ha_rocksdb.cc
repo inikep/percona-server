@@ -187,8 +187,6 @@ static rocksdb::HistogramImpl *commit_latency_stats = nullptr;
 static std::shared_ptr<rocksdb::Statistics> rocksdb_stats;
 static std::unique_ptr<rocksdb::Env> flashcache_aware_env;
 static std::shared_ptr<Rdb_tbl_prop_coll_factory> properties_collector_factory;
-static std::vector<std::string> split(const std::string& input,
-                                      char               delimiter);
 
 static Rdb_dict_manager dict_manager;
 static Rdb_cf_manager cf_manager;
@@ -211,10 +209,6 @@ static Rdb_index_stats_thread rdb_is_thread;
 static Rdb_manual_compaction_thread rdb_mc_thread;
 
 static Rdb_drop_index_thread rdb_drop_idx_thread;
-// List of table names (using regex) that are exceptions to the strict
-// collation check requirement.
-static std::vector<std::string> collation_exception_list;
-static Rds_mysql_mutex collation_exception_list_mutex;
 
 static const char *rdb_get_error_message(int nr);
 
@@ -629,10 +623,6 @@ static void rocksdb_set_delayed_write_rate(THD *thd, struct SYS_VAR *var,
 static void rocksdb_set_max_latest_deadlocks(THD *thd, struct SYS_VAR *var,
                                              void *var_ptr, const void *save);
 
-static void rocksdb_set_collation_exception_list(THD *thd, struct SYS_VAR *var,
-                                                 void *var_ptr,
-                                                 const void *save);
-
 static int rocksdb_validate_update_cf_options(THD *thd, struct SYS_VAR *var,
                                               void *save,
                                               st_mysql_value *value);
@@ -719,9 +709,7 @@ static char *rocksdb_delete_cf_name;
 static char *rocksdb_checkpoint_name;
 static char *rocksdb_block_cache_trace_options_str;
 static bool rocksdb_signal_drop_index_thread;
-static bool rocksdb_strict_collation_check = 1;
 static bool rocksdb_ignore_unknown_options = 1;
-static char *rocksdb_strict_collation_exceptions;
 static bool rocksdb_collect_sst_properties = 1;
 static bool rocksdb_force_flush_memtable_now_var = 0;
 static bool rocksdb_force_flush_memtable_and_lzero_now_var = 0;
@@ -2191,22 +2179,6 @@ static MYSQL_SYSVAR_BOOL(ignore_unknown_options, rocksdb_ignore_unknown_options,
                          "Enable ignoring unknown options passed to RocksDB",
                          nullptr, nullptr, true);
 
-/*
-  TODO(herman) - Both strict_collation_check and strict_collation_exceptions can
-  be deprecated now that SKs support index lookups for all collations.
-*/
-static MYSQL_SYSVAR_BOOL(strict_collation_check, rocksdb_strict_collation_check,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Enforce case sensitive collation for MyRocks indexes",
-                         nullptr, nullptr, true);
-
-static MYSQL_SYSVAR_STR(strict_collation_exceptions,
-                        rocksdb_strict_collation_exceptions,
-                        PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
-                        "List of tables (using regex) that are excluded "
-                        "from the case sensitive collation enforcement",
-                        nullptr, rocksdb_set_collation_exception_list, "");
-
 static MYSQL_SYSVAR_BOOL(collect_sst_properties, rocksdb_collect_sst_properties,
                          PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
                          "Enables collecting SST file properties on each flush",
@@ -2701,8 +2673,6 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(signal_drop_index_thread),
     MYSQL_SYSVAR(pause_background_work),
     MYSQL_SYSVAR(ignore_unknown_options),
-    MYSQL_SYSVAR(strict_collation_check),
-    MYSQL_SYSVAR(strict_collation_exceptions),
     MYSQL_SYSVAR(collect_sst_properties),
     MYSQL_SYSVAR(force_flush_memtable_now),
     MYSQL_SYSVAR(force_flush_memtable_and_lzero_now),
@@ -6465,9 +6435,6 @@ static int rocksdb_init_internal(void *const p) {
                                 MY_MUTEX_INIT_FAST);
   rdb_mem_cmp_space_mutex.init(rdb_mem_cmp_space_mutex_key, MY_MUTEX_INIT_FAST);
 
-  collation_exception_list_mutex.init(key_mutex_collation_exception_list,
-                   MY_MUTEX_INIT_FAST);
-
   rdb_block_cache_resize_mutex.init(rdb_block_cache_resize_mutex_key,
                                     MY_MUTEX_INIT_FAST);
   rdb_bottom_pri_background_compactions_resize_mutex.init(
@@ -7020,8 +6987,6 @@ static int rocksdb_init_internal(void *const p) {
   DBUG_EXECUTE_IF("rocksdb_init_failure_threads",
                   { DBUG_RETURN(HA_EXIT_FAILURE); });
 
-  collation_exception_list = split(rocksdb_strict_collation_exceptions, ',');
-
   if (rocksdb_pause_background_work) {
     rdb->PauseBackgroundWork();
   }
@@ -7199,11 +7164,6 @@ static int rocksdb_shutdown(bool minimalShutdown) {
 
   rdb_block_cache_resize_mutex.destroy();
   rdb_bottom_pri_background_compactions_resize_mutex.destroy();
-
-  if (!minimalShutdown) {
-    collation_exception_list_mutex.destroy();
-  }
-
   rdb_collation_data_mutex.destroy();
   rdb_mem_cmp_space_mutex.destroy();
 
@@ -16318,52 +16278,6 @@ static void rocksdb_set_max_latest_deadlocks(
     rocksdb_max_latest_deadlocks = new_val;
     rdb->SetDeadlockInfoBufferSize(rocksdb_max_latest_deadlocks);
   }
-}
-
-// Split a string based on a delimiter.  Two delimiters in a row will not
-// add an empty string in the list.
-static std::vector<std::string> split(const std::string& input,
-                                      char               delimiter)
-{
-  size_t                   pos;
-  size_t                   start = 0;
-  std::vector<std::string> elems;
-
-  // Find next delimiter
-  while ((pos = input.find(delimiter, start)) != std::string::npos)
-  {
-    // If there is any data since the last delimiter add it to the list
-    if (pos > start)
-      elems.push_back(input.substr(start, pos - start));
-
-    // Set our start position to the character after the delimiter
-    start = pos + 1;
-  }
-
-  // Add a possible string since the last delimiter
-  if (input.length() > start)
-    elems.push_back(input.substr(start));
-
-  // Return the resulting list back to the caller
-  return elems;
-}
-
-static void rocksdb_set_collation_exception_list(
-    THD *const thd MY_ATTRIBUTE((unused)),
-    struct SYS_VAR *const var MY_ATTRIBUTE((unused)), void *const var_ptr,
-    const void *const save) {
-  const char *const val = *static_cast<const char *const *>(save);
-
-  // Make sure we are not updating the list when it is being used elsewhere
-  mysql_mutex_lock(&collation_exception_list_mutex);
-
-  // Split the input string into a list of table names
-  collation_exception_list = split(val, ',');
-
-  // Release the mutex
-  mysql_mutex_unlock(&collation_exception_list_mutex);
-
-  *static_cast<const char **>(var_ptr) = val;
 }
 
 static int mysql_value_to_bool(struct st_mysql_value *value,
