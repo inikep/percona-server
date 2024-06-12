@@ -113,30 +113,6 @@ SERVICE_TYPE(log_builtins) *log_bi = nullptr;
 SERVICE_TYPE(log_builtins_string) *log_bs = nullptr;
 #endif
 
-// Internal MySQL APIs not exposed in any header.
-extern "C" {
-/**
-  Mark transaction to rollback and mark error as fatal to a sub-statement.
-  @param  thd   Thread handle
-  @param  all   true <=> rollback main transaction.
-*/
-void thd_mark_transaction_to_rollback(MYSQL_THD thd, int all);
-}
-
-/**
- *   Get the user thread's binary logging format
- *   @param thd  user thread
- *   @return Value to be used as index into the binlog_format_names array
- */
-int thd_binlog_format(const MYSQL_THD thd);
-
-/**
- *   Check if binary logging is filtered for thread's current db.
- *   @param  thd   Thread handle
- *   @retval 1 the query is not filtered, 0 otherwise.
- */
-bool thd_binlog_filter_ok(const MYSQL_THD thd);
-
 extern bool opt_core_file;
 
 namespace myrocks {
