@@ -71,8 +71,6 @@ my_core::PSI_mutex_info all_rocksdb_mutexes[] = {
     {&rdb_mem_cmp_space_mutex_key, "collation space char data init",
      PSI_FLAG_SINGLETON, 0, PSI_DOCUMENT_ME},
     {&key_mutex_tx_list, "tx_list", PSI_FLAG_SINGLETON, 0, PSI_DOCUMENT_ME},
-    {&rdb_sysvars_psi_mutex_key, "setting sysvar", PSI_FLAG_SINGLETON, 0,
-     PSI_DOCUMENT_ME},
     {&rdb_cfm_mutex_key, "column family manager", PSI_FLAG_SINGLETON, 0,
      PSI_DOCUMENT_ME},
     {&rdb_sst_commit_key, "sst commit", PSI_FLAG_SINGLETON, 0,
@@ -84,6 +82,13 @@ my_core::PSI_mutex_info all_rocksdb_mutexes[] = {
     {&rdb_bottom_pri_background_compactions_resize_mutex_key,
      "resizing bottom pri compaction threads", PSI_FLAG_SINGLETON, 0,
      PSI_DOCUMENT_ME},
+};
+
+my_core::PSI_rwlock_key key_rwlock_tbl_prop_coll_factory_lock;
+
+my_core::PSI_rwlock_info all_rocksdb_rwlocks[] = {
+    {&key_rwlock_tbl_prop_coll_factory_lock, "properties_collector_factory", 0,
+     PSI_FLAG_SINGLETON, PSI_DOCUMENT_ME},
 };
 
 my_core::PSI_cond_key rdb_signal_bg_psi_cond_key,
