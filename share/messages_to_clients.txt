@@ -10004,3 +10004,6 @@ start-error-number 50000
 
 ER_RDB_TTL_COL_FORMAT
   eng "TTL column (%s) in MyRocks must be an unsigned non-null 64-bit integer or non-null timestamp, exist inside the table, and have an accompanying ttl duration."
+
+ER_CF_DIFFERENT
+  eng "Column family ('%.*s') flag (%d) is different from an existing flag (%d). Assign a new CF flag, or do not change existing CF flag."
