@@ -5339,27 +5339,31 @@ std::multiset<Rdb_transaction *> Rdb_transaction::s_tx_list;
 Rds_mysql_mutex Rdb_transaction::s_tx_list_mutex;
 
 /* data structure to hold per THD data */
-class Rdb_ha_data {
+class [[nodiscard]] Rdb_ha_data {
  public:
-  Rdb_ha_data()
-      : checkpoint_dir(nullptr), trx(nullptr), disable_file_deletions(false) {}
+  Rdb_ha_data(const Rdb_ha_data &) = delete;
+  Rdb_ha_data(Rdb_ha_data &&) = delete;
+  Rdb_ha_data &operator=(const Rdb_ha_data &) = delete;
+  Rdb_ha_data &operator=(Rdb_ha_data &&) = delete;
 
-  ~Rdb_ha_data() { clear_checkpoint_dir(); }
+  Rdb_ha_data() = default;
+  ~Rdb_ha_data() = default;
 
-  const char *get_checkpoint_dir() const { return checkpoint_dir; }
-
-  void set_checkpoint_dir(const char *checkpoint_dir_) {
-    clear_checkpoint_dir();
-    if (checkpoint_dir_ != nullptr) {
-      checkpoint_dir = strdup(checkpoint_dir_);
-    }
+  [[nodiscard]] std::string_view get_checkpoint_dir() const noexcept {
+    return checkpoint_dir;
   }
 
-  Rdb_transaction *get_trx() const { return trx; }
+  void set_checkpoint_dir(std::string_view checkpoint_dir_) {
+    checkpoint_dir = checkpoint_dir_;
+  }
+
+  [[nodiscard]] Rdb_transaction *get_trx() const noexcept { return trx; }
 
   void set_trx(Rdb_transaction *t) { trx = t; }
 
-  bool get_disable_file_deletions() const { return disable_file_deletions; }
+  [[nodiscard]] bool get_disable_file_deletions() const noexcept {
+    return disable_file_deletions;
+  }
 
   void set_disable_file_deletions(bool d) { disable_file_deletions = d; }
 
@@ -5371,41 +5375,36 @@ class Rdb_ha_data {
     m_tmp_table_handlers.erase(m_tmp_table_handlers.find(rocksdb_handler));
   }
 
-  bool refresh_iterator_for_all_handlers(
-      const std::vector<std::string> *output) {
-    bool res = false;
-    int count = 0;
+  [[nodiscard]] bool refresh_iterator_for_all_handlers(
+      const std::vector<std::string> &iterator_keys) {
+    assert(m_tmp_table_handlers.size() >= iterator_keys.size());
+
+    auto iterator_key = iterator_keys.cbegin();
     for (auto const &handler : m_tmp_table_handlers) {
-      res = handler->refresh_tmp_table_iterator((*output)[count++]);
+      assert(iterator_key != iterator_keys.cend());
+      const auto res = handler->refresh_tmp_table_iterator(*iterator_key++);
       if (res) {
         return res;
       }
     }
-    return res;
+    return false;
   }
 
-  void extract_iterator_keys_for_all_handlers(
-      std::vector<std::string> *output) {
+  [[nodiscard]] std::vector<std::string>
+  extract_iterator_keys_for_all_handlers() {
+    std::vector<std::string> result;
     for (auto const &handler : m_tmp_table_handlers) {
       // current_key will be empty if the iterator is invalid.
-      std::string current_key = {};
-      handler->extract_snapshot_keys(&current_key);
-      output->push_back(current_key);
+      const auto current_key = handler->extract_snapshot_key();
+      result.push_back(current_key);
     }
+    return result;
   }
 
  private:
-  void clear_checkpoint_dir() {
-    if (checkpoint_dir) {
-      free(checkpoint_dir);
-      checkpoint_dir = nullptr;
-    }
-  }
-
- private:
-  char *checkpoint_dir;
-  Rdb_transaction *trx;
-  bool disable_file_deletions;
+  std::string checkpoint_dir;
+  Rdb_transaction *trx{nullptr};
+  bool disable_file_deletions{false};
   std::multiset<ha_rocksdb *> m_tmp_table_handlers;
 };
 
@@ -5531,8 +5530,8 @@ static int rocksdb_close_connection(
     tx = nullptr;
     set_tx_on_thd(thd, nullptr);
   }
-  const char *checkpoint_dir = get_ha_data(thd)->get_checkpoint_dir();
-  if (checkpoint_dir != nullptr) {
+  const auto checkpoint_dir = get_ha_data(thd)->get_checkpoint_dir();
+  if (!checkpoint_dir.empty()) {
     rocksdb_remove_checkpoint(checkpoint_dir);
   }
   if (get_ha_data(thd)->get_disable_file_deletions()) {
@@ -5571,13 +5570,13 @@ static int rocksdb_create_temporary_checkpoint_validate(
   } else if (current_checkpoint_dir != nullptr) {
     const auto res = rocksdb_remove_checkpoint(current_checkpoint_dir);
     *reinterpret_cast<const char **>(save) = nullptr;
-    get_ha_data(thd)->set_checkpoint_dir(nullptr);
+    get_ha_data(thd)->set_checkpoint_dir("");
     if (res != HA_EXIT_SUCCESS) {
       return res;
     }
   } else {
     *reinterpret_cast<const char **>(save) = nullptr;
-    get_ha_data(thd)->set_checkpoint_dir(nullptr);
+    get_ha_data(thd)->set_checkpoint_dir("");
   }
   return HA_EXIT_SUCCESS;
 }
@@ -10845,23 +10844,24 @@ bool ha_rocksdb::do_intrinsic_table_commit(Rdb_transaction *const tx) {
   bool res = false;
   if (m_tbl_def->get_table_type() == USER_TABLE) return res;
 
+  auto *const thd = ha_thd();
   if (tx->should_refresh_iterator_after_first_write) {
     // This is to handle the special case where we start rocksdb iterator on
     // new transaction(with empty write batch). Then iterator will only see
     // the already committed data, but ignores any new data added in write
     // batch later. So we are pro-actively refreshing the iterator after first
     // write in write batch.
-    std::vector<std::string> output;
-    get_ha_data(ha_thd())->extract_iterator_keys_for_all_handlers(&output);
-    res = get_ha_data(ha_thd())->refresh_iterator_for_all_handlers(&output);
+    const auto iterator_keys =
+        get_ha_data(thd)->extract_iterator_keys_for_all_handlers();
+    res = get_ha_data(thd)->refresh_iterator_for_all_handlers(iterator_keys);
     tx->should_refresh_iterator_after_first_write = false;
     return res;
   } else if (tx->get_write_count(m_tbl_def->get_table_type()) <
              rocksdb_max_intrinsic_tmp_table_write_count) {
     return res;
   } else {
-    std::vector<std::string> output;
-    get_ha_data(ha_thd())->extract_iterator_keys_for_all_handlers(&output);
+    const auto iterator_keys =
+        get_ha_data(thd)->extract_iterator_keys_for_all_handlers();
     res = tx->flush_batch(m_tbl_def->get_table_type());
     if (res) {
       // NO_LINT_DEBUG
@@ -10869,14 +10869,14 @@ bool ha_rocksdb::do_intrinsic_table_commit(Rdb_transaction *const tx) {
                       "flush_batch failed for intrinsic table commit");
       return res;
     }
-    res = get_ha_data(ha_thd())->refresh_iterator_for_all_handlers(&output);
+    res = get_ha_data(thd)->refresh_iterator_for_all_handlers(iterator_keys);
     inc_intrinsic_tmp_table_commits();
     tx->should_refresh_iterator_after_first_write = true;
     return res;
   }
 }
 
-bool ha_rocksdb::refresh_tmp_table_iterator(const std::string &key) {
+bool ha_rocksdb::refresh_tmp_table_iterator(std::string_view key) {
   bool res = false;
   if (m_tbl_def == nullptr || m_tbl_def->get_table_type() == USER_TABLE) {
     return res;
@@ -10884,7 +10884,7 @@ bool ha_rocksdb::refresh_tmp_table_iterator(const std::string &key) {
   // If m_iterator is valid, then after commit reset it back to previous value.
   if (m_iterator != nullptr) {
     if (!key.empty()) {
-      const rocksdb::Slice &current_key = rocksdb::Slice(key);
+      const auto current_key = rocksdb::Slice(key);
       m_iterator->reset();
       rocksdb::Slice empty_end_slice;
       if ((res = m_iterator->seek(HA_READ_KEY_OR_NEXT, current_key,
@@ -10906,11 +10906,11 @@ bool ha_rocksdb::refresh_tmp_table_iterator(const std::string &key) {
   return res;
 }
 
-void ha_rocksdb::extract_snapshot_keys(std::string *key) {
+std::string ha_rocksdb::extract_snapshot_key() {
   if (m_tbl_def != nullptr && m_iterator != nullptr && m_iterator->is_valid()) {
-    *key = m_iterator->key().ToString();
+    return m_iterator->key().ToString();
   } else {
-    *key = {};
+    return {};
   }
 }
 
