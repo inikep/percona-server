@@ -1,5 +1,10 @@
 # MyRocks Changelog
 
+## Pending release
+
+* `rocksdb_error_on_suboptimal_collation` remains accepted as a deprecated,
+  read-only compatibility option. It no longer affects collation validation.
+
 ## MyRocks 9.3.1-5
 **This version was shipped with Percona Server 8.0.46-37, 8.4.9-9, and 9.7.0-1.**
 * PS-11142 – Fix gcc-16 compilation issues with c++23

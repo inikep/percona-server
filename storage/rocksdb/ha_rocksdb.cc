@@ -796,8 +796,8 @@ static ulong rocksdb_invalid_create_option_action =
 enum class io_error_action : ulong { ABORT_SERVER = 0, IGNORE_ERROR };
 static ulong rocksdb_io_error_action =
     static_cast<ulong>(io_error_action::ABORT_SERVER);
-static bool rocksdb_error_on_suboptimal_collation = false;
 static uint32_t rocksdb_stats_recalc_rate = 0;
+static bool rocksdb_error_on_suboptimal_collation = false;
 static bool rocksdb_no_create_column_family = false;
 static uint32_t rocksdb_debug_manual_compaction_delay = 0;
 static uint32_t rocksdb_max_manual_compactions = 0;
@@ -2512,12 +2512,11 @@ static MYSQL_SYSVAR_BOOL(
     "Allow server to start successfully when RocksDB corruption is detected.",
     nullptr, nullptr, false);
 
-static MYSQL_SYSVAR_BOOL(error_on_suboptimal_collation,
-                         rocksdb_error_on_suboptimal_collation,
-                         PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_READONLY,
-                         "Raise an error instead of warning if a sub-optimal "
-                         "collation is used",
-                         nullptr, nullptr, false);
+static MYSQL_SYSVAR_BOOL(
+    error_on_suboptimal_collation, rocksdb_error_on_suboptimal_collation,
+    PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_READONLY,
+    "Deprecated compatibility option; accepted but has no effect", nullptr,
+    nullptr, false);
 
 static MYSQL_SYSVAR_BOOL(
     no_create_column_family, rocksdb_no_create_column_family,

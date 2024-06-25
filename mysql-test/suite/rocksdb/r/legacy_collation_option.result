@@ -1,0 +1,9 @@
+SELECT @@global.rocksdb_error_on_suboptimal_collation;
+@@global.rocksdb_error_on_suboptimal_collation
+1
+CREATE TABLE t (id INT PRIMARY KEY, v VARCHAR(10)) ENGINE=ROCKSDB;
+INSERT INTO t VALUES (1,'value');
+SELECT * FROM t;
+id	v
+1	value
+DROP TABLE t;
