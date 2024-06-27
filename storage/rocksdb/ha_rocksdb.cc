@@ -15,8 +15,6 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
 
-#include <cassert>
-#include "mysqld_error.h"
 #ifdef USE_PRAGMA_IMPLEMENTATION
 #pragma implementation  // gcc: Class implementation
 #endif
@@ -37,9 +35,11 @@
 #include <regex>
 #include <inttypes.h>
 #include <algorithm>
+#include <cassert>
 #include <deque>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -50,6 +50,7 @@
 #include <mysys_err.h>
 #include "sql/debug_sync.h"
 #include "my_sys.h"
+#include "mysqld_error.h"
 #include "scope_guard.h"
 #include "sql/dd/cache/dictionary_client.h"  // dd::cache::Dictionary_client
 #include "sql-common/json_dom.h"
@@ -3510,7 +3511,8 @@ class Rdb_transaction {
 
     assert(!is_ac_nl_ro_rc_transaction());
 
-    if (THDVAR(m_thd, trace_sst_api)) {
+    const auto trace_sst_api = THDVAR(m_thd, trace_sst_api);
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(
           INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -3533,7 +3535,7 @@ class Rdb_transaction {
 
     // PREPARE phase: finish all on-going bulk loading Rdb_sst_info and
     // collect all Rdb_sst_commit_info containing (SST files, cf)
-    if (THDVAR(m_thd, trace_sst_api)) {
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                       "SST Tracing : Finishing '%zu' active SST files",
@@ -3562,7 +3564,7 @@ class Rdb_transaction {
       }
     }
 
-    if (THDVAR(m_thd, trace_sst_api)) {
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                       "SST Tracing : All active SST files finished");
@@ -3576,7 +3578,7 @@ class Rdb_transaction {
     // Rdb_sst_info and collect all Rdb_sst_commit_info containing
     // (SST files, cf)
     if (!m_key_merge.empty()) {
-      if (THDVAR(m_thd, trace_sst_api)) {
+      if (trace_sst_api) {
         // NO_LINT_DEBUG
         LogPluginErrMsg(
             INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -3634,7 +3636,7 @@ class Rdb_transaction {
         }
         const std::string &index_name = keydef->get_name();
 
-        if (THDVAR(m_thd, trace_sst_api)) {
+        if (trace_sst_api) {
           std::string full_name;
           int err = rdb_normalize_tablename(table_name, &full_name);
           if (err != HA_EXIT_SUCCESS) {
@@ -3653,8 +3655,11 @@ class Rdb_transaction {
 
         auto sst_info = std::make_shared<Rdb_sst_info>(
             rdb, table_name, index_name, rdb_merge.get_cf(),
-            *rocksdb_db_options, THDVAR(get_thd(), trace_sst_api),
+            *rocksdb_db_options, trace_sst_api,
             THDVAR(get_thd(), bulk_load_compression_parallel_threads));
+
+        const auto enable_unique_key_check =
+            THDVAR(m_thd, bulk_load_enable_unique_key_check);
 
         if (keydef->is_partial_index()) {
           if (!THDVAR(m_thd, bulk_load_partial_index)) continue;
@@ -3774,7 +3779,7 @@ class Rdb_transaction {
 #endif
           } else {
             // skip unique index check if the unique key check flag is disabled
-            if (!THDVAR(m_thd, bulk_load_enable_unique_key_check)) {
+            if (!enable_unique_key_check) {
               check_unique_index = false;
             }
           }
@@ -3814,7 +3819,7 @@ class Rdb_transaction {
                 *is_critical_error = false;
               }
 
-              if (THDVAR(m_thd, bulk_load_enable_unique_key_check)) {
+              if (enable_unique_key_check) {
                 my_printf_error(
                     ER_DUP_ENTRY,
                     "Duplicate entry found for key name: %s, key:%s", MYF(0),
@@ -3861,7 +3866,7 @@ class Rdb_transaction {
         }
       }
 
-      if (THDVAR(m_thd, trace_sst_api)) {
+      if (trace_sst_api) {
         // NO_LINT_DEBUG
         LogPluginErrMsg(
             INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -3907,7 +3912,7 @@ class Rdb_transaction {
       file_count += cf_files_pair.second.external_files.size();
     }
 
-    if (THDVAR(m_thd, trace_sst_api)) {
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(
           INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -3916,7 +3921,7 @@ class Rdb_transaction {
     }
 
     const rocksdb::Status s = ingest_bulk_load_files(args);
-    if (THDVAR(m_thd, trace_sst_api)) {
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                       "SST Tracing: IngestExternalFile '%zu' files returned %s",
@@ -3945,7 +3950,7 @@ class Rdb_transaction {
       commit_info.commit();
     }
 
-    if (THDVAR(m_thd, trace_sst_api)) {
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(
           INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -4020,7 +4025,8 @@ class Rdb_transaction {
       }
     }
 
-    if (THDVAR(m_thd, trace_sst_api)) {
+    const auto trace_sst_api = THDVAR(m_thd, trace_sst_api);
+    if (trace_sst_api) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(
           INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -4149,7 +4155,8 @@ class Rdb_transaction {
     if (create_snapshot) acquire_snapshot(true);
 
     rocksdb::ReadOptions options = m_read_opts;
-    const bool fill_cache = !THDVAR(get_thd(), skip_fill_cache);
+    auto *const thd = get_thd();
+    const auto fill_cache = !THDVAR(thd, skip_fill_cache);
 
     if (skip_bloom_filter) {
       options.total_order_seek = true;
@@ -10036,7 +10043,7 @@ int ha_rocksdb::check(THD *const thd MY_ATTRIBUTE((__unused__)),
         rows++;
         continue;
 
-      print_and_error : {
+      print_and_error: {
         std::string buf;
         buf = rdb_hexdump(rowkey_copy.ptr(), rowkey_copy.length());
         // NO_LINT_DEBUG
@@ -13250,13 +13257,13 @@ int ha_rocksdb::extra(enum ha_extra_function operation) {
 ha_rows ha_rocksdb::records_in_range(uint inx, key_range *const min_key,
                                      key_range *const max_key) {
   DBUG_ENTER_FUNC();
-
-  ha_rows ret = THDVAR(ha_thd(), records_in_range);
+  auto *const thd = ha_thd();
+  ha_rows ret = THDVAR(thd, records_in_range);
   if (ret) {
     DBUG_RETURN(ret);
   }
   if (table->force_index) {
-    const ha_rows force_rows = THDVAR(ha_thd(), force_index_records_in_range);
+    const ha_rows force_rows = THDVAR(thd, force_index_records_in_range);
     if (force_rows) {
       DBUG_RETURN(force_rows);
     }
@@ -14628,12 +14635,13 @@ int ha_rocksdb::inplace_populate_sk(
   DBUG_ENTER_FUNC();
   int res = HA_EXIT_SUCCESS;
   auto batch = Rdb_dict_manager::begin();
+  auto *const thd = ha_thd();
 
   DBUG_EXECUTE_IF("rocksdb_inplace_populate_sk", {
     const char act[] =
         "now signal ready_to_mark_cf_dropped_in_populate_sk "
         "wait_for mark_cf_dropped_done_in_populate_sk";
-    assert(!debug_sync_set_action(ha_thd(), STRING_WITH_LEN(act)));
+    assert(!debug_sync_set_action(thd, STRING_WITH_LEN(act)));
   });
 
   {
@@ -14718,7 +14726,7 @@ int ha_rocksdb::inplace_populate_sk(
 
   for (const auto &index : indexes) {
     // Skip populating partial indexes.
-    if (index->is_partial_index() && !THDVAR(ha_thd(), bulk_load_partial_index))
+    if (index->is_partial_index() && !THDVAR(thd, bulk_load_partial_index))
       continue;
 
     /*
@@ -14787,7 +14795,7 @@ int ha_rocksdb::inplace_populate_sk(
       assert(new_table_arg->key_info[index->get_keyno()].flags & HA_NOSAME);
       print_keydup_error(new_table_arg,
                          &new_table_arg->key_info[index->get_keyno()], MYF(0),
-                         ha_thd());
+                         thd);
     }
 
     if (res && is_critical_error) {
@@ -16938,12 +16946,11 @@ static int rocksdb_validate_update_cf_options(THD * /* unused */,
   }
 
   // Loop through option_map and create missing column families
-  for (Rdb_cf_options::Name_to_config_t::iterator it = option_map.begin();
-       it != option_map.end(); ++it) {
+  for (const auto &option : option_map) {
     // If the CF is removed at this point, i.e., cf_manager.drop_cf() has
     // been called, it is OK to create a new CF.
 
-    const auto &cf_name = it->first;
+    const auto &cf_name = option.first;
     {
       std::lock_guard<Rdb_dict_manager> dm_lock(dict_manager);
       auto cfh = cf_manager.get_or_create_cf(rdb, cf_name);
@@ -16987,6 +16994,7 @@ static void rocksdb_set_update_cf_options(THD *const /* unused */,
 
   // This should never fail, because of rocksdb_validate_update_cf_options
   if (!Rdb_cf_options::parse_cf_options(val, option_map)) {
+    assert(false);
     return;
   }
 
@@ -16994,8 +17002,7 @@ static void rocksdb_set_update_cf_options(THD *const /* unused */,
   for (const auto &cf_name : cf_manager.get_cf_names()) {
     assert(!cf_name.empty());
 
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager.get_cf(cf_name);
+    auto cfh = cf_manager.get_cf(cf_name);
 
     if (!cfh) {
       // NO_LINT_DEBUG
@@ -17007,11 +17014,11 @@ static void rocksdb_set_update_cf_options(THD *const /* unused */,
     }
 
     const auto it = option_map.find(cf_name);
-    std::string per_cf_options = (it != option_map.end()) ? it->second : "";
+    const auto per_cf_options = (it != option_map.end()) ? it->second : "";
 
     if (!per_cf_options.empty()) {
       Rdb_cf_options::Name_to_config_t opt_map;
-      rocksdb::Status s = rocksdb::StringToMap(per_cf_options, &opt_map);
+      auto s = rocksdb::StringToMap(per_cf_options, &opt_map);
 
       if (s != rocksdb::Status::OK()) {
         // NO_LINT_DEBUG
@@ -17045,7 +17052,7 @@ static void rocksdb_set_update_cf_options(THD *const /* unused */,
           // the CF options. This is necessary also to make sure that the CF
           // options will be correctly reflected in the relevant table:
           // ROCKSDB_CF_OPTIONS in INFORMATION_SCHEMA.
-          rocksdb::ColumnFamilyOptions cf_options = rdb->GetOptions(cfh.get());
+          const auto cf_options = rdb->GetOptions(cfh.get());
           std::string updated_options;
 
           s = rocksdb::GetStringFromColumnFamilyOptions(&updated_options,
@@ -17251,10 +17258,11 @@ rocksdb::Status rdb_tx_get_for_update(Rdb_transaction *tx,
                                       const Rdb_key_def &kd,
                                       const rocksdb::Slice &key,
                                       rocksdb::PinnableSlice *const value,
-                                      bool exclusive, bool skip_wait) {
-  bool do_validate =
-      !(my_core::thd_tx_isolation(tx->get_thd()) <= ISO_READ_COMMITTED ||
-        THDVAR(tx->get_thd(), skip_snapshot_validation));
+                                      bool exclusive,
+                                      bool skip_wait) {
+  auto *const thd = tx->get_thd();
+  const auto do_validate = !(thd_tx_isolation(thd) <= ISO_READ_COMMITTED ||
+                             THDVAR(thd, skip_snapshot_validation));
   rocksdb::Status s = tx->get_for_update(kd, key, value, exclusive,
                                          do_validate, skip_wait);
 
