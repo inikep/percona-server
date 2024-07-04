@@ -555,29 +555,6 @@ static bool fts_zip_extract_bytes(fts_zip_t *zip, /*!< in: Zip state + data */
   zip->zp->avail_out = size;
   void *null = nullptr;
   int flush = Z_NO_FLUSH;
-<<<<<<< HEAD
-  bool read_something = false;
-
-  /* Either there was an error or we are at the Z_STREAM_END. */
-  if (zip->status != Z_OK) {
-    return (nullptr);
-  }
-
-  zip->zp->next_out = reinterpret_cast<byte *>(&len);
-  zip->zp->avail_out = sizeof(len);
-
-||||||| 6dcee9fa4b1
-
-  /* Either there was an error or we are at the Z_STREAM_END. */
-  if (zip->status != Z_OK) {
-    return (nullptr);
-  }
-
-  zip->zp->next_out = reinterpret_cast<byte *>(&len);
-  zip->zp->avail_out = sizeof(len);
-
-=======
->>>>>>> mysql-8.0.38
   while (zip->status == Z_OK && zip->zp->avail_out > 0) {
     /* Finished decompressing block. */
     if (zip->zp->avail_in == 0) {
@@ -610,31 +587,8 @@ static bool fts_zip_extract_bytes(fts_zip_t *zip, /*!< in: Zip state + data */
 
     switch (zip->status = inflate(zip->zp, flush)) {
       case Z_OK:
-<<<<<<< HEAD
-        if (zip->zp->avail_out == 0 && len > 0) {
-          ut_a(len <= FTS_MAX_WORD_LEN);
-          ptr[len] = 0;
-
-          zip->zp->next_out = ptr;
-          zip->zp->avail_out = len;
-
-          word->f_len = len;
-          len = 0;
-          read_something = true;
-||||||| 6dcee9fa4b1
-        if (zip->zp->avail_out == 0 && len > 0) {
-          ut_a(len <= FTS_MAX_WORD_LEN);
-          ptr[len] = 0;
-
-          zip->zp->next_out = ptr;
-          zip->zp->avail_out = len;
-
-          word->f_len = len;
-          len = 0;
-=======
         if (zip->zp->avail_out == 0) {
           complete = true;
->>>>>>> mysql-8.0.38
         }
         break;
 
@@ -682,13 +636,6 @@ static bool fts_zip_read_word(fts_zip_t *zip,     /*!< in: Zip state + data */
     return false;
   }
 
-<<<<<<< HEAD
-  return ((zip->status == Z_OK || zip->status == Z_STREAM_END) && read_something
-              ? ptr
-              : nullptr);
-||||||| 6dcee9fa4b1
-  return (zip->status == Z_OK || zip->status == Z_STREAM_END ? ptr : nullptr);
-=======
   ut_a(len <= FTS_MAX_WORD_LEN);
 
   word->f_len = len;
@@ -699,7 +646,6 @@ static bool fts_zip_read_word(fts_zip_t *zip,     /*!< in: Zip state + data */
   ut_ad(word->f_len == strlen((char *)word->f_str));
 
   return have_word;
->>>>>>> mysql-8.0.38
 }
 
 /** Callback function to fetch and compress the word in an FTS
