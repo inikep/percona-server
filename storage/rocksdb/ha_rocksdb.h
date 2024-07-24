@@ -70,6 +70,7 @@ class Rdb_transaction_impl;
 class Rdb_writebatch_impl;
 class Rdb_field_encoder;
 class Regex_list_handler;
+class Rdb_bulk_load_context;
 
 #if defined(HAVE_PSI_INTERFACE)
 extern PSI_rwlock_key key_rwlock_read_free_rpl_tables;
@@ -307,9 +308,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
     @note Valid inside UPDATE statements, IIF(old_pk_slice is set).
   */
   my_core::Bitmap<((MAX_INDEXES + 7) / 8 * 8)> m_update_scope;
-
-  /* SST information used for bulk loading the primary key */
-  std::shared_ptr<Rdb_sst_info> m_sst_info;
 
   /*
     MySQL index number for duplicate key error
@@ -762,8 +760,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
                                       bool *const found);
   [[nodiscard]] int check_uniqueness_and_lock(
       const struct update_row_info &row_info, bool pk_changed);
-  bool over_bulk_load_threshold(int *err)
-      MY_ATTRIBUTE((__warn_unused_result__));
   int check_duplicate_sk(const TABLE *table_arg, const Rdb_key_def &key_def,
                          const rocksdb::Slice *key,
                          struct unique_sk_buf_info *sk_info)
@@ -799,9 +795,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
       TABLE *const table_arg,
       const std::unordered_set<std::shared_ptr<Rdb_key_def>> &indexes)
       MY_ATTRIBUTE((__nonnull__, __warn_unused_result__));
-
-  int finalize_bulk_load(bool print_client_error = true)
-      MY_ATTRIBUTE((__warn_unused_result__));
 
   void inc_table_n_rows();
   void dec_table_n_rows();
@@ -1123,6 +1116,7 @@ extern Rdb_compaction_stats compaction_stats;
 unsigned long long get_partial_index_sort_max_mem(THD *thd);
 
 Rdb_transaction *get_tx_from_thd(THD *const thd);
+Rdb_bulk_load_context *get_bulk_load_ctx_from_thd(THD *const thd);
 
 void rdb_tx_acquire_snapshot(Rdb_transaction &tx);
 
