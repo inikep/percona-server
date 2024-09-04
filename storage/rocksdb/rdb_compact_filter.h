@@ -73,13 +73,11 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
 
         if (m_ttl_duration != 0 && m_snapshot_timestamp == 0) {
           /*
-            For efficiency reasons, we lazily call GetIntProperty to get the
-            oldest snapshot time (occurs once per compaction).
+            For efficiency reasons, we lazily get the oldest transaction
+            timestamp (occurs once per compaction).
           */
-          rocksdb::DB *const rdb = rdb_get_rocksdb_db();
-          if (!rdb->GetIntProperty(rocksdb::DB::Properties::kOldestSnapshotTime,
-                                   &m_snapshot_timestamp) ||
-              m_snapshot_timestamp == 0) {
+          m_snapshot_timestamp = oldest_transaction_timestamp();
+          if (m_snapshot_timestamp == 0) {
             m_snapshot_timestamp = static_cast<uint64_t>(std::time(nullptr));
           }
 
