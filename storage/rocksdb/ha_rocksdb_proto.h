@@ -89,6 +89,8 @@ int rdb_dbug_set_ttl_snapshot_ts();
 bool rdb_dbug_set_ttl_ignore_pk();
 #endif
 
+[[nodiscard]] std::uint64_t oldest_transaction_timestamp();
+
 enum operation_type : int;
 void rdb_update_global_stats(const operation_type &type, uint count,
                              Rdb_tbl_def *td = nullptr);
