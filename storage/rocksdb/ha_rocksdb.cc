@@ -798,12 +798,7 @@ static bool rocksdb_debug_skip_bloom_filter_check_on_iterator_bounds = 0;
 bool rocksdb_enable_autoinc_compact_mode = false;
 char max_timestamp_uint64[ROCKSDB_SIZEOF_TTL_RECORD];
 
-enum file_checksums_type {
-  CHECKSUMS_OFF = 0,
-  CHECKSUMS_WRITE_ONLY,
-  CHECKSUMS_WRITE_AND_VERIFY
-};
-static ulong rocksdb_file_checksums = file_checksums_type::CHECKSUMS_OFF;
+ulong rocksdb_file_checksums = file_checksums_type::CHECKSUMS_OFF;
 
 static std::atomic<uint64_t> rocksdb_row_lock_deadlocks(0);
 static std::atomic<uint64_t> rocksdb_row_lock_wait_timeouts(0);
@@ -7616,7 +7611,7 @@ static int rocksdb_init_internal(void *const p) {
     DBUG_RETURN(HA_EXIT_FAILURE);
   }
 
-  if (rocksdb_file_checksums >=
+  if (rocksdb_file_checksums ==
       file_checksums_type::CHECKSUMS_WRITE_AND_VERIFY) {
     LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                     "Verifying file checksums...");
