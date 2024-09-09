@@ -4118,7 +4118,7 @@ Rdb_tbl_def::~Rdb_tbl_def() {
 
 bool Rdb_tbl_def::put_dict(Rdb_dict_manager *const dict,
                            Rdb_cf_manager *cf_manager,
-                           rocksdb::WriteBatch *const batch,
+                           rocksdb::WriteBatch &batch,
                            const rocksdb::Slice &key) {
   assert(m_pk_index <= MAX_INDEXES);
 
@@ -4900,17 +4900,17 @@ void Rdb_ddl_manager::persist_stats(const bool sync) {
   if (!stats.empty()) {
     auto local_dict_manager =
         m_dict->get_dict_manager_selector_const(false /*is_tmp_table*/);
-    const std::unique_ptr<rocksdb::WriteBatch> wb = local_dict_manager->begin();
-    local_dict_manager->add_stats(wb.get(), stats);
-    local_dict_manager->commit(wb.get(), sync);
+    auto wb = Rdb_dict_manager::begin();
+    local_dict_manager->add_stats(wb, stats);
+    local_dict_manager->commit(wb, sync);
   }
 
   if (!tmp_table_stats.empty()) {
     auto local_dict_manager =
         m_dict->get_dict_manager_selector_const(true /*is_tmp_table*/);
-    const std::unique_ptr<rocksdb::WriteBatch> wb = local_dict_manager->begin();
-    local_dict_manager->add_stats(wb.get(), tmp_table_stats);
-    local_dict_manager->commit(wb.get(), sync);
+    auto wb = Rdb_dict_manager::begin();
+    local_dict_manager->add_stats(wb, tmp_table_stats);
+    local_dict_manager->commit(wb, sync);
   }
 }
 
@@ -4952,7 +4952,7 @@ uint Rdb_ddl_manager::get_and_update_next_number(uint cf_id, bool is_dd_tbl) {
 */
 
 int Rdb_ddl_manager::put_and_write(Rdb_tbl_def *const tbl,
-                                   rocksdb::WriteBatch *const batch) {
+                                   rocksdb::WriteBatch &batch) {
   Rdb_buf_writer<FN_LEN * 2 + Rdb_key_def::INDEX_NUMBER_SIZE> buf_writer;
 
   buf_writer.write_index(Rdb_key_def::DDL_ENTRY_INDEX_START_NUMBER);
@@ -5006,9 +5006,8 @@ int Rdb_ddl_manager::put(Rdb_tbl_def *const tbl, const bool lock) {
   return 0;
 }
 
-void Rdb_ddl_manager::remove(Rdb_tbl_def *const tbl,
-                             rocksdb::WriteBatch *const batch,
-                             const uint table_default_cf_id, const bool lock) {
+void Rdb_ddl_manager::remove(Rdb_tbl_def *tbl, rocksdb::WriteBatch &batch,
+                             uint table_default_cf_id, bool lock) {
   if (lock) mysql_rwlock_wrlock(&m_rwlock);
 
   Rdb_buf_writer<FN_LEN * 2 + Rdb_key_def::INDEX_NUMBER_SIZE> key_writer;
@@ -5031,7 +5030,7 @@ void Rdb_ddl_manager::remove(Rdb_tbl_def *const tbl,
 }
 
 bool Rdb_ddl_manager::rename(const std::string &from, const std::string &to,
-                             rocksdb::WriteBatch *const batch) {
+                             rocksdb::WriteBatch &batch) {
   Rdb_tbl_def *rec;
   Rdb_tbl_def *new_rec;
   bool res = true;
@@ -5141,8 +5140,7 @@ bool Rdb_dict_manager::init(rocksdb::TransactionDB *const rdb_dict,
   rollback_ongoing_index_creation();
 
   // Initialize system CF and default CF flags
-  const std::unique_ptr<rocksdb::WriteBatch> wb = begin();
-  rocksdb::WriteBatch *const batch = wb.get();
+  auto batch = Rdb_dict_manager::begin();
 
   add_cf_flags(batch, m_system_cfh->GetID(), 0);
   add_cf_flags(batch, default_cfh->GetID(), 0);
@@ -5162,14 +5160,12 @@ bool Rdb_dict_manager::init(rocksdb::TransactionDB *const rdb_dict,
   return HA_EXIT_SUCCESS;
 }
 
-std::unique_ptr<rocksdb::WriteBatch> Rdb_dict_manager::begin() const {
-  return std::unique_ptr<rocksdb::WriteBatch>(new rocksdb::WriteBatch);
-}
+rocksdb::WriteBatch Rdb_dict_manager::begin() { return rocksdb::WriteBatch{}; }
 
-void Rdb_dict_manager::put_key(rocksdb::WriteBatchBase *const batch,
+void Rdb_dict_manager::put_key(rocksdb::WriteBatchBase &batch,
                                const rocksdb::Slice &key,
                                const rocksdb::Slice &value) const {
-  batch->Put(m_system_cfh, key, value);
+  batch.Put(m_system_cfh, key, value);
 }
 
 rocksdb::Status Rdb_dict_manager::get_value(const rocksdb::Slice &key,
@@ -5179,9 +5175,9 @@ rocksdb::Status Rdb_dict_manager::get_value(const rocksdb::Slice &key,
   return m_db->Get(options, m_system_cfh, key, value);
 }
 
-void Rdb_dict_manager::delete_key(rocksdb::WriteBatchBase *batch,
+void Rdb_dict_manager::delete_key(rocksdb::WriteBatchBase &batch,
                                   const rocksdb::Slice &key) const {
-  batch->Delete(m_system_cfh, key);
+  batch.Delete(m_system_cfh, key);
 }
 
 rocksdb::Iterator *Rdb_dict_manager::new_iterator() const {
@@ -5191,15 +5187,13 @@ rocksdb::Iterator *Rdb_dict_manager::new_iterator() const {
   return m_db->NewIterator(read_options, m_system_cfh);
 }
 
-int Rdb_dict_manager::commit(rocksdb::WriteBatch *const batch,
-                             const bool sync) const {
-  if (!batch) return HA_ERR_ROCKSDB_COMMIT_FAILED;
+int Rdb_dict_manager::commit(rocksdb::WriteBatch &batch, bool sync) const {
   int res = HA_EXIT_SUCCESS;
   rocksdb::WriteOptions options;
   options.sync = (sync && rdb_sync_wal_supported());
   rocksdb::TransactionDBWriteOptimizations optimize;
   optimize.skip_concurrency_control = true;
-  rocksdb::Status s = m_db->Write(options, optimize, batch);
+  const auto s = m_db->Write(options, optimize, &batch);
   res = !s.ok();  // we return true when something failed
   if (res) {
     rdb_handle_io_error(s, RDB_IO_ERROR_DICT_COMMIT);
@@ -5209,7 +5203,7 @@ int Rdb_dict_manager::commit(rocksdb::WriteBatch *const batch,
     m_db->FlushWAL(false);
   }
 
-  batch->Clear();
+  batch.Clear();
   return res;
 }
 
@@ -5224,7 +5218,7 @@ void Rdb_dict_manager::dump_index_id(uchar *const netbuf,
 }
 
 void Rdb_dict_manager::delete_with_prefix(
-    rocksdb::WriteBatch *const batch, Rdb_key_def::DATA_DICT_TYPE dict_type,
+    rocksdb::WriteBatch &batch, Rdb_key_def::DATA_DICT_TYPE dict_type,
     const GL_INDEX_ID &gl_index_id) const {
   Rdb_buf_writer<Rdb_key_def::INDEX_NUMBER_SIZE * 3> key_writer;
   dump_index_id(&key_writer, dict_type, gl_index_id);
@@ -5233,7 +5227,7 @@ void Rdb_dict_manager::delete_with_prefix(
 }
 
 void Rdb_dict_manager::add_or_update_index_cf_mapping(
-    rocksdb::WriteBatch *batch, struct Rdb_index_info *const index_info) const {
+    rocksdb::WriteBatch &batch, struct Rdb_index_info *const index_info) const {
   Rdb_buf_writer<Rdb_key_def::INDEX_NUMBER_SIZE * 3> key_writer;
   dump_index_id(&key_writer, Rdb_key_def::INDEX_INFO,
                 index_info->m_gl_index_id);
@@ -5246,14 +5240,11 @@ void Rdb_dict_manager::add_or_update_index_cf_mapping(
   value_writer.write_uint32(index_info->m_index_flags);
   value_writer.write_uint64(index_info->m_ttl_duration);
 
-  batch->Put(m_system_cfh, key_writer.to_slice(), value_writer.to_slice());
+  batch.Put(m_system_cfh, key_writer.to_slice(), value_writer.to_slice());
 }
 
-void Rdb_dict_manager::add_cf_flags(rocksdb::WriteBatch *const batch,
-                                    const uint32_t cf_id,
-                                    const uint32_t cf_flags) const {
-  assert(batch != nullptr);
-
+void Rdb_dict_manager::add_cf_flags(rocksdb::WriteBatch &batch, uint32_t cf_id,
+                                    uint32_t cf_flags) const {
   Rdb_buf_writer<Rdb_key_def::INDEX_NUMBER_SIZE * 2> key_writer;
   key_writer.write_uint32(Rdb_key_def::CF_DEFINITION);
   key_writer.write_uint32(cf_id);
@@ -5263,13 +5254,11 @@ void Rdb_dict_manager::add_cf_flags(rocksdb::WriteBatch *const batch,
   value_writer.write_uint16(Rdb_key_def::CF_DEFINITION_VERSION);
   value_writer.write_uint32(cf_flags);
 
-  batch->Put(m_system_cfh, key_writer.to_slice(), value_writer.to_slice());
+  batch.Put(m_system_cfh, key_writer.to_slice(), value_writer.to_slice());
 }
 
-void Rdb_dict_manager::delete_cf_flags(rocksdb::WriteBatch *const batch,
-                                       const uint cf_id) const {
-  assert(batch != nullptr);
-
+void Rdb_dict_manager::delete_cf_flags(rocksdb::WriteBatch &batch,
+                                       uint cf_id) const {
   uchar key_buf[Rdb_key_def::INDEX_NUMBER_SIZE * 2] = {0};
 
   rdb_netbuf_store_uint32(key_buf, Rdb_key_def::CF_DEFINITION);
@@ -5280,7 +5269,7 @@ void Rdb_dict_manager::delete_cf_flags(rocksdb::WriteBatch *const batch,
   delete_key(batch, key);
 }
 
-void Rdb_dict_manager::delete_index_info(rocksdb::WriteBatch *batch,
+void Rdb_dict_manager::delete_index_info(rocksdb::WriteBatch &batch,
                                          const GL_INDEX_ID &gl_index_id) const {
   delete_with_prefix(batch, Rdb_key_def::INDEX_INFO, gl_index_id);
   delete_with_prefix(batch, Rdb_key_def::INDEX_STATISTICS, gl_index_id);
@@ -5395,10 +5384,8 @@ bool Rdb_dict_manager::get_cf_flags(const uint32_t cf_id,
   return found;
 }
 
-void Rdb_dict_manager::add_dropped_cf(rocksdb::WriteBatch *const batch,
-                                      const uint cf_id) const {
-  assert(batch != nullptr);
-
+void Rdb_dict_manager::add_dropped_cf(rocksdb::WriteBatch &batch,
+                                      uint cf_id) const {
   uchar key_buf[Rdb_key_def::INDEX_NUMBER_SIZE * 2] = {0};
   uchar value_buf[Rdb_key_def::VERSION_SIZE] = {0};
   rdb_netbuf_store_uint32(key_buf, Rdb_key_def::DROPPED_CF);
@@ -5409,7 +5396,7 @@ void Rdb_dict_manager::add_dropped_cf(rocksdb::WriteBatch *const batch,
   rdb_netbuf_store_uint16(value_buf, Rdb_key_def::DROPPED_CF_VERSION);
   const rocksdb::Slice value =
       rocksdb::Slice(reinterpret_cast<char *>(value_buf), sizeof(value_buf));
-  batch->Put(m_system_cfh, key, value);
+  batch.Put(m_system_cfh, key, value);
 }
 
 bool Rdb_dict_manager::get_dropped_cf(const uint cf_id) const {
@@ -5426,17 +5413,14 @@ bool Rdb_dict_manager::get_dropped_cf(const uint cf_id) const {
   return status.ok();
 }
 
-void Rdb_dict_manager::delete_dropped_cf_and_flags(
-    rocksdb::WriteBatch *const batch, const uint cf_id) const {
-  assert(batch != nullptr);
+void Rdb_dict_manager::delete_dropped_cf_and_flags(rocksdb::WriteBatch &batch,
+                                                   uint cf_id) const {
   delete_dropped_cf(batch, cf_id);
   delete_cf_flags(batch, cf_id);
 }
 
-void Rdb_dict_manager::delete_dropped_cf(rocksdb::WriteBatch *const batch,
-                                         const uint cf_id) const {
-  assert(batch != nullptr);
-
+void Rdb_dict_manager::delete_dropped_cf(rocksdb::WriteBatch &batch,
+                                         uint cf_id) const {
   uchar key_buf[Rdb_key_def::INDEX_NUMBER_SIZE * 2] = {0};
 
   rdb_netbuf_store_uint32(key_buf, Rdb_key_def::DROPPED_CF);
@@ -5545,8 +5529,7 @@ int Rdb_dict_manager::add_missing_cf_flags(
 int Rdb_dict_manager::remove_orphaned_dropped_cfs(
     Rdb_cf_manager *const cf_manager,
     const bool &enable_remove_orphaned_dropped_cfs) const {
-  const std::unique_ptr<rocksdb::WriteBatch> wb = begin();
-  rocksdb::WriteBatch *const batch = wb.get();
+  auto batch = Rdb_dict_manager::begin();
 
   std::unordered_set<uint32> dropped_cf_ids;
   get_all_dropped_cfs(&dropped_cf_ids);
@@ -5595,7 +5578,7 @@ bool Rdb_dict_manager::is_index_operation_ongoing(
   by drop_index_thread, or to track online index creation.
  */
 void Rdb_dict_manager::start_ongoing_index_operation(
-    rocksdb::WriteBatch *const batch, const GL_INDEX_ID &gl_index_id,
+    rocksdb::WriteBatch &batch, const GL_INDEX_ID &gl_index_id,
     Rdb_key_def::DATA_DICT_TYPE dd_type) const {
   assert(dd_type == Rdb_key_def::DDL_DROP_INDEX_ONGOING ||
          dd_type == Rdb_key_def::DDL_CREATE_INDEX_ONGOING);
@@ -5612,7 +5595,7 @@ void Rdb_dict_manager::start_ongoing_index_operation(
     value_writer.write_uint16(Rdb_key_def::DDL_CREATE_INDEX_ONGOING_VERSION);
   }
 
-  batch->Put(m_system_cfh, key_writer.to_slice(), value_writer.to_slice());
+  batch.Put(m_system_cfh, key_writer.to_slice(), value_writer.to_slice());
 }
 
 /*
@@ -5620,7 +5603,7 @@ void Rdb_dict_manager::start_ongoing_index_operation(
   completed dropping entire key/values of the index_id
  */
 void Rdb_dict_manager::end_ongoing_index_operation(
-    rocksdb::WriteBatch *const batch, const GL_INDEX_ID &gl_index_id,
+    rocksdb::WriteBatch &batch, const GL_INDEX_ID &gl_index_id,
     Rdb_key_def::DATA_DICT_TYPE dd_type) const {
   assert(dd_type == Rdb_key_def::DDL_DROP_INDEX_ONGOING ||
          dd_type == Rdb_key_def::DDL_CREATE_INDEX_ONGOING);
@@ -5644,8 +5627,8 @@ bool Rdb_dict_manager::is_drop_index_empty() const {
   all associated indexes to be removed
  */
 void Rdb_dict_manager::add_drop_table(
-    std::shared_ptr<Rdb_key_def> *const key_descr, const uint32 n_keys,
-    rocksdb::WriteBatch *const batch) const {
+    std::shared_ptr<Rdb_key_def> *const key_descr, uint32 n_keys,
+    rocksdb::WriteBatch &batch) const {
   std::unordered_set<GL_INDEX_ID> dropped_index_ids;
   for (uint32 i = 0; i < n_keys; i++) {
     dropped_index_ids.insert(key_descr[i]->get_gl_index_id());
@@ -5661,7 +5644,7 @@ void Rdb_dict_manager::add_drop_table(
  */
 void Rdb_dict_manager::add_drop_index(
     const std::unordered_set<GL_INDEX_ID> &gl_index_ids,
-    rocksdb::WriteBatch *const batch) const {
+    rocksdb::WriteBatch &batch) const {
   for (const auto &gl_index_id : gl_index_ids) {
     log_start_drop_index(gl_index_id, "Begin");
     start_drop_index(batch, gl_index_id);
@@ -5675,7 +5658,7 @@ void Rdb_dict_manager::add_drop_index(
  */
 void Rdb_dict_manager::add_create_index(
     const std::unordered_set<GL_INDEX_ID> &gl_index_ids,
-    rocksdb::WriteBatch *const batch) const {
+    rocksdb::WriteBatch &batch) const {
   for (const auto &gl_index_id : gl_index_ids) {
     // NO_LINT_DEBUG
     LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
@@ -5695,8 +5678,7 @@ void Rdb_dict_manager::finish_indexes_operation(
   assert(dd_type == Rdb_key_def::DDL_DROP_INDEX_ONGOING ||
          dd_type == Rdb_key_def::DDL_CREATE_INDEX_ONGOING);
 
-  const std::unique_ptr<rocksdb::WriteBatch> wb = begin();
-  rocksdb::WriteBatch *const batch = wb.get();
+  auto batch = Rdb_dict_manager::begin();
 
   std::unordered_set<GL_INDEX_ID> incomplete_create_indexes;
   get_ongoing_create_indexes(&incomplete_create_indexes);
@@ -5758,8 +5740,7 @@ void Rdb_dict_manager::rollback_ongoing_index_creation() const {
 
 void Rdb_dict_manager::rollback_ongoing_index_creation(
     const std::unordered_set<GL_INDEX_ID> &gl_index_ids) const {
-  const std::unique_ptr<rocksdb::WriteBatch> wb = begin();
-  rocksdb::WriteBatch *const batch = wb.get();
+  auto batch = Rdb_dict_manager::begin();
 
   for (const auto &gl_index_id : gl_index_ids) {
     // NO_LINT_DEBUG
@@ -5826,10 +5807,9 @@ bool Rdb_dict_manager::get_max_index_id(uint32_t *const index_id,
   return found;
 }
 
-bool Rdb_dict_manager::update_max_index_id(rocksdb::WriteBatch *const batch,
-                                           const uint32_t index_id,
+bool Rdb_dict_manager::update_max_index_id(rocksdb::WriteBatch &batch,
+                                           uint32_t index_id,
                                            bool is_dd_tbl) const {
-  assert(batch != nullptr);
 
   uint32_t old_index_id = -1;
   if (get_max_index_id(&old_index_id, is_dd_tbl)) {
@@ -5850,22 +5830,20 @@ bool Rdb_dict_manager::update_max_index_id(rocksdb::WriteBatch *const batch,
   if (is_dd_tbl) {
     value_writer.write_uint16(Rdb_key_def::MAX_DD_INDEX_ID_VERSION);
     value_writer.write_uint32(index_id);
-    batch->Put(m_system_cfh, m_key_slice_max_dd_index_id,
-               value_writer.to_slice());
+    batch.Put(m_system_cfh, m_key_slice_max_dd_index_id,
+              value_writer.to_slice());
   } else {
     value_writer.write_uint16(Rdb_key_def::MAX_INDEX_ID_VERSION);
     value_writer.write_uint32(index_id);
-    batch->Put(m_system_cfh, m_key_slice_max_index_id, value_writer.to_slice());
+    batch.Put(m_system_cfh, m_key_slice_max_index_id, value_writer.to_slice());
   }
 
   return false;
 }
 
 void Rdb_dict_manager::add_stats(
-    rocksdb::WriteBatch *const batch,
+    rocksdb::WriteBatch &batch,
     const std::vector<Rdb_index_stats> &stats) const {
-  assert(batch != nullptr);
-
   for (const auto &it : stats) {
     Rdb_buf_writer<Rdb_key_def::INDEX_NUMBER_SIZE * 3> key_writer;
     dump_index_id(&key_writer, Rdb_key_def::INDEX_STATISTICS, it.m_gl_index_id);
@@ -5875,7 +5853,7 @@ void Rdb_dict_manager::add_stats(
     const auto value =
         Rdb_index_stats::materialize(std::vector<Rdb_index_stats>{it});
 
-    batch->Put(m_system_cfh, key_writer.to_slice(), value);
+    batch.Put(m_system_cfh, key_writer.to_slice(), value);
   }
 }
 
@@ -5897,7 +5875,7 @@ Rdb_index_stats Rdb_dict_manager::get_stats(GL_INDEX_ID gl_index_id) const {
 }
 
 rocksdb::Status Rdb_dict_manager::put_auto_incr_val(
-    rocksdb::WriteBatchBase *batch, const GL_INDEX_ID &gl_index_id,
+    rocksdb::WriteBatchBase &batch, const GL_INDEX_ID &gl_index_id,
     ulonglong val, bool overwrite) const {
   Rdb_buf_writer<Rdb_key_def::INDEX_NUMBER_SIZE * 3> key_writer;
   dump_index_id(&key_writer, Rdb_key_def::AUTO_INC, gl_index_id);
@@ -5910,11 +5888,11 @@ rocksdb::Status Rdb_dict_manager::put_auto_incr_val(
   value_writer.write_uint64(val);
 
   if (overwrite) {
-    return batch->Put(m_system_cfh, key_writer.to_slice(),
-                      value_writer.to_slice());
+    return batch.Put(m_system_cfh, key_writer.to_slice(),
+                     value_writer.to_slice());
   }
-  return batch->Merge(m_system_cfh, key_writer.to_slice(),
-                      value_writer.to_slice());
+  return batch.Merge(m_system_cfh, key_writer.to_slice(),
+                     value_writer.to_slice());
 }
 
 bool Rdb_dict_manager::get_auto_incr_val(const GL_INDEX_ID &gl_index_id,
@@ -5945,10 +5923,8 @@ uint Rdb_seq_generator::get_and_update_next_number(Rdb_dict_manager *const dict,
   // TODO(pgl): check the overflow case for tmp tables
   res = m_next_number++;
 
-  const std::unique_ptr<rocksdb::WriteBatch> wb = dict->begin();
-  rocksdb::WriteBatch *const batch = wb.get();
+  auto batch = Rdb_dict_manager::begin();
 
-  assert(batch != nullptr);
   dict->update_max_index_id(batch, res, is_dd_tbl);
   dict->commit(batch);
 
