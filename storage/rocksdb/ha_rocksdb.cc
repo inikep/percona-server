@@ -775,6 +775,7 @@ unsigned long long rocksdb_converter_record_cached_length = 0;
 static bool rocksdb_debug_skip_bloom_filter_check_on_iterator_bounds = 0;
 bool rocksdb_enable_autoinc_compact_mode = false;
 char max_timestamp_uint64[ROCKSDB_SIZEOF_TTL_RECORD];
+static unsigned long long rocksdb_write_batch_mem_free_threshold = 0;
 
 enum file_checksums_type {
   CHECKSUMS_OFF = 0,
@@ -1356,6 +1357,15 @@ static MYSQL_THDVAR_ULONGLONG(
     write_batch_max_bytes, PLUGIN_VAR_RQCMDARG,
     "Maximum size of write batch in bytes. 0 means no limit.", nullptr, nullptr,
     /* default */ 0, /* min */ 0, /* max */ SIZE_T_MAX, 1);
+
+static MYSQL_SYSVAR_ULONGLONG(
+    write_batch_mem_free_threshold, rocksdb_write_batch_mem_free_threshold,
+    PLUGIN_VAR_RQCMDARG,
+    "Destructs the writebatch if the memory allocated is "
+    "above the size in bytes. 0 means no limit.",
+    nullptr, nullptr,
+    /* default */ rocksdb_write_batch_mem_free_threshold,
+    /* min */ 0, /* max */ SIZE_T_MAX, 0);
 
 static MYSQL_THDVAR_ULONGLONG(
     write_batch_flush_threshold, PLUGIN_VAR_RQCMDARG,
@@ -2540,6 +2550,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(commit_time_batch_for_recovery),
     MYSQL_SYSVAR(max_row_locks),
     MYSQL_SYSVAR(write_batch_max_bytes),
+    MYSQL_SYSVAR(write_batch_mem_free_threshold),
     MYSQL_SYSVAR(write_batch_flush_threshold),
     MYSQL_SYSVAR(lock_scanned_rows),
     MYSQL_SYSVAR(bulk_load),
@@ -4361,11 +4372,17 @@ class Rdb_transaction_impl : public Rdb_transaction {
   bool is_writebatch_trx() const override { return false; }
 
  private:
-  void release_tx(void) {
+  void release_tx(size_t wb_size) {
     // We are done with the current active transaction object.  Preserve it
     // for later reuse.
     assert(m_rocksdb_reuse_tx == nullptr);
-    m_rocksdb_reuse_tx = m_rocksdb_tx;
+    auto tx = m_rocksdb_tx;
+    if (rocksdb_write_batch_mem_free_threshold > 0 &&
+        wb_size > rocksdb_write_batch_mem_free_threshold) {
+      delete tx;
+      tx = nullptr;
+    }
+    m_rocksdb_reuse_tx = tx;
     m_rocksdb_tx = nullptr;
   }
 
@@ -4400,6 +4417,12 @@ class Rdb_transaction_impl : public Rdb_transaction {
 
     bool res = false;
     rocksdb::Status s;
+    // Record the writebatch size before it is committed. The size changes
+    // after commit
+    size_t wb_size =
+        (table_type == USER_TABLE)
+            ? m_rocksdb_tx[table_type]->GetWriteBatch()->GetDataSize()
+            : 0;
 
     s = merge_auto_incr_map(*m_rocksdb_tx->GetWriteBatch()->GetWriteBatch());
 #ifndef NDEBUG
@@ -4432,7 +4455,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
   error:
     on_rollback();
     /* Save the transaction object to be reused */
-    release_tx();
+    release_tx(wb_size);
 
     m_write_count = 0;
     m_insert_count = 0;
@@ -4456,11 +4479,15 @@ class Rdb_transaction_impl : public Rdb_transaction {
     reset_ddl_transaction();
     if (m_rocksdb_tx) {
       release_snapshot();
+      // Record the writebatch size before it is rolled back. The size changes
+      // after rollback
+      size_t wb_size =
+          m_rocksdb_tx->GetWriteBatch()->GetDataSize();
       /* This will also release all of the locks: */
       m_rocksdb_tx->Rollback();
 
       /* Save the transaction object to be reused */
-      release_tx();
+      release_tx(wb_size);
 
       set_tx_read_only(false);
       m_rollback_only = false;
