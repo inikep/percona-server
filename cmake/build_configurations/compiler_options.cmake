@@ -81,7 +81,18 @@ IF(UNIX)
   STRING_PREPEND(CMAKE_C_FLAGS_MINSIZEREL       "${SECTIONS_FLAG} ")
 
   STRING_PREPEND(CMAKE_CXX_FLAGS                "${COMMON_CXX_FLAGS} ")
-  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${SECTIONS_FLAG} ")
+  SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O1 ${SECTIONS_FLAG} ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-falign-functions -falign-jumps -falign-labels -falign-loops -fcaller-saves -fcode-hoisting -fcrossjumping -fcse-skip-blocks ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-fcse-follow-jumps -fdelete-null-pointer-checks -fdevirtualize  -fdevirtualize-speculatively -fexpensive-optimizations ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-ffinite-loops -fgcse -fgcse-lm -fhoist-adjacent-loads -finline-functions -finline-small-functions -findirect-inlining ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-fipa-bit-cp -fipa-cp -fipa-icf -fipa-ra -fipa-sra -fipa-vrp -fisolate-erroneous-paths-dereference -flra-remat ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-foptimize-sibling-calls -foptimize-strlen -fpartial-inlining -fpeephole2 -freorder-blocks-algorithm=stc -ftree-pre ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-freorder-blocks-and-partition -freorder-functions -frerun-cse-after-loop -fschedule-insns -fschedule-insns2 ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-fsched-interblock -fsched-spec -fstore-merging -fstrict-aliasing -fthread-jumps -ftree-builtin-call-dce -ftree-vrp ")
+
+#  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-ftree-loop-vectorize -ftree-slp-vectorize ")
+  STRING_PREPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-ftree-switch-conversion -ftree-tail-merge -fvect-cost-model=very-cheap ")
+
   STRING_PREPEND(CMAKE_CXX_FLAGS_RELEASE        "${SECTIONS_FLAG} ")
   STRING_PREPEND(CMAKE_CXX_FLAGS_MINSIZEREL     "${SECTIONS_FLAG} ")
 
