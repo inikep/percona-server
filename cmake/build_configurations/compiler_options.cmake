@@ -85,8 +85,4 @@ IF(UNIX)
   STRING_PREPEND(CMAKE_CXX_FLAGS_RELEASE        "${SECTIONS_FLAG} ")
   STRING_PREPEND(CMAKE_CXX_FLAGS_MINSIZEREL     "${SECTIONS_FLAG} ")
 
-#  STRING_APPEND(CMAKE_C_FLAGS_RELWITHDEBINFO   " -fno-tree-slp-vectorize -fno-vectorize -fno-tree-vectorize -fno-slp-vectorize")
-#  STRING_APPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO " -fno-tree-slp-vectorize -fno-vectorize -fno-tree-vectorize -fno-slp-vectorize")
-  STRING_APPEND(CMAKE_C_FLAGS_RELWITHDEBINFO   " -march=westmere")
-  STRING_APPEND(CMAKE_CXX_FLAGS_RELWITHDEBINFO " -march=westmere")
 ENDIF()
