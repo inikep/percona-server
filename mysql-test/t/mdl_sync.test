@@ -10,10 +10,6 @@
 # Save the initial number of concurrent sessions.
 --source include/count_sessions.inc
 
-disable_query_log;
-SET GLOBAL DEBUG="+d,rocksdb_skip_bulk_load_notify_ddl";
-enable_query_log;
-
 # Clean up resources used in this test case.
 --disable_warnings
 SET DEBUG_SYNC= 'RESET';

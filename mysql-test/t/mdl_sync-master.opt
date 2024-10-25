@@ -1,1 +1,2 @@
 --information_schema_stats_expiry=0
+--loose-rocksdb_skip_bulk_load_notify_ddl=ON

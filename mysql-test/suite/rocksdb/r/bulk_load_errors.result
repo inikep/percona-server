@@ -109,7 +109,41 @@ a	b	c
 3	NULL	NULL
 4	1	NULL
 5	1	NULL
-DROP TABLE t1;
+SET rocksdb_bulk_load=1;
+CREATE TABLE t2 (
+id bigint NOT NULL AUTO_INCREMENT,
+val int DEFAULT NULL,
+PRIMARY KEY (`id`),
+key key1(val)
+);
+ALTER TABLE t2 DISABLE KEYS;
+Warnings:
+Note	1031	Table storage engine for 't2' doesn't have this option
+insert into t2 values (1, 1);
+ALTER TABLE t2 ENABLE KEYS;
+Warnings:
+Note	1031	Table storage engine for 't2' doesn't have this option
+ALTER TABLE t2 DISABLE KEYS;
+Warnings:
+Note	1031	Table storage engine for 't2' doesn't have this option
+insert into t2 values (2, 1);
+ALTER TABLE t2 ENABLE KEYS;
+Warnings:
+Note	1031	Table storage engine for 't2' doesn't have this option
+insert into t2 values (3, 1);
+alter table t2 drop index key1;
+ERROR HY000: Bulk load hits error: Conflict bulk load <ID> is running in the current transaction
+ALTER TABLE t2 ADD COLUMN c int;
+ERROR HY000: Bulk load hits error: Conflict bulk load <ID> is running in the current transaction
+insert into t2 values (4, 1);
+SET rocksdb_bulk_load=0;
+select * from t2;
+id	val
+1	1
+2	1
+3	1
+4	1
+DROP TABLE t1, t2;
 # restart: --log-error=MYSQLTEST_VARDIR/tmp/rocksdb.bulk_load_errors.4.err
 CREATE TABLE t1 (pk INT, PRIMARY KEY (pk)) ENGINE=ROCKSDB;
 CREATE TABLE t2 (pk INT, PRIMARY KEY (pk)) ENGINE=ROCKSDB;

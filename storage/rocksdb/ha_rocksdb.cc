@@ -749,6 +749,7 @@ static int32_t rocksdb_table_stats_background_thread_nice_value =
     THREAD_PRIO_MAX;
 static unsigned long long rocksdb_table_stats_max_num_rows_scanned = 0ul;
 static bool rocksdb_enable_bulk_load_api = 1;
+static bool rocksdb_skip_bulk_load_notify_ddl = false;
 static uint rocksdb_bulk_load_history_size = RDB_BULK_LOAD_HISTORY_DEFAULT_SIZE;
 static bool rocksdb_enable_remove_orphaned_dropped_cfs = 1;
 static bool rocksdb_enable_udt_in_mem = 0;
@@ -1320,6 +1321,12 @@ static MYSQL_SYSVAR_BOOL(enable_bulk_load_api, rocksdb_enable_bulk_load_api,
                          PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
                          "Enables using SstFileWriter for bulk loading",
                          nullptr, nullptr, rocksdb_enable_bulk_load_api);
+
+static MYSQL_SYSVAR_BOOL(
+    skip_bulk_load_notify_ddl, rocksdb_skip_bulk_load_notify_ddl,
+    PLUGIN_VAR_RQCMDARG,
+    "skips checking ddl operations conflict with active bulk loading", nullptr,
+    nullptr, false);
 
 static MYSQL_THDVAR_UINT(bulk_load_compression_parallel_threads,
                          PLUGIN_VAR_RQCMDARG,
@@ -2757,6 +2764,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(bulk_load_partial_index),
     MYSQL_SYSVAR(merge_buf_size),
     MYSQL_SYSVAR(enable_bulk_load_api),
+    MYSQL_SYSVAR(skip_bulk_load_notify_ddl),
     MYSQL_SYSVAR(enable_remove_orphaned_dropped_cfs),
     MYSQL_SYSVAR(enable_udt_in_mem),
     MYSQL_SYSVAR(tmpdir),
@@ -7077,9 +7085,23 @@ static void rocksdb_truncation_table_cleanup(void) {
   }
 }
 
-static bool rocksdb_notify_alter_table(THD *thd, const MDL_key *mdl_key,
-                                       ha_notification_type notification_type) {
-  DBUG_EXECUTE_IF("rocksdb_skip_bulk_load_notify_ddl", { return false; };);
+static bool rocksdb_notify_ddl(THD *thd, const MDL_key *mdl_key,
+                               ulonglong alter_info_flags,
+                               const ha_ddl_type ddl_type,
+                               ha_notification_type notification_type) {
+  assert(ddl_type == ha_ddl_type::HA_ALTER_DDL || ddl_type == HA_DROP_DDL);
+  if (rocksdb_skip_bulk_load_notify_ddl) {
+    return false;
+  }
+
+  // enable/disable keys is not supported on rocksdb SE (no op),
+  // some clients issue these alter statements in a bulk load session.
+  // ignore them.
+  constexpr auto safe_alters = Alter_info::Alter_info_flag::ALTER_KEYS_ONOFF;
+  if (ddl_type == ha_ddl_type::HA_ALTER_DDL &&
+      (alter_info_flags | safe_alters) == safe_alters) {
+    return false;
+  }
 
   std::string_view db_name(mdl_key->db_name(), mdl_key->db_name_length());
   std::string_view table_name(mdl_key->name(), mdl_key->name_length());
@@ -7107,9 +7129,17 @@ static bool rocksdb_notify_alter_table(THD *thd, const MDL_key *mdl_key,
   return false;
 }
 
+static bool rocksdb_notify_alter_table(THD *thd, const MDL_key *mdl_key,
+                                       ulonglong alter_info_flags,
+                                       ha_notification_type notification_type) {
+  return rocksdb_notify_ddl(thd, mdl_key, alter_info_flags,
+                            ha_ddl_type::HA_ALTER_DDL, notification_type);
+}
+
 static bool rocksdb_notify_drop_table(THD *thd, const MDL_key *mdl_key,
                                       ha_notification_type notification_type) {
-  return rocksdb_notify_alter_table(thd, mdl_key, notification_type);
+  return rocksdb_notify_ddl(thd, mdl_key, /*alter_info_flags*/ 0,
+                            ha_ddl_type::HA_DROP_DDL, notification_type);
 }
 
 /*

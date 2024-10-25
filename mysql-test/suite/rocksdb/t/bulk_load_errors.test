@@ -141,12 +141,45 @@ DROP TABLE t1;
 connection default;
 INSERT INTO t1 VALUES(5,1);
 SET rocksdb_bulk_load=0;
- 
+
 select * from t1;
 echo alter/drop will succeed after bulk load complete;
 ALTER TABLE t1 ADD COLUMN c int;
 select * from t1;
-DROP TABLE t1;
+
+
+# some alter statements are allowed in bulk load
+SET rocksdb_bulk_load=1;
+CREATE TABLE t2 (
+  id bigint NOT NULL AUTO_INCREMENT,
+  val int DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  key key1(val)
+);
+
+ALTER TABLE t2 DISABLE KEYS;
+insert into t2 values (1, 1);
+ALTER TABLE t2 ENABLE KEYS;
+
+ALTER TABLE t2 DISABLE KEYS;
+insert into t2 values (2, 1);
+ALTER TABLE t2 ENABLE KEYS;
+insert into t2 values (3, 1);
+
+# other alters are still not allowed
+replace_regex /Conflict bulk load [^ ]+/Conflict bulk load <ID>/;
+error ER_DA_BULK_LOAD;
+alter table t2 drop index key1;
+replace_regex /Conflict bulk load [^ ]+/Conflict bulk load <ID>/;
+error ER_DA_BULK_LOAD;
+ALTER TABLE t2 ADD COLUMN c int;
+insert into t2 values (4, 1);
+SET rocksdb_bulk_load=0;
+
+select * from t2;
+
+
+DROP TABLE t1, t2;
 
 --let LOG4=$MYSQLTEST_VARDIR/tmp/rocksdb.bulk_load_errors.4.err
 --replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR

@@ -2056,6 +2056,7 @@ typedef bool (*notify_exclusive_mdl_t)(THD *thd, const MDL_key *mdl_key,
           True - if it has failed/ALTER TABLE should be aborted.
 */
 typedef bool (*notify_alter_table_t)(THD *thd, const MDL_key *mdl_key,
+                                     ulonglong alter_info_flags,
                                      ha_notification_type notification_type);
 
 /**
@@ -2078,6 +2079,19 @@ typedef bool (*notify_rename_table_t)(THD *thd, const MDL_key *mdl_key,
                                       const char *old_table_name,
                                       const char *new_db_name,
                                       const char *new_table_name);
+
+/**
+  Notify/get permission from storage engine before or after execution of
+  DROP TABLE operation on the table identified by the MDL key.
+
+  @param thd                Thread context.
+  @param mdl_key            MDL key identifying table which is going to be
+                            or was DROPPED.
+  @param notification_type  Indicates whether this is pre-DROP TABLE or
+                            post-DROP TABLE notification.
+*/
+typedef bool (*notify_drop_table_t)(THD *thd, const MDL_key *mdl_key,
+                                    ha_notification_type notification_type);
 
 /**
   Notify/get permission from storage engine before or after execution of
@@ -2878,7 +2892,7 @@ struct handlerton {
   notify_alter_table_t notify_alter_table;
   notify_rename_table_t notify_rename_table;
   notify_truncate_table_t notify_truncate_table;
-  notify_alter_table_t notify_drop_table;
+  notify_drop_table_t notify_drop_table;
   rotate_encryption_master_key_t rotate_encryption_master_key;
   redo_log_set_state_t redo_log_set_state;
 
@@ -7707,7 +7721,8 @@ bool ha_notify_table_ddl(THD *thd, const MDL_key *mdl_key,
                          ha_notification_type notification_type,
                          ha_ddl_type ddl_type, const char *old_db_name,
                          const char *old_table_name, const char *new_db_name,
-                         const char *new_table_name);
+                         const char *new_table_name,
+                         ulonglong alter_info_flags);
 
 std::pair<int, bool> commit_owned_gtids(THD *thd, bool all);
 bool set_tx_isolation(THD *thd, enum_tx_isolation tx_isolation, bool one_shot);
