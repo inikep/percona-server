@@ -783,6 +783,7 @@ static int32_t rocksdb_table_stats_background_thread_nice_value =
     THREAD_PRIO_MAX;
 static unsigned long long rocksdb_table_stats_max_num_rows_scanned = 0ul;
 static bool rocksdb_enable_bulk_load_api = true;
+static bool rocksdb_skip_bulk_load_notify_ddl = false;
 static uint rocksdb_bulk_load_history_size = RDB_BULK_LOAD_HISTORY_DEFAULT_SIZE;
 static bool rocksdb_enable_remove_orphaned_dropped_cfs = true;
 static bool rpl_skip_tx_api_var = false;
@@ -1301,6 +1302,12 @@ static MYSQL_SYSVAR_BOOL(
     PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
     "DBOptions::enable_pipelined_write for RocksDB", nullptr, nullptr,
     rocksdb_db_options->enable_pipelined_write);
+
+static MYSQL_SYSVAR_BOOL(
+    skip_bulk_load_notify_ddl, rocksdb_skip_bulk_load_notify_ddl,
+    PLUGIN_VAR_RQCMDARG,
+    "skips checking ddl operations conflict with active bulk loading", nullptr,
+    nullptr, false);
 
 static MYSQL_THDVAR_UINT(bulk_load_compression_parallel_threads,
                          PLUGIN_VAR_RQCMDARG,
@@ -2775,6 +2782,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(merge_buf_size),
     MYSQL_SYSVAR(enable_bulk_load_api),
     MYSQL_SYSVAR(enable_pipelined_write),
+    MYSQL_SYSVAR(skip_bulk_load_notify_ddl),
     MYSQL_SYSVAR(enable_remove_orphaned_dropped_cfs),
     MYSQL_SYSVAR(enable_udt_in_mem),
     MYSQL_SYSVAR(tmpdir),
@@ -6765,9 +6773,25 @@ static void rocksdb_truncation_table_cleanup(void) {
   }
 }
 
-static bool rocksdb_notify_alter_table(THD *thd, const MDL_key *mdl_key,
-                                       ha_notification_type notification_type) {
-  DBUG_EXECUTE_IF("rocksdb_skip_bulk_load_notify_ddl", { return false; };);
+static bool rocksdb_notify_ddl(THD *thd, const MDL_key *mdl_key,
+                               ulonglong alter_info_flags,
+                               const ha_ddl_type ddl_type,
+                               ha_notification_type notification_type) {
+  assert(ddl_type == ha_ddl_type::HA_ALTER_DDL || ddl_type == HA_DROP_DDL);
+  if (rocksdb_skip_bulk_load_notify_ddl) {
+    return false;
+  }
+
+  // enable/disable keys is not supported on rocksdb SE (no op),
+  // some clients issue these alter statements in a bulk load session.
+  // ignore them.
+  constexpr auto safe_alters = Alter_info::Alter_info_flag::ALTER_KEYS_ONOFF;
+  if (ddl_type == ha_ddl_type::HA_ALTER_DDL &&
+      alter_info_flags == safe_alters && thd->lex->alter_info != nullptr &&
+      thd->lex->alter_info->requested_algorithm !=
+          Alter_info::ALTER_TABLE_ALGORITHM_COPY) {
+    return false;
+  }
 
   std::string_view db_name(mdl_key->db_name(), mdl_key->db_name_length());
   std::string_view table_name(mdl_key->name(), mdl_key->name_length());
@@ -6795,9 +6819,45 @@ static bool rocksdb_notify_alter_table(THD *thd, const MDL_key *mdl_key,
   return false;
 }
 
+static bool rocksdb_notify_alter_table(THD *thd, const MDL_key *mdl_key,
+                                       ulonglong alter_info_flags,
+                                       ha_notification_type notification_type) {
+  return rocksdb_notify_ddl(thd, mdl_key, alter_info_flags,
+                            ha_ddl_type::HA_ALTER_DDL, notification_type);
+}
+
 static bool rocksdb_notify_drop_table(THD *thd, const MDL_key *mdl_key,
                                       ha_notification_type notification_type) {
-  return rocksdb_notify_alter_table(thd, mdl_key, notification_type);
+  return rocksdb_notify_ddl(thd, mdl_key, /*alter_info_flags*/ 0,
+                            ha_ddl_type::HA_DROP_DDL, notification_type);
+}
+
+// These notifications run with exclusive MDL on the affected names. New
+// writers cannot enter, but existing bulk loaders may have released their MDL
+// while retaining SST files. Reject DDL until those files are finalized.
+// Do not start another DDL session here: RENAME also runs inside COPY ALTER,
+// whose existing DDL session must stay active until its outer notification.
+static bool rocksdb_notify_truncate_table(
+    THD *, const MDL_key *mdl_key, ha_notification_type notification_type) {
+  return !rocksdb_skip_bulk_load_notify_ddl &&
+         notification_type == HA_NOTIFY_PRE_EVENT &&
+         rdb_is_table_bulk_loading(
+             {mdl_key->db_name(), mdl_key->db_name_length()},
+             {mdl_key->name(), mdl_key->name_length()});
+}
+
+static bool rocksdb_notify_rename_table(THD *, const MDL_key *,
+                                        ha_notification_type notification_type,
+                                        const char *old_db,
+                                        const char *old_table,
+                                        const char *new_db,
+                                        const char *new_table) {
+  // The MDL key passed by SQL may belong to the first table in a multi-table
+  // RENAME. Use the actual source and destination for each rename step.
+  return !rocksdb_skip_bulk_load_notify_ddl &&
+         notification_type == HA_NOTIFY_PRE_EVENT &&
+         (rdb_is_table_bulk_loading(old_db, old_table) ||
+          rdb_is_table_bulk_loading(new_db, new_table));
 }
 
 /*
@@ -6942,6 +7002,8 @@ static int rocksdb_init_internal(void *const p) {
   rocksdb_hton->flush_logs = rocksdb_flush_wal;
   rocksdb_hton->notify_alter_table = rocksdb_notify_alter_table;
   rocksdb_hton->notify_drop_table_ddl = rocksdb_notify_drop_table;
+  rocksdb_hton->notify_truncate_table = rocksdb_notify_truncate_table;
+  rocksdb_hton->notify_rename_table = rocksdb_notify_rename_table;
 
   rocksdb_hton->flags = HTON_SUPPORTS_EXTENDED_KEYS | HTON_CAN_RECREATE |
                         HTON_SUPPORTS_ONLINE_BACKUPS;
@@ -12293,6 +12355,15 @@ int ha_rocksdb::truncate(dd::Table *table_def) {
   DBUG_ENTER_FUNC();
 
   assert(m_tbl_def != nullptr);
+
+  // Partition TRUNCATE bypasses the SQL-layer table notification. Check the
+  // logical table name before replacing any partition's index definitions.
+  if (!rocksdb_skip_bulk_load_notify_ddl &&
+      rdb_is_table_bulk_loading(m_tbl_def->base_dbname(),
+                                m_tbl_def->base_tablename())) {
+    my_error(ER_LOCK_REFUSED_BY_ENGINE, MYF(0));
+    DBUG_RETURN(HA_ERR_INTERNAL_ERROR);
+  }
 
   // Reset auto_increment_value to 1 if auto-increment feature is enabled
   // By default, the starting valid value for auto_increment_value is 1

@@ -146,6 +146,10 @@ class Rdb_bulk_load_session {
 
 std::vector<Rdb_bulk_load_session> rdb_dump_bulk_load_sessions();
 
+// Called with exclusive MDL held, which prevents new writers on this name.
+bool rdb_is_table_bulk_loading(std::string_view db_name,
+                               std::string_view table_name);
+
 /**
   holds state of bulk load for the current thread.
   not thread safe, should always be accessed from the same thread.

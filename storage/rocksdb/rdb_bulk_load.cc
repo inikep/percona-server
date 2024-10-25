@@ -56,6 +56,19 @@ class Rdb_bulk_load_manager {
   }
   ~Rdb_bulk_load_manager() { mysql_mutex_destroy(&m_mutex); }
 
+  bool is_table_bulk_loading(std::string_view db_name,
+                             std::string_view table_name) {
+    RDB_MUTEX_LOCK_CHECK(m_mutex);
+    auto lock_guard =
+        create_scope_guard([this]() { RDB_MUTEX_UNLOCK_CHECK(m_mutex); });
+    const auto name = std::string(db_name) + "." + std::string(table_name);
+    return std::any_of(
+        m_sessions.cbegin(), m_sessions.cend(), [&](const auto &entry) {
+          return entry.second.type() == Rdb_bulk_load_type::SST_FILE_WRITER &&
+                 entry.second.is_table_active(name);
+        });
+  }
+
   void start_bulk_load_session(my_thread_id thread_id, std::string &id,
                                Rdb_bulk_load_type type) {
     RDB_MUTEX_LOCK_CHECK(m_mutex);
@@ -85,7 +98,10 @@ class Rdb_bulk_load_manager {
       // ddl.
       bool exists =
           std::any_of(m_sessions.cbegin(), m_sessions.cend(), [&](auto &entry) {
+            // DDL requests serialize through SQL metadata locks. Only an
+            // SST writer can retain uncommitted data without holding MDL.
             return entry.first != id &&
+                   entry.second.type() == Rdb_bulk_load_type::SST_FILE_WRITER &&
                    entry.second.is_table_active(table_name);
           });
       if (exists) {
@@ -207,6 +223,11 @@ static std::unique_ptr<Rdb_bulk_load_manager> bulk_load_manger;
 
 void rdb_bulk_load_init(uint history_size) {
   bulk_load_manger = std::make_unique<Rdb_bulk_load_manager>(history_size);
+}
+
+bool rdb_is_table_bulk_loading(std::string_view db_name,
+                               std::string_view table_name) {
+  return bulk_load_manger->is_table_bulk_loading(db_name, table_name);
 }
 
 void rdb_bulk_load_deinit() { bulk_load_manger = nullptr; }
