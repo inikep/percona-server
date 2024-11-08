@@ -7433,7 +7433,7 @@ static int rocksdb_init_internal(void *const p) {
     LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG, "...done");
   }
 
-  cf_manager.init(std::move(cf_options_map), &cf_handles);
+  cf_manager.init(rdb, std::move(cf_options_map), &cf_handles);
 
   // NO_LINT_DEBUG
   LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,"RocksDB: Initializing data dictionary...");
@@ -8939,7 +8939,7 @@ bool ha_rocksdb::create_cfs(
     // `cf_name` - will be used as a CF name.
     {
       std::lock_guard<Rdb_dict_manager> dm_lock(dict_manager);
-      cf_handle = cf_manager.get_or_create_cf(rdb, cf_name);
+      cf_handle = cf_manager.get_or_create_cf(cf_name);
       if (!cf_handle) {
         return true;
       }
@@ -13214,7 +13214,7 @@ void Rdb_drop_index_thread::run() {
 
         for (const auto cf_id : dropped_cf_ids) {
           if (ongoing_drop_cf_ids.find(cf_id) == ongoing_drop_cf_ids.end()) {
-            cf_manager.remove_dropped_cf(&dict_manager, rdb, cf_id);
+            cf_manager.remove_dropped_cf(&dict_manager, cf_id);
           }
         }
       }
@@ -17185,7 +17185,7 @@ static int rocksdb_validate_update_cf_options(THD * /* unused */,
     const auto &cf_name = option.first;
     {
       std::lock_guard<Rdb_dict_manager> dm_lock(dict_manager);
-      auto cfh = cf_manager.get_or_create_cf(rdb, cf_name);
+      auto cfh = cf_manager.get_or_create_cf(cf_name);
 
       if (!cfh) {
         return HA_EXIT_FAILURE;
