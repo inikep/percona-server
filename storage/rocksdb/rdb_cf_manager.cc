@@ -45,15 +45,17 @@ bool Rdb_cf_manager::is_cf_name_reverse(std::string_view name) {
   return name.compare(0, 4, "rev:") == 0;
 }
 
-bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
+bool Rdb_cf_manager::init(rocksdb::DB *const db,
                           std::unique_ptr<Rdb_cf_options> &&cf_options,
                           std::vector<rocksdb::ColumnFamilyHandle *> *handles) {
   mysql_mutex_init(rdb_cfm_mutex_key, &m_mutex, MY_MUTEX_INIT_FAST);
 
+  assert(db != nullptr);
   assert(cf_options != nullptr);
   assert(handles != nullptr);
   assert(handles->size() > 0);
 
+  m_db = db;
   m_cf_options = std::move(cf_options);
   std::vector<std::string> tmp_cfs = {DEFAULT_TMP_CF_NAME,
                                       DEFAULT_TMP_SYSTEM_CF_NAME};
@@ -74,7 +76,7 @@ bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
           "RocksDB: Dropping column family %s with id %u on RocksDB for temp "
           "table",
           cf_name.c_str(), cf_id);
-      auto status = rdb->DropColumnFamily(cfh_ptr);
+      auto status = m_db->DropColumnFamily(cfh_ptr);
       if (status.ok()) {
         delete (cfh_ptr);
         continue;
@@ -98,7 +100,7 @@ bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
   // Step2 : Create the hardcoded default column families.
   for (const auto &cf_name : default_cfs) {
     if (m_cf_name_map.find(cf_name) == m_cf_name_map.end()) {
-      get_or_create_cf(rdb, cf_name);
+      get_or_create_cf(cf_name);
     }
     // verify cf is created
     if (m_cf_name_map.find(cf_name) == m_cf_name_map.end()) {
@@ -109,7 +111,7 @@ bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
   // Step3 : Create the hardcoded tmp column families.
   if (rocksdb_enable_tmp_table) {
     for (const auto &cf_name : tmp_cfs) {
-      get_or_create_cf(rdb, cf_name);
+      get_or_create_cf(cf_name);
       // verify cf is created
       if (m_cf_name_map.find(cf_name) == m_cf_name_map.end()) {
         return HA_EXIT_FAILURE;
@@ -153,8 +155,8 @@ void Rdb_cf_manager::cleanup() {
     See Rdb_cf_manager::get_cf
 */
 rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_or_create_cf(
-    rocksdb::DB *const rdb, const std::string &cf_name) {
-  assert(rdb != nullptr);
+    const std::string &cf_name) {
+  assert(m_db != nullptr);
   assert(!cf_name.empty());
   rocksdb::ColumnFamilyHandle *cf_handle = nullptr;
 
@@ -191,7 +193,7 @@ rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_or_create_cf(
                     opts.target_file_size_base);
 
     const rocksdb::Status s =
-        rdb->CreateColumnFamily(opts, cf_name, &cf_handle);
+        m_db->CreateColumnFamily(opts, cf_name, &cf_handle);
 
     if (s.ok()) {
       assert(cf_handle != nullptr);
@@ -281,7 +283,6 @@ std::vector<rocksdb::ColumnFamilyHandle *> Rdb_cf_manager::get_all_cf(
 }
 
 int Rdb_cf_manager::remove_dropped_cf(Rdb_dict_manager *const dict_manager,
-                                      rocksdb::TransactionDB *const rdb,
                                       const uint32 &cf_id) {
   dict_manager->assert_lock_held();
   RDB_MUTEX_LOCK_CHECK(m_mutex);
@@ -315,7 +316,7 @@ int Rdb_cf_manager::remove_dropped_cf(Rdb_dict_manager *const dict_manager,
     return HA_EXIT_FAILURE;
   }
 
-  auto status = rdb->DropColumnFamily(cf_handle);
+  auto status = m_db->DropColumnFamily(cf_handle);
 
   if (!status.ok()) {
     dict_manager->delete_dropped_cf(batch, cf_id);

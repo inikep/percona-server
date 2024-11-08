@@ -56,6 +56,7 @@ class Rdb_cf_manager : public Ensure_initialized {
 
   uint32_t tmp_column_family_id;
   uint32_t tmp_system_column_family_id;
+  rocksdb::DB *m_db = nullptr;
 
  public:
   Rdb_cf_manager(const Rdb_cf_manager &) = delete;
@@ -69,13 +70,12 @@ class Rdb_cf_manager : public Ensure_initialized {
     column
     families that are present in the database. The first CF is the default CF.
 
-    @param rdb [IN]: rocksdb transaction
+    @param db [IN]: rocksdb transaction
     @param cf_options [IN]: properties of column families.
     @param handles [IN][OUT]: list of all active cf_handles fetched from rdb
     transaction.
   */
-  bool init(rocksdb::DB *const rdb,
-            std::unique_ptr<Rdb_cf_options> &&cf_options,
+  bool init(rocksdb::DB *const db, std::unique_ptr<Rdb_cf_options> &&cf_options,
             std::vector<rocksdb::ColumnFamilyHandle *> *handles);
   void cleanup();
 
@@ -83,8 +83,7 @@ class Rdb_cf_manager : public Ensure_initialized {
     Used by CREATE TABLE.
     cf_name requires non-empty string
   */
-  rocksdb::ColumnFamilyHandle *get_or_create_cf(rocksdb::DB *const rdb,
-                                                const std::string &cf_name);
+  rocksdb::ColumnFamilyHandle *get_or_create_cf(const std::string &cf_name);
 
   /* Used by table open */
   rocksdb::ColumnFamilyHandle *get_cf(const std::string &cf_name) const;
@@ -99,7 +98,7 @@ class Rdb_cf_manager : public Ensure_initialized {
   std::vector<rocksdb::ColumnFamilyHandle *> get_all_cf(void) const;
 
   int remove_dropped_cf(Rdb_dict_manager *const dict_manager,
-                        rocksdb::TransactionDB *const rdb, const uint32 &cf_id);
+                        const uint32 &cf_id);
 
   /* Used to delete cf by name */
   int drop_cf(Rdb_ddl_manager *const ddl_manager,
