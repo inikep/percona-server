@@ -126,8 +126,7 @@ static int rdb_i_s_cfstats_fill_table(
 
   for (const auto &cf_name : cf_manager.get_cf_names()) {
     assert(!cf_name.empty());
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager.get_cf(cf_name);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(cf_name);
     if (!cfh) {
       continue;
     }
@@ -135,7 +134,7 @@ static int rdb_i_s_cfstats_fill_table(
     // It is safe if the CF is removed from cf_manager at
     // this point. The CF handle object is valid and sufficient here.
     for (const auto &property : cf_properties) {
-      if (!rdb->GetIntProperty(cfh.get(), property.first, &val)) {
+      if (!rdb->GetIntProperty(cfh, property.first, &val)) {
         continue;
       }
 
@@ -864,8 +863,7 @@ static int rdb_i_s_compact_stats_fill_table(
   Rdb_cf_manager &cf_manager = rdb_get_cf_manager();
 
   for (const auto &cf_name : cf_manager.get_cf_names()) {
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager.get_cf(cf_name);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(cf_name);
 
     if (!cfh) {
       continue;
@@ -875,7 +873,7 @@ static int rdb_i_s_compact_stats_fill_table(
     // this point. The CF handle object is valid and sufficient here.
     std::map<std::string, std::string> props;
     bool bool_ret MY_ATTRIBUTE((__unused__));
-    bool_ret = rdb->GetMapProperty(cfh.get(), "rocksdb.cfstats", &props);
+    bool_ret = rdb->GetMapProperty(cfh, "rocksdb.cfstats", &props);
 
     assert(bool_ret);
 
@@ -1663,7 +1661,7 @@ static int rdb_i_s_sst_props_fill_table(
     /* Grab the the properties of all the tables in the column family */
     rocksdb::TablePropertiesCollection table_props_collection;
     const rocksdb::Status s =
-        rdb->GetPropertiesOfAllTables(cf_handle.get(), &table_props_collection);
+        rdb->GetPropertiesOfAllTables(cf_handle, &table_props_collection);
 
     if (!s.ok()) {
       continue;
@@ -1831,7 +1829,7 @@ static int rdb_i_s_index_file_map_fill_table(
     // It is safe if the CF is removed from cf_manager at
     // this point. The CF handle object is valid and sufficient here.
     const rocksdb::Status s =
-        rdb->GetPropertiesOfAllTables(cf_handle.get(), &table_props_collection);
+        rdb->GetPropertiesOfAllTables(cf_handle, &table_props_collection);
 
     if (!s.ok()) {
       continue;

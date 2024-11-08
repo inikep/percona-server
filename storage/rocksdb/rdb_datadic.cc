@@ -265,13 +265,13 @@ int Rdb_key_field_iterator::next() {
 /*
   Rdb_key_def class implementation
 */
-Rdb_key_def::Rdb_key_def(
-    uint indexnr_arg, uint keyno_arg,
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cf_handle_arg,
-    uint16_t index_dict_version_arg, uchar index_type_arg,
-    uint16_t kv_format_version_arg, bool is_reverse_cf_arg,
-    bool is_per_partition_cf_arg, const char *_name, Rdb_index_stats _stats,
-    uint32 index_flags_bitmap, uint32 ttl_rec_offset, uint64 ttl_duration)
+Rdb_key_def::Rdb_key_def(uint indexnr_arg, uint keyno_arg,
+                         rocksdb::ColumnFamilyHandle *cf_handle_arg,
+                         uint16_t index_dict_version_arg, uchar index_type_arg,
+                         uint16_t kv_format_version_arg, bool is_reverse_cf_arg,
+                         bool is_per_partition_cf_arg, const char *_name,
+                         Rdb_index_stats _stats, uint32 index_flags_bitmap,
+                         uint32 ttl_rec_offset, uint64 ttl_duration)
     : m_index_number(indexnr_arg),
       m_cf_handle(cf_handle_arg),
       m_index_dict_version(index_dict_version_arg),
@@ -4142,8 +4142,7 @@ bool Rdb_tbl_def::put_dict(Rdb_dict_manager *const dict,
     */
     const auto &cf_name = kd.get_cf().GetName();
 
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager->get_cf(cf_name);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager->get_cf(cf_name);
 
     if (!cfh || cfh != kd.get_shared_cf() || dict->get_dropped_cf(cf_id)) {
       // The CF has been dropped, i.e., cf_manager.remove_dropped_cf() has been
@@ -4593,7 +4592,7 @@ bool Rdb_ddl_manager::init(Rdb_dict_manager *const dict_arg,
                         gl_index_id.cf_id, tdef->full_tablename().c_str());
       }
 
-      std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
+      rocksdb::ColumnFamilyHandle * cfh =
           cf_manager->get_cf(gl_index_id.cf_id);
       assert(cfh);
 
@@ -5200,9 +5199,9 @@ bool Rdb_dict_manager::init(rocksdb::TransactionDB *const rdb_dict,
   // 1. System CF and default CF cannot be dropped
   // 2. cf_manager outlives dict_manager
   m_system_cfh =
-      cf_manager->get_or_create_cf(m_db, DEFAULT_SYSTEM_CF_NAME).get();
+      cf_manager->get_or_create_cf(m_db, DEFAULT_SYSTEM_CF_NAME);
   rocksdb::ColumnFamilyHandle *default_cfh =
-      cf_manager->get_cf(DEFAULT_CF_NAME).get();
+      cf_manager->get_cf(DEFAULT_CF_NAME);
 
   // System CF and default CF should be initialized
   if (m_system_cfh == nullptr || default_cfh == nullptr) {
@@ -5584,8 +5583,7 @@ void Rdb_dict_manager::get_ongoing_index_operation(
 int Rdb_dict_manager::add_missing_cf_flags(
     Rdb_cf_manager *const cf_manager) const {
   for (const auto &cf_name : cf_manager->get_cf_names()) {
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager->get_cf(cf_name);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager->get_cf(cf_name);
 
     if (cf_manager->create_cf_flags_if_needed(*this, cfh->GetID(), cf_name)) {
       return HA_EXIT_FAILURE;
