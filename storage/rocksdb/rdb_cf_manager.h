@@ -47,9 +47,8 @@ namespace myrocks {
 */
 
 class Rdb_cf_manager : public Ensure_initialized {
-  std::map<std::string, std::shared_ptr<rocksdb::ColumnFamilyHandle>>
-      m_cf_name_map;
-  std::map<uint32_t, std::shared_ptr<rocksdb::ColumnFamilyHandle>> m_cf_id_map;
+  std::map<std::string, rocksdb::ColumnFamilyHandle *> m_cf_name_map;
+  std::map<uint32_t, rocksdb::ColumnFamilyHandle *> m_cf_id_map;
 
   mutable mysql_mutex_t m_mutex;
 
@@ -75,22 +74,20 @@ class Rdb_cf_manager : public Ensure_initialized {
     Used by CREATE TABLE.
     cf_name requires non-empty string
   */
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> get_or_create_cf(
-      rocksdb::DB *const rdb, const std::string &cf_name);
+  rocksdb::ColumnFamilyHandle *get_or_create_cf(rocksdb::DB *const rdb,
+                                                const std::string &cf_name);
 
   /* Used by table open */
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> get_cf(
-      const std::string &cf_name) const;
+  rocksdb::ColumnFamilyHandle *get_cf(const std::string &cf_name) const;
 
   /* Look up cf by id; used by datadic */
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> get_cf(const uint32_t id) const;
+  rocksdb::ColumnFamilyHandle *get_cf(const uint32_t id) const;
 
   /* Used to iterate over column families for show status */
   std::vector<std::string> get_cf_names(void) const;
 
   /* Used to iterate over column families */
-  std::vector<std::shared_ptr<rocksdb::ColumnFamilyHandle>> get_all_cf(
-      void) const;
+  std::vector<rocksdb::ColumnFamilyHandle *> get_all_cf(void) const;
 
   int remove_dropped_cf(Rdb_dict_manager *const dict_manager,
                         rocksdb::TransactionDB *const rdb, const uint32 &cf_id);
@@ -117,8 +114,8 @@ class Rdb_cf_manager : public Ensure_initialized {
   }
 
  private:
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> get_cf(
-      const std::string &cf_name, const bool lock_held_by_caller) const;
+  rocksdb::ColumnFamilyHandle *get_cf(const std::string &cf_name,
+                                      const bool lock_held_by_caller) const;
 };
 
 }  // namespace myrocks
