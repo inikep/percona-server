@@ -224,7 +224,7 @@ static void rocksdb_flush_all_memtables() {
   // RocksDB will fail the flush if the CF is deleted,
   // but here we don't handle return status
   for (const auto &cf_handle : cf_manager.get_all_cf()) {
-    rdb->Flush(rocksdb::FlushOptions(), cf_handle.get());
+    rdb->Flush(rocksdb::FlushOptions(), cf_handle);
   }
 }
 
@@ -419,7 +419,7 @@ static int rocksdb_compact_lzero() {
 
   for (const auto &cf_handle : cf_manager.get_all_cf()) {
     for (i = 0; i < max_attempts; i++) {
-      rdb->GetColumnFamilyMetaData(cf_handle.get(), &metadata);
+      rdb->GetColumnFamilyMetaData(cf_handle, &metadata);
       cf_handle->GetDescriptor(&cf_descr);
       c_options.output_file_size_limit = cf_descr.options.target_file_size_base;
 
@@ -427,8 +427,7 @@ static int rocksdb_compact_lzero() {
       c_options.compression = rocksdb::kDisableCompressionOption;
 
       uint64_t base_level;
-      if (!rdb->GetIntProperty(cf_handle.get(),
-                               rocksdb::DB::Properties::kBaseLevel,
+      if (!rdb->GetIntProperty(cf_handle, rocksdb::DB::Properties::kBaseLevel,
                                &base_level)) {
         LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
                         "MyRocks: compact L0 cannot get base level");
@@ -455,10 +454,10 @@ static int rocksdb_compact_lzero() {
       }
 
       rocksdb::Status s;
-      s = rdb->CompactFiles(c_options, cf_handle.get(), file_names, base_level);
+      s = rdb->CompactFiles(c_options, cf_handle, file_names, base_level);
 
       if (!s.ok()) {
-        std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
+        rocksdb::ColumnFamilyHandle *cfh =
             cf_manager.get_cf(cf_handle->GetID());
 
         // If the CF handle has been removed from cf_manager, it is not an
@@ -6134,8 +6133,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
         (kd) ? kd->get_name()
              : "NOT FOUND; INDEX_ID: " + std::to_string(gl_index_id.index_id);
 
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager.get_cf(txn.m_cf_id);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(txn.m_cf_id);
 
     // Retrieve CF name from CF handle object, and it is safe if the CF is
     // removed from cf_manager at this point.
@@ -6404,8 +6402,7 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
 
     /* Per column family stats */
     for (const auto &cf_name : cf_manager.get_cf_names()) {
-      std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-          cf_manager.get_cf(cf_name);
+      rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(cf_name);
       if (!cfh) {
         continue;
       }
@@ -6413,7 +6410,7 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
       // Retrieve information from CF handle object.
       // Even if the CF is removed from CF_manager, the handle object
       // is valid.
-      if (!rdb->GetProperty(cfh.get(), "rocksdb.cfstats", &str)) {
+      if (!rdb->GetProperty(cfh, "rocksdb.cfstats", &str)) {
         continue;
       }
 
@@ -9033,7 +9030,7 @@ bool ha_rocksdb::create_cfs(
     column families if necessary.
   */
   for (uint i = 0; i < tbl_def_arg.m_key_count; i++) {
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cf_handle;
+    rocksdb::ColumnFamilyHandle *cf_handle = nullptr;
 
     // Internal consistency check to make sure that data in TABLE and
     // Rdb_tbl_def structures matches. Either both are missing or both are
@@ -13200,16 +13197,15 @@ static int delete_range(const std::unordered_set<GL_INDEX_ID> &indices) {
       ret = 1;
       return ret;
     }
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager.get_cf(d.cf_id);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(d.cf_id);
     assert(cfh);
     const bool is_reverse_cf = cf_flags & Rdb_key_def::REVERSE_CF_FLAG;
 
     uchar buf[Rdb_key_def::INDEX_NUMBER_SIZE * 2];
     rocksdb::Range range = get_range(d.index_id, buf, is_reverse_cf ? 1 : 0,
                                      is_reverse_cf ? 0 : 1);
-    rocksdb::Status status = DeleteFilesInRange(rdb->GetBaseDB(), cfh.get(),
-                                                &range.start, &range.limit);
+    rocksdb::Status status =
+        DeleteFilesInRange(rdb->GetBaseDB(), cfh, &range.start, &range.limit);
     if (!status.ok()) {
       LogPluginErrMsg(
           WARNING_LEVEL, 0,
@@ -13217,7 +13213,7 @@ static int delete_range(const std::unordered_set<GL_INDEX_ID> &indices) {
           "%u] with status [%s]",
           d.cf_id, d.index_id, status.ToString().c_str());
     }
-    status = batch.DeleteRange(cfh.get(), range.start, range.limit);
+    status = batch.DeleteRange(cfh, range.start, range.limit);
     if (!status.ok()) {
       LogPluginErrMsg(ERROR_LEVEL, 0,
                       "Failed to call DeleteRange for [cf_id %u, index_id %u] "
@@ -13328,8 +13324,7 @@ void Rdb_drop_index_thread::run() {
             abort();
           }
 
-          std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-              cf_manager.get_cf(d.cf_id);
+          rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(d.cf_id);
           assert(cfh);
 
           if (local_dict_manager->get_dropped_cf(d.cf_id)) {
@@ -13344,7 +13339,7 @@ void Rdb_drop_index_thread::run() {
               d.index_id, buf, is_reverse_cf ? 1 : 0, is_reverse_cf ? 0 : 1);
 
           rocksdb::Status status = DeleteFilesInRange(
-              rdb->GetBaseDB(), cfh.get(), &range.start, &range.limit);
+              rdb->GetBaseDB(), cfh, &range.start, &range.limit);
           if (!status.ok()) {
             if (status.IsIncomplete()) {
               continue;
@@ -13354,7 +13349,7 @@ void Rdb_drop_index_thread::run() {
             rdb_handle_io_error(status, RDB_IO_ERROR_BG_THREAD);
           }
 
-          status = rdb->CompactRange(getCompactRangeOptions(), cfh.get(),
+          status = rdb->CompactRange(getCompactRangeOptions(), cfh,
                                      &range.start, &range.limit);
           if (!status.ok()) {
             if (status.IsIncomplete()) {
@@ -13364,7 +13359,7 @@ void Rdb_drop_index_thread::run() {
             }
             rdb_handle_io_error(status, RDB_IO_ERROR_BG_THREAD);
           }
-          if (is_myrocks_index_empty(cfh.get(), is_reverse_cf, read_opts,
+          if (is_myrocks_index_empty(cfh, is_reverse_cf, read_opts,
                                      d.index_id)) {
             finished.insert(d);
           }
@@ -15209,8 +15204,7 @@ int ha_rocksdb::inplace_populate_sk(
     std::lock_guard<Rdb_dict_manager> dm_lock(*local_dict_manager);
     for (const auto &kd : indexes) {
       const std::string cf_name = kd->get_cf()->GetName();
-      std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-          cf_manager.get_cf(cf_name);
+      rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(cf_name);
 
       if (!cfh || cfh != kd->get_shared_cf()) {
         // The CF has been dropped, i.e., cf_manager.remove_dropped_cf() has
@@ -15941,8 +15935,7 @@ static ulonglong get_prop_value_as_ulong(
 static void update_rocksdb_stall_status() {
   st_io_stall_stats local_io_stall_stats;
   for (const auto &cf_name : cf_manager.get_cf_names()) {
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh =
-        cf_manager.get_cf(cf_name);
+    rocksdb::ColumnFamilyHandle *cfh = cf_manager.get_cf(cf_name);
     if (!cfh) {
       continue;
     }
@@ -15950,8 +15943,8 @@ static void update_rocksdb_stall_status() {
     // Retrieve information from valid CF handle object. It is safe
     // even if the CF is removed from cf_manager at this point.
     std::map<std::string, std::string> props;
-    if (!rdb->GetMapProperty(
-            cfh.get(), rocksdb::DB::Properties::kCFWriteStallStats, &props)) {
+    if (!rdb->GetMapProperty(cfh, rocksdb::DB::Properties::kCFWriteStallStats,
+                             &props)) {
       continue;
     }
 
@@ -16551,7 +16544,7 @@ void Rdb_manual_compaction_thread::run() {
     // it is cancelled by CancelAllBackgroundWork, then status is
     // set to shutdownInProgress.
     const rocksdb::Status s =
-        rdb->CompactRange(mcr.option, mcr.cf.get(), mcr.start, mcr.limit);
+        rdb->CompactRange(mcr.option, mcr.cf, mcr.start, mcr.limit);
 
     rocksdb_manual_compactions_running--;
     if (s.ok()) {
@@ -16670,7 +16663,7 @@ bool Rdb_manual_compaction_thread::cancel_manual_compaction_request(
  * the status of the requests.
  */
 int Rdb_manual_compaction_thread::request_manual_compaction(
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cf, rocksdb::Slice *start,
+    rocksdb::ColumnFamilyHandle *cf, rocksdb::Slice *start,
     rocksdb::Slice *limit, const uint manual_compaction_threads,
     const rocksdb::BottommostLevelCompaction bottommost_level_compaction) {
   int mc_id = -1;
@@ -17624,7 +17617,7 @@ static void rocksdb_set_update_cf_options(
         // If cf_manager.drop_cf() has been called at this point, SetOptions()
         // will still succeed. The options data will only be cleared when
         // the CF handle object is destroyed.
-        s = rdb->SetOptions(cfh.get(), opt_map);
+        s = rdb->SetOptions(cfh, opt_map);
 
         if (s != rocksdb::Status::OK()) {
           LogPluginErrMsg(
@@ -17641,7 +17634,7 @@ static void rocksdb_set_update_cf_options(
           // the CF options. This is necessary also to make sure that the CF
           // options will be correctly reflected in the relevant table:
           // ROCKSDB_CF_OPTIONS in INFORMATION_SCHEMA.
-          const auto cf_options = rdb->GetOptions(cfh.get());
+          const auto cf_options = rdb->GetOptions(cfh);
           std::string updated_options;
 
           s = rocksdb::GetStringFromColumnFamilyOptions(&updated_options,
