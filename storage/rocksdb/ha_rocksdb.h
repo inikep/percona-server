@@ -659,7 +659,7 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   friend class Rdb_iterator_base;
 
   struct key_def_cf_info {
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cf_handle;
+    rocksdb::ColumnFamilyHandle *cf_handle = nullptr;
     bool is_reverse_cf;
     bool is_per_partition_cf;
   };
