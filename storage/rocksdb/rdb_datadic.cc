@@ -5527,9 +5527,9 @@ bool Rdb_dict_manager::init(rocksdb::TransactionDB *const rdb_dict,
   // It is safe to get raw pointers here since:
   // 1. System CF and default CF cannot be dropped
   // 2. cf_manager outlives dict_manager
-  m_system_cfh = cf_manager->get_or_create_cf(m_db, system_cf_name, true);
+  m_system_cfh = cf_manager->get_or_create_cf(system_cf_name, true);
   rocksdb::ColumnFamilyHandle *default_cfh =
-      cf_manager->get_or_create_cf(m_db, default_cf_name, true);
+      cf_manager->get_or_create_cf(default_cf_name, true);
   // System CF and default CF should be initialized
   if (m_system_cfh == nullptr || default_cfh == nullptr) {
     return HA_EXIT_FAILURE;
