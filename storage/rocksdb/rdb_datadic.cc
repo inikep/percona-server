@@ -5199,7 +5199,7 @@ bool Rdb_dict_manager::init(rocksdb::TransactionDB *const rdb_dict,
   // 1. System CF and default CF cannot be dropped
   // 2. cf_manager outlives dict_manager
   m_system_cfh =
-      cf_manager->get_or_create_cf(m_db, DEFAULT_SYSTEM_CF_NAME);
+      cf_manager->get_or_create_cf(DEFAULT_SYSTEM_CF_NAME);
   rocksdb::ColumnFamilyHandle *default_cfh =
       cf_manager->get_cf(DEFAULT_CF_NAME);
 
