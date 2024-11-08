@@ -180,7 +180,7 @@ class Rdb_manual_compaction_thread : public Rdb_thread {
       FAILURE = 3,
       CANCEL = 4,
     } state;
-    std::shared_ptr<rocksdb::ColumnFamilyHandle> cf;
+    rocksdb::ColumnFamilyHandle *cf = nullptr;
     rocksdb::Slice *start;
     rocksdb::Slice *limit;
     rocksdb::CompactRangeOptions option;
@@ -204,7 +204,7 @@ class Rdb_manual_compaction_thread : public Rdb_thread {
 
   virtual void run() override;
   int request_manual_compaction(
-      std::shared_ptr<rocksdb::ColumnFamilyHandle> cf, rocksdb::Slice *start,
+      rocksdb::ColumnFamilyHandle *cf, rocksdb::Slice *start,
       rocksdb::Slice *limit, const uint manual_compaction_threads,
       const rocksdb::BottommostLevelCompaction bottommost_level_compaction);
   Manual_compaction_request::mc_state manual_compaction_state(const int mc_id);

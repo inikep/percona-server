@@ -90,9 +90,8 @@ bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
       }
     } else {
       // Otherwise populate existing cf.
-      std::shared_ptr<rocksdb::ColumnFamilyHandle> cfh(cfh_ptr);
-      m_cf_name_map[cfh_ptr->GetName()] = cfh;
-      m_cf_id_map[cfh_ptr->GetID()] = cfh;
+      m_cf_name_map[cfh_ptr->GetName()] = cfh_ptr;
+      m_cf_id_map[cfh_ptr->GetID()] = cfh_ptr;
     }
   }
 
@@ -125,7 +124,7 @@ bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
   // Step4 : Reset the handlers passed.
   handles->clear();
   for (auto &it : m_cf_name_map) {
-    handles->push_back(it.second.get());
+    handles->push_back(it.second);
   }
 
   initialized = true;
@@ -134,6 +133,11 @@ bool Rdb_cf_manager::init(rocksdb::DB *const rdb,
 
 void Rdb_cf_manager::cleanup() {
   if (!initialized) return;
+
+  // clean handles stored in m_cf_name_map and m_cf_id_map
+  for (auto ptr : get_all_cf()) {
+    delete ptr;
+  }
 
   m_cf_name_map.clear();
   m_cf_id_map.clear();
@@ -148,11 +152,11 @@ void Rdb_cf_manager::cleanup() {
   @detail
     See Rdb_cf_manager::get_cf
 */
-std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_or_create_cf(
+rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_or_create_cf(
     rocksdb::DB *const rdb, const std::string &cf_name) {
   assert(rdb != nullptr);
   assert(!cf_name.empty());
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> cf_handle;
+  rocksdb::ColumnFamilyHandle *cf_handle = nullptr;
 
   if (cf_name == PER_INDEX_CF_NAME) {
     // per-index column families is no longer supported.
@@ -186,15 +190,13 @@ std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_or_create_cf(
                     "    target_file_size_base=%" PRIu64,
                     opts.target_file_size_base);
 
-    rocksdb::ColumnFamilyHandle *cf_handle_ptr = nullptr;
     const rocksdb::Status s =
-        rdb->CreateColumnFamily(opts, cf_name, &cf_handle_ptr);
+        rdb->CreateColumnFamily(opts, cf_name, &cf_handle);
 
     if (s.ok()) {
-      assert(cf_handle_ptr != nullptr);
-      cf_handle.reset(cf_handle_ptr);
-      m_cf_name_map[cf_handle_ptr->GetName()] = cf_handle;
-      m_cf_id_map[cf_handle_ptr->GetID()] = cf_handle;
+      assert(cf_handle != nullptr);
+      m_cf_name_map[cf_handle->GetName()] = cf_handle;
+      m_cf_id_map[cf_handle->GetID()] = cf_handle;
     }
   }
 
@@ -206,15 +208,15 @@ std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_or_create_cf(
 /*
   Find column family by its cf_name.
 */
-std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_cf(
+rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_cf(
     const std::string &cf_name) const {
   return get_cf(cf_name, false /*lock_held_by_caller*/);
 }
 
-std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_cf(
+rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_cf(
     const std::string &cf_name, const bool lock_held_by_caller) const {
   assert(!cf_name.empty());
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> cf_handle;
+  rocksdb::ColumnFamilyHandle *cf_handle = nullptr;
 
   if (!lock_held_by_caller) {
     RDB_MUTEX_LOCK_CHECK(m_mutex);
@@ -239,9 +241,8 @@ std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_cf(
   return cf_handle;
 }
 
-std::shared_ptr<rocksdb::ColumnFamilyHandle> Rdb_cf_manager::get_cf(
-    const uint32_t id) const {
-  std::shared_ptr<rocksdb::ColumnFamilyHandle> cf_handle;
+rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_cf(const uint32_t id) const {
+  rocksdb::ColumnFamilyHandle *cf_handle = nullptr;
 
   RDB_MUTEX_LOCK_CHECK(m_mutex);
   const auto it = m_cf_id_map.find(id);
@@ -263,9 +264,9 @@ std::vector<std::string> Rdb_cf_manager::get_cf_names(void) const {
   return names;
 }
 
-std::vector<std::shared_ptr<rocksdb::ColumnFamilyHandle>>
-Rdb_cf_manager::get_all_cf(void) const {
-  std::vector<std::shared_ptr<rocksdb::ColumnFamilyHandle>> list;
+std::vector<rocksdb::ColumnFamilyHandle *> Rdb_cf_manager::get_all_cf(
+    void) const {
+  std::vector<rocksdb::ColumnFamilyHandle *> list;
 
   RDB_MUTEX_LOCK_CHECK(m_mutex);
 
@@ -301,7 +302,7 @@ int Rdb_cf_manager::remove_dropped_cf(Rdb_dict_manager *const dict_manager,
     return HA_EXIT_FAILURE;
   }
 
-  auto cf_handle = it->second.get();
+  auto cf_handle = it->second;
   const std::string cf_name = cf_handle->GetName();
 
   if (!dict_manager->get_dropped_cf(cf_id)) {
@@ -400,7 +401,7 @@ int Rdb_cf_manager::drop_cf(Rdb_ddl_manager *const ddl_manager,
   //  dict_manager -> cf_manager -> ddl_manager
 
   RDB_MUTEX_LOCK_CHECK(m_mutex);
-  auto cf_handle = get_cf(cf_name, true /* lock_held_by_caller */).get();
+  auto cf_handle = get_cf(cf_name, true /* lock_held_by_caller */);
   if (cf_handle == nullptr) {
     RDB_MUTEX_UNLOCK_CHECK(m_mutex);
     // NO_LINT_DEBUG
