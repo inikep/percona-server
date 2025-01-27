@@ -3093,8 +3093,7 @@ class Rdb_transaction {
   // Cached value of @@rocksdb_lock_wait_timeout
   std::atomic<int> m_timeout_sec = 0;
 
-  // The remaining fields, including the ones in subclasses, cannot be accessed
-  // from other threads
+  // The remaining fields cannot be accessed from other threads
   std::unordered_map<GL_INDEX_ID, ulonglong> m_auto_incr_map;
 
   bool m_is_two_phase = false;
@@ -4497,6 +4496,15 @@ static void dbug_change_status_to_incomplete(rocksdb::Status *status) {
   this object commits them on commit.
 */
 class Rdb_transaction_impl : public Rdb_transaction {
+  // Mutex to protect m_rocksdb_tx[TABLE_TYPE::USER_TABLE] reads by other
+  // threads. Must be also taken by the transaction query thread modifying it.
+  // No need to take for the query thread to read it.
+  mutable mysql_mutex_t m_rdb_tx_mutex;
+
+  std::unique_ptr<rocksdb::Transaction> m_rocksdb_tx;
+
+  std::unique_ptr<rocksdb::Transaction> m_rocksdb_reuse_tx;
+
  public:
   void set_lock_timeout(int timeout_sec_arg) override {
     assert(!is_ac_nl_ro_rc_transaction());
@@ -4533,16 +4541,15 @@ class Rdb_transaction_impl : public Rdb_transaction {
   bool is_writebatch_trx() const override { return false; }
 
  private:
-  std::unique_ptr<rocksdb::Transaction> m_rocksdb_tx;
-  std::unique_ptr<rocksdb::Transaction> m_rocksdb_reuse_tx;
-
   void begin_rdb_tx(const rocksdb::WriteOptions &write_opts,
                     const rocksdb::TransactionOptions &tx_opts) {
     assert(m_rocksdb_tx == nullptr);
+    mysql_mutex_lock(&m_rdb_tx_mutex);
     // If m_rocksdb_reuse_tx is nullptr this will create a new
     // transaction object. Otherwise it will reuse the existing one.
     m_rocksdb_tx.reset(rdb->BeginTransaction(
         write_opts, tx_opts, m_rocksdb_reuse_tx.release()));
+    mysql_mutex_unlock(&m_rdb_tx_mutex);
   }
 
   void release_tx(size_t wb_size) {
@@ -4551,7 +4558,15 @@ class Rdb_transaction_impl : public Rdb_transaction {
     assert(get_statement_snapshot_type() == snapshot_type::NONE);
     assert_snapshot_invariants();
     assert(m_rocksdb_reuse_tx == nullptr);
+
+    // Ideally this debug sync point would be after rdb_trx initialization, but
+    // that would be in the same critical section as the other thread needs.
+    DEBUG_SYNC(m_thd, "myrocks_release_tx");
+
+    mysql_mutex_lock(&m_rdb_tx_mutex);
     auto tx = std::move(m_rocksdb_tx);
+    mysql_mutex_unlock(&m_rdb_tx_mutex);
+
     if (rocksdb_write_batch_mem_free_threshold > 0 &&
         wb_size > rocksdb_write_batch_mem_free_threshold) {
       tx.reset();
@@ -4875,9 +4890,17 @@ class Rdb_transaction_impl : public Rdb_transaction {
         m_rocksdb_tx->GetIterator(options, &column_family));
   }
 
-  // TODO(laurynas): unsafely called from other threads
-  const rocksdb::Transaction *get_rdb_trx() const {
+  // To be called from other threads. Must be paired with unlock_rdb_trx.
+  const rocksdb::Transaction *get_and_lock_rdb_trx() const {
+    mysql_mutex_lock(&m_rdb_tx_mutex);
     return m_rocksdb_tx.get();
+  }
+
+  // To be called from other threads once done with the get_and_lock_rdb_trx
+  // returned pointer.
+  void unlock_rdb_trx() const {
+    mysql_mutex_assert_owner(&m_rdb_tx_mutex);
+    mysql_mutex_unlock(&m_rdb_tx_mutex);
   }
 
   bool is_tx_started() const override { return (m_rocksdb_tx != nullptr); }
@@ -4985,8 +5008,13 @@ class Rdb_transaction_impl : public Rdb_transaction {
     assert_snapshot_invariants();
   }
 
-  explicit Rdb_transaction_impl(THD *const thd)
-      : Rdb_transaction(thd) {
+  explicit Rdb_transaction_impl(THD *thd) : Rdb_transaction{thd} {
+#ifdef HAVE_PSI_INTERFACE
+    mysql_mutex_init(i_s_transaction_access_mutex_key, &m_rdb_tx_mutex,
+                     MY_MUTEX_INIT_FAST);
+#else
+    mysql_mutex_init(nullptr, &m_rdb_tx, MY_MUTEX_INIT_FAST)
+#endif
     // Create a notifier that can be called when a snapshot gets generated.
     m_notifier = std::make_shared<Rdb_snapshot_notifier>(this);
   }
@@ -5004,6 +5032,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
     m_notifier->detach();
 
     assert(m_rocksdb_tx == nullptr);
+    mysql_mutex_destroy(&m_rdb_tx_mutex);
   }
 };
 
@@ -5236,7 +5265,7 @@ class Rdb_writebatch_impl : public Rdb_transaction {
     rollback_to_stmt_savepoint();
   }
 
-  explicit Rdb_writebatch_impl(THD *const thd)
+  explicit Rdb_writebatch_impl(THD *thd)
       : Rdb_transaction(thd), m_batch(rocksdb::BytewiseComparator(), 0, true) {}
 
   virtual ~Rdb_writebatch_impl() override {
@@ -6287,7 +6316,6 @@ class Rdb_trx_info_aggregator : public Rdb_tx_list_walker {
 
     if (tx->is_writebatch_trx()) {
       const auto wb_impl = static_cast<const Rdb_writebatch_impl *>(tx);
-      assert(wb_impl);
       m_trx_info->push_back({"",                            /* name */
                              0,                             /* trx_id */
                              wb_impl->get_write_count(), 0, /* lock_count */
@@ -6302,31 +6330,35 @@ class Rdb_trx_info_aggregator : public Rdb_tx_list_walker {
                              wb_impl->num_ongoing_bulk_load(), thread_id,
                              "" /* query string */});
     } else {
+      std::string query_str;
+      thd_query_safe(thd, &query_str);
+      const auto is_replication = (thd->rli_slave != nullptr);
+
       const auto tx_impl = static_cast<const Rdb_transaction_impl *>(tx);
-      assert(tx_impl);
-      const rocksdb::Transaction *rdb_trx = tx_impl->get_rdb_trx();
+
+      DEBUG_SYNC(current_thd, "myrocks_in_rocksdb_trx_before_trx");
+
+      const rocksdb::Transaction *rdb_trx = tx_impl->get_and_lock_rdb_trx();
 
       if (rdb_trx == nullptr) {
+        tx_impl->unlock_rdb_trx();
         return;
       }
 
-      std::string query_str;
-      thd_query_safe(thd, &query_str);
-
       const auto state_it = state_map.find(rdb_trx->GetState());
       assert(state_it != state_map.end());
-      const int is_replication = (thd->rli_slave != nullptr);
       uint32_t waiting_cf_id;
       std::string waiting_key;
-      rdb_trx->GetWaitingTxns(&waiting_cf_id, &waiting_key),
+      rdb_trx->GetWaitingTxns(&waiting_cf_id, &waiting_key);
 
-          m_trx_info->push_back(
-              {rdb_trx->GetName(), rdb_trx->GetID(), tx_impl->get_write_count(),
-               tx_impl->get_row_lock_count(), tx_impl->get_timeout_sec(),
-               state_it->second, waiting_key, waiting_cf_id, is_replication,
-               0, /* skip_trx_api */
-               tx_impl->is_tx_read_only(), rdb_trx->IsDeadlockDetect(),
-               tx_impl->num_ongoing_bulk_load(), thread_id, query_str});
+      m_trx_info->push_back(
+          {rdb_trx->GetName(), rdb_trx->GetID(), tx_impl->get_write_count(),
+           tx_impl->get_row_lock_count(), tx_impl->get_timeout_sec(),
+           state_it->second, waiting_key, waiting_cf_id, is_replication,
+           0, /* skip_trx_api */
+           tx_impl->is_tx_read_only(), rdb_trx->IsDeadlockDetect(),
+           tx_impl->num_ongoing_bulk_load(), thread_id, query_str});
+      tx_impl->unlock_rdb_trx();
     }
   }
 };

@@ -46,7 +46,8 @@ extern my_core::PSI_mutex_key rdb_psi_open_tbls_mutex_key,
     rdb_collation_data_mutex_key, rdb_mem_cmp_space_mutex_key,
     key_mutex_tx_list, rdb_cfm_mutex_key,
     rdb_sst_commit_key, rdb_block_cache_resize_mutex_key,
-    rdb_bottom_pri_background_compactions_resize_mutex_key;
+    rdb_bottom_pri_background_compactions_resize_mutex_key,
+    i_s_transaction_access_mutex_key;
 
 extern my_core::PSI_rwlock_key key_rwlock_tbl_prop_coll_factory_lock;
 
