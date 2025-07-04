@@ -98,7 +98,6 @@
 #include "./ha_rocksdb_proto.h"
 #include "./ha_rockspart.h"
 #include "./logger.h"
-#include "./nosql_access.h"
 #include "./rdb_cf_manager.h"
 #include "./rdb_cf_options.h"
 #include "./rdb_converter.h"
@@ -485,10 +484,6 @@ static void rocksdb_max_compaction_history_update(
 static bool parse_fault_injection_params(bool *retryable,
                                          uint32_t *failure_ratio,
                                          std::vector<rocksdb::FileType> *types);
-
-static void rocksdb_select_bypass_rejected_query_history_size_update(
-    my_core::THD *const thd, my_core::SYS_VAR *const /* unused */,
-    void *const var_ptr, const void *const save);
 
 static int delete_range(const std::unordered_set<GL_INDEX_ID> &indices);
 
@@ -893,19 +888,7 @@ static bool rocksdb_enable_insert_with_update_caching = true;
 /* Use unsigned long long instead of uint64_t because of MySQL compatibility */
 static unsigned long long  // NOLINT(runtime/int)
     rocksdb_max_compaction_history = 0;
-static ulong rocksdb_select_bypass_policy =
-    select_bypass_policy_type::default_value;
-static bool rocksdb_select_bypass_fail_unsupported = true;
-static bool rocksdb_select_bypass_log_rejected = true;
-static bool rocksdb_select_bypass_log_failed = false;
-static bool rocksdb_select_bypass_allow_filters = true;
-static uint32_t rocksdb_select_bypass_rejected_query_history_size = 0;
-static uint32_t rocksdb_select_bypass_debug_row_delay = 0;
-static bool rocksdb_bypass_rpc_on = true;
-static bool rocksdb_bypass_rpc_log_rejected = false;
 static uint32_t rocksdb_max_intrinsic_tmp_table_write_count = 0;
-static unsigned long long  // NOLINT(runtime/int)
-    rocksdb_select_bypass_multiget_min = 0;
 static bool rocksdb_skip_locks_if_skip_unique_check = false;
 static bool rocksdb_alter_column_default_inplace = false;
 static bool rocksdb_alter_table_comment_inplace = false;
@@ -945,14 +928,6 @@ static std::atomic<uint64_t> rocksdb_manual_compactions_pending(0);
 static std::atomic<uint64_t> rocksdb_num_get_for_update_calls(0);
 #endif
 std::atomic<uint64_t> rocksdb_binlog_ttl_compaction_timestamp(0);
-std::atomic<uint64_t> rocksdb_select_bypass_executed(0);
-std::atomic<uint64_t> rocksdb_select_bypass_rejected(0);
-std::atomic<uint64_t> rocksdb_select_bypass_failed(0);
-
-uint32_t rocksdb_bypass_rpc_rejected_log_ts_interval_secs = 0;
-std::atomic<uint64_t> rocksdb_bypass_rpc_executed(0);
-std::atomic<uint64_t> rocksdb_bypass_rpc_rejected(0);
-std::atomic<uint64_t> rocksdb_bypass_rpc_failed(0);
 
 std::atomic<uint64_t> rocksdb_partial_index_groups_sorted(0);
 std::atomic<uint64_t> rocksdb_partial_index_groups_materialized(0);
@@ -1179,15 +1154,6 @@ static const char *file_checksums_names[] = {
 static TYPELIB file_checksums_typelib = {
     array_elements(file_checksums_names) - 1, "file_checksums_typelib",
     file_checksums_names, nullptr};
-
-/* This enum needs to be kept up to date with myrocks::select_bypass_policy_type
- */
-static const char *select_bypass_policy_names[] = {"always_off", "always_on",
-                                                   "opt_in", "opt_out", NullS};
-
-static TYPELIB select_bypass_policy_typelib = {
-    array_elements(select_bypass_policy_names) - 1,
-    "select_bypass_policy_typelib", select_bypass_policy_names, nullptr};
 
 /* This enum needs to be kept up to date with rocksdb::InfoLogLevel */
 static const char *info_log_level_names[] = {"debug_level", "info_level",
@@ -2776,77 +2742,6 @@ static MYSQL_THDVAR_BOOL(disable_file_deletions,
                          PLUGIN_VAR_NOCMDARG | PLUGIN_VAR_RQCMDARG,
                          "Prevent file deletions", nullptr,
                          rocksdb_disable_file_deletions_update, false);
-static MYSQL_SYSVAR_ENUM(
-    select_bypass_policy, rocksdb_select_bypass_policy, PLUGIN_VAR_RQCMDARG,
-    "Change bypass SELECT related policy and allow directly talk to RocksDB. "
-    "Valid values include 'always_off', 'always_on', 'opt_in', 'opt_out'. ",
-    nullptr, nullptr, select_bypass_policy_type::default_value,
-    &select_bypass_policy_typelib);
-
-static MYSQL_SYSVAR_BOOL(
-    select_bypass_fail_unsupported, rocksdb_select_bypass_fail_unsupported,
-    PLUGIN_VAR_RQCMDARG,
-    "Select bypass would fail for unsupported SELECT commands", nullptr,
-    nullptr, true);
-
-static MYSQL_SYSVAR_BOOL(select_bypass_log_rejected,
-                         rocksdb_select_bypass_log_rejected,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Log rejected SELECT bypass queries", nullptr, nullptr,
-                         true);
-
-static MYSQL_SYSVAR_BOOL(select_bypass_log_failed,
-                         rocksdb_select_bypass_log_failed, PLUGIN_VAR_RQCMDARG,
-                         "Log failed SELECT bypass queries", nullptr, nullptr,
-                         false);
-
-static MYSQL_SYSVAR_BOOL(select_bypass_allow_filters,
-                         rocksdb_select_bypass_allow_filters,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Allow non-optimal filters in SELECT bypass queries",
-                         nullptr, nullptr, true);
-
-static MYSQL_SYSVAR_UINT(
-    select_bypass_rejected_query_history_size,
-    rocksdb_select_bypass_rejected_query_history_size, PLUGIN_VAR_RQCMDARG,
-    "History size of rejected bypass queries in "
-    "information_schema.bypass_rejected_query_history. "
-    "Set to 0 to turn off",
-    nullptr, rocksdb_select_bypass_rejected_query_history_size_update, 0,
-    /* min */ 0, /* max */ INT_MAX, 0);
-
-static MYSQL_SYSVAR_UINT(
-    select_bypass_debug_row_delay, rocksdb_select_bypass_debug_row_delay,
-    PLUGIN_VAR_RQCMDARG,
-    "Test only to inject delays in bypass select to simulate long queries "
-    "for each row sent",
-    nullptr, nullptr, 0, /* min */ 0, /* max */ INT_MAX, 0);
-
-static MYSQL_SYSVAR_ULONGLONG(
-    select_bypass_multiget_min, rocksdb_select_bypass_multiget_min,
-    PLUGIN_VAR_RQCMDARG,
-    "Minimum number of items to use RocksDB MultiGet API. Default is "
-    "SIZE_T_MAX meaning it is turned off. Set to 0 to enable always using "
-    "MultiGet",
-    nullptr, nullptr, SIZE_T_MAX, /* min */ 0, /* max */ SIZE_T_MAX, 0);
-
-static MYSQL_SYSVAR_UINT(bypass_rpc_rejected_log_ts_interval_secs,
-                         rocksdb_bypass_rpc_rejected_log_ts_interval_secs,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Interval in seconds when rejected Bypass RPC is "
-                         "written to the query history. Default: 1 second",
-                         nullptr, nullptr, 1,
-                         /* min */ 0,
-                         /* max */ UINT_MAX, 0);
-
-static MYSQL_SYSVAR_BOOL(bypass_rpc_on, rocksdb_bypass_rpc_on,
-                         PLUGIN_VAR_RQCMDARG, "Toggle Bypass RPC feature",
-                         nullptr, nullptr, true);
-
-static MYSQL_SYSVAR_BOOL(bypass_rpc_log_rejected,
-                         rocksdb_bypass_rpc_log_rejected, PLUGIN_VAR_RQCMDARG,
-                         "Log rejected Bypass RPC queries", nullptr, nullptr,
-                         false);
 
 static MYSQL_THDVAR_ULONG(mrr_batch_size, PLUGIN_VAR_RQCMDARG,
                           "maximum number of keys to fetch during each MRR",
@@ -3202,17 +3097,6 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(max_compaction_history),
     MYSQL_SYSVAR(mrr_batch_size),
 
-    MYSQL_SYSVAR(select_bypass_policy),
-    MYSQL_SYSVAR(select_bypass_fail_unsupported),
-    MYSQL_SYSVAR(select_bypass_log_failed),
-    MYSQL_SYSVAR(select_bypass_rejected_query_history_size),
-    MYSQL_SYSVAR(select_bypass_log_rejected),
-    MYSQL_SYSVAR(select_bypass_allow_filters),
-    MYSQL_SYSVAR(select_bypass_debug_row_delay),
-    MYSQL_SYSVAR(select_bypass_multiget_min),
-    MYSQL_SYSVAR(bypass_rpc_rejected_log_ts_interval_secs),
-    MYSQL_SYSVAR(bypass_rpc_on),
-    MYSQL_SYSVAR(bypass_rpc_log_rejected),
     MYSQL_SYSVAR(skip_locks_if_skip_unique_check),
     MYSQL_SYSVAR(alter_column_default_inplace),
     MYSQL_SYSVAR(partial_index_sort_max_mem),
@@ -7845,11 +7729,9 @@ static int rocksdb_init_internal(void *const p) {
       rocksdb_rollback_to_savepoint_can_release_mdl;
   rocksdb_hton->get_table_statistics = rocksdb_get_table_statistics;
   rocksdb_hton->flush_logs = rocksdb_flush_wal;
-  rocksdb_hton->handle_single_table_select = rocksdb_handle_single_table_select;
   rocksdb_hton->update_binlog_ttl_compaction_ts =
       rocksdb_update_binlog_ttl_compaction_ts;
   rocksdb_hton->is_user_table_blocked = rocksdb_user_table_blocked;
-  rocksdb_hton->bypass_select_by_key = rocksdb_select_by_key;
 
   rocksdb_hton->clone_interface.clone_capability = rocksdb_clone_get_capability;
   rocksdb_hton->clone_interface.clone_begin = rocksdb_clone_begin;
@@ -17454,20 +17336,6 @@ static SHOW_VAR rocksdb_status_vars[] = {
     DEF_STATUS_VAR_PTR("num_get_for_update_calls",
                        &rocksdb_num_get_for_update_calls, SHOW_LONGLONG),
 #endif
-    DEF_STATUS_VAR_PTR("select_bypass_executed",
-                       &rocksdb_select_bypass_executed, SHOW_LONGLONG),
-    DEF_STATUS_VAR_PTR("select_bypass_rejected",
-                       &rocksdb_select_bypass_rejected, SHOW_LONGLONG),
-    DEF_STATUS_VAR_PTR("select_bypass_failed", &rocksdb_select_bypass_failed,
-                       SHOW_LONGLONG),
-
-    DEF_STATUS_VAR_PTR("bypass_rpc_executed", &rocksdb_bypass_rpc_executed,
-                       SHOW_LONGLONG),
-    DEF_STATUS_VAR_PTR("bypass_rpc_rejected", &rocksdb_bypass_rpc_rejected,
-                       SHOW_LONGLONG),
-    DEF_STATUS_VAR_PTR("bypass_rpc_failed", &rocksdb_bypass_rpc_failed,
-                       SHOW_LONGLONG),
-
     DEF_STATUS_VAR_PTR("partial_index_groups_sorted",
                        &rocksdb_partial_index_groups_sorted, SHOW_LONGLONG),
     DEF_STATUS_VAR_PTR("partial_index_groups_materialized",
@@ -19036,20 +18904,6 @@ rocksdb::DBOptions *get_rocksdb_db_options() {
   return rocksdb_db_options.get();
 }
 
-static void rocksdb_select_bypass_rejected_query_history_size_update(
-    my_core::THD *const /* unused */, my_core::SYS_VAR *const /* unused */,
-    void *const var_ptr, const void *const save) {
-  assert(rdb != nullptr);
-
-  uint32_t val = *static_cast<uint32_t *>(var_ptr) =
-      *static_cast<const uint32_t *>(save);
-
-  const std::lock_guard<std::mutex> lock(myrocks::rejected_bypass_query_lock);
-  if (myrocks::rejected_bypass_queries.size() > val) {
-    myrocks::rejected_bypass_queries.resize(val);
-  }
-}
-
 static void rocksdb_max_compaction_history_update(
     my_core::THD *const /* unused */, my_core::SYS_VAR *const /* unused */,
     void *const var_ptr, const void *const save) {
@@ -19127,45 +18981,6 @@ void Rdb_compaction_stats::record_end(rocksdb::CompactionJobInfo info) {
   assert(record.end_timestamp != static_cast<time_t>(-1));
   record.info = std::move(info);
   m_history.emplace_back(std::move(record));
-}
-
-select_bypass_policy_type get_select_bypass_policy() {
-  return static_cast<select_bypass_policy_type>(rocksdb_select_bypass_policy);
-}
-
-bool should_fail_unsupported_select_bypass() {
-  return rocksdb_select_bypass_fail_unsupported;
-}
-
-bool should_log_rejected_select_bypass() {
-  return rocksdb_select_bypass_log_rejected;
-}
-
-bool should_log_failed_select_bypass() {
-  return rocksdb_select_bypass_log_failed;
-}
-
-bool should_allow_filters_select_bypass() {
-  return rocksdb_select_bypass_allow_filters;
-}
-
-uint32_t get_select_bypass_rejected_query_history_size() {
-  return rocksdb_select_bypass_rejected_query_history_size;
-}
-
-uint32_t get_select_bypass_debug_row_delay() {
-  return rocksdb_select_bypass_debug_row_delay;
-}
-
-bool is_bypass_rpc_on() { return rocksdb_bypass_rpc_on; }
-
-bool should_log_rejected_bypass_rpc() {
-  return rocksdb_bypass_rpc_log_rejected;
-}
-
-unsigned long long  // NOLINT(runtime/int)
-get_select_bypass_multiget_min() {
-  return rocksdb_select_bypass_multiget_min;
 }
 
 unsigned long long get_partial_index_sort_max_mem(THD *thd) {
@@ -19954,5 +19769,4 @@ mysql_declare_plugin(rocksdb_se){
     myrocks::rdb_i_s_sst_props, myrocks::rdb_i_s_index_file_map,
     myrocks::rdb_i_s_lock_info, myrocks::rdb_i_s_trx_info,
     myrocks::rdb_i_s_deadlock_info,
-    myrocks::rdb_i_s_bypass_rejected_query_history,
     myrocks::rdb_i_s_live_files_metadata mysql_declare_plugin_end;

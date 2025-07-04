@@ -920,9 +920,6 @@ rocksdb_bulk_load_fail_if_not_bottommost_level	OFF
 rocksdb_bulk_load_partial_index	ON
 rocksdb_bulk_load_size	1000
 rocksdb_bulk_load_use_sst_partitioner	OFF
-rocksdb_bypass_rpc_log_rejected	OFF
-rocksdb_bypass_rpc_on	ON
-rocksdb_bypass_rpc_rejected_log_ts_interval_secs	1
 rocksdb_bytes_per_sync	0
 rocksdb_cache_dump	ON
 rocksdb_cache_high_pri_pool_ratio	0.000000
@@ -1051,14 +1048,6 @@ rocksdb_records_in_range	50
 rocksdb_reset_stats	OFF
 rocksdb_rollback_on_timeout	OFF
 rocksdb_seconds_between_stat_computes	3600
-rocksdb_select_bypass_allow_filters	ON
-rocksdb_select_bypass_debug_row_delay	0
-rocksdb_select_bypass_fail_unsupported	ON
-rocksdb_select_bypass_log_failed	OFF
-rocksdb_select_bypass_log_rejected	ON
-rocksdb_select_bypass_multiget_min	18446744073709551615
-rocksdb_select_bypass_policy	always_off
-rocksdb_select_bypass_rejected_query_history_size	0
 rocksdb_signal_drop_index_thread	OFF
 rocksdb_sim_cache_size	0
 rocksdb_skip_bloom_filter_on_read	OFF
@@ -1648,9 +1637,6 @@ rocksdb_bloom_filter_full_true_positive	#
 rocksdb_bloom_filter_prefix_checked	#
 rocksdb_bloom_filter_prefix_useful	#
 rocksdb_bloom_filter_useful	#
-rocksdb_bypass_rpc_executed	#
-rocksdb_bypass_rpc_failed	#
-rocksdb_bypass_rpc_rejected	#
 rocksdb_bytes_read	#
 rocksdb_bytes_written	#
 rocksdb_compact_read_bytes	#
@@ -1710,9 +1696,6 @@ rocksdb_partial_index_rows_materialized	#
 rocksdb_partial_index_rows_sorted	#
 rocksdb_row_lock_deadlocks	#
 rocksdb_row_lock_wait_timeouts	#
-rocksdb_select_bypass_executed	#
-rocksdb_select_bypass_failed	#
-rocksdb_select_bypass_rejected	#
 rocksdb_snapshot_conflict_errors	#
 rocksdb_stall_l0_file_count_limit_slowdowns	#
 rocksdb_stall_locked_l0_file_count_limit_slowdowns	#
@@ -1758,9 +1741,6 @@ ROCKSDB_BLOOM_FILTER_FULL_TRUE_POSITIVE
 ROCKSDB_BLOOM_FILTER_PREFIX_CHECKED
 ROCKSDB_BLOOM_FILTER_PREFIX_USEFUL
 ROCKSDB_BLOOM_FILTER_USEFUL
-ROCKSDB_BYPASS_RPC_EXECUTED
-ROCKSDB_BYPASS_RPC_FAILED
-ROCKSDB_BYPASS_RPC_REJECTED
 ROCKSDB_BYTES_READ
 ROCKSDB_BYTES_WRITTEN
 ROCKSDB_COMPACTION_KEY_DROP_NEW
@@ -1836,9 +1816,6 @@ ROCKSDB_ROWS_UNFILTERED_NO_READ_FILTERING_TIME
 ROCKSDB_ROWS_UPDATED
 ROCKSDB_ROW_LOCK_DEADLOCKS
 ROCKSDB_ROW_LOCK_WAIT_TIMEOUTS
-ROCKSDB_SELECT_BYPASS_EXECUTED
-ROCKSDB_SELECT_BYPASS_FAILED
-ROCKSDB_SELECT_BYPASS_REJECTED
 ROCKSDB_SNAPSHOT_CONFLICT_ERRORS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_SLOWDOWNS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_STOPS
@@ -1893,9 +1870,6 @@ ROCKSDB_BLOOM_FILTER_FULL_TRUE_POSITIVE
 ROCKSDB_BLOOM_FILTER_PREFIX_CHECKED
 ROCKSDB_BLOOM_FILTER_PREFIX_USEFUL
 ROCKSDB_BLOOM_FILTER_USEFUL
-ROCKSDB_BYPASS_RPC_EXECUTED
-ROCKSDB_BYPASS_RPC_FAILED
-ROCKSDB_BYPASS_RPC_REJECTED
 ROCKSDB_BYTES_READ
 ROCKSDB_BYTES_WRITTEN
 ROCKSDB_COMPACTION_KEY_DROP_NEW
@@ -1971,9 +1945,6 @@ ROCKSDB_ROWS_UNFILTERED_NO_READ_FILTERING_TIME
 ROCKSDB_ROWS_UPDATED
 ROCKSDB_ROW_LOCK_DEADLOCKS
 ROCKSDB_ROW_LOCK_WAIT_TIMEOUTS
-ROCKSDB_SELECT_BYPASS_EXECUTED
-ROCKSDB_SELECT_BYPASS_FAILED
-ROCKSDB_SELECT_BYPASS_REJECTED
 ROCKSDB_SNAPSHOT_CONFLICT_ERRORS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_SLOWDOWNS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_STOPS

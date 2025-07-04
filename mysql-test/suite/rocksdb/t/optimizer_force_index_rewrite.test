@@ -28,20 +28,6 @@ EXPLAIN SELECT * FROM t FORCE INDEX(j1) WHERE i = 1 and j = 2;
 --replace_column 10 # 11 #
 EXPLAIN SELECT * FROM t FORCE INDEX(j2) WHERE i = 1 and j = 2;
 
-#
-# Test bypass codepath.
-#
-set global rocksdb_select_bypass_policy = always_on;
-set global optimizer_force_index_rewrite = "PRIMARY:asdf,j1:j2,j2:PRIMARY";
-
---error ER_NOT_SUPPORTED_YET
-SELECT i,j,k FROM t FORCE INDEX(PRIMARY) WHERE i > 0;
---error ER_UNKNOWN_ERROR 
-SELECT i,j,k FROM t FORCE INDEX(j1) WHERE j > 0;
---error ER_UNKNOWN_ERROR 
-SELECT i,j,k FROM t FORCE INDEX(j2) WHERE j > 0;
-
 set global optimizer_force_index_rewrite = DEFAULT;
-set global rocksdb_select_bypass_policy = DEFAULT;
 
 DROP TABLE t;

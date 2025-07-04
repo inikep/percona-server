@@ -909,9 +909,6 @@ static bool consume_optimizer_hints(Lex_input_stream *lip) {
           to_upper_lex[lip->yyPeekn(8)] == 'S' &&
           to_upper_lex[lip->yyPeekn(9)] == 'S' && lip->yyPeekn(10) == ' ' &&
           lip->yyPeekn(11) == '*' && lip->yyPeekn(12) == '/') {
-        /* HINT: turn on select bypass */
-        lip->m_thd->lex->query_block->select_bypass_hint =
-            Query_block::SELECT_BYPASS_HINT_ON;
         lip->yySkipn(13);
         return false;
       } else if (to_upper_lex[lip->yyPeekn(4)] == 'N' &&
@@ -925,9 +922,6 @@ static bool consume_optimizer_hints(Lex_input_stream *lip) {
                  to_upper_lex[lip->yyPeekn(12)] == 'S' &&
                  lip->yyPeekn(13) == ' ' && lip->yyPeekn(14) == '*' &&
                  lip->yyPeekn(15) == '/') {
-        /* HINT: turn off select bypass */
-        lip->m_thd->lex->query_block->select_bypass_hint =
-            Query_block::SELECT_BYPASS_HINT_OFF;
         lip->yySkipn(16);
         return false;
       }
@@ -2202,8 +2196,7 @@ Query_expression::Query_expression(enum_parsing_context parsing_context)
 */
 
 Query_block::Query_block(MEM_ROOT *mem_root, Item *where, Item *having)
-    : select_bypass_hint(SELECT_BYPASS_HINT_DEFAULT),
-      fields(mem_root),
+    : fields(mem_root),
       ftfunc_list(&ftfunc_list_alloc),
       sj_nests(mem_root),
       first_context(&context),

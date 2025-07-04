@@ -243,28 +243,6 @@ const char *const RDB_PARTIAL_INDEX_THRESHOLD_QUALIFIER =
 #define DEFAULT_SST_MGR_RATE_BYTES_PER_SEC 0
 
 /*
-  SELECT BYPASS related policy:
-  0x1 = ON/OFF MASK - whether bypass is on or off
-  0x2 = FORCED/DEFAULT MASK, whether the ON/OFF bit is being FORCED (0x0)
-  or simply inteneded as DEFAULT (0x1).
-
-  always_off = 0x0, always off regardless of hint. This is the default
-  always_on  = 0x1, always on regardless of hint
-  opt_in     = 0x2, default off, turn on with +bypass hint
-  opt_out    = 0x3, default on, turn off with +no_bypass hint
- */
-#define SELECT_BYPASS_POLICY_ON_MASK 0x1
-#define SELECT_BYPASS_POLICY_DEFAULT_MASK 0x2
-
-enum select_bypass_policy_type {
-  always_off = 0,
-  always_on = SELECT_BYPASS_POLICY_ON_MASK,
-  opt_in = SELECT_BYPASS_POLICY_DEFAULT_MASK,
-  opt_out = (SELECT_BYPASS_POLICY_DEFAULT_MASK | SELECT_BYPASS_POLICY_ON_MASK),
-  default_value = 0
-};
-
-/*
   Defines the field sizes for serializing XID object to a string representation.
   string byte format: [field_size: field_value, ...]
   [

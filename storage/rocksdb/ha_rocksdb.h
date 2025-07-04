@@ -1164,34 +1164,6 @@ class Rdb_compaction_stats {
 
 extern Rdb_compaction_stats compaction_stats;
 
-/* Whether ROCKSDB_ENABLE_SELECT_BYPASS is enabled */
-select_bypass_policy_type get_select_bypass_policy();
-
-/* Whether we should log unsupported SELECT bypass */
-bool should_fail_unsupported_select_bypass();
-
-/* Whether we should log rejected unsupported SELECT bypass */
-bool should_log_rejected_select_bypass();
-
-/* Whether we should log failed unsupported SELECT bypass */
-bool should_log_failed_select_bypass();
-
-/* Whether we should allow non-optimal filters in SELECT bypass */
-bool should_allow_filters_select_bypass();
-
-uint32_t get_select_bypass_rejected_query_history_size();
-
-uint32_t get_select_bypass_debug_row_delay();
-
-unsigned long long  // NOLINT(runtime/int)
-get_select_bypass_multiget_min();
-
-/* Whether ROCKSDB_BYPASS_RPC_ON is enabled */
-bool is_bypass_rpc_on();
-
-/* Whether we should log rejected unsupported bypass rpc */
-bool should_log_rejected_bypass_rpc();
-
 unsigned long long get_partial_index_sort_max_mem(THD *thd);
 
 Rdb_transaction *get_tx_from_thd(THD *const thd);
@@ -1265,15 +1237,6 @@ bool rdb_tx_started(Rdb_transaction *tx, const TABLE_TYPE table_type);
 
 int rocksdb_create_checkpoint(std::string_view checkpoint_dir_raw);
 int rocksdb_remove_checkpoint(std::string_view checkpoint_dir_raw);
-
-extern std::atomic<uint64_t> rocksdb_select_bypass_executed;
-extern std::atomic<uint64_t> rocksdb_select_bypass_rejected;
-extern std::atomic<uint64_t> rocksdb_select_bypass_failed;
-
-extern uint32_t rocksdb_bypass_rpc_rejected_log_ts_interval_secs;
-extern std::atomic<uint64_t> rocksdb_bypass_rpc_executed;
-extern std::atomic<uint64_t> rocksdb_bypass_rpc_rejected;
-extern std::atomic<uint64_t> rocksdb_bypass_rpc_failed;
 
 extern std::atomic<uint64_t> rocksdb_partial_index_groups_sorted;
 extern std::atomic<uint64_t> rocksdb_partial_index_groups_materialized;

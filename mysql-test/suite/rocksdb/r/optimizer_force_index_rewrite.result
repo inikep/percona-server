@@ -43,14 +43,5 @@ id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered
 1	SIMPLE	t	NULL	ref	j2	j2	4	const	#	#	Using where; Using index
 Warnings:
 Note	1003	/* select#1 */ select `test`.`t`.`i` AS `i`,`test`.`t`.`j` AS `j`,`test`.`t`.`k` AS `k` from `test`.`t` FORCE INDEX (`j2`) where ((`test`.`t`.`j` = 2) and (`test`.`t`.`i` = 1))
-set global rocksdb_select_bypass_policy = always_on;
-set global optimizer_force_index_rewrite = "PRIMARY:asdf,j1:j2,j2:PRIMARY";
-SELECT i,j,k FROM t FORCE INDEX(PRIMARY) WHERE i > 0;
-ERROR 42000: SELECT statement pattern not supported: Unrecognized index: 'asdf'
-SELECT i,j,k FROM t FORCE INDEX(j1) WHERE j > 0;
-ERROR HY000: Unknown error
-SELECT i,j,k FROM t FORCE INDEX(j2) WHERE j > 0;
-ERROR HY000: Unknown error
 set global optimizer_force_index_rewrite = DEFAULT;
-set global rocksdb_select_bypass_policy = DEFAULT;
 DROP TABLE t;

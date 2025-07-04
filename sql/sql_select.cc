@@ -314,8 +314,6 @@ bool validate_use_secondary_engine(const LEX *lex) {
   return false;
 }
 
-bool ha_handle_single_table_select(THD *thd, Query_expression *unit);
-
 bool Sql_cmd_dml::prepare(THD *thd) {
   DBUG_TRACE;
 
@@ -381,12 +379,6 @@ bool Sql_cmd_dml::prepare(THD *thd) {
 
   if (lex->set_var_list.elements && resolve_var_assignments(thd, lex))
     goto err; /* purecov: inspected */
-
-  if (ha_handle_single_table_select(thd, lex->unit)) {
-    // We've handled the query
-    if (thd->is_error()) goto err;
-    m_bypassed = true;
-  }
 
   {
     Prepare_error_tracker tracker(thd);
@@ -799,42 +791,6 @@ bool optimize_secondary_engine(THD *thd) {
   return secondary_engine != nullptr &&
          secondary_engine->optimize_secondary_engine != nullptr &&
          secondary_engine->optimize_secondary_engine(thd, thd->lex);
-}
-
-/* Call out to handler to handle this select command */
-bool ha_handle_single_table_select(THD *thd, Query_expression *unit) {
-  // This can be called by non-SELECT query, like INSERT or UPDATE, so
-  // we double check whether the current command is SELECT
-  if (thd != NULL && thd->lex != NULL &&
-      thd->lex->sql_command != SQLCOM_SELECT) {
-    return false;
-  }
-
-  /* Simple non-UNION non-NESTED query only */
-  if (!unit->is_simple()) {
-    return false;
-  }
-
-  Query_block *select_lex = unit->first_query_block();
-
-  /* Single table query only */
-  if (select_lex->m_table_list.elements != 1) {
-    return false;
-  }
-
-  Table_ref *table_list = select_lex->m_table_list.first;
-  if (!table_list) {
-    return false;
-  }
-
-  TABLE *table = table_list->table;
-  if (!table) {
-    return false;
-  }
-
-  handlerton *hton = table->s->db_type();
-  return (hton && hton->handle_single_table_select &&
-          hton->handle_single_table_select(thd, select_lex));
 }
 
 /**
