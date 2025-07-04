@@ -71,8 +71,7 @@ static const std::set<String_type> default_valid_option_keys = {
     "storage",
     "treat_bit_as_char",
     "is_array",
-    "gipk" /* generated implicit primary key column */,
-    "fb_vector_dimension"};
+    "gipk" /* generated implicit primary key column */};
 
 ///////////////////////////////////////////////////////////////////////////
 // Column_impl implementation.

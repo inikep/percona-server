@@ -31,7 +31,6 @@
 #include "my_base.h" /* ha_rows, ha_key_alg */
 
 #include "my_inttypes.h"
-#include "sql/fb_vector_base.h"
 #include "sql/key_spec.h"       /* fk_option */
 #include "sql/sql_plugin_ref.h" /* plugin_ref */
 
@@ -171,17 +170,11 @@ class KEY {
   LEX_CSTRING engine_attribute{nullptr, 0};
   LEX_CSTRING secondary_engine_attribute{nullptr, 0};
 
-  FB_vector_index_config fb_vector_index_config{};
-
-  bool is_fb_vector_index() const {
-    return fb_vector_index_config.type() != FB_VECTOR_INDEX_TYPE::NONE;
-  }
-
   /**
     in tmp tables, the object is created via alloc,
     need to initialize some fields manually here
   */
-  void init_for_tmp_table() { fb_vector_index_config = {}; }
+  void init_for_tmp_table() { }
 
  private:
   /**

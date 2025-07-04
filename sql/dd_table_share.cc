@@ -23,7 +23,6 @@
 #include "sql/dd_table_share.h"
 
 #include "dd/string_type.h"
-#include "fb_vector_base.h"
 #include "my_config.h"
 
 #include <string.h>
@@ -1134,12 +1133,6 @@ static bool fill_column_from_dd(THD *thd, TABLE_SHARE *share,
   reg_field->m_secondary_engine_attribute = LexStringDupRootUnlessEmpty(
       &share->mem_root, col_obj->secondary_engine_attribute());
 
-  if (column_options->exists("fb_vector_dimension")) {
-    FB_vector_dimension dim = 0;
-    column_options->get("fb_vector_dimension", &dim);
-    reg_field->m_fb_vector_dimension = dim;
-  }
-
   // Field is prepared. Store it in 'share'
   share->field[field_nr] = reg_field;
 
@@ -1308,44 +1301,6 @@ static void fill_index_elements_from_dd(TABLE_SHARE *share,
 }
 
 /**
-  fill fb vector index options
-*/
-static void fill_fb_vector_index_from_dd(MEM_ROOT *mem_root,
-                                         const dd::Properties &idx_options,
-                                         KEY *keyinfo) {
-  if (idx_options.exists("fb_vector_index_type")) {
-    uint fb_vector_index_type;
-    if (idx_options.get("fb_vector_index_type", &fb_vector_index_type)) {
-      assert(false);
-    }
-
-    FB_vector_dimension vector_dimension;
-    if (idx_options.get("fb_vector_dimension", &vector_dimension)) {
-      assert(false);
-    }
-
-    LEX_CSTRING trained_index_table = EMPTY_CSTR;
-    if (idx_options.exists("fb_vector_trained_index_table")) {
-      if (idx_options.get("fb_vector_trained_index_table", &trained_index_table,
-                          mem_root)) {
-        assert(false);
-      }
-    }
-    LEX_CSTRING trained_index_id = EMPTY_CSTR;
-    if (idx_options.exists("fb_vector_trained_index_id")) {
-      if (idx_options.get("fb_vector_trained_index_id", &trained_index_id,
-                          mem_root)) {
-        assert(false);
-      }
-    }
-
-    keyinfo->fb_vector_index_config = FB_vector_index_config(
-        (FB_VECTOR_INDEX_TYPE)fb_vector_index_type, vector_dimension,
-        trained_index_table, trained_index_id);
-  }
-}
-
-/**
   Add KEY constructed according to index metadata from dd::Index object to
   the TABLE_SHARE.
 */
@@ -1481,8 +1436,6 @@ static bool fill_index_from_dd(THD *thd, TABLE_SHARE *share,
 
     keyinfo->flags |= HA_USES_PARSER;
   }
-
-  fill_fb_vector_index_from_dd(&share->mem_root, idx_options, keyinfo);
 
   // Read comment
   dd::String_type comment = idx_obj->comment();

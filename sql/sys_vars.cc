@@ -10429,18 +10429,6 @@ static Sys_var_bool Sys_install_plugin_skip_registration(
     GLOBAL_VAR(install_plugin_skip_registration), CMD_LINE(OPT_ARG),
     DEFAULT(false));
 
-static Sys_var_uint Sys_fb_vector_min_dimension(
-    "fb_vector_min_dimension", "minimum vector dimension",
-    SESSION_VAR(fb_vector_min_dimension), CMD_LINE(OPT_ARG),
-    VALID_RANGE(1, 1024), DEFAULT(3), BLOCK_SIZE(1), NO_MUTEX_GUARD,
-    NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
-
-static Sys_var_uint Sys_fb_vector_max_dimension(
-    "fb_vector_max_dimension", "maximum vector dimension",
-    SESSION_VAR(fb_vector_max_dimension), CMD_LINE(OPT_ARG),
-    VALID_RANGE(1, 1024 * 1024), DEFAULT(4 * 1024), BLOCK_SIZE(1),
-    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
-
 static Sys_var_bool Sys_skip_sys_tables_engine_check(
     "skip_sys_tables_engine_check",
     "skip System Tables storage engine check. If True, System Tables can use "
@@ -10448,65 +10436,6 @@ static Sys_var_bool Sys_skip_sys_tables_engine_check(
     "default_dd_system_storage_engine",
     GLOBAL_VAR(skip_sys_tables_engine_check), CMD_LINE(OPT_ARG),
     DEFAULT(false));
-
-static Sys_var_uint Sys_fb_vector_search_nprobe(
-    "fb_vector_search_nprobe",
-    "This parameter controls the vector search radius for a query "
-    "vector when doing nearest neighbour search or similarity search. "
-    "The nprobe value corresponds to the number of closest centroids "
-    "that become part of the vector search space. Only vectors in the "
-    "nprobe-closest voronoi cells or partitions are searched. "
-    "This session default can be superceded by a query level "
-    "nprobe value using a query hint like this: "
-    "'SELECT /*+ SET_VAR(fb_vector_search_nprobe = 3) */ ... '. Default: 16",
-    HINT_UPDATEABLE SESSION_VAR(fb_vector_search_nprobe), CMD_LINE(OPT_ARG),
-    VALID_RANGE(1, 10000), DEFAULT(16), BLOCK_SIZE(1));
-
-static Sys_var_uint Sys_fb_vector_index_cost_factor(
-    "fb_vector_index_cost_factor",
-    "A table scan plus filesort will be prohibitively expensive "
-    "for vector searches. This sysvar parameterizes the preference for "
-    "the vector index, reduces the vector index cost by this factor, thereby "
-    "making the optimizer prefer the vector index for vector search. "
-    "Default: 1000",
-    SESSION_VAR(fb_vector_index_cost_factor), CMD_LINE(OPT_ARG),
-    VALID_RANGE(1, 100000), DEFAULT(1000), BLOCK_SIZE(1),
-    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
-
-static Sys_var_uint Sys_fb_vector_search_limit_multiplier(
-    "fb_vector_search_limit_multiplier",
-    "This parameter indicates to the storage engine the filtering effect "
-    "of a SQL query due to WHERE and HAVING clauses. This is used to "
-    "fetch more nearest neighbours from FAISS so that the LIMIT can still "
-    "be satisfied. This applies to all vector index types."
-    "This session default can be superceded by a query level override: "
-    "'SELECT /*+ SET_VAR(fb_vector_search_limit_multiplier = 3) */ ... '. "
-    "Default: 10",
-    HINT_UPDATEABLE SESSION_VAR(fb_vector_search_limit_multiplier), CMD_LINE(OPT_ARG),
-    VALID_RANGE(1, 1000), DEFAULT(10), BLOCK_SIZE(1));
-
-static Sys_var_bool Sys_fb_vector_index_cond_pushdown(
-    "fb_vector_index_cond_pushdown",
-    "This flag can be used to turn on/off pre-filtering of vector "
-    "embeddings based on PK index conditions before vector "
-    "search in FAISS is triggered "
-    "This session default can be superceded by a query level override: "
-    "'SELECT /*+ SET_VAR(fb_vector_index_cond_pushdown = off) */ ... '. "
-    "Default: ON",
-    HINT_UPDATEABLE SESSION_VAR(fb_vector_index_cond_pushdown),
-    CMD_LINE(OPT_ARG), DEFAULT(true));
-
-static const char *fb_vector_search_type_names[] = {"KNN", "ITERATOR", nullptr};
-static Sys_var_enum Sys_fb_vector_search_type(
-    "fb_vector_search_type",
-    "This parameter controls the algorithm that is used to search through the "
-    "vector db ivf index. When it is set to KNN, KNN search will be used to "
-    "return the k nearest neighbor points around the closest centroids. "
-    "When it is set to ITERATOR, index scan will be used to iterate through "
-    "all entries around the nearest centroids.",
-    SESSION_VAR(fb_vector_search_type), CMD_LINE(OPT_ARG),
-    fb_vector_search_type_names, DEFAULT(FB_VECTOR_SEARCH_KNN), NO_MUTEX_GUARD,
-    NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
 
 std::string applied_opid_set;
 static Sys_var_applied_opid_set Sys_applied_opid_set(

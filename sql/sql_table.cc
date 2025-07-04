@@ -43,7 +43,6 @@
 #include <type_traits>
 
 /* HAVE_PSI_*_INTERFACE */
-#include "fb_vector_base.h"
 #include "my_psi_config.h"  // IWYU pragma: keep
 
 /* drop_table_share with WITH_LOCK_ORDER */
@@ -120,7 +119,6 @@
 #include "sql/derror.h"          // ER_THD
 #include "sql/enum_query_type.h"
 #include "sql/error_handler.h"  // Drop_table_error_handler
-#include "sql/fb_vector_base.h"
 #include "sql/field.h"
 #include "sql/field_common_properties.h"
 #include "sql/filesort.h"  // Filesort
@@ -4501,31 +4499,6 @@ static bool prepare_enum_field(THD *thd, Create_field *sql_field) {
   return false;
 }
 
-static bool prepare_create_fb_vector_field(THD *thd, Create_field *sql_field) {
-  auto vector_dimension = sql_field->m_fb_vector_dimension;
-  if (vector_dimension <= 0) {
-    return false;
-  }
-  if (sql_field->sql_type != MYSQL_TYPE_JSON &&
-      sql_field->sql_type != MYSQL_TYPE_BLOB) {
-    my_error(ER_WRONG_ARGUMENTS, MYF(0),
-             "fb_vector only supports json/blob type");
-    return true;
-  }
-  if (sql_field->is_nullable) {
-    my_error(ER_WRONG_ARGUMENTS, MYF(0),
-             "fb_vector column should not be nullable");
-    return true;
-  }
-  if (vector_dimension < thd->variables.fb_vector_min_dimension ||
-      vector_dimension > thd->variables.fb_vector_max_dimension) {
-    my_error(ER_WRONG_ARGUMENTS, MYF(0),
-             "fb_vector_dimension out of configured bounds");
-    return true;
-  }
-  return false;
-}
-
 bool prepare_create_field(THD *thd, const char *error_schema_name,
                           const char *error_table_name,
                           HA_CREATE_INFO *create_info,
@@ -4752,10 +4725,6 @@ bool prepare_create_field(THD *thd, const char *error_schema_name,
   if (prepare_pack_create_field(thd, sql_field, file->ha_table_flags()))
     return true;
 
-  if (prepare_create_fb_vector_field(thd, sql_field)) {
-    return true;
-  }
-
   return false;
 }
 
@@ -4945,36 +4914,8 @@ static bool prepare_key_column(THD *thd, HA_CREATE_INFO *create_info,
     key_info->flags |= HA_VIRTUAL_GEN_KEY;
   }
 
-  // fb_vector index only support type `json not null fb_vector_dimension`
-  // or `blob not null fb_vector_dimension`
-  if (key_info->is_fb_vector_index()) {
-    if (sql_field->sql_type != MYSQL_TYPE_JSON &&
-        sql_field->sql_type != MYSQL_TYPE_BLOB) {
-      my_error(ER_WRONG_ARGUMENTS, MYF(0),
-               "fb_vector index only support json/blob type");
-      return true;
-    }
-    if (sql_field->m_fb_vector_dimension <= 0) {
-      my_error(ER_WRONG_ARGUMENTS, MYF(0),
-               "fb_vector index column should have dimension set");
-      return true;
-    }
-    if (sql_field->is_nullable) {
-      my_error(ER_WRONG_ARGUMENTS, MYF(0),
-               "fb_vector index column should not be nullable");
-      return true;
-    }
-    // use column's vector dimension here
-    auto old_vector_config = key_info->fb_vector_index_config;
-    key_info->fb_vector_index_config = FB_vector_index_config(
-        old_vector_config.type(), sql_field->m_fb_vector_dimension,
-        old_vector_config.trained_index_table(),
-        old_vector_config.trained_index_id());
-  }
-
   // JSON columns cannot be used as keys.
-  if (sql_field->sql_type == MYSQL_TYPE_JSON &&
-      !key_info->is_fb_vector_index()) {
+  if (sql_field->sql_type == MYSQL_TYPE_JSON) {
     my_error(ER_JSON_USED_AS_KEY, MYF(0), column->get_field_name());
     return true;
   }
@@ -5106,7 +5047,7 @@ static bool prepare_key_column(THD *thd, HA_CREATE_INFO *create_info,
         my_error(ER_BLOB_USED_AS_KEY, MYF(0), column->get_field_name());
         return true;
       }
-      if (!column_length && !key_info->is_fb_vector_index()) {
+      if (!column_length) {
         my_error(ER_BLOB_KEY_WITHOUT_LENGTH, MYF(0), column->get_field_name());
         return true;
       }
@@ -5258,7 +5199,7 @@ static bool prepare_key_column(THD *thd, HA_CREATE_INFO *create_info,
   }
 
   if (key_part_length > file->max_key_part_length(create_info) &&
-      key->type != KEYTYPE_FULLTEXT && !key_info->is_fb_vector_index()) {
+      key->type != KEYTYPE_FULLTEXT) {
     key_part_length = file->max_key_part_length(create_info);
     if (key->type == KEYTYPE_MULTIPLE) {
       /* not a critical problem */
@@ -7228,66 +7169,6 @@ static bool prepare_preexisting_foreign_key(
   return false;
 }
 
-/**
-  set vector index info to key_info
-*/
-static bool prepare_fb_vector_index(const Key_spec *key, KEY *key_info) {
-  if (key->key_create_info.m_fb_vector_index_type.length == 0) {
-    // not a vector index, do nothing and return
-    return false;
-  }
-
-  if (!FB_VECTORDB_ENABLED) {
-    my_error(ER_FEATURE_DISABLED, MYF(0), "vector db", "WITH_FB_VECTORDB");
-    return true;
-  }
-
-  // do not allow create primary/unique/spatial index for fb_vector index
-  if (key->type != KEYTYPE_MULTIPLE) {
-    my_error(ER_WRONG_ARGUMENTS, MYF(0),
-             "fb_vector index can only be KEYTYPE_MULTIPLE");
-    return true;
-  }
-
-  // column type is checked in prepare_key_column, here
-  // we only check number of columns
-  if (key->columns.size() != 1) {
-    my_error(ER_WRONG_ARGUMENTS, MYF(0),
-             "fb_vector index can only have one column");
-    return true;
-  }
-
-  FB_VECTOR_INDEX_TYPE fb_vector_index_type;
-  if (parse_fb_vector_index_type(key->key_create_info.m_fb_vector_index_type,
-                                 fb_vector_index_type)) {
-    my_error(ER_WRONG_ARGUMENTS, MYF(0), "invalid fb_vector_index_type");
-    return true;
-  }
-
-  if (fb_vector_index_type == FB_VECTOR_INDEX_TYPE::IVFFLAT ||
-      fb_vector_index_type == FB_VECTOR_INDEX_TYPE::IVFPQ) {
-    if (key->key_create_info.m_fb_vector_trained_index_id.length == 0 ||
-        key->key_create_info.m_fb_vector_trained_index_table.length == 0) {
-      my_error(ER_WRONG_ARGUMENTS, MYF(0), "missing trained index options");
-      return true;
-    }
-  } else {
-    if (key->key_create_info.m_fb_vector_trained_index_id.length > 0 ||
-        key->key_create_info.m_fb_vector_trained_index_table.length > 0) {
-      my_error(ER_WRONG_ARGUMENTS, MYF(0), "invalid trained index options");
-      return true;
-    }
-  }
-
-  // dimension will be populated in prepare_key_column
-  constexpr FB_vector_dimension dummy_dimension = 0;
-  key_info->fb_vector_index_config = FB_vector_index_config(
-      fb_vector_index_type, dummy_dimension,
-      key->key_create_info.m_fb_vector_trained_index_table,
-      key->key_create_info.m_fb_vector_trained_index_id);
-  return false;
-}
-
 static bool prepare_key(
     THD *thd, const char *error_schema_name, const char *error_table_name,
     HA_CREATE_INFO *create_info, List<Create_field> *create_list,
@@ -7493,10 +7374,6 @@ static bool prepare_key(
 
   if (key_info->block_size) key_info->flags |= HA_USES_BLOCK_SIZE;
 
-  if (prepare_fb_vector_index(key, key_info)) {
-    return true;
-  }
-
   const CHARSET_INFO *ft_key_charset = nullptr;  // for FULLTEXT
   key_info->key_length = 0;
   for (size_t column_nr = 0; column_nr < key->columns.size();
@@ -7510,7 +7387,7 @@ static bool prepare_key(
   key_info->actual_flags = key_info->flags;
 
   if (key_info->key_length > file->max_key_length() &&
-      key->type != KEYTYPE_FULLTEXT && !key_info->is_fb_vector_index()) {
+      key->type != KEYTYPE_FULLTEXT) {
     my_error(ER_TOO_LONG_KEY, MYF(0), file->max_key_length());
     if (thd->is_error())  // May be silenced - see Bug#20629014
       return true;
@@ -12875,17 +12752,6 @@ static bool is_inplace_alter_impossible(TABLE *table,
           new_field_def.m_srid.has_value())
         return true;
     }
-
-    /**
-     If we are changing the vector dimension of a column, we must do
-     a COPY.
-    */
-    if (new_field_def.field != nullptr &&
-        new_field_def.m_fb_vector_dimension > 0) {
-      if (new_field_def.field->m_fb_vector_dimension !=
-          new_field_def.m_fb_vector_dimension)
-        return true;
-    }
   }
   return false;
 }
@@ -14668,26 +14534,6 @@ static bool check_if_field_used_by_generated_column_or_default(
   return false;
 }
 
-// prepare vector key for alter and upgrade
-static void prepare_fb_vector_key(KEY *key_info,
-                                  KEY_CREATE_INFO &key_create_info) {
-  if (!key_info->is_fb_vector_index()) {
-    return;
-  }
-  std::string_view vector_index_type =
-      fb_vector_index_type_to_string(key_info->fb_vector_index_config.type());
-  key_create_info.m_fb_vector_index_type = LEX_CSTRING{
-      .str = vector_index_type.data(), .length = vector_index_type.length()};
-  if (key_info->fb_vector_index_config.trained_index_id().length > 0) {
-    key_create_info.m_fb_vector_trained_index_id =
-        key_info->fb_vector_index_config.trained_index_id();
-  }
-  if (key_info->fb_vector_index_config.trained_index_table().length > 0) {
-    key_create_info.m_fb_vector_trained_index_table =
-        key_info->fb_vector_index_config.trained_index_table();
-  }
-}
-
 // Prepare Create_field and Key_spec objects for ALTER and upgrade.
 bool prepare_fields_and_keys(THD *thd, const dd::Table *src_table, TABLE *table,
                              HA_CREATE_INFO *create_info,
@@ -15099,8 +14945,7 @@ bool prepare_fields_and_keys(THD *thd, const dd::Table *src_table, TABLE *table,
                 cfield->sql_type <= MYSQL_TYPE_BLOB)
                    ? blob_length_by_type(cfield->sql_type)
                    : cfield->max_display_width_in_codepoints()) <
-              key_part_length / key_part->field->charset()->mbmaxlen)) ||
-            cfield->field->m_fb_vector_dimension > 0)
+              key_part_length / key_part->field->charset()->mbmaxlen)))
           key_part_length = 0;  // Use whole field
       }
       key_part_length /= key_part->field->charset()->mbmaxlen;
@@ -15221,7 +15066,6 @@ bool prepare_fields_and_keys(THD *thd, const dd::Table *src_table, TABLE *table,
       else
         key_type = KEYTYPE_MULTIPLE;
 
-      prepare_fb_vector_key(key_info, key_create_info);
       /*
         If we have dropped a column associated with an index,
         this warrants a check for duplicate indexes

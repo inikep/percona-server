@@ -380,7 +380,6 @@ SET(SQL_SHARED_SOURCES
   derror.cc
   error_handler.cc
   failure_injection.cc
-  fb_vector_base.cc
   field.cc
   field_conv.cc
   filesort.cc
@@ -407,7 +406,6 @@ SET(SQL_SHARED_SOURCES
   item_gtid_func.cc
   item_pfs_func.cc
   item_json_func.cc
-  item_fb_vector_func.cc
   item_regexp_func.cc
   item_row.cc
   item_strfunc.cc
@@ -960,12 +958,6 @@ TARGET_LINK_LIBRARIES(sql_main ${MYSQLD_STATIC_PLUGIN_LIBS}
 # google::protobuf::io::CodedOutputStream::WriteVarint64ToArray
 # which may or may not be inlined.
 TARGET_LINK_LIBRARIES(sql_main ${PROTOBUF_LITE_LIBRARY})
-
-IF (WITH_FB_VECTORDB)
-  MESSAGE(STATUS "Building sql module with fb vectordb support")
-  TARGET_INCLUDE_DIRECTORIES(sql_main SYSTEM PRIVATE "${FAISS_SOURCE_DIR}")
-  TARGET_LINK_LIBRARIES(sql_main ${BLAS_LIBRARIES} ${OPENMP_LIBRARY} ${FAISS_LIBRARY})
-ENDIF()
 
 ADD_LIBRARY(sql_gis STATIC ${SQL_GIS_SOURCES})
 ADD_DEPENDENCIES(sql_gis GenServerSource)

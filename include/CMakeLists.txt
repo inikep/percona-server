@@ -224,7 +224,6 @@ IF (INSTALL_EXTRA_HEADERS)
     ../sql/debug_sync.h
     ../sql/discrete_interval.h
     ../sql/enum_query_type.h
-    ../sql/fb_vector_base.h
     ../sql/field.h
     ../sql/field_common_properties.h
     ../sql/filesort_utils.h

@@ -74,7 +74,6 @@
 #include "sql/index_statistics.h"
 #include "sql/intrusive_list_iterator.h"
 #include "sql/item.h"
-#include "sql/item_fb_vector_func.h"
 #include "sql/item_func.h"
 #include "sql/item_json_func.h"
 #include "sql/item_subselect.h"
@@ -3191,7 +3190,6 @@ bool make_join_readinfo(JOIN *join, uint no_jbuf_after) {
     JOIN_TAB *const tab = join->best_ref[i];
     TABLE *const table = qep_tab->table();
     Table_ref *const table_ref = qep_tab->table_ref;
-    uint keynr = 0;
     /*
      Need to tell handlers that to play it safe, it should fetch all
      columns of the primary key of the tables: this is because MySQL may
@@ -3229,25 +3227,6 @@ bool make_join_readinfo(JOIN *join, uint no_jbuf_after) {
                              0);
         [[fallthrough]];
       case JT_INDEX_SCAN:
-        keynr = qep_tab->index();
-        /*
-          If the vector index was chosen for index scan, vector ICP is
-          enabled, and conditions exist in the query, then try and extract
-          the conditions on the primary key, and push them down to the
-          storage engine. These are then evaluated on each vector
-          embedding before pushing them to FAISS for KNN search.
-         */
-        if ((keynr > 0 && keynr < table->s->keys) &&
-            (table->key_info[keynr].is_fb_vector_index() &&
-             (join->thd->variables.fb_vector_index_cond_pushdown) &&
-             qep_tab->condition())) {
-          Item *pk_idx_cond = make_cond_for_index(qep_tab->condition(), table,
-                                                  table->s->primary_key,
-                                                  false /*other_tbls_ok */);
-          if (pk_idx_cond)
-            table->file->idx_cond_push(qep_tab->index(), pk_idx_cond);
-        }
-
         if (tab->position()->filter_effect != COND_FILTER_STALE_NO_CONST &&
             !tab->sj_mat_exec()) {
           /*
@@ -4687,28 +4666,11 @@ bool JOIN::make_tmp_tables_info() {
       OPTION_FOUND_ROWS supersedes LIMIT and is taken into account.
     */
     DBUG_PRINT("info", ("Sorting for order by/group by"));
-    const auto effective_index = qep_tab[curr_tmp_table].effective_index();
-    const auto curr_table = qep_tab[curr_tmp_table].table();
-    // vector index is selected and vector search type is scan, the result
-    // is not ordered from storage engine, needs to add file sort here.
-    const bool vector_index_selected =
-        m_ordered_index_usage == ORDERED_INDEX_ORDER_BY &&
-        effective_index != MAX_KEY &&
-        curr_table->key_info[effective_index].is_fb_vector_index();
-    bool fb_vector_ordering_needs_reorder = false;
-    if (vector_index_selected) {
-      auto order_item =
-          down_cast<Item_func_fb_vector_distance *>(*order.order->item);
-      fb_vector_ordering_needs_reorder =
-          order_item->m_search_type == FB_VECTOR_SEARCH_INDEX_SCAN;
-      DBUG_PRINT("info", ("Sorting for vector index"));
-    }
     ORDER_with_src order_arg = group_list.empty() ? order : group_list;
     if (qep_tab &&
         (m_ordered_index_usage != (group_list.empty()
                                        ? ORDERED_INDEX_ORDER_BY
-                                       : ORDERED_INDEX_GROUP_BY) ||
-         fb_vector_ordering_needs_reorder) &&
+                                       : ORDERED_INDEX_GROUP_BY)) &&
         // Windowing will change order, so it's too early to sort here
         !m_windowing_steps) {
       // Sort either first non-const table or the last tmp table
@@ -5091,9 +5053,8 @@ bool test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER_with_src *order,
     select_limit = orig_select_limit;
 
     if (usable_keys.is_set(nr) &&
-        (direction = test_if_order_by_key(table->in_use, order, table, nr,
-                                          &used_key_parts, &skip_quick,
-                                          select_limit))) {
+        (direction = test_if_order_by_key(order, table, nr,
+                                          &used_key_parts, &skip_quick))) {
       bool is_covering = table->covering_keys.is_set(nr) ||
                          (nr == table->s->primary_key &&
                           table->file->primary_key_is_clustered());
@@ -5111,7 +5072,6 @@ bool test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER_with_src *order,
       */
       bool is_vector_index = false;
       if (is_covering || select_limit != HA_POS_ERROR ||
-          (is_vector_index = table->key_info[nr].is_fb_vector_index()) ||
           (ref_key < 0 && (group || table->force_index_order))) {
         rec_per_key_t rec_per_key;
         KEY *keyinfo = table->key_info + nr;
@@ -5292,7 +5252,7 @@ bool test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER_with_src *order,
       to table->file->stats.records.
 */
 
-uint get_index_for_order(THD *thd, ORDER_with_src *order, TABLE *table,
+uint get_index_for_order(ORDER_with_src *order, TABLE *table,
                          ha_rows limit, AccessPath *range_scan, bool *need_sort,
                          bool *reverse) {
   if (range_scan &&
@@ -5330,8 +5290,8 @@ uint get_index_for_order(THD *thd, ORDER_with_src *order, TABLE *table,
 
     uint used_key_parts;
     bool skip_path;
-    switch (test_if_order_by_key(thd, order, table, used_index(range_scan),
-                                 &used_key_parts, &skip_path, limit)) {
+    switch (test_if_order_by_key(order, table, used_index(range_scan),
+                                 &used_key_parts, &skip_path)) {
       case 1:  // desired order
         *need_sort = false;
         return used_index(range_scan);

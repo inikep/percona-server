@@ -308,7 +308,6 @@ Rdb_key_def::Rdb_key_def(
 Rdb_key_def::Rdb_key_def(const Rdb_key_def &k)
     : m_index_number(k.get_index_number()),
       m_cf_handle(k.m_cf_handle),
-      m_vector_index_config(k.m_vector_index_config),
       m_is_reverse_cf(k.m_is_reverse_cf),
       m_is_per_partition_cf(k.m_is_per_partition_cf),
       m_name(k.m_name),
@@ -355,8 +354,7 @@ Rdb_key_def::~Rdb_key_def() {
   m_pack_info = nullptr;
 }
 
-uint Rdb_key_def::setup(const TABLE &tbl, const Rdb_tbl_def &tbl_def,
-                        Rdb_cmd_srv_helper &cmd_srv_helper) {
+uint Rdb_key_def::setup(const TABLE &tbl, const Rdb_tbl_def &tbl_def) {
   /*
     Set max_length based on the table.  This can be called concurrently from
     multiple threads, so there is a mutex to protect this code.
@@ -377,7 +375,6 @@ uint Rdb_key_def::setup(const TABLE &tbl, const Rdb_tbl_def &tbl_def,
       key_info = &tbl.key_info[m_keyno];
       if (!hidden_pk_exists) pk_info = &tbl.key_info[tbl.s->primary_key];
       m_name = std::string(key_info->name);
-      m_vector_index_config = key_info->fb_vector_index_config;
     } else {
       m_name = HIDDEN_PK_NAME;
     }
@@ -481,11 +478,6 @@ uint Rdb_key_def::setup(const TABLE &tbl, const Rdb_tbl_def &tbl_def,
         if (field && field->is_nullable()) max_len += 1;  // NULL-byte
 
         uint16 key_length = key_part ? key_part->length : 0;
-        if (dst_i == 0 &&
-            m_vector_index_config.type() != FB_VECTOR_INDEX_TYPE::NONE) {
-          // the size of vector list id, not the vector itself
-          key_length = sizeof(faiss_ivf_list_id);
-        }
         m_pack_info[dst_i].setup(this, field, keyno_to_set, keypart_to_set,
                                  key_length);
         m_pack_info[dst_i].m_unpack_data_offset = unpack_len;
@@ -567,12 +559,6 @@ uint Rdb_key_def::setup(const TABLE &tbl, const Rdb_tbl_def &tbl_def,
     /* Cache prefix extractor for bloom filter usage later */
     const auto opt = rdb_get_rocksdb_db()->GetOptions(&get_cf());
     m_prefix_extractor = opt.prefix_extractor;
-
-    uint rtn = setup_vector_index(tbl, tbl_def, cmd_srv_helper);
-    if (rtn) {
-      RDB_MUTEX_UNLOCK_CHECK(m_mutex);
-      return rtn;
-    }
 
     /*
       This should be the last member variable set before releasing the mutex
@@ -1271,7 +1257,6 @@ uchar *Rdb_key_def::pack_field(
       (unpack_info &&  // we were requested to generate unpack_info
        pack_info->uses_unpack_info());  // and this keypart uses it
   Rdb_pack_field_context pack_ctx(unpack_info);
-  pack_ctx.vector_index = m_vector_index.get();
 
   // Set the offset for methods which do not take an offset as an argument
   assert(
@@ -2675,53 +2660,6 @@ void Rdb_key_def::pack_with_varlength_encoding(
   pack_variable_format(buf, xfrm_len, dst);
 }
 
-/**
-  Pack a vector index field. The vector field is stored as a list id.
-*/
-static void pack_vector(Rdb_field_packing *const fpi [[maybe_unused]],
-                        Field *const field, uchar *buf [[maybe_unused]],
-                        uchar **dst, Rdb_pack_field_context *const pack_ctx) {
-  assert(dst != nullptr);
-  assert(*dst != nullptr);
-  assert(pack_ctx->vector_index);
-
-  // when we reach this point, the field should store a valid vector.
-  // it is impossible to have invalid data here.
-  Field_blob *field_blob = down_cast<Field_blob *>(field);
-  if (field_blob == nullptr) {
-    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "unexpected field type for vector index");
-    assert(false);
-  }
-  Field_json *field_json = dynamic_cast<Field_json *>(field_blob);
-  Fb_vector parsed_vector;
-  if (field_json == nullptr) {
-    parse_fb_vector_from_blob(field, parsed_vector);
-  } else {
-    Json_wrapper wrapper;
-    field_json->val_json(&wrapper);
-    if (parse_fb_vector_from_json(wrapper, parsed_vector.get_data_ref())) {
-      LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                      "failed to parse vector for vector index");
-      assert(false);
-    }
-  }
-
-  auto dimension = pack_ctx->vector_index->dimension();
-  if (parsed_vector.get_dimension() != dimension) {
-    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "vector dimension does not match index dimension");
-    assert(false);
-  }
-
-  Rdb_vector_index_assignment assignment;
-  pack_ctx->vector_index->assign_vector(parsed_vector.get_data_view(),
-                                        assignment);
-  pack_ctx->vector_codes = assignment.m_codes;
-  rdb_netbuf_store_uint64(*dst, assignment.m_list_id);
-  *dst += sizeof(assignment.m_list_id);
-}
-
 /*
   Compare the string suffix with a hypothetical infinite string of
   spaces. It could be that the first difference is beyond the end of
@@ -3320,16 +3258,6 @@ void Rdb_key_def::make_unpack_unknown_varlength(
   }
 }
 
-/**
- write vector codes. the codes are calcuated in pack_vector
-*/
-static void make_unpack_vector(const Rdb_field_packing *const fpi
-                                   MY_ATTRIBUTE((__unused__)),
-                               const Field *const field [[maybe_unused]],
-                               Rdb_pack_field_context *const pack_ctx) {
-  pack_ctx->writer->write_string(pack_ctx->vector_codes);
-}
-
 /*
   Function of type rdb_index_field_unpack_t
 
@@ -3575,55 +3503,6 @@ int Rdb_key_def::unpack_simple(Rdb_field_packing *const fpi,
 
 Rdb_field_packing *Rdb_key_def::get_pack_info(uint pack_no) {
   return &m_pack_info[pack_no];
-}
-
-uint Rdb_key_def::setup_vector_index(const TABLE &tbl,
-                                     const Rdb_tbl_def &tbl_def,
-                                     Rdb_cmd_srv_helper &cmd_srv_helper) {
-  if (m_vector_index_config.type() == FB_VECTOR_INDEX_TYPE::NONE) {
-    return HA_EXIT_SUCCESS;
-  }
-
-  // the upper layer should make sure these conditions are met,
-  // but we still check them here in case there are new use case
-  // that does not set up the vector index config properly in the
-  // KEY object.
-  if (is_primary_key()) {
-    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "vector index is not supported on primary key");
-    assert(false);
-    return HA_ERR_UNSUPPORTED;
-  }
-  if (tbl_def.get_table_type() != TABLE_TYPE::USER_TABLE) {
-    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "vector index is only supported on user tables");
-    assert(false);
-    return HA_ERR_UNSUPPORTED;
-  }
-  // do not support ttl or any other index flags for now
-  if (m_index_flags_bitmap != 0) {
-    LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
-                    "vector index is not supported on ttl tables");
-    return HA_ERR_UNSUPPORTED;
-  }
-  KEY *key_info = &tbl.key_info[m_keyno];
-  if (key_info->actual_key_parts != 1) {
-    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "vector index only supports one key part");
-    assert(false);
-    return HA_ERR_UNSUPPORTED;
-  }
-  if (key_info->key_part[0].field->real_type() != MYSQL_TYPE_JSON &&
-      key_info->key_part[0].field->real_type() != MYSQL_TYPE_BLOB) {
-    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                    "vector index only supports json field");
-    assert(false);
-    return HA_ERR_UNSUPPORTED;
-  }
-
-  return create_vector_index(cmd_srv_helper, tbl_def.base_dbname(),
-                             m_vector_index_config, m_cf_handle, m_index_number,
-                             m_vector_index);
 }
 
 // See Rdb_charset_space_info::spaces_xfrm
@@ -3948,12 +3827,7 @@ bool Rdb_field_packing::setup(const Rdb_key_def *const key_descr,
     case MYSQL_TYPE_MEDIUM_BLOB:
     case MYSQL_TYPE_LONG_BLOB:
     case MYSQL_TYPE_BLOB: {
-      if (key_descr->is_vector_index()) {
-        m_pack_func = pack_vector;
-        m_max_image_len = sizeof(faiss_ivf_list_id);
-      } else {
-        m_pack_func = Rdb_key_def::pack_with_varlength_encoding;
-      }
+      m_pack_func = Rdb_key_def::pack_with_varlength_encoding;
       break;  // handling below
     }
     case MYSQL_TYPE_SET:
@@ -4010,14 +3884,8 @@ bool Rdb_field_packing::setup(const Rdb_key_def *const key_descr,
       break;  // handling below
 
     case MYSQL_TYPE_JSON:
-      if (!key_descr->is_vector_index()) {
-        SHIP_ASSERT(
-          !"Unexpected MYSQL_TYPE_JSON seen in packing for none vector index");
-        return false;
-      }
-      m_pack_func = pack_vector;
-      m_max_image_len = sizeof(faiss_ivf_list_id);
-      break;
+      SHIP_ASSERT(!"Unexpected MYSQL_TYPE_JSON seen in packing for none vector index");
+      return false;
 
     default:
       // MYSQL_TYPE_DECIMAL, MYSQL_TYPE_TIMESTAMP,
@@ -4027,14 +3895,6 @@ bool Rdb_field_packing::setup(const Rdb_key_def *const key_descr,
       // MYSQL_TYPE_GEOMETRY is not supported by MyRocks yet
       SHIP_ASSERT(!"Unexpected MYSQL_TYPE_* seen in packing");
       return false;
-  }
-
-  // set up vector unpack func
-  if (key_descr->is_vector_index() && field->m_fb_vector_dimension > 0) {
-    assert(!m_make_unpack_info_func);
-    assert(!m_unpack_func);
-    m_make_unpack_info_func = make_unpack_vector;
-    return false;
   }
 
   m_unpack_info_stores_value = false;

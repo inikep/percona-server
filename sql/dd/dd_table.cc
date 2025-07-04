@@ -776,10 +776,6 @@ bool fill_dd_columns_from_create_fields(THD *thd, dd::Abstract_table *tab_obj,
           dd::String_type(def_val.ptr(), def_val.length()));
     col_obj->set_engine_attribute(field.m_engine_attribute);
     col_obj->set_secondary_engine_attribute(field.m_secondary_engine_attribute);
-
-    if (field.m_fb_vector_dimension > 0) {
-      col_options->set("fb_vector_dimension", field.m_fb_vector_dimension);
-    }
   }
 
   return false;
@@ -1102,24 +1098,6 @@ static void fill_dd_indexes_from_keyinfo(
 
     if (key->parser_name.str)
       idx_options->set("parser_name", key->parser_name.str);
-
-    // storing fb_vector info
-    if (key->fb_vector_index_config.type() != FB_VECTOR_INDEX_TYPE::NONE) {
-      idx_options->set("fb_vector_index_type",
-                       (uint)key->fb_vector_index_config.type());
-      idx_options->set("fb_vector_dimension",
-                       key->fb_vector_index_config.dimension());
-      auto trained_vector_table =
-          key->fb_vector_index_config.trained_index_table();
-      if (trained_vector_table.length > 0) {
-        idx_options->set("fb_vector_trained_index_table",
-                         trained_vector_table.str);
-      }
-      auto trained_index_id = key->fb_vector_index_config.trained_index_id();
-      if (trained_index_id.length > 0) {
-        idx_options->set("fb_vector_trained_index_id", trained_index_id.str);
-      }
-    }
 
     /*
       If we have no primary key, then we pick the first candidate primary

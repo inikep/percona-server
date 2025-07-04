@@ -7216,22 +7216,6 @@ class handler {
             conditions are met by checking the given ORDER
     */
 
-  virtual bool index_supports_vector_scan(ORDER *order [[maybe_unused]],
-                                          int idx [[maybe_unused]]) {
-    return false;
-  }
-
-  /**
-    Initialize vector index related params in the storage engine.
-    Currently this includes the vector dist function being used in the
-    query, the input vector and the LIMIT value.
-    @return false to indicate success
-            true if the storage engine encounters an error
-    */
-  virtual int vector_index_init(Item *distance_func [[maybe_unused]]) {
-    return HA_ERR_WRONG_COMMAND;
-  }
-
  protected:
   Handler_share *get_ha_share_ptr();
   void set_ha_share_ptr(Handler_share *arg_ha_share);

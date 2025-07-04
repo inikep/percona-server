@@ -763,7 +763,7 @@ void setup_key_part_field(TABLE_SHARE *share, handler *handler_file,
     as the key length for vector index doesn't not follow usual key length
     semantics
    */
-  if ((full_length_key_part || keyinfo->is_fb_vector_index()) &&
+  if ((full_length_key_part) &&
       (handler_file->index_flags(key_n, key_part_n, true) & HA_READ_ORDER))
     field->part_of_sortkey.set_bit(key_n);
 

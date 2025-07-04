@@ -57,7 +57,6 @@
 #include "mysqld_error.h"
 #include "sql/item.h"
 #include "sql/item_cmpfunc.h"    // Item_func_any_value
-#include "sql/item_fb_vector_func.h"  // Item_func_fb_vector_l2, etc
 #include "sql/item_func.h"       // Item_func_udf_str
 #include "sql/item_geofunc.h"    // Item_func_st_area
 #include "sql/item_gtid_func.h"  // Item_wait_for_executed_gtid_set Item_master_gtid_set_wait Item_func_gtid_subset
@@ -1794,15 +1793,7 @@ static const std::pair<const char *, Create_func *> func_array[] = {
      SQL_FN_INTERNAL(Item_func_internal_is_mandatory_role, 2)},
     {"INTERNAL_IS_ENABLED_ROLE",
      SQL_FN_INTERNAL(Item_func_internal_is_enabled_role, 2)},
-    // vector db functions
-    {"FB_VECTOR_L2", SQL_FN_V_LIST_THD(Item_func_fb_vector_l2, 2, 2)},
-    {"FB_VECTOR_IP", SQL_FN_V_LIST_THD(Item_func_fb_vector_ip, 2, 2)},
-    {"FB_VECTOR_NORMALIZE_L2",
-     SQL_FN_V_LIST_THD(Item_func_fb_vector_normalize_l2, 1, 1)},
-    {"FB_VECTOR_BLOB_TO_JSON",
-     SQL_FN_V_LIST_THD(Item_func_fb_vector_blob_to_json, 1, 1)},
-    {"FB_VECTOR_JSON_TO_BLOB",
-     SQL_FN_LIST(Item_func_fb_vector_json_to_blob, 1)}};
+};
 
 using Native_functions_hash = std::unordered_map<std::string, Create_func *>;
 static const Native_functions_hash *native_functions_hash;

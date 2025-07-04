@@ -33,7 +33,6 @@
 #include "sql-common/json_dom.h"
 #include "sql/filesort.h"
 #include "sql/item_cmpfunc.h"
-#include "sql/item_fb_vector_func.h"
 #include "sql/item_sum.h"
 #include "sql/iterators/basic_row_iterators.h"
 #include "sql/iterators/bka_iterator.h"
@@ -981,19 +980,7 @@ static std::unique_ptr<Json_object> SetObjectMembers(
       string prefix;
       const char *prefix_ptr = nullptr;
 
-      if (key->is_fb_vector_index()) {
-        Item_func_fb_vector_distance *item_func =
-            down_cast<Item_func_fb_vector_distance *>(
-                *(join->order.order->item));
-        prefix += item_func->m_search_type == FB_VECTOR_SEARCH_INDEX_SCAN
-                      ? "Vector"
-                      : "Ordered vector";
-        prefix_ptr = prefix.c_str();
-      }
-
-      assert(table->file->pushed_idx_cond == nullptr ||
-             (key->is_fb_vector_index() &&
-              join->thd->variables.fb_vector_index_cond_pushdown));
+      assert(table->file->pushed_idx_cond == nullptr);
 
       error |= SetIndexInfoInObject(
           &description, "index_scan", prefix_ptr, table, key, "scan",

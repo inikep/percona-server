@@ -35,7 +35,6 @@
 #include <optional>
 
 #include "decimal.h"      // E_DEC_OOM
-#include "fb_vector_base.h"
 #include "field_types.h"  // enum_field_types
 #include "lex_string.h"
 #include "libbinlogevents/export/binary_log_funcs.h"  // my_time_binary_length
@@ -784,7 +783,6 @@ class Field {
 
   LEX_CSTRING m_engine_attribute = EMPTY_CSTR;
   LEX_CSTRING m_secondary_engine_attribute = EMPTY_CSTR;
-  FB_vector_dimension m_fb_vector_dimension = 0;
 
  private:
   enum enum_pushed_warnings {

@@ -19,6 +19,7 @@
 
 #include "clone.h"
 #include "sql/handler.h"
+#include "sql-common/json_dom.h"
 
 namespace myclone {
 

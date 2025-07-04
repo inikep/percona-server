@@ -64,6 +64,8 @@
 #include "sql/sql_table.h"
 #include "sql/sql_thd_internal_api.h"
 #include "sql/strfunc.h"
+#include <mysql/components/services/mysql_command_services.h>
+
 
 /* RocksDB includes */
 #include "env/composite_env_wrapper.h"
@@ -99,7 +101,6 @@
 #include "./nosql_access.h"
 #include "./rdb_cf_manager.h"
 #include "./rdb_cf_options.h"
-#include "./rdb_cmd_srv_helper.h"
 #include "./rdb_converter.h"
 #include "./rdb_datadic.h"
 #include "./rdb_i_s.h"
@@ -312,8 +313,6 @@ static Rdb_index_stats_thread rdb_is_thread;
 static Rdb_manual_compaction_thread rdb_mc_thread;
 
 static Rdb_drop_index_thread rdb_drop_idx_thread;
-
-static std::unique_ptr<Rdb_cmd_srv_helper> cmd_srv_helper;
 
 static const char *rdb_get_error_message(int nr);
 
@@ -7684,12 +7683,6 @@ static int rocksdb_init_internal(void *const p) {
         reinterpret_cast<SERVICE_TYPE_NO_CONST(mysql_command_error_info) *>(
             h_command_srv);
   }
-  cmd_srv_helper = std::make_unique<Rdb_cmd_srv_helper>(
-      mysql_service_mysql_command_factory, mysql_service_mysql_command_options,
-      mysql_service_mysql_command_query,
-      mysql_service_mysql_command_query_result,
-      mysql_service_mysql_command_field_info,
-      mysql_service_mysql_command_error_info);
 
 #ifdef FB_HAVE_WSENV
   // Initialize WSEnv with rocksdb_ws_env_path
@@ -8632,7 +8625,6 @@ static int rocksdb_shutdown(bool minimalShutdown) {
     my_error_unregister(HA_ERR_ROCKSDB_FIRST, HA_ERR_ROCKSDB_LAST);
   }
 
-  cmd_srv_helper = nullptr;
   if (mysql_service_mysql_command_factory) {
     reg_srv->release(reinterpret_cast<my_h_service>(
         const_cast<SERVICE_TYPE_NO_CONST(mysql_command_factory) *>(
@@ -9274,7 +9266,7 @@ int ha_rocksdb::alloc_key_buffers(const TABLE &table_arg,
   m_pk_descr = kd_arr[pk_index(table_arg, tbl_def_arg)];
 
   // move this into get_table_handler() ??
-  uint rtn = m_pk_descr->setup(table_arg, tbl_def_arg, *cmd_srv_helper);
+  uint rtn = m_pk_descr->setup(table_arg, tbl_def_arg);
   if (rtn) {
     return rtn;
   }
@@ -9289,7 +9281,7 @@ int ha_rocksdb::alloc_key_buffers(const TABLE &table_arg,
     if (i == table_arg.s->primary_key) continue;
 
     // TODO: move this into get_table_handler() ??
-    rtn = kd_arr[i]->setup(table_arg, tbl_def_arg, *cmd_srv_helper);
+    rtn = kd_arr[i]->setup(table_arg, tbl_def_arg);
     if (rtn) {
       return rtn;
     }
@@ -10020,7 +10012,7 @@ uint ha_rocksdb::create_inplace_key_defs(
     }
 
     assert(new_key_descr[i] != nullptr);
-    int rtn = new_key_descr[i]->setup(table_arg, tbl_def_arg, *cmd_srv_helper);
+    int rtn = new_key_descr[i]->setup(table_arg, tbl_def_arg);
     if (rtn) {
       return rtn;
     }
@@ -10229,7 +10221,7 @@ int ha_rocksdb::create_key_def(
   }
 
   // initialize key_def
-  uint rtn = new_key_def->setup(table_arg, tbl_def_arg, *cmd_srv_helper);
+  uint rtn = new_key_def->setup(table_arg, tbl_def_arg);
   if (rtn) {
     DBUG_RETURN(rtn);
   }
@@ -11022,38 +11014,6 @@ int ha_rocksdb::index_read_intern(uchar *const buf, const uchar *const key,
   }
 
   const Rdb_key_def &kd = *m_key_descr_arr[active_index_pos()];
-
-  if (kd.is_vector_index()) {
-    auto vector_db_handler = get_vector_db_handler();
-    rc = vector_db_handler->search(
-        thd, table, kd.get_vector_index(), &kd,
-        (pushed_idx_cond_keyno == active_index) ? pushed_idx_cond : nullptr);
-    if (rc) {
-      DBUG_RETURN(rc);
-    }
-    if (!vector_db_handler->has_more_results()) {
-      DBUG_RETURN(HA_ERR_END_OF_FILE);
-    }
-    std::string vector_index_key;
-    rc = vector_db_handler->current_key(vector_index_key);
-    if (rc) {
-      DBUG_RETURN(rc);
-    }
-    rocksdb::Slice key(vector_index_key);
-    const uint size =
-        kd.get_primary_key_tuple(*m_pk_descr, &key, m_pk_packed_tuple);
-    if (size == RDB_INVALID_KEY_LEN) {
-      rc = HA_ERR_ROCKSDB_CORRUPT_DATA;
-      DBUG_RETURN(rc);
-    }
-
-    m_last_rowkey.copy((const char *)m_pk_packed_tuple, size, &my_charset_bin);
-    bool skip_row = false;
-    rocksdb::Slice value;
-    rc = secondary_index_read(active_index, buf, &key, &value, &skip_row);
-    DBUG_RETURN(rc);
-  }
-
   bool using_full_key = false;
   m_full_key_lookup = false;
 
@@ -11277,13 +11237,6 @@ int ha_rocksdb::index_read_last_map(uchar *const buf, const uchar *const key,
   DBUG_ENTER_FUNC();
 
   DBUG_RETURN(index_read_map(buf, key, keypart_map, HA_READ_PREFIX_LAST));
-}
-
-Rdb_vector_db_handler *ha_rocksdb::get_vector_db_handler() {
-  if (m_vector_db_handler == nullptr) {
-    m_vector_db_handler = std::make_unique<Rdb_vector_db_handler>();
-  }
-  return m_vector_db_handler.get();
 }
 
 /**
@@ -11763,32 +11716,6 @@ int ha_rocksdb::index_next_with_direction_intern(uchar *const buf,
   table->m_status = STATUS_NOT_FOUND;
   /* TODO(yzha) - row stats are gone in 8.0
   stats.rows_requested++; */
-
-  if (kd.is_vector_index()) {
-    auto vector_db_handler = get_vector_db_handler();
-    vector_db_handler->next_result();
-    if (!vector_db_handler->has_more_results()) {
-      DBUG_RETURN(HA_ERR_END_OF_FILE);
-    }
-    std::string vector_index_key;
-    rc = vector_db_handler->current_key(vector_index_key);
-    if (rc) {
-      DBUG_RETURN(rc);
-    }
-    rocksdb::Slice key(vector_index_key);
-    const uint size =
-        kd.get_primary_key_tuple(*m_pk_descr, &key, m_pk_packed_tuple);
-    if (size == RDB_INVALID_KEY_LEN) {
-      rc = HA_ERR_ROCKSDB_CORRUPT_DATA;
-      DBUG_RETURN(rc);
-    }
-
-    m_last_rowkey.copy((const char *)m_pk_packed_tuple, size, &my_charset_bin);
-    bool skip_row = false;
-    rocksdb::Slice value;
-    rc = secondary_index_read(active_index, buf, &key, &value, &skip_row);
-    DBUG_RETURN(rc);
-  }
 
   for (;;) {
     DEBUG_SYNC(thd, "rocksdb.check_flags_inwdi");
@@ -13612,8 +13539,6 @@ int ha_rocksdb::index_end() {
 
   m_iterator.reset(nullptr);
 
-  vector_index_end();
-
   active_index = MAX_KEY;
   in_range_check_pushed_down = false;
 
@@ -13624,33 +13549,6 @@ int ha_rocksdb::index_end() {
   DBUG_RETURN(HA_EXIT_SUCCESS);
 }
 
-/**
-  @return
-    HA_EXIT_SUCCESS  OK
-    other            HA_ERR error code (can be SE-specific)
-*/
-int ha_rocksdb::vector_index_init(Item *distance_func) {
-  auto vector_db_handler = get_vector_db_handler();
-  return vector_db_handler->vector_index_orderby_init(distance_func);
-}
-
-/**
-  Called by index_end() to clean up vector index related state if needed
-
-*/
-
-void ha_rocksdb::vector_index_end() {
-  const Rdb_key_def &kd = *m_key_descr_arr[active_index_pos()];
-
-  if (kd.is_vector_index()) {
-    // If the current key is related with a vector index
-    // then we can reset the ORDER BY pushdown conditions
-    // Note: we are not making sure here that this is, in fact,
-    // a KNN search index, but it should not matter at least today.
-    auto vector_db_handler = get_vector_db_handler();
-    vector_db_handler->vector_index_orderby_end();
-  }
-}
 
 /**
   Called by the partition manager for truncating tables.
@@ -15562,20 +15460,6 @@ static int calculate_stats(
     merge_stats(to_recalc, &stats, card_stats);
     if (scan_type == SCAN_TYPE_FULL_TABLE && max_num_rows_scanned > 0) {
       adjust_cardinality(&stats, scan_type, max_num_rows_scanned);
-    }
-  }
-
-  THD *thd = thd_get_current_thd();
-  // if this is initiated from background thread, current thd is not set.
-  if (scan_type == SCAN_TYPE_FULL_TABLE && thd) {
-    for (auto &key : to_recalc) {
-      if (key.second->is_vector_index()) {
-        ret = key.second->get_vector_index()->analyze(thd, max_num_rows_scanned,
-                                                      killed);
-        if (ret) {
-          DBUG_RETURN(ret);
-        }
-      }
     }
   }
 
@@ -20035,92 +19919,6 @@ bool ha_rocksdb::get_se_private_data(dd::Table *dd_table, bool reset) {
   return false;
 }
 
-/*
-  Given an ORDER, a TABLE and optionally an index id, check whether this ORDER
-  clause can be used to support KNN search, triggered by the ORDER BY clause.
-
-  The following checks are needed:
-     1. check if chosen index is of type vector, unless an index has not
-        been provided (i.e., a value of < 0)
-     2. check if ORDER's encapsulated item is a FUNC ITEM
-     3. check if this FUNC ITEM is a vector DB func
-        a. check the order direction is NOT DESC for L2, either ASC or
-        unspecified is ok.
-        b. check the order direction is DESC for IP
-     4. check if the first arg is a FIELD_ITEM with data_type
-  MYSQL_TYPE_JSON/MYSQL_TYPE_BLOB
-     5. check if the FIELD_ITEM is assocaited with a vector index
-     6. check if the second arg is:
-        a. Item::STRING_ITEM with data_type mapping to MYSQL_TYPE_VARCHAR
-        b. Item::CACHE_ITEM with data_type mapping to MYSQL_TYPE_JSON
- */
-bool ha_rocksdb::index_supports_vector_scan(ORDER *order, int idx) {
-  if (idx >= (int)table->s->keys) return false;
-
-  if ((idx >= 0) && !table->key_info[idx].is_fb_vector_index())  // 1.
-    return false;
-
-  if (!order || !order->item ||
-      ((Item *)*(order->item))->type() != Item::FUNC_ITEM)  // 2.
-    return false;
-
-  Item_func *item_func = (Item_func *)*(order->item);
-
-  if ((item_func->functype() != Item_func::FB_VECTOR_L2) &&
-      (item_func->functype() != Item_func::FB_VECTOR_IP))  // 3.
-    return false;
-
-  const auto order_direction = order->direction;
-  if (item_func->functype() == Item_func::FB_VECTOR_L2 &&
-      order_direction == ORDER_DESC) {  // 3.a
-    return false;
-  }
-  if (item_func->functype() == Item_func::FB_VECTOR_IP &&
-      order_direction != ORDER_DESC) {  // 3.b
-    return false;
-  }
-
-  if (((Item_func *)item_func)->argument_count() != 2) return false;
-
-  Item *arg0 = (Item *)((Item_func *)item_func)->arguments()[0];
-  Item *arg1 = (Item *)((Item_func *)item_func)->arguments()[1];
-
-  if ((arg0->type() != Item::FIELD_ITEM) ||
-      ((arg0->data_type() != MYSQL_TYPE_JSON) &&
-       (arg0->data_type() != MYSQL_TYPE_BLOB)))  // 4.
-    return false;
-
-  Field *field = ((Item_field *)arg0)->field;
-  int fld_index = -1;
-
-  for (uint key_idx = 0; key_idx < table->s->keys && fld_index < 0; ++key_idx) {
-    if (table->key_info[key_idx].is_fb_vector_index()) {  // 5.
-      for (uint part = 0;
-           part < table->key_info[key_idx].user_defined_key_parts; part++) {
-        if (table->key_info[key_idx].key_part[part].field == field) {
-          // vector index will always be the only user defined part
-          // i.e. part = 0
-          assert(!part);
-          fld_index = key_idx;
-          break;
-        } else {
-          return false;
-        }
-      }
-    }
-  }
-
-  if (fld_index < 0) return false;
-
-  if (((arg1->type() == Item::STRING_ITEM) &&
-       (arg1->data_type() == MYSQL_TYPE_VARCHAR)) ||  // 6a.
-      ((arg1->type() == Item::CACHE_ITEM) &&
-       (arg1->data_type() == MYSQL_TYPE_JSON)))  // 6b.
-    return true;
-
-  return false;
-}
-
 }  // namespace myrocks
 
 /*
@@ -20157,5 +19955,4 @@ mysql_declare_plugin(rocksdb_se){
     myrocks::rdb_i_s_lock_info, myrocks::rdb_i_s_trx_info,
     myrocks::rdb_i_s_deadlock_info,
     myrocks::rdb_i_s_bypass_rejected_query_history,
-    myrocks::rdb_i_s_live_files_metadata,
-    myrocks::rdb_i_s_vector_index_config mysql_declare_plugin_end;
+    myrocks::rdb_i_s_live_files_metadata mysql_declare_plugin_end;
