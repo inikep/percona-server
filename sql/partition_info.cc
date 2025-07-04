@@ -1403,15 +1403,11 @@ static void warn_if_dir_in_part_elem(THD *thd, partition_element *part_elem) {
 
 bool partition_info::check_partition_info(THD *thd, handlerton **eng_type,
                                           handler *file, HA_CREATE_INFO *info,
-                                          const char *db,
-                                          const char *table_name,
                                           bool add_or_reorg_part) {
   handlerton *table_engine = default_engine_type;
   uint i, tot_partitions;
   bool result = true, table_engine_set;
   const char *same_name;
-  bool no_substitution = (!is_engine_substitution_allowed(thd));
-  handlerton *default_engine = ha_default_handlerton(thd);
   DBUG_TRACE;
 
   DBUG_PRINT("info", ("default table_engine = %s",

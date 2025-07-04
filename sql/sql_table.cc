@@ -8979,7 +8979,7 @@ static bool create_table_impl(
                 ha_resolve_storage_engine_name(part_info->default_engine_type),
                 ha_resolve_storage_engine_name(create_info->db_type)));
     if (part_info->check_partition_info(thd, &engine_type, file.get(),
-                                        create_info, db, table_name, false))
+                                        create_info, false))
       return true;
     part_info->default_engine_type = engine_type;
 
