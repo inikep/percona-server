@@ -695,7 +695,7 @@ bool drop_native_table(THD *thd, const char *schema_name,
 
 bool reset_tables_and_tablespaces() {
   Auto_THD thd;
-  handlerton *ddse = get_dd_engine(thd.thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd.thd, DB_TYPE_INNODB);
 
   // Acquire transactional metadata locks and evict all cached objects.
   if (dd::cache::Shared_dictionary_cache::reset_tables_and_tablespaces(thd.thd))
@@ -704,14 +704,6 @@ bool reset_tables_and_tablespaces() {
   // Evict all cached objects in the DD cache in the DDSE.
   if (ddse->dict_cache_reset_tables_and_tablespaces != nullptr)
     ddse->dict_cache_reset_tables_and_tablespaces();
-
-  if (default_dd_system_storage_engine != DEFAULT_DD_INNODB) {
-    auto *const innodb_se = ha_resolve_by_legacy_type(thd.thd, DB_TYPE_INNODB);
-    assert(innodb_se->dict_cache_reset_tables_and_tablespaces != nullptr);
-    if (!ha_is_storage_engine_disabled(innodb_se) &&
-        innodb_se->dict_cache_reset_tables_and_tablespaces != nullptr)
-      innodb_se->dict_cache_reset_tables_and_tablespaces();
-  }
 
   bool ret =
       close_cached_tables_nsec(nullptr, nullptr, false, LONG_TIMEOUT_NSEC);

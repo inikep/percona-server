@@ -1132,7 +1132,6 @@ static int file_roll_forward(const std::string &data_file, int final_state) {
 /** Roll back clone file state to normal state.
 @param[in]      data_file       data file name */
 static void file_rollback(const std::string &data_file) {
-  assert(innobase_is_ddse());
   auto cur_state = get_file_state(data_file);
 
   switch (cur_state) {
@@ -1535,12 +1534,6 @@ void clone_files_error(bool after_restart) {
   /* Create error status file if not there. */
   if (!file_exists(err_file)) {
     create_file(err_file);
-  }
-
-  if (after_restart && !innobase_is_ddse()) {
-    // Clone rollback is unsupported across transactional storage engines when
-    // InnoDB is not the first one to initialize.
-    abort();
   }
 
   /* Process all old files to be moved. */

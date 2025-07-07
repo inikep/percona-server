@@ -1443,9 +1443,6 @@ class Rdb_ddl_manager : public Ensure_initialized {
   bool init(Rdb_dict_manager_selector *const dict_arg,
             Rdb_cf_manager *const cf_manager, const uint32_t validate_tables);
 
-  /* reset during ddse upgrade */
-  void reset_map();
-
   void cleanup(bool destroy_rwlock = true);
 
   [[nodiscard]] Rdb_tbl_def *find(const std::string &table_name,

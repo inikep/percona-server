@@ -121,13 +121,8 @@ String_type Object_table_definition_impl::get_ddl() const {
   // Output indexes
   for (auto index : m_index_definitions) ss << ",\n  " << index.second;
 
-  // Output foreign keys, if the DDSE supports them, otherwise silently ignore
-  // them as their presence is defense in depth rather than a prerequisite for
-  // correctness.
-  const auto *const hton = get_dd_engine(current_thd);
-  if (hton->flags & HTON_SUPPORTS_FOREIGN_KEYS) {
-    for (auto key : m_foreign_key_definitions) ss << ",\n  " << key.second;
-  }
+  // Output foreign keys
+  for (auto key : m_foreign_key_definitions) ss << ",\n  " << key.second;
 
   ss << "\n)";
 

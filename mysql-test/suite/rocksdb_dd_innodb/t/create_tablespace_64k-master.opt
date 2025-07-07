@@ -1,3 +1,0 @@
---initialize --default-dd-system-storage-engine=ROCKSDB
---initialize --innodb_page_size=64k
---innodb_directories=$MYSQL_TMP_DIR

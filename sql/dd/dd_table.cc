@@ -2358,10 +2358,7 @@ static std::unique_ptr<dd::Table> create_dd_system_table(
   const System_tables::Types *table_type =
       System_tables::instance()->find_type(system_schema.name(), table_name);
   if (opt_initialize ||
-      (table_type != nullptr && *table_type == System_tables::Types::INERT) ||
-      (bootstrap::DD_bootstrap_ctx::instance().is_dd_engine_change() &&
-       bootstrap::DD_bootstrap_ctx::instance().get_stage() ==
-           bootstrap::Stage::SYNCED)) {
+      (table_type != nullptr && *table_type == System_tables::Types::INERT)) {
     if (file->ha_get_se_private_data(
             tab_obj.get(), (table_type != nullptr &&
                             *table_type == System_tables::Types::INERT)))
@@ -2429,16 +2426,6 @@ std::unique_ptr<dd::Table> create_table(
   const dd::Object_table *dd_table =
       dict->get_dd_table(sch_obj.name(), table_name);
 
-  // During DDSE change, when creating a MyRocks table
-  // treat <upgrade>.<table> as a DD table if mysql.<table> is a DD table
-  if (dd_table == nullptr && thd->is_dd_system_thread() &&
-      dd::bootstrap::DD_bootstrap_ctx::instance().is_dd_engine_change() &&
-      create_info->db_type->db_type == DB_TYPE_ROCKSDB &&
-      sch_obj.name() != MYSQL_SCHEMA_NAME.str &&
-      dd::get_dictionary()->is_dd_table_name(MYSQL_SCHEMA_NAME.str,
-                                             table_name)) {
-    dd_table = dict->get_dd_table(MYSQL_SCHEMA_NAME.str, table_name);
-  }
   return dd_table
              ? create_dd_system_table(thd, sch_obj, table_name, create_info,
                                       create_fields, keyinfo, keys, fk_keyinfo,

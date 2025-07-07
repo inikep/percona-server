@@ -4361,8 +4361,7 @@ bool Rdb_validate_tbls::validate(void) {
   // we load rocksdb plugin before initializing dd. So skip validation here.
   // TODO(chni): enable the validation once rocksdb dd is loaded
   if (!thd) {
-    assert(opt_initialize ||
-           default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB);
+    assert(opt_initialize);
     return true;
   }
 
@@ -5100,16 +5099,6 @@ bool Rdb_ddl_manager::rename(const std::string &from, const std::string &to,
 
   mysql_rwlock_unlock(&m_rwlock);
   return res;
-}
-
-void Rdb_ddl_manager::reset_map() {
-  assert(initialized);
-  mysql_rwlock_wrlock(&m_rwlock);
-
-  cleanup(/*destroy_rwlock*/ false);
-  populate(0, /* lock */ false);
-
-  mysql_rwlock_unlock(&m_rwlock);
 }
 
 // during shutdown, it will destroy rwlock

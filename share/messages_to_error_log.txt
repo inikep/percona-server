@@ -12072,6 +12072,9 @@ ER_IB_INDEX_LOADER_DONE
 ER_IB_INDEX_BUILDER_DONE
    eng "Builder::finish(): Completed building index=%s of table=%s, err=%zu."
 
+ER_SERVER_DOWNGRADE_STATUS
+  eng "Server downgrade from '%d' to '%d' %s."
+
 ER_IB_SLOWRM_GET_TIME
   eng "%s"
 

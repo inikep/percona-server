@@ -61,7 +61,7 @@ bool check_if_server_ddse_readonly(THD *thd, const char *schema_name_abbrev) {
     The call to retrieve the handlerton for the DDSE should be replaced by a
     more generic mechanism.
   */
-  handlerton *ddse = get_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (ddse->is_dict_readonly && ddse->is_dict_readonly()) {
     LogErr(WARNING_LEVEL, ER_SKIP_UPDATING_METADATA_IN_SE_RO_MODE,
            schema_name_abbrev);

@@ -80,10 +80,6 @@ X *create_object() {
   return dynamic_cast<X *>(new (std::nothrow) typename X::Impl());
 }
 
-bool is_dd_engine_change_in_progress() {
-  return bootstrap::DD_bootstrap_ctx::instance().is_dd_engine_change();
-}
-
 template Charset_impl *create_object<Charset_impl>();
 template Collation *create_object<Collation>();
 template Collation_impl *create_object<Collation_impl>();

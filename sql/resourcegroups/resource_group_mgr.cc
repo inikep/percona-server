@@ -121,7 +121,7 @@ Resource_group_mgr *Resource_group_mgr::instance() {
 static inline bool persist_resource_group(
     THD *thd, const resourcegroups::Resource_group &resource_group,
     bool update) {
-  handlerton *ddse = dd::get_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (ddse->is_dict_readonly && ddse->is_dict_readonly()) {
     LogErr(WARNING_LEVEL, ER_RESOURCE_GROUP_METADATA_UPDATE_SKIPPED);
     return false;

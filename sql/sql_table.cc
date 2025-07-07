@@ -97,7 +97,6 @@
 #include "sql/dd/dd.h"          // dd::get_dictionary
 #include "sql/dd/dd_schema.h"   // dd::schema_exists
 #include "sql/dd/dd_table.h"    // dd::drop_table, dd::update_keys...
-#include "sql/dd/dd_utility.h"  // dd::get_dd_engine_type
 #include "sql/dd/dictionary.h"  // dd::Dictionary
 #include "sql/dd/properties.h"  // dd::Properties
 #include "sql/dd/sdi_api.h"     // dd::sdi::drop_sdis
@@ -441,7 +440,7 @@ static int copy_data_between_tables(
 
 static bool prepare_blob_field(THD *thd, Create_field *sql_field,
                                bool convert_character_set);
-static bool check_engine(THD *thd, const char *db_name, const char *table_name,
+static bool check_engine(const char *db_name, const char *table_name,
                          HA_CREATE_INFO *create_info);
 
 static bool prepare_set_field(THD *thd, Create_field *sql_field);
@@ -8726,7 +8725,7 @@ static bool create_table_impl(
     return true;
   }
 
-  if (check_engine(thd, db, table_name, create_info)) return true;
+  if (check_engine(db, table_name, create_info)) return true;
 
   // Secondary engine cannot be defined for temporary tables.
   if (create_info->secondary_engine.str != nullptr &&
@@ -16610,7 +16609,7 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
       create_info->db_type = table->s->db_type();
   }
 
-  if (check_engine(thd, alter_ctx.new_db, alter_ctx.new_name, create_info))
+  if (check_engine(alter_ctx.new_db, alter_ctx.new_name, create_info))
     return true;
 
   /*
@@ -18922,30 +18921,10 @@ err:
   @retval true  Engine not available/supported, error has been reported.
   @retval false Engine available/supported.
 */
-static bool check_engine(THD *thd, const char *db_name, const char *table_name,
+static bool check_engine(const char *db_name, const char *table_name,
                          HA_CREATE_INFO *create_info) {
   DBUG_TRACE;
   handlerton **new_engine = &create_info->db_type;
-
-  if (!(create_info->options & HA_LEX_CREATE_TMP_TABLE) && !opt_initialize &&
-      !dd::is_dd_engine_change_in_progress() &&
-      ha_check_user_table_blocked(thd, *new_engine, db_name)) {
-    handlerton *default_engine = ha_default_handlerton(thd);
-    bool no_substitution = (!is_engine_substitution_allowed(thd));
-    if (no_substitution || default_engine == *new_engine) {
-      my_error(ER_USER_TABLE_BLOCKED_ENGINE, MYF(0), db_name, table_name,
-               ha_resolve_storage_engine_name(*new_engine));
-      *new_engine = nullptr;
-      return true;
-    }
-
-    push_warning_printf(thd, Sql_condition::SL_NOTE,
-                        ER_WARN_USER_TABLE_BLOCKED_ENGINE,
-                        ER_THD(thd, ER_WARN_USER_TABLE_BLOCKED_ENGINE), db_name,
-                        table_name, ha_resolve_storage_engine_name(*new_engine),
-                        ha_resolve_storage_engine_name(default_engine));
-    *new_engine = default_engine;
-  }
 
   /*
     Check, if the given table name is system table, and if the storage engine
@@ -18955,20 +18934,6 @@ static bool check_engine(THD *thd, const char *db_name, const char *table_name,
       !ha_check_if_supported_system_table(*new_engine, db_name, table_name)) {
     my_error(ER_UNSUPPORTED_ENGINE, MYF(0),
              ha_resolve_storage_engine_name(*new_engine), db_name, table_name);
-    *new_engine = nullptr;
-    return true;
-  }
-
-  /*
-    check that new system table storage engine is same as
-    default_dd_system_storage_engine
-  */
-  if (!thd->is_system_thread() && !skip_sys_tables_engine_check &&
-      (create_info->used_fields & HA_CREATE_USED_ENGINE) &&
-      dd::get_dictionary()->is_system_table_name(db_name, table_name) &&
-      dd::get_dd_engine_type() != (*new_engine)->db_type) {
-    my_error(ER_ALTER_SYSTEM_TABLE_WITH_NOT_DDSE, MYF(0), db_name, table_name,
-             ha_resolve_storage_engine_name(*new_engine));
     *new_engine = nullptr;
     return true;
   }

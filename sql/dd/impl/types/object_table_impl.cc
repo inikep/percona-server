@@ -22,7 +22,6 @@
 
 #include <mysqld_error.h>
 
-#include "sql/dd/dd_utility.h"                    // get_dd_engine_name
 #include "sql/dd/impl/bootstrap/bootstrap_ctx.h"  // DD_bootstrap_ctx
 #include "sql/dd/impl/types/object_table_impl.h"  // Object_table_impl
 #include "sql/table.h"
@@ -32,21 +31,13 @@ namespace dd {
 ///////////////////////////////////////////////////////////////////////////
 
 Object_table_impl::Object_table_impl()
-    : Object_table_impl(get_dd_engine_name()) {
-  assert(default_dd_system_storage_engine == DEFAULT_DD_INNODB ||
-         default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB);
-}
-
-Object_table_impl::Object_table_impl(const String_type &engine)
     : m_last_dd_version(0),
       m_target_def(),
       m_actual_present(false),
       m_actual_def(),
       m_hidden(true) {
-  assert(engine == "INNODB" || engine == "ROCKSDB");
-
   m_target_def.add_option(static_cast<int>(Common_option::ENGINE), "ENGINE",
-                          String_type("ENGINE=") + engine);
+                          "ENGINE=INNODB");
   m_target_def.add_option(static_cast<int>(Common_option::CHARSET), "CHARSET",
                           "DEFAULT CHARSET=utf8mb3");
   m_target_def.add_option(static_cast<int>(Common_option::COLLATION),
@@ -55,11 +46,9 @@ Object_table_impl::Object_table_impl(const String_type &engine)
                           "ROW_FORMAT", "ROW_FORMAT=DYNAMIC");
   m_target_def.add_option(static_cast<int>(Common_option::STATS_PERSISTENT),
                           "STATS_PERSISTENT", "STATS_PERSISTENT=0");
-  if (engine == "INNODB") {
-    m_target_def.add_option(
-        static_cast<int>(Common_option::TABLESPACE), "TABLESPACE",
-        String_type("TABLESPACE=") + String_type(MYSQL_TABLESPACE_NAME.str));
-  }
+  m_target_def.add_option(
+      static_cast<int>(Common_option::TABLESPACE), "TABLESPACE",
+      String_type("TABLESPACE=") + String_type(MYSQL_TABLESPACE_NAME.str));
 }
 
 bool Object_table_impl::set_actual_table_definition(
@@ -94,8 +83,8 @@ int Object_table_impl::field_number(const String_type &field_label) const {
 
 ///////////////////////////////////////////////////////////////////////////
 
-Object_table *Object_table::create_object_table(const String_type &engine) {
-  return new (std::nothrow) Object_table_impl(engine);
+Object_table *Object_table::create_object_table() {
+  return new (std::nothrow) Object_table_impl();
 }
 
 ///////////////////////////////////////////////////////////////////////////

@@ -1605,13 +1605,9 @@ bool plugin_register_builtin_and_init_core_se(int *argc, char **argv) {
       // only force load rocksdb SE plugin iff it is default DD SE,
       // for other plugins in rocksdb, switch to default load
       bool is_rocksdb = !strncmp(plugin->name, ROCKSDB, rocksdb_len);
-      bool is_rocksdb_dd_se =
-          !my_strcasecmp(&my_charset_latin1, plugin->name, ROCKSDB) &&
-          default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB;
 
       std::optional<enum_plugin_load_option> force_load_option;
       if (is_rocksdb) {
-        if (is_rocksdb_dd_se) force_load_option = PLUGIN_FORCE;
       } else {
         if (mandatory) force_load_option = PLUGIN_FORCE;
       }
@@ -1667,16 +1663,12 @@ bool plugin_register_builtin_and_init_core_se(int *argc, char **argv) {
           !my_strcasecmp(&my_charset_latin1, plugin->name, "InnoDB");
       if ((!is_daemon_keyring_proxy || is_help_or_validate_option()) &&
           !is_myisam && (!is_innodb || is_help_or_validate_option()) &&
-          (!is_rocksdb_dd_se || is_help_or_validate_option()) &&
           my_strcasecmp(&my_charset_latin1, plugin->name, "CSV"))
         continue;
 
       if (plugin_ptr->state != PLUGIN_IS_UNINITIALIZED ||
           plugin_initialize(plugin_ptr))
         goto err_unlock;
-
-      if (is_rocksdb && default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB)
-        rocksdb_loaded = plugin_ptr->state == PLUGIN_IS_READY;
 
       /*
         Once server is started and plugin initialized and if there are persisted
@@ -1703,11 +1695,6 @@ bool plugin_register_builtin_and_init_core_se(int *argc, char **argv) {
   /* Should now be set to MyISAM storage engine */
   assert(global_system_variables.table_plugin);
   assert(global_system_variables.temp_table_plugin);
-
-  /* if ddse is rocksdb, rocksdb plugin should be loaded */
-  assert(rocksdb_loaded ||
-         default_dd_system_storage_engine != DEFAULT_DD_ROCKSDB ||
-         is_help_or_validate_option());
 
   mysql_mutex_unlock(&LOCK_plugin);
   mysql_rwlock_unlock(&LOCK_system_variables_hash);

@@ -30,7 +30,7 @@
 # Warning message(s) produced for a statement can be printed by explicitly
 # adding a 'SHOW WARNINGS' after the statement.
 
-set @ddse= (select @@default_dd_system_storage_engine);
+set @ddse= 'INNODB';
 
 set default_storage_engine=@ddse;
 

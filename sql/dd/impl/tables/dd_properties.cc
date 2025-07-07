@@ -123,7 +123,7 @@ bool DD_properties::init_cached_properties(THD *thd) {
   // Early exit in case the properties are already initialized.
   if (!m_properties.empty()) return false;
 
-  Transaction_ro trx(thd, get_dd_isolation_level());
+  Transaction_ro trx(thd, ISO_READ_UNCOMMITTED);
   trx.otx.add_table<DD_properties>();
 
   if (trx.otx.open_tables()) {

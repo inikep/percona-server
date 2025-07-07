@@ -275,7 +275,6 @@ enum enum_dd_default_engine {
   DEFAULT_DD_INNODB,
   DEFAULT_DD_ROCKSDB,
 };
-extern ulong default_dd_system_storage_engine;
 extern ulonglong temptable_max_ram;
 extern ulonglong temptable_max_mmap;
 extern bool temptable_track_shared_block_ram;
@@ -789,8 +788,6 @@ extern thread_local MEM_ROOT **THR_MALLOC;
 
 extern PSI_file_key key_file_binlog_cache;
 extern PSI_file_key key_file_binlog_index_cache;
-
-extern bool skip_sys_tables_engine_check;
 
 #ifdef HAVE_PSI_INTERFACE
 

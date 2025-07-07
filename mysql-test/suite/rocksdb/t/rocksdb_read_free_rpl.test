@@ -16,7 +16,6 @@ source include/master-slave.inc;
 #     mysqld`Log_event::apply_event
 #     mysqld`apply_event_and_update_pos
 #     mysqld`exec_relay_log_event
-source include/have_innodb_system_tables.inc;
 
 # initialization/insert
 --source include/rpl_connection_master.inc

@@ -701,8 +701,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   static bool can_use_bloom_filter(THD *thd, const Rdb_key_def &kd,
                                    const rocksdb::Slice &eq_cond);
 
-  bool get_se_private_data(dd::Table *, bool reset) override;
-
  private:
   bool mrr_sorted_mode;  // true <=> we are in ordered-keys, ordered-results
   // RANGE_SEQ_IF is stored in handler::mrr_funcs
@@ -1028,8 +1026,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
 
   void build_decoder();
   void check_build_decoder();
-
-  bool is_dd_update() const;
 
  protected:
   int records(ha_rows *num_rows) override;

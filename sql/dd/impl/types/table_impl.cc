@@ -227,7 +227,7 @@ bool Table_impl::load_foreign_key_parents(Open_dictionary_tables_ctx *otx) {
 ///////////////////////////////////////////////////////////////////////////
 
 bool Table_impl::reload_foreign_key_parents(THD *thd) {
-  dd::Transaction_ro trx(thd, get_dd_isolation_level());
+  dd::Transaction_ro trx(thd, ISO_READ_UNCOMMITTED);
 
   // Register and open tables.
   trx.otx.register_tables<dd::Table>();

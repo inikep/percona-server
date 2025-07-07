@@ -5971,9 +5971,7 @@ static int innobase_commit(handlerton *hton, /*!< in: InnoDB handlerton */
     }
 
     /* If SE needs to persist GTID we must have a transaction. */
-    if (thd->se_persists_gtid_explicit() &&
-        (innobase_is_ddse() ||
-         trx->state.load(std::memory_order_relaxed) != TRX_STATE_PREPARED)) {
+    if (thd->se_persists_gtid_explicit()) {
       trx_start_if_not_started(trx, true, UT_LOCATION_HERE);
     }
 
@@ -13065,21 +13063,9 @@ static bool innobase_ddse_dict_init(
     return true;
   }
 
-  if (!innobase_is_ddse()) {
-    dd::Object_table *dd_properties_placeholder =
-        dd::Object_table::create_object_table("INNODB");
-    dd_properties_placeholder->set_hidden(true);
-    dd::Object_table_definition *def =
-        dd_properties_placeholder->target_table_definition();
-    def->set_table_name("dd_properties_placeholder");
-    def->add_field(0, "dummy", "dummy INT UNSIGNED NOT NULL");
-    def->add_index(0, "dummy_pk", "PRIMARY KEY (dummy)");
-    tables->push_back(dd_properties_placeholder);
-  }
-
   /* Instantiate table defs only if we are successful so far. */
   dd::Object_table *innodb_dynamic_metadata =
-      dd::Object_table::create_object_table("INNODB");
+      dd::Object_table::create_object_table();
   innodb_dynamic_metadata->set_hidden(true);
   dd::Object_table_definition *def =
       innodb_dynamic_metadata->target_table_definition();
@@ -13114,7 +13100,7 @@ static bool innobase_ddse_dict_init(
   std::string table_field = table_name_field.str();
 
   dd::Object_table *innodb_table_stats =
-      dd::Object_table::create_object_table("INNODB");
+      dd::Object_table::create_object_table();
   innodb_table_stats->set_hidden(false);
   def = innodb_table_stats->target_table_definition();
   def->set_table_name("innodb_table_stats");
@@ -13133,7 +13119,7 @@ static bool innobase_ddse_dict_init(
   /* Options and tablespace are set at the SQL layer. */
 
   dd::Object_table *innodb_index_stats =
-      dd::Object_table::create_object_table("INNODB");
+      dd::Object_table::create_object_table();
   innodb_index_stats->set_hidden(false);
   def = innodb_index_stats->target_table_definition();
   def->set_table_name("innodb_index_stats");
@@ -13160,7 +13146,7 @@ static bool innobase_ddse_dict_init(
   /* Options and tablespace are set at the SQL layer. */
 
   dd::Object_table *innodb_ddl_log =
-      dd::Object_table::create_object_table("INNODB");
+      dd::Object_table::create_object_table();
   innodb_ddl_log->set_hidden(true);
   def = innodb_ddl_log->target_table_definition();
   def->set_table_name("innodb_ddl_log");
@@ -15170,57 +15156,6 @@ bool ha_innobase::get_se_private_data(dd::Table *dd_table, bool reset) {
     dict_sys_t::s_dd_table_ids.clear();
   }
 
-  // Similar to boostrap, During DDSE change, SQL layer may also ask
-  // se_private_data for other DD tables
-  if (!innobase_is_ddse() && !dd::is_dd_engine_change_in_progress()) {
-    if (dd_table->name() == "dd_properties_placeholder") {
-      n_tables = 0;
-      n_indexes = 0;
-      n_pages = 4;
-    } else if (dd_table->name() == "innodb_dynamic_metadata") {
-      n_tables = 1;
-      n_indexes = 1;
-      n_pages = 5;
-    } else if (dd_table->name() == "innodb_table_stats") {
-      n_tables = 2;
-      n_indexes = 2;
-      n_pages = 6;
-    } else if (dd_table->name() == "innodb_index_stats") {
-      n_tables = 3;
-      n_indexes = 3;
-      switch (srv_page_size) {
-      case 4096:
-        n_pages = 8;
-        break;
-      case 8192:
-      case 16384:
-      case 32768:
-      case 65536:
-        n_pages = 7;
-        break;
-      default:
-        assert(false);
-      }
-    } else {
-      assert(dd_table->name() == "innodb_ddl_log");
-      n_tables = 4;
-      n_indexes = 4;
-      switch (srv_page_size) {
-      case 4096:
-        n_pages = 9;
-        break;
-      case 8192:
-      case 16384:
-      case 32768:
-      case 65536:
-        n_pages = 8;
-        break;
-      default:
-        assert(false);
-      }
-    }
-  }
-
 #ifdef UNIV_DEBUG
   const uint n_indexes_old = n_indexes;
 #endif
@@ -15243,10 +15178,7 @@ bool ha_innobase::get_se_private_data(dd::Table *dd_table, bool reset) {
   const innodb_dd_table_t &data = innodb_dd_table[n_tables];
 #endif
 
-  assert(dd_table->name() == data.name ||
-         (!innobase_is_ddse() &&
-          dd_table->name() == "dd_properties_placeholder" &&
-          strcmp(data.name, "dd_properties") == 0));
+  assert(dd_table->name() == data.name);
 
   dd_table->set_se_private_id(++n_tables);
   dd_table->set_tablespace_id(dict_sys_t::s_dd_dict_space_id);
@@ -15313,10 +15245,6 @@ int ha_innobase::create(const char *name, TABLE *form,
 
   if (!(create_info->options & HA_LEX_CREATE_TMP_TABLE)) {
     innobase_register_trx(ht, thd, trx);
-  }
-
-  if (!innobase_is_ddse()) {
-    mark_trx_rw(*thd);
   }
 
   /* Determine if this CREATE TABLE will be making a file-per-table
@@ -15514,10 +15442,6 @@ int ha_innobase::truncate_impl(const char *name, TABLE *form,
   trx_t *trx = check_trx_exists(thd);
   innobase_register_trx(ht, thd, trx);
 
-  if (!innobase_is_ddse()) {
-    mark_trx_rw(*thd);
-  }
-
   error = truncator.exec();
 
   if (error == 0) {
@@ -15542,12 +15466,8 @@ be dropped
 @return error number
 @retval 0 on success */
 int ha_innobase::delete_table(const char *name, const dd::Table *table_def) {
-  // during DDSE change, s_dd_table_ids may contain old dd table ids, thus
-  // allow drop/rename if current SE isn't target DDSE and current thread is
-  // dd bootstrap system thread
   if (table_def != nullptr &&
-      dict_sys_t::is_dd_table_id(table_def->se_private_id()) &&
-      !(ha_thd()->is_dd_system_thread() && !innobase_is_ddse())) {
+      dict_sys_t::is_dd_table_id(table_def->se_private_id())) {
     my_error(ER_NOT_ALLOWED_COMMAND, MYF(0));
     return (HA_ERR_UNSUPPORTED);
   }
@@ -15557,10 +15477,6 @@ int ha_innobase::delete_table(const char *name, const dd::Table *table_def) {
 
   if (table_def != nullptr && table_def->is_persistent()) {
     innobase_register_trx(ht, thd, trx);
-  }
-
-  if (!innobase_is_ddse()) {
-    mark_trx_rw(*thd);
   }
 
   return (innobase_basic_ddl::delete_impl(thd, name, table_def, nullptr));
@@ -15831,10 +15747,6 @@ static int innodb_create_tablespace(handlerton *hton, THD *thd,
   trx_t *trx = check_trx_exists(thd);
   TrxInInnoDB trx_in_innodb(trx);
   trx_start_if_not_started(trx, true, UT_LOCATION_HERE);
-  if (!innobase_is_ddse()) {
-    innobase_register_trx(hton, thd, trx);
-    mark_trx_rw(*thd);
-  }
   ++trx->will_lock;
 
   row_mysql_lock_data_dictionary(trx, UT_LOCATION_HERE);
@@ -16258,9 +16170,6 @@ static int innodb_drop_tablespace(handlerton *hton, THD *thd,
   trx_t *trx = check_trx_exists(thd);
   TrxInInnoDB trx_in_innodb(trx);
   trx_start_if_not_started(trx, true, UT_LOCATION_HERE);
-  if (!innobase_is_ddse()) {
-    innobase_register_trx(hton, thd, trx);
-  }
   ++trx->will_lock;
 
   /* Acquire Exclusive MDL on SDI table of tablespace.
@@ -16585,9 +16494,6 @@ static int innodb_drop_undo_tablespace(handlerton *hton, THD *thd,
     can continue. */
     trx_t *trx = check_trx_exists(thd);
     trx_start_if_not_started(trx, true, UT_LOCATION_HERE);
-    if (!innobase_is_ddse()) {
-      innobase_register_trx(hton, thd, trx);
-    }
     ++trx->will_lock;
 
     return (0);
@@ -16632,9 +16538,6 @@ static int innodb_drop_undo_tablespace(handlerton *hton, THD *thd,
   trx_t *trx = check_trx_exists(thd);
   TrxInInnoDB trx_in_innodb(trx);
   trx_start_if_not_started(trx, true, UT_LOCATION_HERE);
-  if (!innobase_is_ddse()) {
-    innobase_register_trx(hton, thd, trx);
-  }
   ++trx->will_lock;
 
   auto err = log_ddl->write_delete_space_log(trx, nullptr, space_id,
@@ -16816,10 +16719,6 @@ int ha_innobase::rename_table(const char *from, const char *to,
   }
 
   innobase_register_trx(ht, thd, trx);
-
-  if (!innobase_is_ddse()) {
-    mark_trx_rw(*thd);
-  }
 
   return innobase_basic_ddl::rename_impl<dd::Table>(
       thd, from, to, from_table_def, to_table_def, nullptr);
@@ -20259,13 +20158,6 @@ static int innobase_xa_prepare(handlerton *hton, /*!< in: InnoDB handlerton */
 
   if (prepare_trx ||
       (!thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN))) {
-
-    /* If SE needs to persist GTID we must have a transaction. */
-    assert(trx->state.load(std::memory_order_relaxed) != TRX_STATE_PREPARED);
-    if (thd->se_persists_gtid_explicit() && !innobase_is_ddse()) {
-      trx_start_if_not_started(trx, true, UT_LOCATION_HERE);
-    }
-
     /* We were instructed to prepare the whole transaction, or
     this is an SQL statement end and autocommit is on */
 
@@ -24641,7 +24533,3 @@ static bool innobase_check_reserved_file_name(handlerton *, const char *name) {
   return (true);
 }
 #endif /* !UNIV_HOTBACKUP */
-
-bool innobase_is_ddse() {
-  return default_dd_system_storage_engine == DEFAULT_DD_INNODB;
-}

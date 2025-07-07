@@ -106,7 +106,6 @@
 #include "./rdb_index_merge.h"
 #include "./rdb_iterator.h"
 #include "./rdb_mutex_wrapper.h"
-#include "./rdb_native_dd.h"
 #include "./rdb_psi.h"
 #include "./rdb_sst_partitioner_factory.h"
 #include "./rdb_threads.h"
@@ -3646,13 +3645,6 @@ class Rdb_transaction {
     return m_bulk_index_transaction;
   }
 
-  void set_dd_transaction() {
-    assert(default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB);
-    assert(!is_ac_nl_ro_rc_transaction());
-
-    m_dd_transaction = true;
-  }
-
   [[nodiscard]] bool is_dd_transaction() const { return m_dd_transaction; }
 
   virtual void set_lock_timeout(int timeout_sec_arg, TABLE_TYPE table_type) = 0;
@@ -5962,45 +5954,6 @@ static bool rocksdb_user_table_blocked(legacy_db_type db_type) {
   return db_type == DB_TYPE_INNODB;
 }
 
-static bool rocksdb_is_supported_system_table(const char *db_name,
-                                              const char *tbl_name, bool) {
-  static const std::unordered_set<std::string_view> supported_tables{
-      "columns_priv"sv,
-      "component"sv,
-      "db"sv,
-      "default_roles"sv,
-      "engine_cost"sv,
-      "func"sv,
-      "global_grants"sv,
-      "help_category"sv,
-      "help_keyword"sv,
-      "help_relation"sv,
-      "help_topic"sv,
-      "password_history"sv,
-      "plugin"sv,
-      "procs_priv"sv,
-      "proxies_priv"sv,
-      "replication_asynchronous_connection_failover"sv,
-      "replication_asynchronous_connection_failover_managed"sv,
-      "replication_group_configuration_version"sv,
-      "replication_group_member_actions"sv,
-      "role_edges"sv,
-      "server_cost"sv,
-      "servers"sv,
-      "slave_master_info"sv,
-      "slave_relay_log_info"sv,
-      "slave_worker_info"sv,
-      "tables_priv"sv,
-      "time_zone"sv,
-      "time_zone_leap_second"sv,
-      "time_zone_name"sv,
-      "time_zone_transition"sv,
-      "time_zone_transition_type"sv,
-      "user"sv};
-  return strcmp(db_name, "mysql") == 0 &&
-         supported_tables.find(tbl_name) != supported_tables.cend();
-}
-
 /**
   For a slave, prepare() updates the slave_gtid_info table which tracks the
   replication progress.
@@ -7744,17 +7697,7 @@ static int rocksdb_init_internal(void *const p) {
   rocksdb_hton->clone_interface.clone_apply = rocksdb_clone_apply;
   rocksdb_hton->clone_interface.clone_apply_end = rocksdb_clone_apply_end;
 
-  rocksdb_hton->dict_register_dd_table_id = rocksdb_dict_register_dd_table_id;
-  rocksdb_hton->dict_get_server_version = rocksdb_dict_get_server_version;
-  rocksdb_hton->dict_set_server_version = rocksdb_dict_set_server_version;
-  rocksdb_hton->is_supported_system_table = rocksdb_is_supported_system_table;
-  rocksdb_hton->ddse_dict_init = rocksdb_ddse_dict_init;
   rocksdb_hton->table_exists_in_engine = rocksdb_table_exists_in_engine;
-  rocksdb_hton->is_dict_readonly = rocksdb_is_dict_readonly;
-  rocksdb_hton->dict_cache_reset_tables_and_tablespaces =
-      rocksdb_dict_cache_reset_tables_and_tablespaces;
-  rocksdb_hton->dict_recover = rocksdb_dict_recover;
-  rocksdb_hton->dict_cache_reset = rocksdb_dict_cache_reset;
 
   rocksdb_hton->flags = HTON_SUPPORTS_EXTENDED_KEYS | HTON_CAN_RECREATE;
 
@@ -10322,15 +10265,6 @@ int ha_rocksdb::create_table(const std::string &table_name,
   DBUG_ENTER_FUNC();
 
   int err;
-  // DD tables should be created in the __system__ CF.
-  // During the DDSE change, the SQL layer will create DD tables as
-  // <upgrade>.<table> first, then rename them to mysql.<table>.
-  // The rename is a meta-data only change, thus treat these <upgrade>.<table>
-  // tables as DD tables.
-  const auto db_name =
-      ha_thd()->is_dd_system_thread() ? "mysql" : table_arg.s->db.str;
-  bool is_dd_tbl = dd::get_dictionary()->is_dd_table_name(
-      db_name, table_arg.s->table_name.str);
   auto local_dict_manager = dict_manager.get_dict_manager_selector_non_const(
       is_tmp_table(table_name));
   const std::unique_ptr<rocksdb::WriteBatch> wb = local_dict_manager->begin();
@@ -10363,7 +10297,7 @@ int ha_rocksdb::create_table(const std::string &table_name,
   m_tbl_def->m_key_descr_arr = m_key_descr_arr;
 
   err = create_key_defs(table_arg, *m_tbl_def, actual_user_table_name,
-                        is_dd_tbl, nullptr, nullptr, table_def);
+                        false /*is_dd_tbl*/, nullptr, nullptr, table_def);
   if (err != HA_EXIT_SUCCESS) {
     goto error;
   }
@@ -10548,10 +10482,6 @@ int ha_rocksdb::truncate_table(Rdb_tbl_def *tbl_def_arg,
                                dd::Table *table_def) {
   DBUG_ENTER_FUNC();
 
-  int err = native_dd::reject_if_dd_table(
-      table_def, ha_thd() != nullptr && ha_thd()->is_dd_system_thread());
-  if (err != 0) DBUG_RETURN(err);
-
   /*
     Fast table truncation involves deleting the table and then recreating
     it. However, it is possible recreating the table fails. In this case, a
@@ -10575,7 +10505,7 @@ int ha_rocksdb::truncate_table(Rdb_tbl_def *tbl_def_arg,
     should be locked via MDL, no other process thread be able to access this
     table.
   */
-  err = rdb_split_normalized_tablename(orig_tablename, &dbname, &tblname,
+  int err = rdb_split_normalized_tablename(orig_tablename, &dbname, &tblname,
                                        &partition);
   assert(err == 0);
   if (err != HA_EXIT_SUCCESS) DBUG_RETURN(err);
@@ -12773,7 +12703,7 @@ int ha_rocksdb::update_write_pk(const Rdb_key_def &kd,
   }
 
   if (rocksdb_enable_bulk_load_api && THDVAR(table->in_use, bulk_load) &&
-      !hidden_pk && !is_dd_update()) {
+      !hidden_pk) {
     /*
       Write the primary key directly to an SST file using an SstFileWriter
      */
@@ -13050,7 +12980,7 @@ int ha_rocksdb::update_write_indexes(const struct update_row_info &row_info,
   // allow_sk is enabled and isn't dd operation(change table metadata)
   bulk_load_sk = rocksdb_enable_bulk_load_api &&
                  THDVAR(table->in_use, bulk_load) &&
-                 THDVAR(table->in_use, bulk_load_allow_sk) && !is_dd_update();
+                 THDVAR(table->in_use, bulk_load_allow_sk);
   for (uint key_id = 0; key_id < m_tbl_def->m_key_count; key_id++) {
     if (is_pk(key_id, *table, *m_tbl_def)) {
       continue;
@@ -14266,11 +14196,6 @@ int ha_rocksdb::external_lock(THD *const thd, int lock_type) {
           thd->lex->sql_command == SQLCOM_ALTER_TABLE) {
         tx->set_bulk_index_transaction();
       }
-
-      if (table_share->table_category == TABLE_CATEGORY_DICTIONARY) {
-        assert(default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB);
-        tx->set_dd_transaction();
-      }
     }
     tx->m_n_mysql_tables_in_use++;
     rocksdb_register_tx(rocksdb_hton, thd, tx);
@@ -14710,14 +14635,10 @@ int ha_rocksdb::delete_table(Rdb_tbl_def *const tbl) {
 */
 
 int ha_rocksdb::delete_table(const char *const tablename,
-                             const dd::Table *table_def) {
+                             const dd::Table *) {
   DBUG_ENTER_FUNC();
 
   assert(tablename != nullptr);
-
-  int err = native_dd::reject_if_dd_table(
-      table_def, ha_thd() != nullptr && ha_thd()->is_dd_system_thread());
-  if (err != 0) DBUG_RETURN(err);
 
   /* Find the table in the hash */
   Rdb_tbl_def *const tbl = get_table_if_exists(tablename);
@@ -14749,15 +14670,11 @@ int ha_rocksdb::rename_table(const char *const from, const char *const to,
   }
 #endif
 
-  int rc;
-  rc = native_dd::reject_if_dd_table(
-      from_table_def, ha_thd() != nullptr && ha_thd()->is_dd_system_thread());
-  if (rc != 0) DBUG_RETURN(rc);
-
   std::string from_str;
   std::string to_str;
   std::string from_db;
   std::string to_db;
+  int rc;
 
   if (rdb_is_tablename_normalized(from)) {
     from_str = from;
@@ -16819,20 +16736,6 @@ after check_if_supported_inplace_alter()
 inline bool ha_rocksdb::is_instant(const Alter_inplace_info *ha_alter_info) {
   return (ha_alter_info->handler_trivial_ctx !=
           static_cast<uint8_t>(Instant_Type::INSTANT_IMPOSSIBLE));
-}
-
-/*
-  DDL trx update both table metadata(DD table) and raw data,
-  - For table metadata(thd_is_dd_update_stmt()==True), always skip bulk loading
-  due to DD will read/restore latest metadata after updating metadata and bulk
-  loading doesn't suppose read before commit
-  - For raw data(thd_is_dd_update_stmt()==False), use bulk-load if requested
-  @return True if DDSE is rocksdb and it is updating table metadata
-*/
-bool ha_rocksdb::is_dd_update() const {
-  const auto result = thd_is_dd_update_stmt(ha_thd());
-  assert(!result || default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB);
-  return result;
 }
 
 #define SHOW_FNAME(name) rocksdb_show_##name
@@ -19696,40 +19599,6 @@ static bool parse_fault_injection_params(
     }
     types->push_back(type);
   }
-
-  return false;
-}
-
-bool ha_rocksdb::get_se_private_data(dd::Table *dd_table, bool reset) {
-  static dd::Object_id next_dd_index_id = Rdb_key_def::MIN_DD_INDEX_ID;
-
-  if (reset) {
-    next_dd_index_id = Rdb_key_def::MIN_DD_INDEX_ID;
-    native_dd::clear_dd_table_ids();
-  }
-
-  dd_table->set_se_private_id(next_dd_index_id++);
-
-  // MyRocks enforces that the DD tables either have a primary key, either have
-  // no unique keys. Otherwise one of the unique (non-NULL) keys gets promoted
-  // to a primary key implicitly, and at this point we wouldn't know which one.
-  bool primary_key_found [[maybe_unused]] = false;
-  bool unique_key_found [[maybe_unused]] = false;
-  for (auto *index : *dd_table->indexes()) {
-    if (index->type() == dd::Index::IT_PRIMARY) {
-      assert(!primary_key_found);
-      primary_key_found = true;
-      // Don't bother setting the index ID for the primary index: it would be
-      // identical to the table ID, and the index is found through the latter
-      continue;
-    }
-    if (index->type() == dd::Index::IT_UNIQUE) {
-      unique_key_found = true;
-    }
-    auto &properties = index->se_private_data();
-    properties.set("index_id", next_dd_index_id++);
-  }
-  assert(primary_key_found || !unique_key_found);
 
   return false;
 }

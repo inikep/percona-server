@@ -79,52 +79,10 @@ using namespace dd;
 
 namespace {
 
-/**
-  During restart, 'guess' actual/current DDSE by handler table_exists_in_engine
-  API, If one SE contains mysql.dd_properties table, then set it as
-  actual/current DDSE.
-
-  @param[in]    thd         Thread Handle
-
-*/
-void find_actual_ddse_from_handler(THD *thd) {
-  if (opt_initialize) return;
-
-  // Find out which SE contains dd_properties table during restart
-  // Try rocksdb first
-  auto *rocksdb_se = ha_resolve_by_legacy_type(thd, DB_TYPE_ROCKSDB);
-  int error = HA_ERR_NO_SUCH_TABLE;
-  if (rocksdb_se != nullptr && rocksdb_se->table_exists_in_engine != nullptr) {
-    error = rocksdb_se->table_exists_in_engine(
-        rocksdb_se, thd, MYSQL_SCHEMA_NAME.str,
-        dd::tables::DD_properties::instance().name().c_str());
-  }
-  if (error == HA_ERR_TABLE_EXIST) {
-    // actual ddse maybe rocksdb
-    bootstrap::DD_bootstrap_ctx::instance().set_actual_dd_engine(
-        DB_TYPE_ROCKSDB);
-  } else {
-    // actual ddse maybe innodb
-    bootstrap::DD_bootstrap_ctx::instance().set_actual_dd_engine(
-        DB_TYPE_INNODB);
-  }
-}
-
-// This method is required for upgrade sceanrio
-// during upgrade, there are two dd engine: actual engine and target engine
-[[nodiscard]] handlerton *calculate_dd_engine(THD *thd) {
-  if (opt_initialize) {
-    return get_dd_engine(thd);
-  } else {
-    return ha_resolve_by_legacy_type(
-        thd, bootstrap::DD_bootstrap_ctx::instance().get_actual_dd_engine());
-  }
-}
-
 // Initialize recovery in the DDSE.
 bool DDSE_dict_recover(THD *thd, dict_recovery_mode_t dict_recovery_mode,
                        uint version) {
-  handlerton *ddse = calculate_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (ddse->dict_recover == nullptr) return true;
   bool error = ddse->dict_recover(dict_recovery_mode, version);
   if (error && dict_recovery_mode == DICT_RECOVERY_INITIALIZE_TABLESPACES)
@@ -676,10 +634,9 @@ bool repopulate_charsets_and_collations(THD *thd) {
     The call to retrieve the handlerton for the DDSE should be replaced by a
     more generic mechanism.
   */
-  handlerton *ddse = get_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (ddse->is_dict_readonly && ddse->is_dict_readonly()) {
-    LogErr(WARNING_LEVEL, ER_DD_NO_WRITES_NO_REPOPULATION, get_dd_engine_name(),
-           " ");
+    LogErr(WARNING_LEVEL, ER_DD_NO_WRITES_NO_REPOPULATION, "InnoDB", " ");
     return false;
   }
 
@@ -780,9 +737,7 @@ namespace bootstrap {
   predefined tables and tablespaces.
 */
 bool DDSE_dict_init(THD *thd, dict_init_mode_t dict_init_mode, uint version) {
-  find_actual_ddse_from_handler(thd);
-
-  handlerton *ddse = calculate_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   /*
     The lists with element wrappers are mem root allocated. The wrapped
     instances are allocated dynamically in the DDSE. These instances will be
@@ -1151,63 +1106,10 @@ bool create_dd_schema(THD *thd) {
                                     dd::String_type(MYSQL_SCHEMA_NAME.str));
 }
 
-/*
-  With multiple DDSE, dd_properties table may exists in other SE instead of
-  default DDSE. thus add two table definition: actual and target
-    - "actual" means existing table definition,
-    - "target" means expected table definition, it should be table definiton
-      using default DDSE.
-  For bootstrap, "actual" doesn't exist.
-  For restart without upgrade, "actual" and "target" should be same.
-  For upgrade, "actual" is gotten by checking table_exists_in_engine and then
-    compute.
-  The only difference between "actual" and "target" is SE.
-
- @param [IN]  thd  THD Handle
- @param [OUT] dd_properties_engine which SE stores mysql.dd_properties table
-
- @return mysql.dd_properties table definition
-*/
-[[nodiscard]] const Object_table_definition *get_dd_properties_table_definition(
-    THD *thd, legacy_db_type &dd_properties_engine) {
-  dd_properties_engine = get_dd_engine_type();
-  if (!opt_initialize) {
-    // Find out which SE contains dd_properties table during restart
-    // Try rocksdb first
-    handlerton *rocksdb_hton = ha_resolve_by_legacy_type(thd, DB_TYPE_ROCKSDB);
-    int error = HA_ERR_NO_SUCH_TABLE;
-    if (rocksdb_hton != nullptr &&
-        rocksdb_hton->table_exists_in_engine != nullptr) {
-      error = rocksdb_hton->table_exists_in_engine(
-          rocksdb_hton, thd, MYSQL_SCHEMA_NAME.str,
-          dd::tables::DD_properties::instance().name().c_str());
-    }
-
-    dd_properties_engine =
-        (error == HA_ERR_TABLE_EXIST) ? DB_TYPE_ROCKSDB : DB_TYPE_INNODB;
-    dd::tables::DD_properties::instance().set_actual_engine(
-        get_dd_engine_name(dd_properties_engine));
-  }
-
-  // Create the dd_properties table.
-  const Object_table_definition *dd_properties_def = nullptr;
-  if (opt_initialize) {
-    dd_properties_def =
-        dd::tables::DD_properties::instance().target_table_definition();
-  } else {
-    dd_properties_def =
-        dd::tables::DD_properties::instance().actual_table_definition();
-  }
-  return dd_properties_def;
-}
-
 bool initialize_dd_properties(THD *thd) {
   // Create the dd_properties table.
-  legacy_db_type dd_properties_engine = DB_TYPE_UNKNOWN;
   const Object_table_definition *dd_properties_def =
-      get_dd_properties_table_definition(thd, dd_properties_engine);
-  assert(dd_properties_engine != DB_TYPE_UNKNOWN);
-
+      dd::tables::DD_properties::instance().target_table_definition();
   if (dd::execute_query(thd, dd_properties_def->get_ddl())) return true;
 
   /*
@@ -1221,10 +1123,6 @@ bool initialize_dd_properties(THD *thd) {
   bootstrap::DD_bootstrap_ctx::instance().set_actual_dd_version(actual_version);
   bootstrap::DD_bootstrap_ctx::instance().set_upgraded_server_version(
       actual_server_version);
-  bootstrap::DD_bootstrap_ctx::instance().set_actual_dd_engine(
-      get_dd_engine_type());
-  bootstrap::DD_bootstrap_ctx::instance().set_upgraded_dd_system_engine(
-      dd_properties_engine);
 
   if (!opt_initialize) {
     bool exists = false;
@@ -1325,63 +1223,6 @@ bool initialize_dd_properties(THD *thd) {
       LogErr(ERROR_LEVEL, ER_LCTN_CHANGED, lower_case_table_names, actual_lctn);
       return true;
     }
-
-    /*
-      Read actual dd engine from dd_properties: reject restarting if found
-      unsupported DD_ENGINE; use INNODB if couldn't find DD_ENGINE, since
-      existing INNODB DDSE instance doesn't contain DD_ENGINE property
-    */
-    legacy_db_type actual_dd_engine = DB_TYPE_UNKNOWN;
-    exists = false;
-    if (dd::tables::DD_properties::instance().get(
-            thd, "DD_ENGINE", reinterpret_cast<uint *>(&actual_dd_engine),
-            &exists) ||
-        !exists) {
-      LogErr(INFORMATION_LEVEL, ER_DD_ENGINE_NOT_FOUND,
-             get_dd_engine_name(DB_TYPE_INNODB));
-      actual_dd_engine = DB_TYPE_INNODB;
-    }
-
-    if ((actual_dd_engine != DB_TYPE_INNODB) &&
-        (actual_dd_engine != DB_TYPE_ROCKSDB)) {
-      // construct supported DDSE name and its value
-      std::ostringstream oss;
-      oss << get_dd_engine_name(DB_TYPE_INNODB) << "(" << DB_TYPE_INNODB << ")"
-          << "," << get_dd_engine_name(DB_TYPE_ROCKSDB) << "("
-          << DB_TYPE_ROCKSDB << ")";
-      LogErr(ERROR_LEVEL, ER_UNSUPPORTED_DD_ENGINE, actual_dd_engine,
-             oss.str().c_str());
-      return true;
-    }
-
-    // DDSE ROCKSDB->INNODB isn't supported yet
-    if (actual_dd_engine == DB_TYPE_ROCKSDB &&
-        get_dd_engine_type() == DB_TYPE_INNODB) {
-      LogErr(ERROR_LEVEL, ER_DD_ENGINE_UPGRADED_UNSUPPORTED,
-             get_dd_engine_name(DB_TYPE_ROCKSDB),
-             get_dd_engine_name(DB_TYPE_INNODB));
-      return true;
-    }
-    bootstrap::DD_bootstrap_ctx::instance().set_actual_dd_engine(
-        actual_dd_engine);
-
-    /*
-      Read DD_SYSTEM_ENGINE_UPGRADED from dd_properties, if it does not exist,
-      use INNODB instead;
-    */
-    legacy_db_type upgraded_dd_system_engine = DB_TYPE_UNKNOWN;
-    bool exists_upgraded_dd_system_engine = false;
-    if (dd::tables::DD_properties::instance().get(
-            thd, "DD_SYSTEM_ENGINE_UPGRADED",
-            reinterpret_cast<uint *>(&upgraded_dd_system_engine),
-            &exists_upgraded_dd_system_engine) ||
-        !exists_upgraded_dd_system_engine) {
-      LogErr(INFORMATION_LEVEL, ER_DD_SYSTEM_ENGINE_UPGRADED_NOT_FOUND,
-             get_dd_engine_name(DB_TYPE_INNODB));
-      upgraded_dd_system_engine = DB_TYPE_INNODB;
-    }
-    bootstrap::DD_bootstrap_ctx::instance().set_upgraded_dd_system_engine(
-        upgraded_dd_system_engine);
   }
 
   if (bootstrap::DD_bootstrap_ctx::instance().is_initialize())
@@ -1391,18 +1232,12 @@ bool initialize_dd_properties(THD *thd) {
   else if (bootstrap::DD_bootstrap_ctx::instance().is_minor_downgrade())
     LogErr(INFORMATION_LEVEL, ER_DD_MINOR_DOWNGRADE, actual_version,
            dd::DD_VERSION);
-  else if (bootstrap::DD_bootstrap_ctx::instance().is_dd_engine_change())
-    LogErr(INFORMATION_LEVEL, ER_DDSE_CHANGE,
-           get_dd_engine_name(
-               bootstrap::DD_bootstrap_ctx::instance().get_actual_dd_engine()),
-           get_dd_engine_name());
   else {
     /*
       If none of the above, then this must be DD upgrade or server
       upgrade, or DD engine change.
     */
     if (bootstrap::DD_bootstrap_ctx::instance().is_dd_upgrade()) {
-      assert(!bootstrap::DD_bootstrap_ctx::instance().is_dd_engine_change());
       LogErr(SYSTEM_LEVEL, ER_DD_UPGRADE, actual_version, dd::DD_VERSION);
       sysd::notify("STATUS=Data Dictionary upgrade in progress\n");
     }
@@ -1751,7 +1586,7 @@ bool sync_meta_data(THD *thd) {
     return true;
 
   // Reset the DDSE local dictionary cache.
-  handlerton *ddse = calculate_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (ddse->dict_cache_reset == nullptr) return true;
 
   for (System_tables::Const_iterator it = System_tables::instance()->begin();
@@ -1945,9 +1780,7 @@ bool update_versions(THD *thd, bool is_dd_upgrade_57) {
         dd::tables::DD_properties::instance().set(thd, "MYSQLD_VERSION_HI",
                                                   MYSQL_VERSION_ID) ||
         dd::tables::DD_properties::instance().set(thd, "MYSQLD_VERSION",
-                                                  MYSQL_VERSION_ID) ||
-        dd::tables::DD_properties::instance().set(thd, "DD_ENGINE",
-                                                  get_dd_engine_type()))
+                                                  MYSQL_VERSION_ID))
       return dd::end_transaction(thd, true);
 
     if (is_dd_upgrade_57) {
@@ -1963,10 +1796,6 @@ bool update_versions(THD *thd, bool is_dd_upgrade_57) {
       bootstrap::DD_bootstrap_ctx::instance().set_upgraded_server_version(
           MYSQL_VERSION_ID);
     }
-
-    bootstrap::DD_bootstrap_ctx::instance().set_upgraded_dd_system_engine(
-        get_dd_engine_type());
-
   } else {
     uint mysqld_version_lo = 0;
     uint mysqld_version_hi = 0;
@@ -1976,7 +1805,6 @@ bool update_versions(THD *thd, bool is_dd_upgrade_57) {
     bool exists_hi = false;
     bool exists = false;
     bool exists_upgraded_version = false;
-    legacy_db_type upgrade_dd_system_engine = DB_TYPE_UNKNOWN;
 
     if ((dd::tables::DD_properties::instance().get(
              thd, "MYSQLD_VERSION_LO", &mysqld_version_lo, &exists_lo) ||
@@ -2040,28 +1868,6 @@ bool update_versions(THD *thd, bool is_dd_upgrade_57) {
                                                    dd::DD_VERSION)))
       return dd::end_transaction(thd, true);
 
-    // Update DD ENGINE with target engine
-    if (bootstrap::DD_bootstrap_ctx::instance().is_dd_engine_change() &&
-        dd::tables::DD_properties::instance().set(thd, "DD_ENGINE",
-                                                  get_dd_engine_type()))
-      return dd::end_transaction(thd, true);
-
-    /*
-      Initialize ctx DD_SYSTEM_ENGINE_UPGRADED for update SYSTEM TALBES later
-    */
-    bool exists_upgraded_dd_system_engine = false;
-    if (dd::tables::DD_properties::instance().get(
-            thd, "DD_SYSTEM_ENGINE_UPGRADED",
-            reinterpret_cast<uint *>(&upgrade_dd_system_engine),
-            &exists_upgraded_dd_system_engine) ||
-        !exists_upgraded_dd_system_engine) {
-      upgrade_dd_system_engine = DB_TYPE_INNODB;
-      if (dd::tables::DD_properties::instance().set(
-              thd, "DD_SYSTEM_ENGINE_UPGRADED", upgrade_dd_system_engine))
-        return dd::end_transaction(thd, true);
-    }
-    bootstrap::DD_bootstrap_ctx::instance().set_upgraded_dd_system_engine(
-        upgrade_dd_system_engine);
     /*
       Update the minor downgrade threshold in case of upgrade.
       Note that on downgrade, we keep the threshold version which is
@@ -2082,7 +1888,7 @@ bool update_versions(THD *thd, bool is_dd_upgrade_57) {
     back in case of an abort, so this better be the last step we
     do before committing.
   */
-  handlerton *ddse = get_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (opt_initialize ||
       bootstrap::DD_bootstrap_ctx::instance().is_server_upgrade() ||
       bootstrap::DD_bootstrap_ctx::instance().is_dd_upgrade()) {

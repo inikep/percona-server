@@ -6269,13 +6269,6 @@ static Sys_var_plugin Sys_default_tmp_storage_engine(
     MYSQL_STORAGE_ENGINE_PLUGIN, DEFAULT(&default_tmp_storage_engine),
     NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(check_storage_engine));
 
-static const char *dd_storage_engine[] = {"InnoDB", "RocksDB", NullS};
-static Sys_var_enum Sys_default_dd_system_storage_engine(
-    "default_dd_system_storage_engine",
-    "The default storage engine for data dictionary",
-    READ_ONLY GLOBAL_VAR(default_dd_system_storage_engine),
-    CMD_LINE(REQUIRED_ARG), dd_storage_engine, DEFAULT(DEFAULT_DD_INNODB));
-
 #if defined(ENABLED_DEBUG_SYNC)
 /*
   Variable can be set for the session only.
@@ -10427,14 +10420,6 @@ static Sys_var_bool Sys_install_plugin_skip_registration(
     "Controls whether INSTALL PLUGIN registers plugin in mysql.plugin table "
     "permanently, or skips registration making it a one time installation",
     GLOBAL_VAR(install_plugin_skip_registration), CMD_LINE(OPT_ARG),
-    DEFAULT(false));
-
-static Sys_var_bool Sys_skip_sys_tables_engine_check(
-    "skip_sys_tables_engine_check",
-    "skip System Tables storage engine check. If True, System Tables can use "
-    "any supported storage engines; If False, System Tables can only use "
-    "default_dd_system_storage_engine",
-    GLOBAL_VAR(skip_sys_tables_engine_check), CMD_LINE(OPT_ARG),
     DEFAULT(false));
 
 std::string applied_opid_set;

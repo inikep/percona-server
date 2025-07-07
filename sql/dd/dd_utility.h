@@ -66,47 +66,6 @@ size_t normalize_string(const CHARSET_INFO *cs, const String_type &src,
 */
 bool check_if_server_ddse_readonly(THD *thd, const char *schema_name = nullptr);
 
-/**
-  Get the isolation level for a data dictionary transaction. InnoDB uses READ
-  UNCOMMITTED to work correctly in the following cases:
-  - when called in the middle of an atomic DDL statement;
-  - wehn called during the server startup when the undo logs have not been
-  initialized yet.
-  @return isolation level
-*/
-[[nodiscard]] inline enum_tx_isolation get_dd_isolation_level() {
-  assert(default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB ||
-         default_dd_system_storage_engine == DEFAULT_DD_INNODB);
-  return default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB
-             ? ISO_READ_COMMITTED
-             : ISO_READ_UNCOMMITTED;
-}
-
-[[nodiscard]] inline legacy_db_type get_dd_engine_type() {
-  assert(default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB ||
-         default_dd_system_storage_engine == DEFAULT_DD_INNODB);
-  const auto db_type = default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB
-                           ? DB_TYPE_ROCKSDB
-                           : DB_TYPE_INNODB;
-  return db_type;
-}
-
-[[nodiscard]] inline handlerton *get_dd_engine(THD *thd) {
-  const auto db_type = get_dd_engine_type();
-  return ha_resolve_by_legacy_type(thd, db_type);
-}
-
-[[nodiscard]] inline const char *get_dd_engine_name() {
-  assert(default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB ||
-         default_dd_system_storage_engine == DEFAULT_DD_INNODB);
-  return default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB ? "ROCKSDB"
-                                                                : "INNODB";
-}
-
-[[nodiscard]] inline const char *get_dd_engine_name(legacy_db_type db_type) {
-  assert(db_type == DB_TYPE_INNODB || db_type == DB_TYPE_ROCKSDB);
-  return db_type == DB_TYPE_ROCKSDB ? "ROCKSDB" : "INNODB";
-}
 ///////////////////////////////////////////////////////////////////////////
 
 }  // namespace dd

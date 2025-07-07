@@ -1226,7 +1226,7 @@ bool Dictionary_client::acquire_uncached_uncommitted_impl(Object_id id,
 
   const typename T::Cache_partition *stored_object = nullptr;
   bool error = Shared_dictionary_cache::instance()->get_uncached(
-      m_thd, key, get_dd_isolation_level(), &stored_object);
+      m_thd, key, ISO_READ_UNCOMMITTED, &stored_object);
   if (!error) {
     // Here, stored_object is a newly created instance, so we do not need to
     // clone() it, but we must delete it if dynamic cast fails.
@@ -1650,7 +1650,11 @@ static bool get_index_statistics_entries(
     THD *thd, const String_type &schema_name, const String_type &table_name,
     std::vector<String_type> &index_names,
     std::vector<String_type> &column_names) {
-  dd::Transaction_ro trx(thd, get_dd_isolation_level());
+  /*
+    Use READ UNCOMMITTED isolation, so this method works correctly when
+    called from the middle of atomic ALTER TABLE statement.
+  */
+  dd::Transaction_ro trx(thd, ISO_READ_UNCOMMITTED);
 
   // Open the DD tables holding dynamic table statistics.
   trx.otx.register_tables<dd::Table_stat>();
@@ -1723,7 +1727,11 @@ bool Dictionary_client::remove_table_dynamic_statistics(
           tables::Index_stats::create_object_key(schema_name, table_name,
                                                  *it_idxs, *it_cols));
 
-      if (Storage_adapter::get(m_thd, *key, get_dd_isolation_level(), false,
+      /*
+        Use READ UNCOMMITTED isolation, so this method works correctly when
+        called from the middle of atomic ALTER TABLE statement.
+      */
+      if (Storage_adapter::get(m_thd, *key, ISO_READ_UNCOMMITTED, false,
                                &idx_stat)) {
         assert(m_thd->is_error() || m_thd->killed);
         return true;
@@ -1751,9 +1759,13 @@ bool Dictionary_client::remove_table_dynamic_statistics(
   // Fetch the entry.
   std::unique_ptr<Table_stat::Name_key> key(
       tables::Table_stats::create_object_key(schema_name, table_name));
-
+      
+  /*
+    Use READ UNCOMMITTED isolation, so this method works correctly when
+    called from the middle of atomic ALTER TABLE statement.
+  */
   const Table_stat *tab_stat = nullptr;
-  if (Storage_adapter::get(m_thd, *key, get_dd_isolation_level(), false,
+  if (Storage_adapter::get(m_thd, *key, ISO_READ_UNCOMMITTED, false,
                            &tab_stat)) {
     assert(m_thd->is_error() || m_thd->killed);
     return true;
@@ -2276,7 +2288,12 @@ template <typename T>
 bool Dictionary_client::fetch_referencing_views_object_id(
     const char *schema, const char *tbl_or_sf_name,
     std::vector<Object_id> *view_ids) const {
-  dd::Transaction_ro trx(m_thd, get_dd_isolation_level());
+  /*
+    Use READ UNCOMMITTED isolation, so this method works correctly when
+    called from the middle of atomic DROP TABLE/DATABASE or
+    RENAME TABLE statements.
+  */
+  dd::Transaction_ro trx(m_thd, ISO_READ_UNCOMMITTED);
 
   // Register View_table_usage/View_routine_usage.
   trx.otx.register_tables<T>();
@@ -2320,7 +2337,7 @@ bool Dictionary_client::fetch_fk_children_uncached(
     std::vector<String_type> *children_schemas,
     std::vector<String_type> *children_names) {
   dd::Transaction_ro trx(
-      m_thd, uncommitted ? get_dd_isolation_level() : ISO_READ_COMMITTED);
+      m_thd, uncommitted ? ISO_READ_UNCOMMITTED : ISO_READ_COMMITTED);
 
   trx.otx.register_tables<Foreign_key>();
   Raw_table *foreign_keys_table = trx.otx.get_table<Foreign_key>();
@@ -2799,7 +2816,7 @@ void Dictionary_client::remove_uncommitted_objects(
         DBUG_EVALUATE_IF("skip_dd_table_access_check", false, true)) {
       const typename T::Cache_partition *stored_object = nullptr;
       if (!Shared_dictionary_cache::instance()->get_uncached(
-              m_thd, id_key, get_dd_isolation_level(), &stored_object))
+              m_thd, id_key, ISO_READ_UNCOMMITTED, &stored_object))
         assert(stored_object == nullptr);
     }
 

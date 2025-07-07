@@ -1,2 +1,0 @@
---initialize --default_dd_system_storage_engine=RocksDB
---information_schema_stats_expiry=86400

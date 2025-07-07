@@ -70,7 +70,7 @@ namespace {
 inline bool can_persist_I_S_dynamic_statistics(THD *thd,
                                                const char *schema_name,
                                                const char *partition_name) {
-  handlerton *ddse = dd::get_dd_engine(thd);
+  handlerton *ddse = ha_resolve_by_legacy_type(thd, DB_TYPE_INNODB);
   if (ddse == nullptr || ddse->is_dict_readonly()) return false;
 
   return (thd->variables.information_schema_stats_expiry &&
@@ -155,9 +155,7 @@ bool store_statistics_record(THD *thd, T *object) {
       more information.
     */
     const auto mysql_errno = thd->get_stmt_da()->mysql_errno();
-    if (mysql_errno == ER_DUP_ENTRY ||
-        (default_dd_system_storage_engine == DEFAULT_DD_ROCKSDB &&
-         mysql_errno == ER_LOCK_WAIT_TIMEOUT)) {
+    if (mysql_errno == ER_DUP_ENTRY) {
       thd->clear_error();
       return false;
     }
