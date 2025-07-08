@@ -49,10 +49,6 @@
 #include "./rdb_sst_info.h"
 #include "./rdb_utils.h"
 
-#ifndef __APPLE__
-#include "./rdb_io_watchdog.h"
-#endif
-
 /**
   @note MyRocks Coding Conventions:
   MyRocks code follows the baseline MySQL coding conventions, available at
