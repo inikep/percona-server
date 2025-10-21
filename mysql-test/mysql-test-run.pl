@@ -277,6 +277,14 @@ our @DEFAULT_SUITES = qw(
   test_services
   x
   component_keyring_file
+
+  audit_null
+  engines/iuds
+  engines/funcs
+  funcs_1
+  group_replication
+  jp
+  stress
 );
 
 our $DEFAULT_SUITES = join ',', @DEFAULT_SUITES;
