@@ -3119,6 +3119,10 @@ int open_table_from_share(THD *thd, TABLE_SHARE *share, const char *alias,
               share->fields);
   outparam->default_column_bitmaps();
 
+  /* Fill record with default values */
+  if (outparam->record[0] != outparam->s->default_values)
+    restore_record(outparam, s->default_values);
+
   // Parse partition expression and create Items
   if (share->partition_info_str_len && outparam->file) {
     auto *old_map = dbug_tmp_use_all_columns(outparam, outparam->write_set);
@@ -3148,10 +3152,6 @@ int open_table_from_share(THD *thd, TABLE_SHARE *share, const char *alias,
     error_reported = true;
     goto err;
   }
-
-  /* Fill record with default values */
-  if (outparam->record[0] != outparam->s->default_values)
-    restore_record(outparam, share->default_values);
   /*
     Process generated columns, if any.
   */
