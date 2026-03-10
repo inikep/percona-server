@@ -119,7 +119,10 @@ bool LogWriterFile::open() noexcept {
   return do_open_file();
 }
 
-bool LogWriterFile::close() noexcept { return do_close_file(); }
+bool LogWriterFile::close() noexcept {
+  std::lock_guard<std::mutex> write_guard{m_write_lock};
+  return do_close_file();
+}
 
 bool LogWriterFile::do_open_file() noexcept {
   auto file_path = std::filesystem::path{SysVars::get_file_dir()} /
@@ -184,6 +187,7 @@ bool LogWriterFile::do_close_file() noexcept {
 void LogWriterFile::write(const std::string &record,
                           const bool print_separator) noexcept {
   std::lock_guard<std::mutex> write_guard{m_write_lock};
+  if (!m_is_opened) return;
   do_write(record, print_separator);
 }
 

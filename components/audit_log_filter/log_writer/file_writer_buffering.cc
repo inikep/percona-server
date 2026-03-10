@@ -114,9 +114,16 @@ void FileWriterBuffering::close() noexcept {
 }
 
 void FileWriterBuffering::shutdown() noexcept {
-  m_stop_flush_worker = true;
-
   if (m_buf != nullptr) {
+    mysql_mutex_lock(&m_mutex);
+    while (m_flush_pos != m_write_pos) {
+      mysql_cond_signal(&m_written_cond);
+      mysql_cond_wait(&m_flushed_cond, &m_mutex);
+    }
+    m_stop_flush_worker = true;
+    mysql_cond_signal(&m_written_cond);
+    mysql_mutex_unlock(&m_mutex);
+
     pthread_join(m_flush_worker_thread, nullptr);
     mysql_cond_destroy(&m_flushed_cond);
     mysql_cond_destroy(&m_written_cond);
