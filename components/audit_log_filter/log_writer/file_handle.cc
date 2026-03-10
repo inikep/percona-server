@@ -28,6 +28,41 @@
 
 namespace {
 const std::string kRotationTimeFormat{"%Y%m%dT%H%M%S"};
+
+template <typename Callback>
+void for_each_directory_entry(const std::string &working_dir_name,
+                              Callback callback) noexcept {
+  std::error_code ec;
+  std::filesystem::directory_iterator it(working_dir_name, ec);
+  const std::filesystem::directory_iterator end;
+
+  while (!ec && it != end) {
+    if (!callback(*it)) {
+      break;
+    }
+
+    it.increment(ec);
+  }
+}
+
+bool is_regular_file_noexcept(
+    const std::filesystem::directory_entry &entry) noexcept {
+  std::error_code ec;
+  return entry.is_regular_file(ec);
+}
+
+bool get_file_size_noexcept(const std::filesystem::directory_entry &entry,
+                            uint64_t *size) noexcept {
+  std::error_code ec;
+  const auto entry_size = entry.file_size(ec);
+
+  if (ec) {
+    return false;
+  }
+
+  *size = entry_size;
+  return true;
+}
 }
 
 #if defined(HAVE_PSI_INTERFACE)
@@ -107,18 +142,27 @@ std::filesystem::path FileHandle::get_not_rotated_file_path(
     const std::string &working_dir_name,
     const std::string &file_name) noexcept {
   const auto base_file_name = FileName::from_path(file_name).get_base_name();
+  std::filesystem::path not_rotated_file_path;
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator(working_dir_name)) {
-    if (entry.is_regular_file() &&
-        entry.path().filename().string().find(base_file_name) !=
-            std::string::npos &&
-        !FileName::from_path(entry.path().filename()).is_rotated()) {
-      return entry.path();
+  for_each_directory_entry(working_dir_name, [&](const auto &entry) {
+    if (!is_regular_file_noexcept(entry)) {
+      return true;
     }
-  }
 
-  return {};
+    if (entry.path().filename().string().find(base_file_name) ==
+        std::string::npos) {
+      return true;
+    }
+
+    if (FileName::from_path(entry.path().filename()).is_rotated()) {
+      return true;
+    }
+
+    not_rotated_file_path = entry.path();
+    return false;
+  });
+
+  return not_rotated_file_path;
 }
 
 uint64_t FileHandle::get_total_log_size(const std::string &working_dir_name,
@@ -130,18 +174,25 @@ uint64_t FileHandle::get_total_log_size(const std::string &working_dir_name,
 
   uint64_t size = 0;
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator(working_dir_name)) {
+  for_each_directory_entry(working_dir_name, [&](const auto &entry) {
+    if (!is_regular_file_noexcept(entry)) {
+      return true;
+    }
+
     auto entry_file_name = entry.path().filename();
 
     while (entry_file_name.has_extension()) {
       entry_file_name.replace_extension();
     }
 
-    if (entry.is_regular_file() && entry_file_name == base_name) {
-      size += entry.file_size();
+    if (entry_file_name == base_name) {
+      uint64_t entry_size = 0;
+      if (get_file_size_noexcept(entry, &entry_size)) {
+        size += entry_size;
+      }
     }
-  }
+    return true;
+  });
 
   return size;
 }
@@ -185,9 +236,15 @@ void FileHandle::remove_file_footer(
   }
 
   if (expected_footer == file_footer) {
-    std::filesystem::resize_file(
-        file_path,
-        std::filesystem::file_size(file_path) - expected_footer.size());
+    std::error_code ec;
+    const auto file_size = std::filesystem::file_size(file_path, ec);
+
+    if (ec || file_size < expected_footer.size()) {
+      return;
+    }
+
+    std::filesystem::resize_file(file_path, file_size - expected_footer.size(),
+                                 ec);
   }
 }
 
@@ -267,19 +324,28 @@ PruneFilesList FileHandle::get_prune_files(
     time_now = SysVars::get_debug_time_point_for_rotation();
   });
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator{working_dir_name}) {
-    if (entry.is_regular_file() && entry.path().filename().string().find(
-                                       base_file_name) != std::string::npos) {
-      auto parsed_file_name = FileName::from_path(entry.path().filename());
-
-      if (parsed_file_name.is_rotated()) {
-        auto timestamp = parsed_file_name.get_rotation_time().timestamp.value();
-        prune_files.push_back(
-            {entry.path(), entry.file_size(), time_now - timestamp});
-      }
+  for_each_directory_entry(working_dir_name, [&](const auto &entry) {
+    if (!is_regular_file_noexcept(entry) ||
+        entry.path().filename().string().find(base_file_name) ==
+            std::string::npos) {
+      return true;
     }
-  }
+
+    auto parsed_file_name = FileName::from_path(entry.path().filename());
+
+    if (parsed_file_name.is_rotated()) {
+      uint64_t entry_size = 0;
+
+      if (!get_file_size_noexcept(entry, &entry_size)) {
+        return true;
+      }
+
+      auto timestamp = parsed_file_name.get_rotation_time().timestamp.value();
+      prune_files.push_back({entry.path(), entry_size, time_now - timestamp});
+    }
+
+    return true;
+  });
 
   return prune_files;
 }
@@ -291,15 +357,16 @@ std::vector<std::string> FileHandle::get_log_names_list(
   auto base_file_name =
       std::filesystem::path{file_name}.replace_extension().string();
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator{working_dir_name}) {
+  for_each_directory_entry(working_dir_name, [&](const auto &entry) {
     const auto name = entry.path().filename().string();
 
-    if (entry.is_regular_file() &&
+    if (is_regular_file_noexcept(entry) &&
         name.find(base_file_name) != std::string::npos) {
       list.push_back(name);
     }
-  }
+
+    return true;
+  });
 
   return list;
 }
