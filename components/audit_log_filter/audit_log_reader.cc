@@ -99,14 +99,18 @@ bool AuditLogReader::init() noexcept {
   std::vector<std::string> new_files;
   std::vector<std::string> removed_files;
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator{SysVars::get_file_dir()}) {
-    auto log_name = entry.path().filename().string();
+  try {
+    for (const auto &entry :
+         std::filesystem::directory_iterator{SysVars::get_file_dir()}) {
+      auto log_name = entry.path().filename().string();
+      std::error_code ec;
 
-    if (entry.is_regular_file() &&
-        log_name.find(log_base_file_name) != std::string::npos) {
-      all_files.push_back(std::move(log_name));
+      if (entry.is_regular_file(ec) && !ec &&
+          log_name.find(log_base_file_name) != std::string::npos) {
+        all_files.push_back(std::move(log_name));
+      }
     }
+  } catch (...) {
   }
 
   std::copy_if(std::cbegin(all_files), std::cend(all_files),
