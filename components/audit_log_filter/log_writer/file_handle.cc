@@ -107,14 +107,23 @@ std::filesystem::path FileHandle::get_not_rotated_file_path(
     const std::string &working_dir_name,
     const std::string &file_name) noexcept {
   const auto base_file_name = FileName::from_path(file_name).get_base_name();
+  std::error_code ec;
+  auto it = std::filesystem::directory_iterator{
+      working_dir_name, std::filesystem::directory_options::skip_permission_denied, ec};
+  const auto end = std::filesystem::directory_iterator{};
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator(working_dir_name)) {
-    if (entry.is_regular_file() &&
-        entry.path().filename().string().find(base_file_name) !=
-            std::string::npos &&
-        !FileName::from_path(entry.path().filename()).is_rotated()) {
-      return entry.path();
+  for (; !ec && it != end; it.increment(ec)) {
+    std::error_code entry_ec;
+    const auto &entry = *it;
+    const bool is_regular_file = entry.is_regular_file(entry_ec);
+    if (entry_ec || !is_regular_file) {
+      continue;
+    }
+
+    const auto entry_path = entry.path();
+    if (entry_path.filename().string().find(base_file_name) != std::string::npos &&
+        !FileName::from_path(entry_path.filename()).is_rotated()) {
+      return entry_path;
     }
   }
 
@@ -129,17 +138,27 @@ uint64_t FileHandle::get_total_log_size(const std::string &working_dir_name,
   }
 
   uint64_t size = 0;
+  std::error_code ec;
+  auto it = std::filesystem::directory_iterator{
+      working_dir_name, std::filesystem::directory_options::skip_permission_denied, ec};
+  const auto end = std::filesystem::directory_iterator{};
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator(working_dir_name)) {
+  for (; !ec && it != end; it.increment(ec)) {
+    std::error_code entry_ec;
+    const auto &entry = *it;
     auto entry_file_name = entry.path().filename();
 
     while (entry_file_name.has_extension()) {
       entry_file_name.replace_extension();
     }
 
-    if (entry.is_regular_file() && entry_file_name == base_name) {
-      size += entry.file_size();
+    if (!entry.is_regular_file(entry_ec) || entry_ec || entry_file_name != base_name) {
+      continue;
+    }
+
+    auto entry_size = entry.file_size(entry_ec);
+    if (!entry_ec) {
+      size += entry_size;
     }
   }
 
@@ -185,16 +204,26 @@ void FileHandle::remove_file_footer(
   }
 
   if (expected_footer == file_footer) {
-    std::filesystem::resize_file(
-        file_path,
-        std::filesystem::file_size(file_path) - expected_footer.size());
+    std::error_code ec;
+    const auto current_size = std::filesystem::file_size(file_path, ec);
+    if (ec || current_size < expected_footer.size()) {
+      return;
+    }
+    std::filesystem::resize_file(file_path, current_size - expected_footer.size(),
+                                 ec);
   }
 }
 
 void FileHandle::rotate(const std::filesystem::path &current_file_path,
                         FileRotationResult *result) noexcept {
-  if (!std::filesystem::exists(current_file_path)) {
+  std::error_code ec;
+  if (!std::filesystem::exists(current_file_path, ec) && !ec) {
     result->error_code = 0;
+    return;
+  }
+  if (ec) {
+    result->error_code = ec.value();
+    result->status_string = ec.message();
     return;
   }
 
@@ -219,7 +248,6 @@ void FileHandle::rotate(const std::filesystem::path &current_file_path,
     extensions_str = filename_str.substr(first_ext_pos);
   }
 
-  std::error_code ec;
   std::filesystem::path new_file_path;
   std::string new_file_name_str;
   std::size_t seq = 0;
@@ -241,6 +269,12 @@ void FileHandle::rotate(const std::filesystem::path &current_file_path,
     new_file_path = current_file_path;
     new_file_path.replace_filename(new_file_name_str);
   } while (std::filesystem::exists(new_file_path, ec));
+
+  if (ec) {
+    result->error_code = ec.value();
+    result->status_string = ec.message();
+    return;
+  }
 
   std::filesystem::rename(current_file_path, new_file_path, ec);
 
@@ -267,16 +301,27 @@ PruneFilesList FileHandle::get_prune_files(
     time_now = SysVars::get_debug_time_point_for_rotation();
   });
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator{working_dir_name}) {
-    if (entry.is_regular_file() && entry.path().filename().string().find(
-                                       base_file_name) != std::string::npos) {
-      auto parsed_file_name = FileName::from_path(entry.path().filename());
+  std::error_code ec;
+  auto it = std::filesystem::directory_iterator{
+      working_dir_name, std::filesystem::directory_options::skip_permission_denied, ec};
+  const auto end = std::filesystem::directory_iterator{};
 
-      if (parsed_file_name.is_rotated()) {
-        auto timestamp = parsed_file_name.get_rotation_time().timestamp.value();
-        prune_files.push_back(
-            {entry.path(), entry.file_size(), time_now - timestamp});
+  for (; !ec && it != end; it.increment(ec)) {
+    std::error_code entry_ec;
+    const auto &entry = *it;
+    const auto entry_path = entry.path();
+    if (!entry.is_regular_file(entry_ec) || entry_ec ||
+        entry_path.filename().string().find(base_file_name) == std::string::npos) {
+      continue;
+    }
+
+    auto parsed_file_name = FileName::from_path(entry_path.filename());
+
+    if (parsed_file_name.is_rotated()) {
+      auto timestamp = parsed_file_name.get_rotation_time().timestamp.value();
+      auto entry_size = entry.file_size(entry_ec);
+      if (!entry_ec) {
+        prune_files.push_back({entry_path, entry_size, time_now - timestamp});
       }
     }
   }
@@ -290,12 +335,17 @@ std::vector<std::string> FileHandle::get_log_names_list(
   std::vector<std::string> list;
   auto base_file_name =
       std::filesystem::path{file_name}.replace_extension().string();
+  std::error_code ec;
+  auto it = std::filesystem::directory_iterator{
+      working_dir_name, std::filesystem::directory_options::skip_permission_denied, ec};
+  const auto end = std::filesystem::directory_iterator{};
 
-  for (const auto &entry :
-       std::filesystem::directory_iterator{working_dir_name}) {
+  for (; !ec && it != end; it.increment(ec)) {
+    std::error_code entry_ec;
+    const auto &entry = *it;
     const auto name = entry.path().filename().string();
 
-    if (entry.is_regular_file() &&
+    if (entry.is_regular_file(entry_ec) && !entry_ec &&
         name.find(base_file_name) != std::string::npos) {
       list.push_back(name);
     }

@@ -138,7 +138,11 @@ bool LogWriterFile::do_open_file() noexcept {
     file_path += suffix.str();
   }
 
-  bool is_new_file = !std::filesystem::exists(file_path);
+  std::error_code ec;
+  bool is_new_file = !std::filesystem::exists(file_path, ec);
+  if (ec) {
+    return false;
+  }
 
   if (!is_new_file) {
     FileHandle::remove_file_footer(file_path,
