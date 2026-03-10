@@ -255,6 +255,7 @@ void FileHandle::rotate(const std::filesystem::path &current_file_path,
   std::error_code ec;
   if (!std::filesystem::exists(current_file_path, ec) && !ec) {
     result->error_code = 0;
+    result->status_string.clear();
     return;
   }
   if (ec) {
@@ -363,25 +364,47 @@ PruneFilesList FileHandle::get_prune_files(
   return prune_files;
 }
 
-std::vector<std::string> FileHandle::get_log_names_list(
-    const std::string &working_dir_name,
-    const std::string &file_name) noexcept {
-  std::vector<std::string> list;
+bool FileHandle::get_log_names_list(const std::string &working_dir_name,
+                                    const std::string &file_name,
+                                    std::vector<std::string> &list) noexcept {
+  std::vector<std::string> tmp_list;
   auto base_file_name =
       std::filesystem::path{file_name}.replace_extension().string();
 
-  for_each_directory_entry(working_dir_name, [&](const auto &entry) {
-    const auto name = entry.path().filename().string();
-
-    if (is_regular_file_noexcept(entry) &&
-        name.find(base_file_name) != std::string::npos) {
-      list.push_back(name);
+  try {
+    std::error_code ec;
+    auto dir_it = std::filesystem::directory_iterator{
+        working_dir_name,
+        std::filesystem::directory_options::skip_permission_denied, ec};
+    if (ec) {
+      return false;
     }
 
-    return true;
-  });
+    for (auto end = std::filesystem::directory_iterator{}; dir_it != end;) {
+      const auto &entry = *dir_it;
+      const auto name = entry.path().filename().string();
 
-  return list;
+      ec.clear();
+      if (entry.is_regular_file(ec) && !ec &&
+          name.find(base_file_name) != std::string::npos) {
+        tmp_list.push_back(name);
+      }
+
+      if (ec) {
+        return false;
+      }
+
+      dir_it.increment(ec);
+      if (ec) {
+        return false;
+      }
+    }
+  } catch (...) {
+    return false;
+  }
+
+  list = std::move(tmp_list);
+  return true;
 }
 
 }  // namespace audit_log_filter::log_writer

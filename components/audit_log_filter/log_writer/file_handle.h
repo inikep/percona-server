@@ -153,11 +153,13 @@ class FileHandle {
    *
    * @param working_dir_name Working directory name
    * @param file_name Base file name
-   * @return List of audit log file names
+   * @param list Output list of audit log file names
+   * @return true in case the directory scan completed successfully,
+   *         false otherwise
    */
-  static std::vector<std::string> get_log_names_list(
-      const std::string &working_dir_name,
-      const std::string &file_name) noexcept;
+  static bool get_log_names_list(const std::string &working_dir_name,
+                                 const std::string &file_name,
+                                 std::vector<std::string> &list) noexcept;
 
  private:
   std::fstream m_file;

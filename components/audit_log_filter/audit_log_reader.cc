@@ -70,8 +70,6 @@ bool AuditLogReader::init() noexcept {
     return true;
   }
 
-  m_reload_requested = false;
-
   my_service<SERVICE_TYPE(mysql_current_thread_reader)> thd_reader_srv(
       "mysql_current_thread_reader", SysVars::get_comp_registry_srv());
 
@@ -99,18 +97,36 @@ bool AuditLogReader::init() noexcept {
   std::vector<std::string> new_files;
   std::vector<std::string> removed_files;
 
+  std::error_code ec;
   try {
-    for (const auto &entry :
-         std::filesystem::directory_iterator{SysVars::get_file_dir()}) {
-      auto log_name = entry.path().filename().string();
-      std::error_code ec;
+    auto dir_it = std::filesystem::directory_iterator{
+        SysVars::get_file_dir(),
+        std::filesystem::directory_options::skip_permission_denied, ec};
+    if (ec) {
+      return false;
+    }
 
+    for (auto end = std::filesystem::directory_iterator{}; dir_it != end;) {
+      const auto &entry = *dir_it;
+      auto log_name = entry.path().filename().string();
+
+      ec.clear();
       if (entry.is_regular_file(ec) && !ec &&
           log_name.find(log_base_file_name) != std::string::npos) {
         all_files.push_back(std::move(log_name));
       }
+
+      if (ec) {
+        return false;
+      }
+
+      dir_it.increment(ec);
+      if (ec) {
+        return false;
+      }
     }
   } catch (...) {
+    return false;
   }
 
   std::copy_if(std::cbegin(all_files), std::cend(all_files),
@@ -201,6 +217,7 @@ bool AuditLogReader::init() noexcept {
     }
   }
 
+  m_reload_requested = false;
   return true;
 }
 
