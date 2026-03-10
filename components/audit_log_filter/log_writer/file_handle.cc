@@ -33,7 +33,9 @@ template <typename Callback>
 void for_each_directory_entry(const std::string &working_dir_name,
                               Callback callback) noexcept {
   std::error_code ec;
-  std::filesystem::directory_iterator it(working_dir_name, ec);
+  std::filesystem::directory_iterator it(
+      working_dir_name,
+      std::filesystem::directory_options::skip_permission_denied, ec);
   const std::filesystem::directory_iterator end;
 
   while (!ec && it != end) {
@@ -250,8 +252,14 @@ void FileHandle::remove_file_footer(
 
 void FileHandle::rotate(const std::filesystem::path &current_file_path,
                         FileRotationResult *result) noexcept {
-  if (!std::filesystem::exists(current_file_path)) {
+  std::error_code ec;
+  if (!std::filesystem::exists(current_file_path, ec) && !ec) {
     result->error_code = 0;
+    return;
+  }
+  if (ec) {
+    result->error_code = ec.value();
+    result->status_string = ec.message();
     return;
   }
 
@@ -276,7 +284,6 @@ void FileHandle::rotate(const std::filesystem::path &current_file_path,
     extensions_str = filename_str.substr(first_ext_pos);
   }
 
-  std::error_code ec;
   std::filesystem::path new_file_path;
   std::string new_file_name_str;
   std::size_t seq = 0;
@@ -298,6 +305,12 @@ void FileHandle::rotate(const std::filesystem::path &current_file_path,
     new_file_path = current_file_path;
     new_file_path.replace_filename(new_file_name_str);
   } while (std::filesystem::exists(new_file_path, ec));
+
+  if (ec) {
+    result->error_code = ec.value();
+    result->status_string = ec.message();
+    return;
+  }
 
   std::filesystem::rename(current_file_path, new_file_path, ec);
 
