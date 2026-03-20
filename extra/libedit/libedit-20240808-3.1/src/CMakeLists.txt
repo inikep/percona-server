@@ -179,3 +179,10 @@ MY_CHECK_C_COMPILER_FLAG("-Wuse-after-free" HAVE_USE_AFTER_FREE)
 IF(HAVE_USE_AFTER_FREE)
   TARGET_COMPILE_OPTIONS(edit PRIVATE "-Wno-use-after-free")
 ENDIF()
+
+# Apple Clang enables -Wundef-prefix=TARGET_OS_ by default, which triggers
+# on macOS SDK headers (AvailabilityMacros.h) included via <term.h>.
+MY_CHECK_C_COMPILER_FLAG("-Wundef-prefix" HAVE_UNDEF_PREFIX)
+IF(HAVE_UNDEF_PREFIX)
+  TARGET_COMPILE_OPTIONS(edit PRIVATE "-Wno-undef-prefix")
+ENDIF()

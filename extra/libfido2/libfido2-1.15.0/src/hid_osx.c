@@ -14,6 +14,7 @@
 
 #include <Availability.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreFoundation/CFPlugInCOM.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hid/IOHIDManager.h>
