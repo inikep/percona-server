@@ -4314,10 +4314,19 @@ Field_real::Truncate_result Field_real::truncate(double *nr, double max_value) {
     set_null();
     set_warning(Sql_condition::SL_WARNING, ER_WARN_DATA_OUT_OF_RANGE, 1);
     return TR_POSITIVE_OVERFLOW;
-  } else if (is_unsigned() && *nr < 0) {
+  } else if (is_unsigned() && std::signbit(*nr)) {
+    /*
+      Use std::signbit() instead of (*nr < 0) to also catch IEEE 754
+      negative zero (-0.0).  -0.0 < 0 is false per IEEE 754, but storing
+      -0.0 in an unsigned FLOAT/DOUBLE column corrupts the index key
+      because key_cmp_if_same() does a byte-level memcmp and the bit
+      pattern of -0.0 (0x80000000) differs from +0.0 (0x00000000).
+    */
+    const bool is_neg_zero = (*nr == 0.0);
     *nr = 0;
-    set_warning(Sql_condition::SL_WARNING, ER_WARN_DATA_OUT_OF_RANGE, 1);
-    return TR_NEGATIVE_OVERFLOW;
+    if (!is_neg_zero)
+      set_warning(Sql_condition::SL_WARNING, ER_WARN_DATA_OUT_OF_RANGE, 1);
+    return is_neg_zero ? TR_OK : TR_NEGATIVE_OVERFLOW;
   }
 
   if (!not_fixed) {
@@ -4367,9 +4376,11 @@ Field_real::Truncate_result Field_real::truncate(double *nr,
   if (std::isnan(*nr)) {
     *nr = 0;
     return TR_POSITIVE_OVERFLOW;
-  } else if (is_unsigned() && *nr < 0) {
+  } else if (is_unsigned() && std::signbit(*nr)) {
+    /* See non-const overload for rationale on std::signbit(). */
+    const bool is_neg_zero = (*nr == 0.0);
     *nr = 0;
-    return TR_NEGATIVE_OVERFLOW;
+    return is_neg_zero ? TR_OK : TR_NEGATIVE_OVERFLOW;
   }
 
   if (!not_fixed) {

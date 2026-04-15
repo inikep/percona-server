@@ -1,0 +1,87 @@
+#
+# PS-11024: FLOAT ZEROFILL index-only scan wrong results
+#
+#
+# Part 1: FLOAT ZEROFILL
+#
+CREATE TABLE t1 (
+c0 FLOAT ZEROFILL NULL
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+Warnings:
+Warning	1681	The ZEROFILL attribute is deprecated and will be removed in a future release. Use the LPAD function to zero-pad numbers, or store the formatted numbers in a CHAR column.
+CREATE INDEX i_c0 ON t1 (c0);
+# Phase S1: Initial state
+INSERT IGNORE INTO t1 (c0) VALUES (0.0), ("x"), (NULL);
+Warnings:
+Warning	1265	Data truncated for column 'c0' at row 2
+# S1: MAX should return 0 (positive zero exists)
+SELECT MAX(c0) AS s1_max FROM t1 WHERE c0 = 0.0;
+s1_max
+0
+# Phase S2: Insert values including "-0x" which parses to -0.0
+INSERT IGNORE INTO t1 (c0) VALUES
+(0.0), (0.0), (0.0), (""), ("x"), ("-0x"), (NULL), (NULL);
+Warnings:
+Warning	1265	Data truncated for column 'c0' at row 4
+Warning	1265	Data truncated for column 'c0' at row 5
+Warning	1265	Data truncated for column 'c0' at row 6
+ANALYZE TABLE t1;
+Table	Op	Msg_type	Msg_text
+test.t1	analyze	status	OK
+# Bug Evidence 1: MAX() must return 0, not NULL
+SELECT MAX(c0) AS must_be_zero FROM t1 WHERE c0 = 0.0;
+must_be_zero
+0
+# Bug Evidence 2: WHERE c0 = 0.0 must not return NULLs
+SELECT COUNT(*) AS null_leak_count FROM (
+SELECT c0 FROM t1 WHERE c0 = 0.0
+) AS sub WHERE sub.c0 IS NULL;
+null_leak_count
+0
+# Bug Evidence 3: Index scan vs table scan must agree on MAX
+SELECT MAX(c0) FROM t1 FORCE INDEX (i_c0) WHERE c0 = 0.0;
+MAX(c0)
+0
+SELECT MAX(c0) FROM t1 IGNORE INDEX (i_c0) WHERE c0 = 0.0;
+MAX(c0)
+0
+# Bug Evidence 4: Index scan vs table scan must agree on COUNT
+SELECT COUNT(*) FROM t1 FORCE INDEX (i_c0) WHERE c0 = 0.0;
+COUNT(*)
+8
+SELECT COUNT(*) FROM t1 IGNORE INDEX (i_c0) WHERE c0 = 0.0;
+COUNT(*)
+8
+DROP TABLE t1;
+#
+# Part 2: DOUBLE ZEROFILL (same root cause)
+#
+CREATE TABLE t2 (
+c0 DOUBLE ZEROFILL NULL
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+Warnings:
+Warning	1681	The ZEROFILL attribute is deprecated and will be removed in a future release. Use the LPAD function to zero-pad numbers, or store the formatted numbers in a CHAR column.
+CREATE INDEX i_c0 ON t2 (c0);
+INSERT IGNORE INTO t2 (c0) VALUES (0.0), ("x"), ("-0x"), (NULL);
+Warnings:
+Warning	1265	Data truncated for column 'c0' at row 2
+Warning	1265	Data truncated for column 'c0' at row 3
+ANALYZE TABLE t2;
+Table	Op	Msg_type	Msg_text
+test.t2	analyze	status	OK
+SELECT MAX(c0) AS must_be_zero FROM t2 WHERE c0 = 0.0;
+must_be_zero
+0
+SELECT COUNT(*) AS null_leak_count FROM (
+SELECT c0 FROM t2 WHERE c0 = 0.0
+) AS sub WHERE sub.c0 IS NULL;
+null_leak_count
+0
+SELECT COUNT(*) FROM t2 FORCE INDEX (i_c0) WHERE c0 = 0.0;
+COUNT(*)
+3
+SELECT COUNT(*) FROM t2 IGNORE INDEX (i_c0) WHERE c0 = 0.0;
+COUNT(*)
+3
+DROP TABLE t2;
+# Done

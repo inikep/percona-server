@@ -1,0 +1,81 @@
+# MTR test for PS-11024: Inconsistent results and NULL leakage in
+# INDEX-ONLY SCAN on FLOAT ZEROFILL columns
+#
+# When using a secondary index on a FLOAT ZEROFILL column, the optimizer
+# produces incorrect results after certain implicit type conversions
+# (via INSERT IGNORE) store IEEE 754 negative zero (-0.0) in the index.
+#
+# Root cause: Field_real::truncate() used (*nr < 0) to clamp negative
+# values for unsigned columns. In IEEE 754, -0.0 < 0 is false, so
+# -0.0 was stored verbatim. key_cmp_if_same() then used memcmp on the
+# raw bytes, treating -0.0 (0x80000000) as different from +0.0
+# (0x00000000), which broke index-only scans.
+
+--echo #
+--echo # PS-11024: FLOAT ZEROFILL index-only scan wrong results
+--echo #
+
+--echo #
+--echo # Part 1: FLOAT ZEROFILL
+--echo #
+
+CREATE TABLE t1 (
+    c0 FLOAT ZEROFILL NULL
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX i_c0 ON t1 (c0);
+
+--echo # Phase S1: Initial state
+INSERT IGNORE INTO t1 (c0) VALUES (0.0), ("x"), (NULL);
+
+--echo # S1: MAX should return 0 (positive zero exists)
+SELECT MAX(c0) AS s1_max FROM t1 WHERE c0 = 0.0;
+
+--echo # Phase S2: Insert values including "-0x" which parses to -0.0
+INSERT IGNORE INTO t1 (c0) VALUES
+(0.0), (0.0), (0.0), (""), ("x"), ("-0x"), (NULL), (NULL);
+
+ANALYZE TABLE t1;
+
+--echo # Bug Evidence 1: MAX() must return 0, not NULL
+SELECT MAX(c0) AS must_be_zero FROM t1 WHERE c0 = 0.0;
+
+--echo # Bug Evidence 2: WHERE c0 = 0.0 must not return NULLs
+SELECT COUNT(*) AS null_leak_count FROM (
+  SELECT c0 FROM t1 WHERE c0 = 0.0
+) AS sub WHERE sub.c0 IS NULL;
+
+--echo # Bug Evidence 3: Index scan vs table scan must agree on MAX
+SELECT MAX(c0) FROM t1 FORCE INDEX (i_c0) WHERE c0 = 0.0;
+SELECT MAX(c0) FROM t1 IGNORE INDEX (i_c0) WHERE c0 = 0.0;
+
+--echo # Bug Evidence 4: Index scan vs table scan must agree on COUNT
+SELECT COUNT(*) FROM t1 FORCE INDEX (i_c0) WHERE c0 = 0.0;
+SELECT COUNT(*) FROM t1 IGNORE INDEX (i_c0) WHERE c0 = 0.0;
+
+DROP TABLE t1;
+
+--echo #
+--echo # Part 2: DOUBLE ZEROFILL (same root cause)
+--echo #
+
+CREATE TABLE t2 (
+    c0 DOUBLE ZEROFILL NULL
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX i_c0 ON t2 (c0);
+
+INSERT IGNORE INTO t2 (c0) VALUES (0.0), ("x"), ("-0x"), (NULL);
+
+ANALYZE TABLE t2;
+
+SELECT MAX(c0) AS must_be_zero FROM t2 WHERE c0 = 0.0;
+
+SELECT COUNT(*) AS null_leak_count FROM (
+  SELECT c0 FROM t2 WHERE c0 = 0.0
+) AS sub WHERE sub.c0 IS NULL;
+
+SELECT COUNT(*) FROM t2 FORCE INDEX (i_c0) WHERE c0 = 0.0;
+SELECT COUNT(*) FROM t2 IGNORE INDEX (i_c0) WHERE c0 = 0.0;
+
+DROP TABLE t2;
+
+--echo # Done
