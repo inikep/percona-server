@@ -311,6 +311,8 @@ our @DEFAULT_SUITES = qw(
   component_connection_control
   jdv
 
+  percona_rpl
+  percona_rpl_gtid
   percona-pam-for-mysql
   component_masking_functions
   procfs
