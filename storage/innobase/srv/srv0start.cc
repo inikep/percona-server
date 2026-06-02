@@ -52,6 +52,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <sys/types.h>
 #include <zlib.h>
 
+#include <algorithm>
+
 #include "my_dbug.h"
 
 #include "btr0btr.h"
@@ -70,6 +72,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ibuf0ibuf.h"
 #include "log0buf.h"
 #include "log0chkp.h"
+#include "log0ddl.h"
 #include "log0recv.h"
 #include "log0write.h"
 #include "mem0mem.h"
@@ -2376,18 +2379,60 @@ void srv_start_threads_after_ddl_recovery() {
 
   srv_threads.m_buf_dump.start();
 
-  /* Resume unfinished (un)encryption process in background thread. */
+  /* Resume unfinished (un)encryption left by a crash mid ALTER TABLESPACE. */
   if (!ts_encrypt_ddl_records.empty()) {
-    srv_threads.m_ts_alter_encrypt =
-        os_thread_create(srv_ts_alter_encrypt_thread_key, 0,
-                         fsp_init_resume_alter_encrypt_tablespace);
+    /*
+      Split the records by tablespace:
 
-    mysql_mutex_lock(&resume_encryption_cond_m);
-    srv_threads.m_ts_alter_encrypt.start();
-    /* Wait till shared MDL is taken by background thread for all tablespaces,
-    for which (un)encryption is to be rolled forward. */
-    mysql_cond_wait(&resume_encryption_cond, &resume_encryption_cond_m);
-    mysql_mutex_unlock(&resume_encryption_cond_m);
+      - The mysql dictionary tablespace (mysql.ibd) holds the DD and replication
+        metadata tables that the rest of startup opens through attachable
+        transactions. Resume re-runs the DD metadata transition via
+        dd::alter_tablespace_encryption(), which builds an "ALTER TABLESPACE
+        mysql ENCRYPTION = ..." string and runs it through execute_query() ->
+        Sql_cmd_alter_tablespace::execute() -- a real, committing transaction on
+        mysql.ibd. If startup continued while that commit was still in flight,
+        the attachable transactions opening DD/replication tables could observe
+        the rollback/commit bookkeeping left by the resume THD and hit the
+        GTID/binlog asserts this fix targets. So mysql.ibd is rolled forward
+        synchronously on the startup thread, before startup proceeds.
+
+      - General tablespaces keep the upstream background behaviour so that a
+        large user tablespace does not block server bootstrap. Their normal DML,
+        including dict stats work, remains covered by the usual tablespace
+        encryption machinery.
+
+      stable_partition moves the general-tablespace records to the front and the
+      dictionary-tablespace records to the back, so we can hand each group to the
+      right resume path.
+    */
+    auto dict_begin = std::stable_partition(
+        ts_encrypt_ddl_records.begin(), ts_encrypt_ddl_records.end(),
+        [](const DDL_Record *ddl_record) {
+          return ddl_record->get_space_id() != dict_sys_t::s_dict_space_id;
+        });
+
+    std::vector<DDL_Record *> dict_records(dict_begin,
+                                           ts_encrypt_ddl_records.end());
+    ts_encrypt_ddl_records.erase(dict_begin, ts_encrypt_ddl_records.end());
+
+    /* Synchronously roll forward the dictionary tablespace first. */
+    if (!dict_records.empty()) {
+      fsp_resume_alter_encrypt_tablespace_sync(dict_records);
+    }
+
+    /* Roll forward any remaining general tablespaces in the background. */
+    if (!ts_encrypt_ddl_records.empty()) {
+      srv_threads.m_ts_alter_encrypt =
+          os_thread_create(srv_ts_alter_encrypt_thread_key, 0,
+                           fsp_init_resume_alter_encrypt_tablespace);
+
+      mysql_mutex_lock(&resume_encryption_cond_m);
+      srv_threads.m_ts_alter_encrypt.start();
+      /* Wait till shared MDL is taken by background thread for all tablespaces,
+      for which (un)encryption is to be rolled forward. */
+      mysql_cond_wait(&resume_encryption_cond, &resume_encryption_cond_m);
+      mysql_mutex_unlock(&resume_encryption_cond_m);
+    }
   }
 
   /* Start and consume all GTIDs for recovered transactions. */

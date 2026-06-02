@@ -957,6 +957,14 @@ dberr_t fsp_alter_encrypt_tablespace(THD *thd, space_id_t space_id,
 /** Initiate roll-forward of alter encrypt in background thread */
 void fsp_init_resume_alter_encrypt_tablespace();
 
+/** Roll forward the given unfinished alter encrypt records synchronously on the
+caller's thread. Used during startup for the mysql dictionary tablespace, whose
+(un)encryption must finish before startup opens DD and replication metadata
+tables.
+@param[in,out]  records  records to roll forward; emptied on return */
+void fsp_resume_alter_encrypt_tablespace_sync(
+    std::vector<DDL_Record *> &records);
+
 /** A wrapper class to operate on a file segment inode pointer (fseg_inode_t*)
  */
 class File_segment_inode {

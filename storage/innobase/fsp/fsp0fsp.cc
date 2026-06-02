@@ -70,6 +70,7 @@ double fseg_reserve_pct = FSEG_RESERVE_PCT_DFLT;
 
 #include "dd/types/tablespace.h"
 #include "mysqld.h"
+#include "sql/current_thd.h"
 #include "sql/dd/dictionary.h"
 #include "sql_backup_lock.h"
 #include "sql_thd_internal_api.h"
@@ -4890,14 +4891,23 @@ static inline const std::string &get_encryption_op_str(
 /** Resume Encrypt/Decrypt for tablespace(s) post recovery.
 If an error occurs while processing any tablespace needing encryption,
 post an error for that space and keep going.
-@param[in]      thd     background thread */
-static void resume_alter_encrypt_tablespace(THD *thd) {
+@param[in]      thd         worker thread
+@param[in,out]  records     records to roll forward; emptied (and their
+                            DDL_Record objects freed) on return
+@param[in]      background  true when run on the background resume thread (then
+                            the waiting startup thread is signalled once the
+                            shared MDLs are taken, and flag_mismatch_spaces is
+                            expected to be empty at the end); false when run
+                            synchronously on the startup thread */
+static void resume_alter_encrypt_tablespace(THD *thd,
+                                            std::vector<DDL_Record *> &records,
+                                            bool background) {
   /* List of shared MDLs taken. One for each tablespace. */
   std::list<MDL_ticket *> shared_mdl_list;
 
   /* Take a SHARED MDL to make sure no user thread could run any DDL on the
   tablespace. DMLs are allowed though. */
-  for (auto it : ts_encrypt_ddl_records) {
+  for (auto it : records) {
     space_id_t space_id = it->get_space_id();
     fil_space_t *space = fil_space_get(space_id);
 
@@ -4927,10 +4937,12 @@ static void resume_alter_encrypt_tablespace(THD *thd) {
     shared_mdl_list.push_back(mdl_ticket);
   }
 
-  /* Let the startup thread proceed now */
-  mysql_mutex_lock(&resume_encryption_cond_m);
-  mysql_cond_signal(&resume_encryption_cond);
-  mysql_mutex_unlock(&resume_encryption_cond_m);
+  if (background) {
+    /* Let the startup thread proceed now */
+    mysql_mutex_lock(&resume_encryption_cond_m);
+    mysql_cond_signal(&resume_encryption_cond);
+    mysql_mutex_unlock(&resume_encryption_cond_m);
+  }
 
   DBUG_EXECUTE_IF("sleep_resume_alter_encrypt", sleep(10000););
 
@@ -4942,7 +4954,7 @@ static void resume_alter_encrypt_tablespace(THD *thd) {
 #endif
 
   std::list<MDL_ticket *>::iterator mdl_it = shared_mdl_list.begin();
-  for (auto it : ts_encrypt_ddl_records) {
+  for (auto it : records) {
     ut_ad(it->get_encryption_type() != Encryption::Progress::NONE);
     ut_ad(mdl_it != shared_mdl_list.end());
 
@@ -4993,17 +5005,22 @@ static void resume_alter_encrypt_tablespace(THD *thd) {
     mdl_it = shared_mdl_list.erase(mdl_it);
   }
 
-  for (auto &record : ts_encrypt_ddl_records) {
+  for (auto &record : records) {
     ut_ad(!record->get_deletable());
     ut::delete_(record);
   }
-  ts_encrypt_ddl_records.clear();
+  records.clear();
 
   /* All MDLs should have been released and removed from list by now */
   ut_ad(shared_mdl_list.empty());
   shared_mdl_list.clear();
 
-  ut_ad(flag_mismatch_spaces.empty());
+  /* flag_mismatch_spaces collects every space whose on-disk flags mismatched
+  during file validation; resume clears them one space at a time. Only the
+  background pass processes the last of the records (the synchronous pass
+  handles just the dictionary tablespace and may run before it), so only assert
+  the global invariant there. */
+  ut_ad(!background || flag_mismatch_spaces.empty());
   return;
 }
 
@@ -5013,9 +5030,32 @@ void fsp_init_resume_alter_encrypt_tablespace() {
 
   thd->set_new_thread_id();
 
-  resume_alter_encrypt_tablespace(thd);
+  resume_alter_encrypt_tablespace(thd, ts_encrypt_ddl_records,
+                                  true /* background */);
 
   destroy_internal_thd(thd);
+}
+
+/* Roll forward the given unfinished alter encrypt records synchronously on the
+caller's thread */
+void fsp_resume_alter_encrypt_tablespace_sync(
+    std::vector<DDL_Record *> &records) {
+  /* The caller (innobase_post_recover() startup thread) already has an internal
+  THD attached (Auto_THD). create_internal_thd()/destroy_internal_thd() below
+  attach and tear down a dedicated replay THD without restoring the previous
+  one, so save and restore current_thd around them. */
+  THD *const saved_thd = current_thd;
+
+  THD *thd = create_internal_thd();
+  thd->set_new_thread_id();
+
+  resume_alter_encrypt_tablespace(thd, records, false /* background */);
+
+  destroy_internal_thd(thd);
+
+  if (saved_thd != nullptr) {
+    saved_thd->store_globals();
+  }
 }
 
 void File_segment_inode::write_not_full_n_used(uint32_t n_used) {
