@@ -244,3 +244,4 @@ keyring_vault      plugin_output_directory  no  KEYRING_VAULT_PLUGIN keyring_vau
 test_udf_wrappers  plugin_output_directory  no  TEST_UDF_WRAPPERS_LIB
 procfs             plugin_output_directory  no  PROCFS_PLUGIN procfs
 
+auth_openid_connect                 plugin_output_directory  no  AUTH_OIDC             auth_openid_connect
