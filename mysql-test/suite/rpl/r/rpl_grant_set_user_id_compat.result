@@ -194,12 +194,58 @@ GRANT USAGE ON *.* TO `rpl_psuid`@`localhost`
 GRANT SELECT ON `set_user_id`.* TO `rpl_psuid`@`localhost`
 GRANT SELECT ON `SET_USER_ID`.`SET_USER_ID` TO `rpl_psuid`@`localhost`
 #
+# R9. SET_USER_ID used as a column name in a column-privilege list
+# sits between GRANT and ON and must not be rewritten: unquoted,
+# backtick-quoted, and with a '$' suffix (legal unquoted-identifier
+# character that is not a word character for a naive regex).
+#
+[connection master]
+CREATE DATABASE rpl_psuid_db;
+CREATE TABLE rpl_psuid_db.t1 (set_user_id INT, set_user_id$2 INT);
+GRANT SELECT (set_user_id), UPDATE (`set_user_id`)
+ON rpl_psuid_db.t1 TO rpl_psuid@localhost;
+GRANT SELECT (set_user_id$2) ON rpl_psuid_db.t1 TO rpl_psuid@localhost;
+include/rpl/sync_to_replica.inc
+[connection slave]
+SHOW GRANTS FOR rpl_psuid@localhost;
+Grants for rpl_psuid@localhost
+GRANT USAGE ON *.* TO `rpl_psuid`@`localhost`
+GRANT SELECT ON `set_user_id`.* TO `rpl_psuid`@`localhost`
+GRANT SELECT ON `SET_USER_ID`.`SET_USER_ID` TO `rpl_psuid`@`localhost`
+GRANT SELECT (`set_user_id`, `set_user_id$2`), UPDATE (`set_user_id`) ON `rpl_psuid_db`.`t1` TO `rpl_psuid`@`localhost`
+#
+# R10. A role named set_user_id is granted/revoked without an ON
+# clause and must not be rewritten, even when the quoted host
+# contains a bare "on" that a naive scan could mistake for the
+# privilege-list delimiter.
+#
+[connection master]
+CREATE ROLE set_user_id;
+CREATE USER rpl_onhost@'db.on.example';
+GRANT set_user_id TO rpl_onhost@'db.on.example';
+include/rpl/sync_to_replica.inc
+[connection slave]
+SHOW GRANTS FOR rpl_onhost@'db.on.example';
+Grants for rpl_onhost@db.on.example
+GRANT USAGE ON *.* TO `rpl_onhost`@`db.on.example`
+GRANT `set_user_id`@`%` TO `rpl_onhost`@`db.on.example`
+[connection master]
+REVOKE set_user_id FROM rpl_onhost@'db.on.example';
+include/rpl/sync_to_replica.inc
+[connection slave]
+SHOW GRANTS FOR rpl_onhost@'db.on.example';
+Grants for rpl_onhost@db.on.example
+GRANT USAGE ON *.* TO `rpl_onhost`@`db.on.example`
+#
 # Cleanup of the ON-mode test artifacts
 #
 [connection master]
 DROP DATABASE `set_user_id`;
 DROP DATABASE SET_USER_ID;
-DROP USER rpl_psuid@localhost, rpl_onword@localhost;
+DROP DATABASE rpl_psuid_db;
+DROP ROLE set_user_id;
+DROP USER rpl_psuid@localhost, rpl_onword@localhost,
+rpl_onhost@'db.on.example';
 include/rpl/sync_to_replica.inc
 #
 # R7. Turn the gate back OFF.  The same kind of statement that just

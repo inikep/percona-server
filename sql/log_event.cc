@@ -40,7 +40,6 @@
 #include <iterator>
 #include <map>
 #include <memory>
-#include <regex>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -4423,8 +4422,12 @@ static constexpr std::string_view kGrantKeyword = "GRANT";
 static constexpr std::string_view kRevokeKeyword = "REVOKE";
 
 static bool is_sql_ident_char(unsigned char c) {
+  // '$' and bytes >= 0x80 (any multi-byte UTF-8 sequence) are legal in
+  // unquoted MySQL identifiers, so they must extend a word rather than
+  // terminate it; e.g. the column name SET_USER_ID$2 contains no bare
+  // SET_USER_ID token.
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-         (c >= '0' && c <= '9') || c == '_';
+         (c >= '0' && c <= '9') || c == '_' || c == '$' || c >= 0x80;
 }
 
 static bool is_sql_space(unsigned char c) {
@@ -4467,6 +4470,76 @@ static const char *skip_sql_comment(const char *p, const char *end) {
   return p;
 }
 
+/*
+  Backtick-quoted identifier or string literal: consume as a single unit, so
+  the scanners never match tokens inside `set_user_id` table names, role
+  names, or 'db.on.example' host strings.  A doubled quote character is the
+  escape for itself in all three quoting styles; backslash additionally
+  escapes the next character inside string literals (but not inside backtick
+  identifiers).  If the source ran with NO_BACKSLASH_ESCAPES the backslash
+  rule can overshoot the real string end, which at worst hides a token from
+  the scan -- a conservatively missed rewrite, never a corrupted statement.
+  Returns p when no quoted region starts at p, nullptr when the region is
+  unterminated (statement is then not a rewrite candidate).
+*/
+static const char *skip_sql_quoted(const char *p, const char *end) {
+  if (p >= end) return p;
+  const char quote = p[0];
+  if (quote != '`' && quote != '\'' && quote != '"') return p;
+  ++p;
+  while (p < end) {
+    if (quote != '`' && p[0] == '\\' && p + 1 < end) {
+      p += 2;
+      continue;
+    }
+    if (p[0] == quote) {
+      if (p + 1 < end && p[1] == quote) {
+        p += 2;
+        continue;
+      }
+      return p + 1;
+    }
+    ++p;
+  }
+  return nullptr;
+}
+
+/*
+  Consume any region the privilege-list scanners must treat as opaque:
+  a comment, a quoted identifier/string, or (when skip_parens is true) a
+  parenthesized group such as a column-privilege list -- column names are
+  the one place a legal GRANT/REVOKE puts arbitrary identifiers between
+  the statement keyword and ON.  Returns the position after the region,
+  p itself when nothing opaque starts at p, or nullptr for an unterminated
+  construct.
+*/
+static const char *skip_opaque_region(const char *p, const char *end,
+                                      bool skip_parens) {
+  const char *after = skip_sql_comment(p, end);
+  if (after == nullptr || after != p) return after;
+  after = skip_sql_quoted(p, end);
+  if (after == nullptr || after != p) return after;
+  if (skip_parens && p < end && p[0] == '(') {
+    ++p;
+    size_t depth = 1;
+    while (p < end && depth > 0) {
+      after = skip_opaque_region(p, end, false);
+      if (after == nullptr) return nullptr;
+      if (after != p) {
+        p = after;
+        continue;
+      }
+      if (p[0] == '(')
+        ++depth;
+      else if (p[0] == ')')
+        --depth;
+      ++p;
+    }
+    return depth == 0 ? p : nullptr;
+  }
+  return p;
+}
+
 static const char *skip_leading_comments_and_spaces(const char *p,
                                                     const char *end) {
   while (p < end) {
@@ -4500,23 +4573,30 @@ static const char *match_keyword_at(const char *p, const char *end,
 }
 
 /*
-  Find the first whole-word ASCII token outside SQL comments and return its
-  [start, end) range. This is intentionally a linear scan instead of
-  std::regex: libstdc++'s regex matcher can stack-overflow on long
-  relay-log queries before throwing an exception.
+  Find the first whole-word ASCII token outside SQL comments, quoted
+  identifiers/strings, and parenthesized groups, and return its [start, end)
+  range.  Skipping quoted regions keeps identifiers like the table name
+  `set_user_id` or a host string 'db.on.example' from being mistaken for the
+  privilege keyword or the ON delimiter; skipping parenthesized groups does
+  the same for column-privilege lists like SELECT (set_user_id).  This is
+  intentionally a linear scan instead of std::regex: libstdc++'s regex
+  matcher can stack-overflow on long relay-log queries before throwing an
+  exception, and regex \b treats '$' and multi-byte characters -- both legal
+  in unquoted identifiers -- as word boundaries.
 */
-static std::pair<const char *, const char *> find_uncommented_token(
+static std::pair<const char *, const char *> find_bare_token(
     const char *p, const char *end, std::string_view token) {
   const char *const start = p;
 
   while (p < end) {
     if (static_cast<size_t>(end - p) < token.size()) return {nullptr, nullptr};
 
-    // Consume comments atomically, so tokens inside comment text are ignored.
-    const char *after_comment = skip_sql_comment(p, end);
-    if (after_comment == nullptr) return {nullptr, nullptr};
-    if (after_comment != p) {
-      p = after_comment;
+    // Consume comments, quoted regions and parenthesized groups atomically,
+    // so tokens inside them are ignored.
+    const char *after_opaque = skip_opaque_region(p, end, true);
+    if (after_opaque == nullptr) return {nullptr, nullptr};
+    if (after_opaque != p) {
+      p = after_opaque;
       continue;
     }
 
@@ -4544,19 +4624,23 @@ static std::pair<const char *, const char *> find_uncommented_token(
 
   If `query` is a GRANT/REVOKE statement that mentions SET_USER_ID as a
   bare word in the privilege list (the text between GRANT/REVOKE and the
-  first un-commented ON keyword), returns a {pointer, length} pair for a
+  first bare ON keyword), returns a {pointer, length} pair for a
   copy with each such occurrence replaced by kModernPrivs, and logs
   ER_LOG_REPLICA_TRANSLATED_DEPRECATED_PRIVILEGE so the operator can see
   the compatibility translation.  Match is ASCII-case-insensitive.
 
-  Two linear scans and one std::regex pattern drive the rewrite
-  (see rewrite_legacy_set_user_id_priv):
-    match_keyword_at        GRANT/REVOKE as the first non-comment token
-    find_uncommented_token  first ON that ends the privilege list
-    re_set_user_id          SET_USER_ID tokens replaced inside the priv list
+  Two linear scans drive the rewrite (see rewrite_legacy_set_user_id_priv):
+    match_keyword_at  GRANT/REVOKE as the first non-comment token
+    find_bare_token   first ON that ends the privilege list, then each
+                      SET_USER_ID to replace inside the priv list
 
-  SET_USER_ID in the object clause after ON is never matched by re_set_user_id
-  and is therefore left untouched.
+  "Bare" means outside comments, quoted identifiers/strings, and
+  parenthesized groups, so the rewrite never touches SET_USER_ID used as
+  an identifier: in the object clause after ON, in a column-privilege
+  list like SELECT (set_user_id), as a `set_user_id` role name, or in
+  role statements whose quoted user/host happens to contain a bare "on"
+  (e.g. u@'db.on.example' -- without quote skipping that "on" would be
+  taken for the privilege-list delimiter).
 
   Limitation: the rewrite is stateless (no provenance tracking).  REVOKE
   SET_USER_ID always becomes REVOKE of both replacement privileges.
@@ -4566,12 +4650,11 @@ static std::pair<const char *, const char *> find_uncommented_token(
   SET_USER_ID is applied.  Consistent only when those privileges on the
   replica all originated from translated SET_USER_ID on the source.
 
-  Limitation: SET_USER_ID inside a SQL comment in the privilege list
-  (e.g. SET_USER_ID embedded in a block comment before another privilege
-  in the list) is still rewritten because the bare-word scan does not skip
-  comment bodies.  That only changes comment text, which the parser discards
-  anyway, so it has no impact on the final grant result.  ON inside comments
-  is skipped atomically when locating the list boundary.
+  Limitation: SET_USER_ID inside a comment is never rewritten, including
+  version-conditional "slash-star-bang-NNNNN" comments.  A GRANT that
+  hides the privilege inside a version comment keeps failing exactly as
+  it would without this feature -- a conservatively missed rewrite,
+  never a corrupted statement.
 
   In every other case (statement is not GRANT/REVOKE, SET_USER_ID is
   absent from the privilege list, or the rewrite buffer cannot be
@@ -4604,7 +4687,7 @@ Query_log_event::rewrite_legacy_set_user_id_priv() const {
     Skip leading block/line comments and whitespace, then require GRANT or
     REVOKE at a word boundary. Binlog GRANT/REVOKE events are a single
     statement, so matching from the first non-comment token is enough.
-    We could use find_uncommented_token() to scan forward looking for the token
+    We could use find_bare_token() to scan forward looking for the token
     and would walk the whole query before rejecting a non-candidate statement
     (e.g. a long SELECT); matching in place rejects such statements in constant
     time.
@@ -4624,45 +4707,35 @@ Query_log_event::rewrite_legacy_set_user_id_priv() const {
 
   /*
     Find the first real ON keyword and use its start as the end of the
-    privilege list.  Comments are consumed whole by find_uncommented_token(),
-    so ON/on inside a comment is not mistaken for the list delimiter.
+    privilege list.  Comments, quoted regions and parenthesized groups are
+    consumed whole by find_bare_token(), so ON/on inside a comment, a quoted
+    identifier/string (e.g. a 'db.on.example' host in a role statement) or a
+    column list is not mistaken for the list delimiter.
   */
-  const auto on = find_uncommented_token(priv_start, query_end, "ON");
+  const auto on = find_bare_token(priv_start, query_end, "ON");
   if (on.first == nullptr) return {query, q_len};
   const char *const priv_end = on.first;
 
+  /*
+    Replace each bare SET_USER_ID inside the privilege list, using the same
+    tokenizer as the ON search so occurrences inside comments, quoted
+    identifiers/strings and column-privilege lists are left untouched.
+  */
   std::string output;
-  try {
-    /*
-      std::regex construction/search and std::cregex_iterator are not noexcept.
-      With our fixed pattern and privilege-list-only input this is unlikely to
-      throw in practice, but an uncaught exception on the replica SQL thread
-      would call std::terminate().  Fall back to the original query on any
-      regex failure; it either applies unchanged or fails as it would without
-      the rewrite.
-
-      re_set_user_id: whole-word SET_USER_ID inside the privilege list only.
-    */
-    static const std::regex re_set_user_id(R"(\bSET_USER_ID\b)",
-                                           std::regex_constants::icase);
-    if (!std::regex_search(priv_start, priv_end, re_set_user_id))
-      return {query, q_len};
-
-    output.reserve(q_len + kReplacementGrowth);
-    output.append(query, priv_start);
-    const char *pos = priv_start;
-    for (std::cregex_iterator it(priv_start, priv_end, re_set_user_id), end;
-         it != end; ++it) {
-      const auto &m = (*it)[0];
-      output.append(pos, m.first);
-      output.append(kModernPrivs);
-      pos = m.second;
-    }
-    output.append(pos, priv_end);
-    output.append(priv_end, query_end);
-  } catch (...) {
-    return {query, q_len};
+  output.reserve(q_len + kReplacementGrowth);
+  output.append(query, priv_start);
+  const char *pos = priv_start;
+  bool rewritten = false;
+  while (pos < priv_end) {
+    const auto match = find_bare_token(pos, priv_end, kLegacyPriv);
+    if (match.first == nullptr) break;
+    rewritten = true;
+    output.append(pos, match.first);
+    output.append(kModernPrivs);
+    pos = match.second;
   }
+  if (!rewritten) return {query, q_len};
+  output.append(pos, query_end);
 
   char *new_query = static_cast<char *>(thd->alloc(output.size() + 1));
   if (new_query == nullptr) return {query, q_len};

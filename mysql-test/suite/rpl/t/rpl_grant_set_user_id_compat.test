@@ -34,6 +34,15 @@
 #     ER_SYNTAX_ERROR exactly as on a stock build, proving the gate
 #     defaults to disabled.  Setting the variable to ON MUST enable the
 #     rewrite path tested by R1..R6.
+# R9. SET_USER_ID used as a column name in a column-privilege list --
+#     the one place a legal GRANT/REVOKE puts arbitrary identifiers
+#     between the statement keyword and ON -- MUST NOT be rewritten,
+#     whether unquoted, backtick-quoted, or extended with a '$' suffix
+#     (a legal unquoted-identifier character).
+# R10. A role named set_user_id MUST NOT be rewritten in role
+#     GRANT/REVOKE statements (no ON clause), even when a quoted
+#     user/host contains a bare "on" (e.g. 'db.on.example') that a
+#     naive scan could take for the privilege-list delimiter.
 #
 # ==== Limitations ====
 #
@@ -41,10 +50,12 @@
 # both SET_ANY_DEFINER and ALLOW_NONEXISTENT_DEFINER.  R3 covers the
 # all-via-rewrite case; R8 covers mixed-origin replica state.
 #
-# SET_USER_ID inside a SQL comment in the privilege list would still be
-# rewritten, but that only changes comment text the parser ignores anyway,
-# so it has no impact on the final grant result.  ON inside comments is
-# skipped atomically when locating the privilege-list boundary.
+# SET_USER_ID inside a SQL comment is never rewritten, including
+# version-conditional /*!NNNNN comments: a GRANT that hides the
+# privilege inside a version comment keeps failing exactly as it would
+# without this feature (a conservatively missed rewrite).  Comments,
+# quoted identifiers/strings and parenthesized column lists are all
+# skipped atomically when scanning the privilege list.
 #
 # ==== Implementation ====
 #
@@ -52,7 +63,7 @@
 # (see rpl_grant_set_user_id_compat-master.opt), which re-registers
 # SET_USER_ID as a dynamic privilege only on the source.
 # This is needed only for test (the other option would be pre-recording
-# the binlog.
+# the binlog).
 # The replica boots
 # with the default privilege set (no SET_USER_ID), so any binlogged
 # GRANT/REVOKE SET_USER_ID statement from the source would fail to apply
@@ -253,12 +264,54 @@ GRANT SELECT ON SET_USER_ID.SET_USER_ID TO rpl_psuid@localhost;
 SHOW GRANTS FOR rpl_psuid@localhost;
 
 --echo #
+--echo # R9. SET_USER_ID used as a column name in a column-privilege list
+--echo # sits between GRANT and ON and must not be rewritten: unquoted,
+--echo # backtick-quoted, and with a '$' suffix (legal unquoted-identifier
+--echo # character that is not a word character for a naive regex).
+--echo #
+--source include/rpl/connection_source.inc
+CREATE DATABASE rpl_psuid_db;
+CREATE TABLE rpl_psuid_db.t1 (set_user_id INT, set_user_id$2 INT);
+GRANT SELECT (set_user_id), UPDATE (`set_user_id`)
+  ON rpl_psuid_db.t1 TO rpl_psuid@localhost;
+GRANT SELECT (set_user_id$2) ON rpl_psuid_db.t1 TO rpl_psuid@localhost;
+--source include/rpl/sync_to_replica.inc
+
+--source include/rpl/connection_replica.inc
+SHOW GRANTS FOR rpl_psuid@localhost;
+
+--echo #
+--echo # R10. A role named set_user_id is granted/revoked without an ON
+--echo # clause and must not be rewritten, even when the quoted host
+--echo # contains a bare "on" that a naive scan could mistake for the
+--echo # privilege-list delimiter.
+--echo #
+--source include/rpl/connection_source.inc
+CREATE ROLE set_user_id;
+CREATE USER rpl_onhost@'db.on.example';
+GRANT set_user_id TO rpl_onhost@'db.on.example';
+--source include/rpl/sync_to_replica.inc
+
+--source include/rpl/connection_replica.inc
+SHOW GRANTS FOR rpl_onhost@'db.on.example';
+
+--source include/rpl/connection_source.inc
+REVOKE set_user_id FROM rpl_onhost@'db.on.example';
+--source include/rpl/sync_to_replica.inc
+
+--source include/rpl/connection_replica.inc
+SHOW GRANTS FOR rpl_onhost@'db.on.example';
+
+--echo #
 --echo # Cleanup of the ON-mode test artifacts
 --echo #
 --source include/rpl/connection_source.inc
 DROP DATABASE `set_user_id`;
 DROP DATABASE SET_USER_ID;
-DROP USER rpl_psuid@localhost, rpl_onword@localhost;
+DROP DATABASE rpl_psuid_db;
+DROP ROLE set_user_id;
+DROP USER rpl_psuid@localhost, rpl_onword@localhost,
+  rpl_onhost@'db.on.example';
 --source include/rpl/sync_to_replica.inc
 
 --echo #
