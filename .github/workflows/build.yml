@@ -17,9 +17,11 @@
 # Notes for follow-ups (per Przemek DM 2026-05-27):
 #   - This file lives on the 9.7 branch only. trunk and 8.4 will get the same
 #     shape in separate PRs with their per-branch cmake/apt deltas.
-#   - x86_64 nightly RelWithDebInfo can be added as a sibling job reusing the
-#     `dispatch` outputs (BUILD_TYPE / MTR_SUITE / CCACHE_MAXSIZE). Intentionally
-#     not wired in this PR per "we may do it, let's see how arm64 behaves first".
+#   - x86_64 nightly RelWithDebInfo is wired as create-x86-runner ->
+#     build-x86-nightly -> delete-x86-runner (sibling path, reusing the
+#     `dispatch` outputs). 9.7 branch only, build-only (no MTR), matrix over
+#     gcc-15 + gcc-16, each leg on its own ephemeral Hetzner x86 (cpx51,
+#     ubuntu-26.04) VM.
 #
 # Trust split: pick-target / create-runner-* / delete-runner-* hold infra
 # secrets (GHA_RUNNER_HCLOUD_TOKEN, GHA_RUNNER_PAT, AWS_ROLE_ARN via OIDC).
@@ -126,6 +128,11 @@ env:
   # 16 vCPU + 32 GB Graviton3, which is parity with the cax41 default.
   AWS_REGION: eu-central-1
   AWS_INSTANCE_TYPE: c7g.4xlarge
+  # PS-11078: x86_64 nightly Hetzner runner spec. cpx51 = 16 vCPU / 32 GB AMD,
+  # x86 parity with the cax41 arm64 default. Single location; x86 shared types
+  # are far less capacity-constrained than cax* so no capacity sweep here.
+  X86_SERVER_TYPE: cpx51
+  X86_LOCATION: nbg1
 
 jobs:
   # TRUSTED authorization gate (PS-11254). Root of the job graph: dispatch
@@ -1191,4 +1198,263 @@ jobs:
             echo "Removed orphan runner $EPHEMERAL_RUNNER_NAME (id=$ID)"
           else
             echo "Runner $EPHEMERAL_RUNNER_NAME already de-registered (ephemeral self-removal)"
+          fi
+
+  # PS-11078: x86_64 nightly build matrix — 9.7 branch only, on Hetzner.
+  #
+  # Sibling to the arm64 path, wired per the follow-up note ("x86_64 nightly
+  # can be added as a sibling job"). Runs the nightly RelWithDebInfo build
+  # (BUILD_TYPE + CCACHE_MAXSIZE from `dispatch`) against two compilers in
+  # parallel: gcc-15 and gcc-16. Build-only — no MTR (Azure x86 parity; arm64
+  # remains the MTR-running arch).
+  #
+  # Each matrix leg provisions its OWN ephemeral Hetzner x86 VM (cpx51, the
+  # ubuntu-26.04 image), so the runner OS is natively Ubuntu 26.04 — no
+  # container needed, and the build steps mirror build-arm64 (sudo, system gcc,
+  # /home/runner paths). The runner name is derived deterministically from the
+  # matrix value + run id, so create / build / delete agree on the target
+  # without passing per-leg outputs (matrix-job outputs are last-write-wins).
+  #
+  # x86 uses a simpler provisioning path than arm64: no capacity sweep and no
+  # EC2 fallback (Hetzner x86 shared types rarely run out), and cleanup deletes
+  # the VM directly via the Hetzner API by name.
+  #
+  # Guards: schedule event AND ref == refs/heads/9.7. The ref guard makes the
+  # "9.7 only" intent explicit even though GHA `schedule:` already only fires
+  # from the repo default branch.
+
+  # TRUSTED. Provision the ephemeral Hetzner x86 runner (one per gcc version).
+  create-x86-runner:
+    needs: dispatch
+    if: |
+      needs.dispatch.result == 'success'
+      && github.event_name == 'schedule'
+      && github.ref == 'refs/heads/9.7'
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        gcc_ver: ['15', '16']
+    steps:
+      - uses: olexandr-havryliak/hcloud-github-runner@bb1089d8b718a06493cb37c51dfe596e44baefc2
+        with:
+          mode: create
+          name: ps-x86-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
+          hcloud_token: ${{ secrets.GHA_RUNNER_HCLOUD_TOKEN }}
+          github_token: ${{ secrets.GHA_RUNNER_PAT }}
+          image: ${{ env.IMAGE }}
+          location: ${{ env.X86_LOCATION }}
+          server_type: ${{ env.X86_SERVER_TYPE }}
+          ssh_key: ${{ env.SSH_KEY_ID }}
+          runner_wait: '120'
+          pre_runner_script: |
+            set -euxo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            ok=0
+            for i in 1 2 3; do
+              if apt-get update -y && apt-get install -y --no-install-recommends curl ca-certificates jq; then
+                ok=1
+                break
+              fi
+              sleep $((i * 15))
+            done
+            [ "$ok" = 1 ]
+
+  build-x86-nightly:
+    needs: [dispatch, create-x86-runner]
+    if: |
+      needs.create-x86-runner.result == 'success'
+      && github.event_name == 'schedule'
+      && github.ref == 'refs/heads/9.7'
+    # Target this leg's own ephemeral Hetzner VM (same deterministic name the
+    # create job registered as the runner label).
+    runs-on: ps-x86-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
+    permissions:
+      contents: read
+    timeout-minutes: 240
+    strategy:
+      # Keep gcc-15 going if gcc-16 fails (and vice versa) — we want both
+      # compilers' results from a nightly, not a fail-fast cancel.
+      fail-fast: false
+      matrix:
+        gcc_ver: ['15', '16']
+    env:
+      BUILD_TYPE:     ${{ needs.dispatch.outputs.build_type }}
+      CCACHE_MAXSIZE: ${{ needs.dispatch.outputs.ccache_maxsize }}
+      CCACHE_DIR: /home/runner/ccache
+      BOOST_DIR: /tmp/boost
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: System info
+        run: |
+          set -eux
+          echo "Arch:       $(uname -m)"
+          echo "Compiler:   gcc-${{ matrix.gcc_ver }}"
+          echo "Build type: $BUILD_TYPE"
+          uname -a
+          nproc
+          free -h
+          df -h /
+
+      - name: Conditional swap (only when RAM < 16 GB)
+        run: |
+          set -eux
+          MEM_GB=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
+          if [ "$MEM_GB" -lt 16 ]; then
+            sudo fallocate -l 16G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
+          free -h
+
+      # Mirrors build-arm64 deps (system gcc via the matrix version selector);
+      # drops libeatmydata (MTR-only, and x86 is build-only).
+      - name: Install Build Dependencies
+        run: |
+          set -eux
+          SELECTED_CC="gcc-${{ matrix.gcc_ver }}"
+          SELECTED_CXX="g++-${{ matrix.gcc_ver }}"
+          echo "SELECTED_CC=$SELECTED_CC" >> "$GITHUB_ENV"
+          echo "SELECTED_CXX=$SELECTED_CXX" >> "$GITHUB_ENV"
+          sudo apt-get -yq update
+          sudo apt-get -yq --no-install-suggests --no-install-recommends install \
+            "$SELECTED_CXX" make pkg-config dpkg-dev unzip lz4 git cmake cmake-curses-gui ccache bison \
+            libtirpc-dev libudev-dev libaio-dev libmecab-dev libnuma-dev \
+            libssl-dev libreadline-dev libedit-dev libpam-dev \
+            libcurl4-openssl-dev libldap2-dev libkrb5-dev libsasl2-dev \
+            libsasl2-modules-gssapi-mit \
+            libxml-simple-perl
+          sudo apt-get -yq --no-install-suggests --no-install-recommends install \
+            libicu-dev libevent-dev liblz4-dev zlib1g-dev \
+            protobuf-compiler libprotobuf-dev libprotoc-dev \
+            libzstd-dev libfido2-dev
+          REAL_COMPILER_VER=$($SELECTED_CC --version | head -1 | awk '{print $NF}')
+          echo "REAL_COMPILER_VER=$REAL_COMPILER_VER" >> "$GITHUB_ENV"
+
+      # ccache key carries arch + gcc version so gcc-15 and gcc-16 (and arm64)
+      # never share a cache slot.
+      - name: ccache cache (x86_64 gcc-${{ matrix.gcc_ver }}, build_type-scoped)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
+        with:
+          path: /home/runner/ccache
+          key: ccache-${{ env.PARENT_BRANCH }}-${{ env.IMAGE_NAME }}-x86_64-gcc${{ matrix.gcc_ver }}-${{ env.BUILD_TYPE }}-${{ env.BUILD_PARAMS_TYPE }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ env.PARENT_BRANCH }}-${{ env.IMAGE_NAME }}-x86_64-gcc${{ matrix.gcc_ver }}-${{ env.BUILD_TYPE }}-${{ env.BUILD_PARAMS_TYPE }}-
+
+      - name: boost cache (Azure key shape)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
+        with:
+          path: /tmp/boost
+          key: ${{ env.BOOST_VERSION }}
+
+      - name: Checkout (fetchDepth 32 mirrors Azure)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.2.2
+        with:
+          fetch-depth: 32
+
+      - name: Update git submodules
+        run: |
+          set -eux
+          git submodule sync
+          git submodule update --init --force --depth=256
+          git submodule
+
+      - name: Compiler and cmake info
+        run: |
+          set -eux
+          $SELECTED_CC -v
+          $SELECTED_CXX -v
+          ccache --version
+          mkdir -p "$CCACHE_DIR" "$BOOST_DIR"
+          ccache -p | grep -E "max_size|cache_dir"
+          ccache --zero-stats
+
+      # Same CMAKE_OPT as build-arm64 (9.7 Linux non-inverted) for parity.
+      - name: cmake (Azure parity, 9.7 Linux non-inverted)
+        run: |
+          set -eux
+          mkdir bin && cd bin
+          COMPILE_OPT=(
+            -DCMAKE_C_FLAGS_DEBUG=-g1
+            -DCMAKE_CXX_FLAGS_DEBUG=-g1
+          )
+          CMAKE_OPT="
+            -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+            -DBUILD_CONFIG=mysql_release
+            -DWITH_PACKAGE_FLAGS=OFF
+            -DDOWNLOAD_BOOST=1
+            -DWITH_BOOST=$BOOST_DIR
+            -DCMAKE_C_COMPILER=$SELECTED_CC
+            -DCMAKE_CXX_COMPILER=$SELECTED_CXX
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DWITH_ROCKSDB=ON
+            -DWITH_COREDUMPER=ON
+            -DWITH_COMPONENT_KEYRING_VAULT=ON
+            -DWITH_PAM=ON
+            -DMYSQL_MAINTAINER_MODE=ON
+            -DWITH_MECAB=system
+            -DWITH_NUMA=ON
+            -DWITH_EDITLINE=system
+            -DWITH_SYSTEM_LIBS=ON
+          "
+          cmake .. $CMAKE_OPT "${COMPILE_OPT[@]}"
+          rm -f "$BOOST_DIR/$BOOST_VERSION.tar.gz"
+          cmake -L .
+
+      - name: Compile (make -j, capped at 16)
+        run: |
+          set -eux
+          cd bin
+          NPROC=$(nproc --all)
+          NTHREADS=$(( NPROC > 16 ? 16 : NPROC ))
+          echo "Using $NTHREADS/$NPROC threads"
+          make -j${NTHREADS}
+          ccache --show-stats
+          df -h /
+
+  # Always-runs cleanup for the x86 Hetzner VMs. Mirrors delete-runner-hetzner
+  # but discovers the VM by name (matrix-job outputs are last-write-wins, so we
+  # cannot read a per-leg server_id) and deletes it via the Hetzner API
+  # directly, then de-registers the runner if it didn't self-remove. The
+  # orphan-sweep workflow reaps anything this misses after 6h.
+  delete-x86-runner:
+    needs: [create-x86-runner, build-x86-nightly]
+    if: |
+      always()
+      && github.event_name == 'schedule'
+      && github.ref == 'refs/heads/9.7'
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        gcc_ver: ['15', '16']
+    steps:
+      - name: Delete Hetzner VM + de-register runner
+        env:
+          HCLOUD_TOKEN: ${{ secrets.GHA_RUNNER_HCLOUD_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHA_RUNNER_PAT }}
+          RUNNER_NAME: ps-x86-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          ID=$(curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?name=$RUNNER_NAME" \
+            | jq -r '.servers[0].id // empty')
+          if [ -n "$ID" ]; then
+            curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$ID" >/dev/null
+            echo "Deleted Hetzner server $RUNNER_NAME (id=$ID)"
+          else
+            echo "No Hetzner server named $RUNNER_NAME (already deleted / never created)"
+          fi
+          RID=$(gh api -X GET /repos/${{ github.repository }}/actions/runners --paginate \
+            --jq ".runners[] | select(.name == \"$RUNNER_NAME\") | .id" || true)
+          if [ -n "$RID" ]; then
+            gh api -X DELETE "/repos/${{ github.repository }}/actions/runners/$RID" || true
+            echo "Removed orphan runner $RUNNER_NAME (id=$RID)"
+          else
+            echo "Runner $RUNNER_NAME already de-registered (ephemeral self-removal)"
           fi
