@@ -17,10 +17,10 @@
 # Notes for follow-ups (per Przemek DM 2026-05-27):
 #   - This file lives on the 9.7 branch only. trunk and 8.4 will get the same
 #     shape in separate PRs with their per-branch cmake/apt deltas.
-#   - x86_64 nightly RelWithDebInfo is wired as create-x86-runner ->
-#     build-x86-nightly -> delete-x86-runner (sibling path, reusing the
+#   - amd64 nightly RelWithDebInfo is wired as create-amd64-runner ->
+#     build-amd64 -> delete-amd64-runner (sibling path, reusing the
 #     `dispatch` outputs). 9.7 branch only, build-only (no MTR), matrix over
-#     gcc-15 + gcc-16, each leg on its own ephemeral Hetzner x86 (cpx51,
+#     gcc-15 + gcc-16, each leg on its own ephemeral Hetzner amd64 (cpx51,
 #     ubuntu-26.04) VM.
 #
 # Trust split: pick-target / create-runner-* / delete-runner-* hold infra
@@ -128,11 +128,11 @@ env:
   # 16 vCPU + 32 GB Graviton3, which is parity with the cax41 default.
   AWS_REGION: eu-central-1
   AWS_INSTANCE_TYPE: c7g.4xlarge
-  # PS-11078: x86_64 nightly Hetzner runner spec. cpx51 = 16 vCPU / 32 GB AMD,
-  # x86 parity with the cax41 arm64 default. Single location; x86 shared types
+  # PS-11078: amd64 nightly Hetzner runner spec. cpx51 = 16 vCPU / 32 GB AMD,
+  # amd64 parity with the cax41 arm64 default. Single location; amd64 shared types
   # are far less capacity-constrained than cax* so no capacity sweep here.
-  X86_SERVER_TYPE: cpx51
-  X86_LOCATION: nbg1
+  AMD64_SERVER_TYPE: cpx51
+  AMD64_LOCATION: nbg1
 
 jobs:
   # TRUSTED authorization gate (PS-11254). Root of the job graph: dispatch
@@ -894,15 +894,11 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 240
-    env:
-      BUILD_TYPE:     ${{ needs.dispatch.outputs.build_type }}
-      MTR_SUITE:      ${{ needs.dispatch.outputs.mtr_suite }}
-      CCACHE_MAXSIZE: ${{ needs.dispatch.outputs.ccache_maxsize }}
-      CCACHE_DIR: /home/runner/ccache
-      BOOST_DIR: /tmp/boost
-      DEBIAN_FRONTEND: noninteractive
     steps:
       - name: System info
+        env:
+          BUILD_TYPE: ${{ needs.dispatch.outputs.build_type }}
+          MTR_SUITE:  ${{ needs.dispatch.outputs.mtr_suite }}
         run: |
           set -eux
           # PS-11179: report whichever provider actually fired.
@@ -919,65 +915,13 @@ jobs:
           free -h
           df -h /
 
-      - name: Conditional swap (only when RAM < 16 GB)
+      # Bare Hetzner/EC2 VM may not ship git; install it before checkout so we
+      # get a real clone (the composite action's submodule step needs a .git
+      # dir) and so the local ./.github/actions reference resolves.
+      - name: Ensure git for checkout
         run: |
           set -eux
-          MEM_GB=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
-          if [ "$MEM_GB" -lt 16 ]; then
-            sudo fallocate -l 16G /swapfile
-            sudo chmod 600 /swapfile
-            sudo mkswap /swapfile
-            sudo swapon /swapfile
-          fi
-          free -h
-
-      # Azure: `*** Install Build Dependencies`. arm64 picks system gcc (no
-      # version selector + LLVM repo plumbing needed).
-      - name: Install Build Dependencies
-        run: |
-          set -eux
-          SELECTED_CC="${COMPILER}${COMPILER_VER:+-${COMPILER_VER}}"
-          SELECTED_CXX="${COMPILER}++${COMPILER_VER:+-${COMPILER_VER}}"
-          [ "$COMPILER" = "gcc" ] && SELECTED_CXX="g++${COMPILER_VER:+-${COMPILER_VER}}"
-          echo "SELECTED_CC=$SELECTED_CC" >> "$GITHUB_ENV"
-          echo "SELECTED_CXX=$SELECTED_CXX" >> "$GITHUB_ENV"
-          PACKAGES="$SELECTED_CC"
-          [ "$COMPILER" = "gcc" ] && PACKAGES="$SELECTED_CXX"
-          sudo apt-get -yq update
-          sudo apt-get -yq --no-install-suggests --no-install-recommends install \
-            $PACKAGES make pkg-config dpkg-dev unzip lz4 git cmake cmake-curses-gui ccache bison \
-            libtirpc-dev libudev-dev libaio-dev libmecab-dev libnuma-dev \
-            libssl-dev libreadline-dev libedit-dev libpam-dev \
-            libcurl4-openssl-dev libldap2-dev libkrb5-dev libsasl2-dev \
-            libsasl2-modules-gssapi-mit \
-            libxml-simple-perl
-          # Azure: SYSTEM_LIBRARIES path (BUILD_PARAMS_TYPE != inverted).
-          sudo apt-get -yq --no-install-suggests --no-install-recommends install \
-            libicu-dev libevent-dev liblz4-dev zlib1g-dev \
-            protobuf-compiler libprotobuf-dev libprotoc-dev \
-            libzstd-dev libfido2-dev
-          # arm64-only addition: libeatmydata1 needed for MTR LD_PRELOAD
-          # (Cirrus arm64 task uses it; Azure x86 jobs do not run MTR).
-          sudo apt-get -yq --no-install-suggests --no-install-recommends install libeatmydata1
-          REAL_COMPILER_VER=$($SELECTED_CC --version | head -1 | awk '{print $4}')
-          echo "REAL_COMPILER_VER=$REAL_COMPILER_VER" >> "$GITHUB_ENV"
-
-      # Azure ccache key shape: "ccache | PARENT_BRANCH | imageName-Compiler-VER-BuildType | BUILD_PARAMS_TYPE | <run id>"
-      # run_id keeps nightly + dispatch + PR runs each save their own slot;
-      # restore-keys falls back to the most-recent matching prefix.
-      - name: ccache cache (Azure key shape; build_type-scoped)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
-        with:
-          path: /home/runner/ccache
-          key: ccache-${{ env.PARENT_BRANCH }}-${{ env.IMAGE_NAME }}-${{ env.COMPILER }}-${{ env.BUILD_TYPE }}-${{ env.BUILD_PARAMS_TYPE }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ env.PARENT_BRANCH }}-${{ env.IMAGE_NAME }}-${{ env.COMPILER }}-${{ env.BUILD_TYPE }}-${{ env.BUILD_PARAMS_TYPE }}-
-
-      - name: boost cache (Azure key shape)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
-        with:
-          path: /tmp/boost
-          key: ${{ env.BOOST_VERSION }}
+          command -v git >/dev/null 2>&1 || { sudo apt-get -yq update && sudo apt-get -yq --no-install-recommends install git ca-certificates; }
 
       - name: Checkout (fetchDepth 32 mirrors Azure)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.2.2
@@ -988,105 +932,24 @@ jobs:
           # build-arm64 holds no secrets (see header trust-split note).
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
 
-      - name: Update git submodules
-        run: |
-          set -eux
-          git submodule sync
-          git submodule update --init --force --depth=256
-          git submodule
-
-      - name: Compiler and cmake info
-        run: |
-          set -eux
-          $SELECTED_CC -v
-          $SELECTED_CXX -v
-          ccache --version
-          mkdir -p "$CCACHE_DIR" "$BOOST_DIR"
-          ccache -p | grep -E "max_size|cache_dir"
-          ccache --zero-stats
-
-      # Azure `*** cmake ...` step, 9.7 Linux non-inverted branch.
-      - name: cmake (Azure parity, 9.7 Linux non-inverted)
-        run: |
-          set -eux
-          mkdir bin && cd bin
-          COMPILE_OPT=(
-            -DCMAKE_C_FLAGS_DEBUG=-g1
-            -DCMAKE_CXX_FLAGS_DEBUG=-g1
-          )
-          CMAKE_OPT="
-            -DCMAKE_BUILD_TYPE=$BUILD_TYPE
-            -DBUILD_CONFIG=mysql_release
-            -DWITH_PACKAGE_FLAGS=OFF
-            -DDOWNLOAD_BOOST=1
-            -DWITH_BOOST=$BOOST_DIR
-            -DCMAKE_C_COMPILER=$SELECTED_CC
-            -DCMAKE_CXX_COMPILER=$SELECTED_CXX
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-            -DWITH_ROCKSDB=ON
-            -DWITH_COREDUMPER=ON
-            -DWITH_COMPONENT_KEYRING_VAULT=ON
-            -DWITH_PAM=ON
-            -DMYSQL_MAINTAINER_MODE=ON
-            -DWITH_MECAB=system
-            -DWITH_NUMA=ON
-            -DWITH_EDITLINE=system
-            -DWITH_SYSTEM_LIBS=ON
-          "
-          cmake .. $CMAKE_OPT "${COMPILE_OPT[@]}"
-          rm -f "$BOOST_DIR/$BOOST_VERSION.tar.gz"
-          cmake -L .
-
-      # Azure: `*** Compile` uses `make -j2` (MS-hosted has 2 cores). arm64
-      # deviation: scale to cax* cores, capped at 16 (Cirrus pattern). Literal
-      # -j2 would waste cax41's 16 cores; arm64 builds benefit linearly from
-      # parallelism (THE migration win).
-      - name: Compile (make -j, capped at 16)
-        run: |
-          set -eux
-          cd bin
-          NPROC=$(nproc --all)
-          NTHREADS=$(( NPROC > 16 ? 16 : NPROC ))
-          echo "Using $NTHREADS/$NPROC threads"
-          make -j${NTHREADS}
-          ccache --show-stats
-          df -h /
-
-      # arm64-only step (Azure x86 does not run MTR; Cirrus arm64 does).
-      # Suite picked by dispatch:
-      #   - main.1st (Debug, per-PR; Cirrus arm64 PR task parity)
-      #   - binlog_nogtid (RelWithDebInfo, nightly; Cirrus RelWithDebInfo parity, Przemek 2026-05-18)
-      - name: MTR (suite per build_type)
-        run: |
-          set -eux
-          cd bin
-          NPROC=$(nproc --all)
-          NTHREADS=$(( NPROC > 16 ? 16 : NPROC ))
-          LIBEATMYDATA=$(whereis libeatmydata.so | awk '{print $2}')
-          if [ "$MTR_SUITE" = "main.1st" ]; then
-            mysql-test/mysql-test-run.pl main.1st \
-              --parallel=$NTHREADS \
-              --junit-output=/tmp/MTR_results.xml \
-              --mysqld-env=LD_PRELOAD=${LIBEATMYDATA} \
-              --force --max-test-fail=0 --retry-failure=0 \
-              --debug-server
-          else
-            mysql-test/mysql-test-run.pl \
-              --suite=$MTR_SUITE \
-              --parallel=$NTHREADS \
-              --junit-output=/tmp/MTR_results.xml \
-              --mysqld-env=LD_PRELOAD=${LIBEATMYDATA} \
-              --force --max-test-fail=0 --retry-failure=0
-          fi
-
-      - name: Upload MTR results
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.0
+      # Shared build steps (deps -> cache -> submodules -> cmake -> compile ->
+      # MTR). cache_tag keeps the original arm64 ccache key shape (bare gcc).
+      - name: Build + MTR
+        uses: ./.github/actions/build-percona-server
         with:
-          name: mtr-${{ env.BUILD_TYPE }}-${{ env.MTR_SUITE }}
-          path: /tmp/MTR_results.xml
-          if-no-files-found: ignore
+          compiler:          ${{ env.COMPILER }}
+          compiler_ver:      ${{ env.COMPILER_VER }}
+          build_type:        ${{ needs.dispatch.outputs.build_type }}
+          ccache_dir:        /home/runner/ccache
+          ccache_maxsize:    ${{ needs.dispatch.outputs.ccache_maxsize }}
+          boost_dir:         /tmp/boost
+          boost_version:     ${{ env.BOOST_VERSION }}
+          parent_branch:     ${{ env.PARENT_BRANCH }}
+          image_name:        ${{ env.IMAGE_NAME }}
+          build_params_type: ${{ env.BUILD_PARAMS_TYPE }}
+          cache_tag:         ${{ env.COMPILER }}
+          run_mtr:           'true'
+          mtr_suite:         ${{ needs.dispatch.outputs.mtr_suite }}
 
   # Renamed from `delete-runner` to `delete-runner-hetzner` in PS-11179.
   # Body otherwise unchanged. Only fires when the Hetzner provisioning path
@@ -1200,31 +1063,31 @@ jobs:
             echo "Runner $EPHEMERAL_RUNNER_NAME already de-registered (ephemeral self-removal)"
           fi
 
-  # PS-11078: x86_64 nightly build matrix — 9.7 branch only, on Hetzner.
+  # PS-11078: amd64 nightly build matrix — 9.7 branch only, on Hetzner.
   #
-  # Sibling to the arm64 path, wired per the follow-up note ("x86_64 nightly
+  # Sibling to the arm64 path, wired per the follow-up note ("amd64 nightly
   # can be added as a sibling job"). Runs the nightly RelWithDebInfo build
   # (BUILD_TYPE + CCACHE_MAXSIZE from `dispatch`) against two compilers in
-  # parallel: gcc-15 and gcc-16. Build-only — no MTR (Azure x86 parity; arm64
+  # parallel: gcc-15 and gcc-16. Build-only — no MTR (Azure amd64 parity; arm64
   # remains the MTR-running arch).
   #
-  # Each matrix leg provisions its OWN ephemeral Hetzner x86 VM (cpx51, the
+  # Each matrix leg provisions its OWN ephemeral Hetzner amd64 VM (cpx51, the
   # ubuntu-26.04 image), so the runner OS is natively Ubuntu 26.04 — no
   # container needed, and the build steps mirror build-arm64 (sudo, system gcc,
   # /home/runner paths). The runner name is derived deterministically from the
   # matrix value + run id, so create / build / delete agree on the target
   # without passing per-leg outputs (matrix-job outputs are last-write-wins).
   #
-  # x86 uses a simpler provisioning path than arm64: no capacity sweep and no
-  # EC2 fallback (Hetzner x86 shared types rarely run out), and cleanup deletes
+  # amd64 uses a simpler provisioning path than arm64: no capacity sweep and no
+  # EC2 fallback (Hetzner amd64 shared types rarely run out), and cleanup deletes
   # the VM directly via the Hetzner API by name.
   #
   # Guards: schedule event AND ref == refs/heads/9.7. The ref guard makes the
   # "9.7 only" intent explicit even though GHA `schedule:` already only fires
   # from the repo default branch.
 
-  # TRUSTED. Provision the ephemeral Hetzner x86 runner (one per gcc version).
-  create-x86-runner:
+  # TRUSTED. Provision the ephemeral Hetzner amd64 runner (one per gcc version).
+  create-amd64-runner:
     needs: dispatch
     if: |
       needs.dispatch.result == 'success'
@@ -1240,12 +1103,12 @@ jobs:
       - uses: olexandr-havryliak/hcloud-github-runner@bb1089d8b718a06493cb37c51dfe596e44baefc2
         with:
           mode: create
-          name: ps-x86-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ps-amd64-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
           hcloud_token: ${{ secrets.GHA_RUNNER_HCLOUD_TOKEN }}
           github_token: ${{ secrets.GHA_RUNNER_PAT }}
           image: ${{ env.IMAGE }}
-          location: ${{ env.X86_LOCATION }}
-          server_type: ${{ env.X86_SERVER_TYPE }}
+          location: ${{ env.AMD64_LOCATION }}
+          server_type: ${{ env.AMD64_SERVER_TYPE }}
           ssh_key: ${{ env.SSH_KEY_ID }}
           runner_wait: '120'
           pre_runner_script: |
@@ -1261,15 +1124,15 @@ jobs:
             done
             [ "$ok" = 1 ]
 
-  build-x86-nightly:
-    needs: [dispatch, create-x86-runner]
+  build-amd64:
+    needs: [dispatch, create-amd64-runner]
     if: |
-      needs.create-x86-runner.result == 'success'
+      needs.create-amd64-runner.result == 'success'
       && github.event_name == 'schedule'
       && github.ref == 'refs/heads/9.7'
     # Target this leg's own ephemeral Hetzner VM (same deterministic name the
     # create job registered as the runner label).
-    runs-on: ps-x86-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: ps-amd64-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
     timeout-minutes: 240
@@ -1280,11 +1143,7 @@ jobs:
       matrix:
         gcc_ver: ['15', '16']
     env:
-      BUILD_TYPE:     ${{ needs.dispatch.outputs.build_type }}
-      CCACHE_MAXSIZE: ${{ needs.dispatch.outputs.ccache_maxsize }}
-      CCACHE_DIR: /home/runner/ccache
-      BOOST_DIR: /tmp/boost
-      DEBIAN_FRONTEND: noninteractive
+      BUILD_TYPE: ${{ needs.dispatch.outputs.build_type }}
     steps:
       - name: System info
         run: |
@@ -1297,131 +1156,43 @@ jobs:
           free -h
           df -h /
 
-      - name: Conditional swap (only when RAM < 16 GB)
+      # Bare Hetzner VM may not ship git; install it before checkout so we get
+      # a real clone (the composite action's submodule step needs a .git dir)
+      # and so the local ./.github/actions reference resolves.
+      - name: Ensure git for checkout
         run: |
           set -eux
-          MEM_GB=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
-          if [ "$MEM_GB" -lt 16 ]; then
-            sudo fallocate -l 16G /swapfile
-            sudo chmod 600 /swapfile
-            sudo mkswap /swapfile
-            sudo swapon /swapfile
-          fi
-          free -h
-
-      # Mirrors build-arm64 deps (system gcc via the matrix version selector);
-      # drops libeatmydata (MTR-only, and x86 is build-only).
-      - name: Install Build Dependencies
-        run: |
-          set -eux
-          SELECTED_CC="gcc-${{ matrix.gcc_ver }}"
-          SELECTED_CXX="g++-${{ matrix.gcc_ver }}"
-          echo "SELECTED_CC=$SELECTED_CC" >> "$GITHUB_ENV"
-          echo "SELECTED_CXX=$SELECTED_CXX" >> "$GITHUB_ENV"
-          sudo apt-get -yq update
-          sudo apt-get -yq --no-install-suggests --no-install-recommends install \
-            "$SELECTED_CXX" make pkg-config dpkg-dev unzip lz4 git cmake cmake-curses-gui ccache bison \
-            libtirpc-dev libudev-dev libaio-dev libmecab-dev libnuma-dev \
-            libssl-dev libreadline-dev libedit-dev libpam-dev \
-            libcurl4-openssl-dev libldap2-dev libkrb5-dev libsasl2-dev \
-            libsasl2-modules-gssapi-mit \
-            libxml-simple-perl
-          sudo apt-get -yq --no-install-suggests --no-install-recommends install \
-            libicu-dev libevent-dev liblz4-dev zlib1g-dev \
-            protobuf-compiler libprotobuf-dev libprotoc-dev \
-            libzstd-dev libfido2-dev
-          REAL_COMPILER_VER=$($SELECTED_CC --version | head -1 | awk '{print $NF}')
-          echo "REAL_COMPILER_VER=$REAL_COMPILER_VER" >> "$GITHUB_ENV"
-
-      # ccache key carries arch + gcc version so gcc-15 and gcc-16 (and arm64)
-      # never share a cache slot.
-      - name: ccache cache (x86_64 gcc-${{ matrix.gcc_ver }}, build_type-scoped)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
-        with:
-          path: /home/runner/ccache
-          key: ccache-${{ env.PARENT_BRANCH }}-${{ env.IMAGE_NAME }}-x86_64-gcc${{ matrix.gcc_ver }}-${{ env.BUILD_TYPE }}-${{ env.BUILD_PARAMS_TYPE }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ env.PARENT_BRANCH }}-${{ env.IMAGE_NAME }}-x86_64-gcc${{ matrix.gcc_ver }}-${{ env.BUILD_TYPE }}-${{ env.BUILD_PARAMS_TYPE }}-
-
-      - name: boost cache (Azure key shape)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
-        with:
-          path: /tmp/boost
-          key: ${{ env.BOOST_VERSION }}
+          command -v git >/dev/null 2>&1 || { sudo apt-get -yq update && sudo apt-get -yq --no-install-recommends install git ca-certificates; }
 
       - name: Checkout (fetchDepth 32 mirrors Azure)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.2.2
         with:
           fetch-depth: 32
 
-      - name: Update git submodules
-        run: |
-          set -eux
-          git submodule sync
-          git submodule update --init --force --depth=256
-          git submodule
+      # Build-only (run_mtr: false) — Azure amd64 parity; arm64 remains the MTR
+      # arch. cache_tag carries arch + gcc version so the two legs (and arm64)
+      # never share a cache slot.
+      - name: Build
+        uses: ./.github/actions/build-percona-server
+        with:
+          compiler:          gcc
+          compiler_ver:      ${{ matrix.gcc_ver }}
+          build_type:        ${{ needs.dispatch.outputs.build_type }}
+          ccache_maxsize:    ${{ needs.dispatch.outputs.ccache_maxsize }}
+          boost_version:     ${{ env.BOOST_VERSION }}
+          parent_branch:     ${{ env.PARENT_BRANCH }}
+          image_name:        ${{ env.IMAGE_NAME }}
+          build_params_type: ${{ env.BUILD_PARAMS_TYPE }}
+          cache_tag:         amd64-gcc${{ matrix.gcc_ver }}
+          run_mtr:           'false'
 
-      - name: Compiler and cmake info
-        run: |
-          set -eux
-          $SELECTED_CC -v
-          $SELECTED_CXX -v
-          ccache --version
-          mkdir -p "$CCACHE_DIR" "$BOOST_DIR"
-          ccache -p | grep -E "max_size|cache_dir"
-          ccache --zero-stats
-
-      # Same CMAKE_OPT as build-arm64 (9.7 Linux non-inverted) for parity.
-      - name: cmake (Azure parity, 9.7 Linux non-inverted)
-        run: |
-          set -eux
-          mkdir bin && cd bin
-          COMPILE_OPT=(
-            -DCMAKE_C_FLAGS_DEBUG=-g1
-            -DCMAKE_CXX_FLAGS_DEBUG=-g1
-          )
-          CMAKE_OPT="
-            -DCMAKE_BUILD_TYPE=$BUILD_TYPE
-            -DBUILD_CONFIG=mysql_release
-            -DWITH_PACKAGE_FLAGS=OFF
-            -DDOWNLOAD_BOOST=1
-            -DWITH_BOOST=$BOOST_DIR
-            -DCMAKE_C_COMPILER=$SELECTED_CC
-            -DCMAKE_CXX_COMPILER=$SELECTED_CXX
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-            -DWITH_ROCKSDB=ON
-            -DWITH_COREDUMPER=ON
-            -DWITH_COMPONENT_KEYRING_VAULT=ON
-            -DWITH_PAM=ON
-            -DMYSQL_MAINTAINER_MODE=ON
-            -DWITH_MECAB=system
-            -DWITH_NUMA=ON
-            -DWITH_EDITLINE=system
-            -DWITH_SYSTEM_LIBS=ON
-          "
-          cmake .. $CMAKE_OPT "${COMPILE_OPT[@]}"
-          rm -f "$BOOST_DIR/$BOOST_VERSION.tar.gz"
-          cmake -L .
-
-      - name: Compile (make -j, capped at 16)
-        run: |
-          set -eux
-          cd bin
-          NPROC=$(nproc --all)
-          NTHREADS=$(( NPROC > 16 ? 16 : NPROC ))
-          echo "Using $NTHREADS/$NPROC threads"
-          make -j${NTHREADS}
-          ccache --show-stats
-          df -h /
-
-  # Always-runs cleanup for the x86 Hetzner VMs. Mirrors delete-runner-hetzner
+  # Always-runs cleanup for the amd64 Hetzner VMs. Mirrors delete-runner-hetzner
   # but discovers the VM by name (matrix-job outputs are last-write-wins, so we
   # cannot read a per-leg server_id) and deletes it via the Hetzner API
   # directly, then de-registers the runner if it didn't self-remove. The
   # orphan-sweep workflow reaps anything this misses after 6h.
-  delete-x86-runner:
-    needs: [create-x86-runner, build-x86-nightly]
+  delete-amd64-runner:
+    needs: [create-amd64-runner, build-amd64]
     if: |
       always()
       && github.event_name == 'schedule'
@@ -1437,7 +1208,7 @@ jobs:
         env:
           HCLOUD_TOKEN: ${{ secrets.GHA_RUNNER_HCLOUD_TOKEN }}
           GH_TOKEN: ${{ secrets.GHA_RUNNER_PAT }}
-          RUNNER_NAME: ps-x86-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
+          RUNNER_NAME: ps-amd64-gcc${{ matrix.gcc_ver }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           ID=$(curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" \

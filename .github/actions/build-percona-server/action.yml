@@ -1,0 +1,240 @@
+# PS-11078: shared build steps for the percona-server arm64 / amd64 CI jobs.
+#
+# Factored out of build.yml so build-arm64 and build-amd64 run an
+# identical sequence: install deps, restore ccache + boost caches, update
+# submodules, configure with the 9.7 Linux non-inverted CMAKE_OPT, compile,
+# and (optionally) run MTR + upload its results.
+#
+# The CALLER must `actions/checkout` the repo BEFORE calling this action: a
+# local (`./.github/actions/...`) action and the source tree must already be
+# present in the workspace. On a bare Hetzner VM the caller also installs git
+# first so checkout produces a real clone (submodules need a .git dir).
+name: Build Percona Server
+description: Install deps, configure, compile (and optionally MTR) percona-server.
+
+inputs:
+  compiler:
+    description: Compiler family (gcc or clang).
+    default: gcc
+  compiler_ver:
+    description: Compiler version suffix (e.g. 15, 16); empty = distro default.
+    default: ''
+  build_type:
+    description: CMAKE_BUILD_TYPE (Debug / RelWithDebInfo).
+    required: true
+  ccache_dir:
+    description: ccache directory.
+    default: /home/runner/ccache
+  ccache_maxsize:
+    description: ccache max size (e.g. 4G, 8G).
+    required: true
+  boost_dir:
+    description: Boost download dir.
+    default: /tmp/boost
+  boost_version:
+    description: Boost package name; doubles as the boost cache key (e.g. boost_1_87_0).
+    required: true
+  parent_branch:
+    description: Branch tag for the ccache key.
+    required: true
+  image_name:
+    description: OS image tag for the ccache key.
+    required: true
+  build_params_type:
+    description: Build params type for the ccache key.
+    default: normal
+  cache_tag:
+    description: Arch/compiler token for the ccache key (e.g. gcc, amd64-gcc16).
+    required: true
+  run_mtr:
+    description: Run MTR after the build (true/false).
+    default: 'false'
+  mtr_suite:
+    description: MTR suite (main.1st, or a --suite name). Required when run_mtr=true.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Conditional swap (only when RAM < 16 GB)
+      shell: bash
+      run: |
+        set -eux
+        MEM_GB=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
+        if [ "$MEM_GB" -lt 16 ]; then
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+        fi
+        free -h
+
+    # Azure: `*** Install Build Dependencies`. System gcc/clang via the version
+    # selector. libeatmydata1 is only needed for MTR (LD_PRELOAD).
+    - name: Install Build Dependencies
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        set -eux
+        CC_BASE="${{ inputs.compiler }}"
+        CC_VER="${{ inputs.compiler_ver }}"
+        SELECTED_CC="${CC_BASE}${CC_VER:+-${CC_VER}}"
+        SELECTED_CXX="${CC_BASE}++${CC_VER:+-${CC_VER}}"
+        [ "$CC_BASE" = "gcc" ] && SELECTED_CXX="g++${CC_VER:+-${CC_VER}}"
+        echo "SELECTED_CC=$SELECTED_CC" >> "$GITHUB_ENV"
+        echo "SELECTED_CXX=$SELECTED_CXX" >> "$GITHUB_ENV"
+        PACKAGES="$SELECTED_CC"
+        [ "$CC_BASE" = "gcc" ] && PACKAGES="$SELECTED_CXX"
+        sudo apt-get -yq update
+        sudo apt-get -yq --no-install-suggests --no-install-recommends install \
+          $PACKAGES make pkg-config dpkg-dev unzip lz4 git cmake cmake-curses-gui ccache bison \
+          libtirpc-dev libudev-dev libaio-dev libmecab-dev libnuma-dev \
+          libssl-dev libreadline-dev libedit-dev libpam-dev \
+          libcurl4-openssl-dev libldap2-dev libkrb5-dev libsasl2-dev \
+          libsasl2-modules-gssapi-mit \
+          libxml-simple-perl
+        # Azure: SYSTEM_LIBRARIES path (BUILD_PARAMS_TYPE != inverted).
+        sudo apt-get -yq --no-install-suggests --no-install-recommends install \
+          libicu-dev libevent-dev liblz4-dev zlib1g-dev \
+          protobuf-compiler libprotobuf-dev libprotoc-dev \
+          libzstd-dev libfido2-dev
+        if [ "${{ inputs.run_mtr }}" = "true" ]; then
+          sudo apt-get -yq --no-install-suggests --no-install-recommends install libeatmydata1
+        fi
+        REAL_COMPILER_VER=$($SELECTED_CC --version | head -1 | awk '{print $NF}')
+        echo "REAL_COMPILER_VER=$REAL_COMPILER_VER" >> "$GITHUB_ENV"
+
+    # Azure ccache key shape: "ccache | parent_branch | image_name | cache_tag | build_type | build_params_type | <run id>"
+    # run_id keeps nightly + dispatch + PR runs each save their own slot;
+    # restore-keys falls back to the most-recent matching prefix.
+    - name: ccache cache (Azure key shape; build_type-scoped)
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
+      with:
+        path: ${{ inputs.ccache_dir }}
+        key: ccache-${{ inputs.parent_branch }}-${{ inputs.image_name }}-${{ inputs.cache_tag }}-${{ inputs.build_type }}-${{ inputs.build_params_type }}-${{ github.run_id }}
+        restore-keys: |
+          ccache-${{ inputs.parent_branch }}-${{ inputs.image_name }}-${{ inputs.cache_tag }}-${{ inputs.build_type }}-${{ inputs.build_params_type }}-
+
+    - name: boost cache (Azure key shape)
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.2.0
+      with:
+        path: ${{ inputs.boost_dir }}
+        key: ${{ inputs.boost_version }}
+
+    - name: Update git submodules
+      shell: bash
+      run: |
+        set -eux
+        git submodule sync
+        git submodule update --init --force --depth=256
+        git submodule
+
+    - name: Compiler and cmake info
+      shell: bash
+      env:
+        CCACHE_DIR: ${{ inputs.ccache_dir }}
+        CCACHE_MAXSIZE: ${{ inputs.ccache_maxsize }}
+        BOOST_DIR: ${{ inputs.boost_dir }}
+      run: |
+        set -eux
+        $SELECTED_CC -v
+        $SELECTED_CXX -v
+        ccache --version
+        mkdir -p "$CCACHE_DIR" "$BOOST_DIR"
+        ccache -p | grep -E "max_size|cache_dir"
+        ccache --zero-stats
+
+    # Azure `*** cmake ...` step, 9.7 Linux non-inverted branch.
+    - name: cmake (Azure parity, 9.7 Linux non-inverted)
+      shell: bash
+      env:
+        CCACHE_DIR: ${{ inputs.ccache_dir }}
+        CCACHE_MAXSIZE: ${{ inputs.ccache_maxsize }}
+        BOOST_DIR: ${{ inputs.boost_dir }}
+        BOOST_VERSION: ${{ inputs.boost_version }}
+        BUILD_TYPE: ${{ inputs.build_type }}
+      run: |
+        set -eux
+        mkdir bin && cd bin
+        COMPILE_OPT=(
+          -DCMAKE_C_FLAGS_DEBUG=-g1
+          -DCMAKE_CXX_FLAGS_DEBUG=-g1
+        )
+        CMAKE_OPT="
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+          -DBUILD_CONFIG=mysql_release
+          -DWITH_PACKAGE_FLAGS=OFF
+          -DDOWNLOAD_BOOST=1
+          -DWITH_BOOST=$BOOST_DIR
+          -DCMAKE_C_COMPILER=$SELECTED_CC
+          -DCMAKE_CXX_COMPILER=$SELECTED_CXX
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DWITH_ROCKSDB=ON
+          -DWITH_COREDUMPER=ON
+          -DWITH_COMPONENT_KEYRING_VAULT=ON
+          -DWITH_PAM=ON
+          -DMYSQL_MAINTAINER_MODE=ON
+          -DWITH_MECAB=system
+          -DWITH_NUMA=ON
+          -DWITH_EDITLINE=system
+          -DWITH_SYSTEM_LIBS=ON
+        "
+        cmake .. $CMAKE_OPT "${COMPILE_OPT[@]}"
+        rm -f "$BOOST_DIR/$BOOST_VERSION.tar.gz"
+        cmake -L .
+
+    # Azure uses `make -j2` (MS-hosted has 2 cores); we scale to the runner's
+    # cores capped at 16 (Cirrus pattern). arm64/amd64 builds benefit linearly
+    # from parallelism (THE migration win).
+    - name: Compile (make -j, capped at 16)
+      shell: bash
+      env:
+        CCACHE_DIR: ${{ inputs.ccache_dir }}
+        CCACHE_MAXSIZE: ${{ inputs.ccache_maxsize }}
+      run: |
+        set -eux
+        cd bin
+        NPROC=$(nproc --all)
+        NTHREADS=$(( NPROC > 16 ? 16 : NPROC ))
+        echo "Using $NTHREADS/$NPROC threads"
+        make -j${NTHREADS}
+        ccache --show-stats
+        df -h /
+
+    # Suite picked by the caller (dispatch):
+    #   - main.1st (Debug, per-PR; Cirrus arm64 PR task parity)
+    #   - binlog_nogtid (RelWithDebInfo, nightly; Cirrus RelWithDebInfo parity)
+    - name: MTR (suite per build_type)
+      if: inputs.run_mtr == 'true'
+      shell: bash
+      run: |
+        set -eux
+        cd bin
+        NPROC=$(nproc --all)
+        NTHREADS=$(( NPROC > 16 ? 16 : NPROC ))
+        LIBEATMYDATA=$(whereis libeatmydata.so | awk '{print $2}')
+        if [ "${{ inputs.mtr_suite }}" = "main.1st" ]; then
+          mysql-test/mysql-test-run.pl main.1st \
+            --parallel=$NTHREADS \
+            --junit-output=/tmp/MTR_results.xml \
+            --mysqld-env=LD_PRELOAD=${LIBEATMYDATA} \
+            --force --max-test-fail=0 --retry-failure=0 \
+            --debug-server
+        else
+          mysql-test/mysql-test-run.pl \
+            --suite=${{ inputs.mtr_suite }} \
+            --parallel=$NTHREADS \
+            --junit-output=/tmp/MTR_results.xml \
+            --mysqld-env=LD_PRELOAD=${LIBEATMYDATA} \
+            --force --max-test-fail=0 --retry-failure=0
+        fi
+
+    - name: Upload MTR results
+      if: always() && inputs.run_mtr == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.0
+      with:
+        name: mtr-${{ inputs.build_type }}-${{ inputs.mtr_suite }}
+        path: /tmp/MTR_results.xml
+        if-no-files-found: ignore
