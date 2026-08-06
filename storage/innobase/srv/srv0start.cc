@@ -1183,8 +1183,8 @@ static dberr_t srv_open_tmp_tablespace(ib::fsp::SysTablespace &tmp_space) {
         return DB_ERROR;
       }
 
-      const auto encryption_err = fil_set_encryption(
-          (*space)->id, Encryption::AES, nullptr, nullptr);
+      const auto encryption_err =
+          fil_set_encryption((*space)->id, Encryption::AES, nullptr, nullptr);
       if (encryption_err != DB_SUCCESS) {
         fil_space_release(*space);
         return encryption_err;
@@ -1676,8 +1676,7 @@ dberr_t srv_start(bool create_new_db) {
   ib::info(ER_IB_MSG_1130, size, unit, srv_buf_pool_instances, chunk_size,
            chunk_unit);
 
-  if (const auto err = buf_pool_init(srv_buf_pool_size,
-                                     srv_buf_pool_populate,
+  if (const auto err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_populate,
                                      srv_buf_pool_instances);
       err != DB_SUCCESS) {
     ib::error(ER_IB_MSG_1131);
@@ -1949,10 +1948,9 @@ dberr_t srv_start(bool create_new_db) {
         return srv_init_abort(DB_ERROR);
       }
 
-      DBUG_EXECUTE_IF("ib_recovery_print_mysql_binlog_offset",
-                      if (recv_needed_recovery) {
-                        trx_sys_print_mysql_binlog_offset();
-                      });
+      DBUG_EXECUTE_IF(
+          "ib_recovery_print_mysql_binlog_offset",
+          if (recv_needed_recovery) { trx_sys_print_mysql_binlog_offset(); });
 
       /* Validate a few system page types that were left uninitialized
       by older versions of MySQL. */
