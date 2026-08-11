@@ -19,11 +19,11 @@ parameters:
   default: false
 
 schedules:
-- cron: "0 2 * * *"
-  displayName: Daily 2:00 AM UTC build
+- cron: "0 3 * * *"
+  displayName: Daily 3:00 AM UTC build
   branches:
     include:
-    - 9.7
+    - trunk
 
 trigger: none
 
@@ -53,8 +53,8 @@ jobs:
     fetchDepth: 32
 
   - script: |
-      git fetch origin 9.7
-      CHANGED_FILES=$(git diff --name-only --relative --diff-filter AMR origin/9.7 -- . | tr '\n' ' ')
+      git fetch origin trunk
+      CHANGED_FILES=$(git diff --name-only --relative --diff-filter AMR origin/trunk -- . | tr '\n' ' ')
 
       if [ -z "${CHANGED_FILES}" ]; then
           echo --- No changed files
@@ -76,7 +76,7 @@ jobs:
     CCACHE_CPP2: 1
     CCACHE_MAXSIZE: 4G
     OS_NAME: $(Agent.OS)
-    PARENT_BRANCH: 9.7
+    PARENT_BRANCH: trunk
     BUILD_PARAMS_TYPE: normal
 
   # Two tiers of coverage:
