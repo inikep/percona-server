@@ -4343,16 +4343,8 @@ static void innobase_post_recover() {
       srv_undo_log_encrypt = false;
     } else {
       /* Enable encryption for UNDO tablespaces */
-<<<<<<< HEAD
       mutex_enter(&undo_truncate::ddl_mutex);
-      if (srv_enable_undo_encryption()) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-      mutex_enter(&undo::ddl_mutex);
-      if (srv_enable_undo_encryption()) {
-=======
-      mutex_enter(&undo::ddl_mutex);
       if (srv_enable_undo_encryption(nullptr)) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
         srv_undo_log_encrypt = false;
         ut_d(ut_error);
       }

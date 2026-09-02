@@ -2644,62 +2644,30 @@ static bool srv_master_do_shutdown_tasks(
   return (n_bytes_merged != 0);
 }
 
-<<<<<<< HEAD
-/** Ensure that the first master key exists before taking an outer
-master_key_id_mutex guard.
-@return true iff success. */
-static bool srv_ensure_master_key_exists() {
-  if (Encryption::get_master_key_id() != Encryption::DEFAULT_MASTER_KEY_ID) {
-    return true;
-  }
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-/* Enable REDO tablespace encryption */
-bool srv_enable_redo_encryption() {
-  log_t &log = *log_sys;
-=======
 void undo_rotate_default_master_key() {
-  fil_space_t *space;
-
-  if (srv_shutdown_state.load() >= SRV_SHUTDOWN_CLEANUP) {
-    return;
-  }
-
-  /* If the undo log space is using default key, rotate
-  it. We need the server_uuid initialized, otherwise,
-  the keyname will not contains server uuid. */
-  if (Encryption::get_master_key_id() != 0 || srv_read_only_mode ||
-      strlen(server_uuid) == 0) {
+  if (srv_shutdown_state.load() >= SRV_SHUTDOWN_CLEANUP ||
+      Encryption::get_master_key_id() != Encryption::DEFAULT_MASTER_KEY_ID ||
+      srv_read_only_mode || strlen(server_uuid) == 0) {
     return;
   }
 
   DBUG_EXECUTE_IF("skip_rotating_default_master_key", return;);
 
-  undo::spaces->s_lock();
-  for (auto undo_space : undo::spaces->m_spaces) {
+  undo_truncate::spaces->s_lock(UT_LOCATION_HERE);
+  for (auto undo_space : undo_truncate::spaces->m_spaces) {
     ut_ad(fsp_is_undo_tablespace(undo_space->id()));
-
-    space = fil_space_get(undo_space->id());
-
+    fil_space_t *space = fil_space_get(undo_space->id());
     if (space == nullptr ||
         space->m_encryption_metadata.m_type != Encryption::AES) {
       continue;
     }
 
-    byte encrypt_info[Encryption::INFO_SIZE];
+    byte encrypt_info[Encryption::INFO_SIZE]{};
     mtr_t mtr;
-
     ut_ad(FSP_FLAGS_GET_ENCRYPTION(space->flags));
-
-    /* Make sure that there is enough reusable
-    space in the redo log files. */
     log_free_check();
-
     mtr_start(&mtr);
-
     mtr_x_lock_space(space, &mtr);
-
-    memset(encrypt_info, 0, Encryption::INFO_SIZE);
-
     if (!fsp_header_rotate_encryption(space, encrypt_info, &mtr)) {
       ib::error(ER_IB_MSG_1056, undo_space->space_name());
     } else {
@@ -2707,13 +2675,16 @@ void undo_rotate_default_master_key() {
     }
     mtr_commit(&mtr);
   }
-  undo::spaces->s_unlock();
+  undo_truncate::spaces->s_unlock();
 }
 
-/* Enable REDO tablespace encryption */
-bool srv_enable_redo_encryption() {
-  log_t &log = *log_sys;
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+/** Ensure that the first master key exists before taking an outer
+master_key_id_mutex guard.
+@return true iff success. */
+static bool srv_ensure_master_key_exists() {
+  if (Encryption::get_master_key_id() != Encryption::DEFAULT_MASTER_KEY_ID) {
+    return true;
+  }
 
   byte *master_key = nullptr;
   uint32_t master_key_id = Encryption::DEFAULT_MASTER_KEY_ID;
@@ -2824,19 +2795,9 @@ bool set_undo_tablespace_encryption(THD *thd, space_id_t space_id, mtr_t *mtr) {
 }
 
 /* Enable UNDO tablespace encryption */
-<<<<<<< HEAD
-bool srv_enable_undo_encryption() {
+bool srv_enable_undo_encryption(THD *thd) {
   /* Make sure undo_truncate::ddl_mutex is owned. */
   ut_ad(mutex_own(&undo_truncate::ddl_mutex));
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-bool srv_enable_undo_encryption() {
-  /* Make sure undo::ddl_mutex is owned. */
-  ut_ad(mutex_own(&undo::ddl_mutex));
-=======
-bool srv_enable_undo_encryption(THD *thd) {
-  /* Make sure undo::ddl_mutex is owned. */
-  ut_ad(mutex_own(&undo::ddl_mutex));
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   bool ret_val = false;
 
   /* Traverse over all UNDO tablespaces and mark them encrypted. */

@@ -894,7 +894,6 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
     }
   }
 
-<<<<<<< HEAD
   log_free_check();
 
   mtr_t mtr;
@@ -919,14 +918,7 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
   trx_rseg_add_rollback_segments(). */
 
   if (srv_undo_log_encrypt && enable_undo_encryption) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  if (srv_undo_log_encrypt) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
-=======
-  if (srv_undo_log_encrypt) {
     ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     ut_ad(!ret);
   }
 
@@ -1091,7 +1083,7 @@ static dberr_t srv_undo_create_implicit_tablespaces_with_empty_structure() {
   }
 
   if (srv_undo_log_encrypt) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
+    ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
     ut_ad(!ret);
   }
 
