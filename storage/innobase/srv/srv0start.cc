@@ -1597,19 +1597,11 @@ dberr_t srv_start(bool create_new_db) {
   ib::info(ER_IB_MSG_1130, size, unit, srv_buf_pool_instances, chunk_size,
            chunk_unit);
 
-<<<<<<< HEAD
-  if (const auto err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
+  if (const auto err =
+          buf_pool_init(srv_buf_pool_size,
+                        static_cast<bool>(srv_numa_interleave),
+                        srv_buf_pool_instances);
       err != DB_SUCCESS) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
-
-  if (err != DB_SUCCESS) {
-=======
-  err = buf_pool_init(srv_buf_pool_size, static_cast<bool>(srv_numa_interleave),
-                      srv_buf_pool_instances);
-
-  if (err != DB_SUCCESS) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     ib::error(ER_IB_MSG_1131);
 
     return srv_init_abort(DB_ERROR);
