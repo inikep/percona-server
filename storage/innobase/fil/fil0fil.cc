@@ -3115,80 +3115,7 @@ ut::unique_ptr<fil_space_t> Fil_shard::space_create(const char *name,
   ut_ad(fsp_flags_is_valid(flags));
   ut_ad(srv_page_size == UNIV_PAGE_SIZE_ORIG || flags != 0);
 
-<<<<<<< HEAD
   auto space = ut::make_unique<fil_space_t>(UT_NEW_THIS_FILE_PSI_KEY);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  /* Look for a matching tablespace. */
-  fil_space_t *space = get_space_by_name(name);
-
-  if (space == nullptr) {
-    space = get_space_by_id(space_id);
-  }
-
-  if (space != nullptr) {
-    std::ostringstream oss;
-
-    for (size_t i = 0; i < space->files.size(); ++i) {
-      oss << "'" << space->files[i].name << "'";
-
-      if (i < space->files.size() - 1) {
-        oss << ", ";
-      }
-    }
-
-    ib::info(ER_IB_MSG_281)
-        << "Trying to add tablespace '" << name << "'"
-        << " with id " << space_id << " to the tablespace"
-        << " memory cache, but tablespace"
-        << " '" << space->name << "'"
-        << " already exists in the cache with space ID " << space->id
-        << ". It maps to the following file(s): " << oss.str();
-
-    return nullptr;
-  }
-
-  space = static_cast<fil_space_t *>(
-      ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, sizeof(*space)));
-  /* This could be just a placement new constructor call if, only if it compiles
-  OK on SunPro. */
-  space->initialize();
-=======
-  /* Look for a matching tablespace. */
-  fil_space_t *space = get_space_by_name(name);
-
-  if (space == nullptr) {
-    space = get_space_by_id(space_id);
-  }
-
-  if (space != nullptr) {
-    std::ostringstream oss;
-
-    for (size_t i = 0; i < space->files.size(); ++i) {
-      oss << "'" << space->files[i].name << "'";
-
-      if (i < space->files.size() - 1) {
-        oss << ", ";
-      }
-    }
-
-    ut_ad(space->id != space_id);
-    ib::info(ER_IB_MSG_281)
-        << "Trying to add tablespace '" << name << "'"
-        << " with id " << space_id << " to the tablespace"
-        << " memory cache, but tablespace"
-        << " '" << space->name << "'"
-        << " already exists in the cache with space ID " << space->id
-        << ". It maps to the following file(s): " << oss.str();
-
-    return nullptr;
-  }
-
-  space = static_cast<fil_space_t *>(
-      ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, sizeof(*space)));
-  /* This could be just a placement new constructor call if, only if it compiles
-  OK on SunPro. */
-  space->initialize();
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   space->id = space_id;
   space->name = mem_strdup(name);
@@ -3199,16 +3126,6 @@ ut::unique_ptr<fil_space_t> Fil_shard::space_create(const char *name,
   space->m_encryption_metadata.m_type = Encryption::NONE;
   space->encryption_op_in_progress = Encryption::Progress::NONE;
 
-<<<<<<< HEAD
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  rw_lock_create(fil_space_latch_key, &space->latch, LATCH_ID_FIL_SPACE);
-
-=======
-  rw_lock_create(fil_space_latch_key, &space->latch, LATCH_ID_FIL_SPACE);
-
-  space->is_corrupt = false;
-
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #ifndef UNIV_HOTBACKUP
   if (space->purpose == FIL_TYPE_TEMPORARY) {
     ut_d(space->latch.set_temp_fsp());
