@@ -357,25 +357,7 @@ struct Slot {
   to the caller of os_aio_simulated_handler */
   bool io_already_done{false};
 
-<<<<<<< HEAD
   std::function<void(dberr_t)> callback;
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  /** The file node for which the IO is requested. */
-  fil_node_t *m1{nullptr};
-
-  /** the requester of an aio operation and which can be used
-  to identify which pending aio operation was completed */
-  void *m2{nullptr};
-=======
-  space_id_t space_id;
-
-  /** The file node for which the IO is requested. */
-  fil_node_t *m1{nullptr};
-
-  /** the requester of an aio operation and which can be used
-  to identify which pending aio operation was completed */
-  void *m2{nullptr};
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   /** AIO completion status */
   dberr_t err{DB_ERROR_UNSET};
@@ -487,7 +469,6 @@ class AIO {
   @param[in,out]        buf     buffer where to read or from which to write
   @param[in]    offset          file offset, where to read from or start writing
   @param[in]    len             length of the block to read or write
-<<<<<<< HEAD
   @param[in]    callback        A lambda to be called when the result of this
                                 operation is known. It may be a success if the
                                 read or write succeeded or a subset of `dberr_t`
@@ -499,22 +480,6 @@ class AIO {
                                    const char *name, void *buf,
                                    os_offset_t offset, ulint len,
                                    std::function<void(dberr_t)> callback);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  @param[in]    e_block         Encrypted block or nullptr.
-  @return pointer to slot */
-  [[nodiscard]] Slot *reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                                   pfs_os_file_t file, const char *name,
-                                   void *buf, os_offset_t offset, ulint len,
-                                   const file::Block *e_block);
-=======
-  @param[in]    e_block         Encrypted block or nullptr.
-  @return pointer to slot */
-  [[nodiscard]] Slot *reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                                   pfs_os_file_t file, const char *name,
-                                   void *buf, os_offset_t offset, ulint len,
-                                   const file::Block *e_block,
-                                   space_id_t space_id);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   /** @return number of reserved slots */
   ulint pending_io_count() const;
@@ -2026,15 +1991,7 @@ static file::Block *os_file_encrypt_log(const IORequest &type, byte *&buf,
   Encryption encryption(type.encryption_algorithm());
   file::Block *block{};
 
-<<<<<<< HEAD
   ut_ad(type.is_write() && type.is_encryption_requested() && type.is_log());
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  ut_ad(type.is_write() && type.is_encrypted() && type.is_log());
-=======
-  ut_ad(type.is_write());
-  ut_ad(type.is_encrypted());
-  ut_ad(type.is_log());
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   ut_ad(n % OS_FILE_LOG_BLOCK_SIZE == 0);
 
   if (n <= UNIV_PAGE_SIZE) {
@@ -2560,146 +2517,54 @@ dberr_t LinuxAIOHandler::poll(std::function<void(dberr_t)> &callback,
   return (err);
 }
 
-<<<<<<< HEAD
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-/** This function is only used in Linux native asynchronous i/o.
-Waits for an aio operation to complete. This function is used to wait for
-the completed requests. The aio array of pending requests is divided
-into segments. The thread specifies which segment or slot it wants to wait
-for. NOTE: this function will also take care of freeing the aio slot,
-therefore no other thread is allowed to do the freeing!
-
-@param[in]      global_segment  segment number in the aio array
-                                to wait for; segment 0 is the ibuf i/o thread,
-                                then follow the non-ibuf read threads,
-                                and the last are the non-ibuf write threads.
-@param[out]     m1              the messages passed with the
-@param[out]     m2                      AIO request; note that in case the
-                                AIO operation failed, these output
-                                parameters are valid and can be used to
-                                restart the operation.
-@param[out]     request         IO context
-@return DB_SUCCESS if the IO was successful */
-static dberr_t os_aio_linux_handler(ulint global_segment, fil_node_t **m1,
-                                    void **m2, IORequest *request) {
-  LinuxAIOHandler handler(global_segment);
-
-  dberr_t err = handler.poll(m1, m2, request);
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    if (!request->is_dblwr()) {
-      fil_no_punch_hole(*m1);
-      err = DB_SUCCESS;
-    }
-  }
-
-  return (err);
-}
-
-=======
-/** This function is only used in Linux native asynchronous i/o.
-Waits for an aio operation to complete. This function is used to wait for
-the completed requests. The aio array of pending requests is divided
-into segments. The thread specifies which segment or slot it wants to wait
-for. NOTE: this function will also take care of freeing the aio slot,
-therefore no other thread is allowed to do the freeing!
-
-@param[in]      global_segment  segment number in the aio array
-                                to wait for; segment 0 is the ibuf i/o thread,
-                                then follow the non-ibuf read threads,
-                                and the last are the non-ibuf write threads.
-@param[out]     m1              the messages passed with the
-@param[out]     m2                      AIO request; note that in case the
-                                AIO operation failed, these output
-                                parameters are valid and can be used to
-                                restart the operation.
-@param[out]     request         IO context
-@return DB_SUCCESS if the IO was successful */
-static dberr_t os_aio_linux_handler(ulint global_segment, fil_node_t **m1,
-                                    void **m2, IORequest *request) {
-  LinuxAIOHandler handler(global_segment);
-
-  dberr_t err = handler.poll(m1, m2, request);
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    if (!request->is_dblwr()) {
-      fil_no_punch_hole(*m1);
-      err = DB_SUCCESS;
-    }
-  }
-
-  return (err);
-}
-#endif
-
-/** Submit buffered AIO requests on the given segment to the kernel.
-(low level function).
-@param[in] acquire_mutex specifies whether to lock array mutex */
-void AIO::os_aio_dispatch_read_array_submit_low(bool acquire_mutex
-                                                [[maybe_unused]]) {
-  if (!srv_use_native_aio) {
-    return;
-  }
-#if defined(LINUX_NATIVE_AIO)
+/** Submit all native-AIO read requests accumulated for batched read-ahead. */
+void AIO::os_aio_dispatch_read_array_submit_low(bool acquire_mutex) {
   AIO *array = AIO::s_reads;
   ulint total_submitted = 0;
-  if (acquire_mutex) array->acquire();
-  /* Submit aio requests buffered on all segments. */
-  ut_ad(array->m_pending);
-  ut_ad(array->m_count);
-  for (ulint i = 0; i < array->m_n_segments; i++) {
+
+  if (acquire_mutex) {
+    array->acquire();
+  }
+
+  ut_ad(array->m_pending != nullptr);
+  ut_ad(array->m_count != nullptr);
+  for (ulint i = 0; i < array->m_n_segments; ++i) {
     const int count = array->m_count[i];
     int offset = 0;
     while (offset != count) {
-      struct iocb **const iocb_array =
-          array->m_pending + i * array->m_slots.size() / array->m_n_segments +
-          offset;
+      struct iocb **iocb_array =
+          array->m_pending +
+          i * array->m_slots.size() / array->m_n_segments + offset;
       const int partial_count = count - offset;
-      /* io_submit() returns number of successfully queued
-      requests or (-errno).
-      It returns 0 only if the number of iocb blocks passed
-      is also 0. */
       const int submitted =
           io_submit(array->m_aio_ctx[i], partial_count, iocb_array);
 
-      /* This assertion prevents infinite loop in both
-      debug and release modes. */
       ut_a(submitted != 0);
-
       if (submitted < 0) {
-        /* Terminating with fatal error */
         const char *errmsg = strerror(-submitted);
         ib::fatal(UT_LOCATION_HERE)
-            << "Trying to sumbit " << count << " aio requests, io_submit() set "
-            << "errno to " << -submitted << ": "
-            << (errmsg ? errmsg : "<unknown>");
+            << "Submitting " << count << " AIO requests failed with errno "
+            << -submitted << ": " << (errmsg != nullptr ? errmsg : "unknown");
       }
       ut_ad(submitted <= partial_count);
       if (submitted < partial_count) {
-        ib::warn() << "Trying to sumbit " << count
-                   << " aio requests, io_submit() "
-                   << "submitted only " << submitted;
+        ib::warn() << "Submitting " << count << " AIO requests queued only "
+                   << submitted;
       }
       offset += submitted;
     }
     total_submitted += count;
   }
-  /* Reset the aio request buffer. */
-  memset(array->m_pending, 0x0, sizeof(struct iocb *) * array->m_slots.size());
-  memset(array->m_count, 0x0, sizeof(ulint) * array->m_n_segments);
-  if (acquire_mutex) array->release();
 
+  memset(array->m_pending, 0,
+         sizeof(struct iocb *) * array->m_slots.size());
+  memset(array->m_count, 0, sizeof(ulint) * array->m_n_segments);
+  if (acquire_mutex) {
+    array->release();
+  }
   srv_stats.n_aio_submitted.add(total_submitted);
-#endif
 }
 
-/** Submit buffered AIO requests on the given segment to the kernel. */
-void os_aio_dispatch_read_array_submit() {
-  AIO::os_aio_dispatch_read_array_submit_low(true);
-}
-
-#if defined(LINUX_NATIVE_AIO)
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 /** Dispatch an AIO request to the kernel.
 @param[in,out]  slot            an already reserved slot
 @param[in]      should_buffer   should buffer the request
@@ -2922,6 +2787,15 @@ bool AIO::is_linux_native_aio_supported() {
 }
 
 #endif /* LINUX_NATIVE_AIO */
+
+/** Submit buffered native-AIO reads. Simulated AIO submits immediately. */
+void os_aio_dispatch_read_array_submit() {
+#ifdef LINUX_NATIVE_AIO
+  if (srv_use_native_aio) {
+    AIO::os_aio_dispatch_read_array_submit_low(true);
+  }
+#endif
+}
 
 /** Retrieves the last error number if an error occurs in a file io function.
 The number should be retrieved before any other OS calls (because they may
@@ -5120,20 +4994,10 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
 @param[in]      n               number of bytes to read, starting from offset
 @param[out]     err             DB_SUCCESS or error code
 @return number of bytes read, -1 if error */
-<<<<<<< HEAD
 [[nodiscard]] static ssize_t os_file_pread(const IORequest &type,
                                            os_file_t file, byte *buf, ulint n,
-                                           os_offset_t offset, dberr_t *err) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-[[nodiscard]] static ssize_t os_file_pread(IORequest &type, os_file_t file,
-                                           void *buf, ulint n,
-                                           os_offset_t offset, dberr_t *err) {
-=======
-[[nodiscard]] static ssize_t os_file_pread(IORequest &type, os_file_t file,
-                                           void *buf, ulint n,
                                            os_offset_t offset, trx_t *trx,
                                            dberr_t *err) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #ifdef UNIV_HOTBACKUP
   static meb::Mutex meb_mutex;
 
@@ -5170,23 +5034,12 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
 @param[out]     o               number of bytes actually read
 @param[in]      exit_on_err     if true then exit on error
 @return DB_SUCCESS or error code */
-<<<<<<< HEAD
 [[nodiscard]] static dberr_t os_file_read_page(const IORequest &type,
                                                const char *file_name,
                                                os_file_t file, byte *buf,
                                                os_offset_t offset, ulint n,
-                                               ulint *o, bool exit_on_err) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-[[nodiscard]] static dberr_t os_file_read_page(IORequest &type,
-                                               const char *file_name,
-                                               os_file_t file, void *buf,
-                                               os_offset_t offset, ulint n,
-                                               ulint *o, bool exit_on_err) {
-=======
-[[nodiscard]] static dberr_t os_file_read_page(
-    IORequest &type, const char *file_name, os_file_t file, void *buf,
-    os_offset_t offset, ulint n, ulint *o, bool exit_on_err, trx_t *trx) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+                                               ulint *o, bool exit_on_err,
+                                               trx_t *trx) {
   dberr_t err(DB_ERROR_UNSET);
 
 #ifdef UNIV_HOTBACKUP
@@ -5590,78 +5443,18 @@ bool os_file_seek(const char *pathname, os_file_t file, os_offset_t offset) {
   return (success);
 }
 
-<<<<<<< HEAD
 dberr_t os_file_read_func(const IORequest &type, const char *file_name,
                           os_file_t file, byte *buf, os_offset_t offset,
-                          ulint n) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-/** NOTE! Use the corresponding macro os_file_read_first_page(), not directly
-this function!
-Requests a synchronous read operation of page 0 of IBD file.
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      offset          file offset where to read
-@param[in]      n               number of bytes to read
-@return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-dberr_t os_file_read_func(IORequest &type, const char *file_name,
-                          os_file_t file, void *buf, os_offset_t offset,
-                          ulint n) {
-=======
-/** NOTE! Use the corresponding macro os_file_read_first_page(), not directly
-this function!
-Requests a synchronous read operation of page 0 of IBD file.
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      offset          file offset where to read
-@param[in]      n               number of bytes to read
-@return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-dberr_t os_file_read_func(IORequest &type, const char *file_name,
-                          os_file_t file, void *buf, os_offset_t offset,
                           ulint n, trx_t *trx) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   ut_ad(type.is_read());
 
   return (os_file_read_page(type, file_name, file, buf, offset, n, nullptr,
                             true, trx));
 }
 
-<<<<<<< HEAD
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-/** NOTE! Use the corresponding macro os_file_read_first_page(),
-not directly this function!
-Requests a synchronous read operation of page 0 of IBD file
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      n               number of bytes to read
-@return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-=======
-/** NOTE! Use the corresponding macro os_file_read_first_page(),
-not directly this function!
-Requests a synchronous read operation of page 0 of IBD file
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      n               number of bytes to read
-@param[in]      exit_on_err     if true then exit on error
-@return DB_SUCCESS or error code */
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
-<<<<<<< HEAD
                                      os_file_t file, byte *buf,
-                                     page_no_t n_pages) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-                                     os_file_t file, void *buf, ulint n) {
-=======
-                                     os_file_t file, void *buf, ulint n,
-                                     bool exit_on_err) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+                                     page_no_t n_pages, bool exit_on_err) {
   ut_ad(type.is_read());
 
   dberr_t err =
@@ -5679,7 +5472,7 @@ dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
     const size_t read_size = page_size.physical() * n_pages;
     ut_ad(read_size > 0);
     err = os_file_read_page(type, file_name, file, buf, 0, read_size, nullptr,
-                            true, nullptr);
+                            exit_on_err, nullptr);
   }
   return (err);
 }
@@ -5713,16 +5506,8 @@ static dberr_t os_file_copy_read_write(os_file_t src_file,
       request_size = size;
     }
 
-<<<<<<< HEAD
     err = os_file_read_func(read_request, nullptr, src_file, buf, src_offset,
-                            request_size);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-    err = os_file_read_func(read_request, nullptr, src_file, &buf, src_offset,
-                            request_size);
-=======
-    err = os_file_read_func(read_request, nullptr, src_file, &buf, src_offset,
                             request_size, nullptr);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
     if (err != DB_SUCCESS) {
       return (err);
@@ -6481,21 +6266,9 @@ ulint AIO::get_segment_no_from_slot(const AIO *array, const Slot *slot) {
   return earlier_segments + slot->pos / s_writes->slots_per_segment();
 }
 
-<<<<<<< HEAD
 Slot *AIO::reserve_slot(const IORequest &type, pfs_os_file_t file,
                         const char *name, void *buf, os_offset_t offset,
                         ulint len, std::function<void(dberr_t)> callback) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-Slot *AIO::reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                        pfs_os_file_t file, const char *name, void *buf,
-                        os_offset_t offset, ulint len,
-                        const file::Block *e_block) {
-=======
-Slot *AIO::reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                        pfs_os_file_t file, const char *name, void *buf,
-                        os_offset_t offset, ulint len,
-                        const file::Block *e_block, space_id_t space_id) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   ut_a(!type.is_log());
 #ifdef _WIN32
   ut_a((len & 0xFFFFFFFFUL) == len);
@@ -6609,13 +6382,6 @@ Slot *AIO::reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
     }
   }
   slot->io_already_done = false;
-<<<<<<< HEAD
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  slot->buf_block = nullptr;
-=======
-  slot->space_id = space_id;
-  slot->buf_block = nullptr;
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   if (!type.are_write_transformations_enabled()) {
     ut_ad(!type.is_compression_requested());
@@ -6946,19 +6712,11 @@ static dberr_t os_aio_native_handler(
 }
 
 dberr_t os_aio_func(IORequest &type, AIO_mode aio_mode, const char *name,
-<<<<<<< HEAD
                     pfs_os_file_t file, byte *buf, os_offset_t offset, ulint n,
-                    std::function<void(dberr_t)> callback) {
+                    std::function<void(dberr_t)> callback, trx_t *trx,
+                    bool should_buffer) {
   /* We do not support os_aio() calls to redo log files. They need to use sync
   IO methods. */
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-                    pfs_os_file_t file, void *buf, os_offset_t offset, ulint n,
-                    bool read_only, fil_node_t *m1, void *m2) {
-=======
-                    pfs_os_file_t file, void *buf, os_offset_t offset, ulint n,
-                    bool read_only, fil_node_t *m1, void *m2,
-                    space_id_t space_id, trx_t *trx, bool should_buffer) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   ut_a(!type.is_log());
 
   ut_ad(n > 0);
@@ -6970,56 +6728,14 @@ dberr_t os_aio_func(IORequest &type, AIO_mode aio_mode, const char *name,
   ut_ad((n & 0xFFFFFFFFUL) == n);
 #endif /* _WIN32 */
 
-<<<<<<< HEAD
   ut_a(aio_mode == AIO_mode::NORMAL || aio_mode == AIO_mode::IBUF);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  if (aio_mode == AIO_mode::SYNC) {
-    /* This is actually an ordinary synchronous read or write:
-    no need to use an i/o-handler thread. NOTE that if we use
-    Windows "async" overlapped i/o, Windows does not allow us to use
-    ordinary synchronous operations etc. on the same file. The os_file_read()
-    and os_file_write() are handling this case correctly.
-    Also note that the Performance Schema instrumentation has
-    been performed by current os_aio_func()'s wrapper function
-    pfs_os_aio_func(). So we would no longer need to call
-    Performance Schema instrumented os_file_read() and
-    os_file_write(). Instead, we should use os_file_read_func()
-    and os_file_write_func() */
-    if (type.is_read()) {
-      return (os_file_read_func(type, name, file.m_file, buf, offset, n));
-    }
-=======
-  if (aio_mode == AIO_mode::SYNC) {
-    /* This is actually an ordinary synchronous read or write:
-    no need to use an i/o-handler thread. NOTE that if we use
-    Windows "async" overlapped i/o, Windows does not allow us to use
-    ordinary synchronous operations etc. on the same file. The os_file_read()
-    and os_file_write() are handling this case correctly.
-    Also note that the Performance Schema instrumentation has
-    been performed by current os_aio_func()'s wrapper function
-    pfs_os_aio_func(). So we would no longer need to call
-    Performance Schema instrumented os_file_read() and
-    os_file_write(). Instead, we should use os_file_read_func()
-    and os_file_write_func() */
-    if (type.is_read()) {
-      return (os_file_read_func(type, name, file.m_file, buf, offset, n, trx));
-    }
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
   const auto array = AIO::select_slot_array(type, aio_mode);
   bool io_dispatched = false;
   while (!io_dispatched) {
     {
-<<<<<<< HEAD
       auto slot = array->reserve_slot(type, file, name, buf, offset, n,
                                       std::move(callback));
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-      auto slot = array->reserve_slot(type, m1, m2, file, name, buf, offset, n,
-                                      e_block);
-=======
-      auto slot = array->reserve_slot(type, m1, m2, file, name, buf, offset, n,
-                                      e_block, space_id);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
       if (srv_use_native_aio) {
         if (type.is_read()) {
           trx_stats::bump_io_read(trx, n);
