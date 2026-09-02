@@ -7189,35 +7189,18 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
     fil_report_invalid_page_access(page_id.page_no(), page_id.space(),
                                    space->name, len, req_type.is_read());
   }
-<<<<<<< HEAD
+
+#ifndef UNIV_HOTBACKUP
+  if (UNIV_UNLIKELY(space->is_corrupt && srv_pass_corrupt_table) &&
+      (srv_pass_corrupt_table == 1 || req_type.is_write())) {
+    mutex_release();
+    return postprocess_result(req_type.is_write() ? DB_SUCCESS
+                                                   : DB_TABLESPACE_DELETED);
+  }
+#endif
   /* If we got a file, prepare it for IO. This may open it if it is not opened.
    */
   if (prepare_file_for_io(file, !req_type.is_dblwr()) != DB_SUCCESS) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-
-  if (!prepare_file_for_io(file)) {
-=======
-
-#ifndef UNIV_HOTBACKUP
-  if (UNIV_UNLIKELY(space->is_corrupt && srv_pass_corrupt_table)) {
-    /* should ignore i/o for the crashed space */
-    if (srv_pass_corrupt_table == 1 || req_type.is_write()) {
-      complete_io(file, type);
-      if (aio_mode == AIO_mode::NORMAL) {
-        ut_a(space->purpose == FIL_TYPE_TABLESPACE);
-        buf_page_io_complete(static_cast<buf_page_t *>(message), false);
-      }
-    }
-
-    if (srv_pass_corrupt_table == 1 && req_type.is_read())
-      return (DB_TABLESPACE_DELETED);
-    else if (req_type.is_write())
-      return (DB_SUCCESS);
-  }
-#endif
-
-  if (!prepare_file_for_io(file)) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #ifndef UNIV_HOTBACKUP
     if (space->is_deleted()) {
       mutex_release();

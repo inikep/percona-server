@@ -5878,150 +5878,24 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
 
         Compression::deserialize_header(frame, &meta);
 
-<<<<<<< HEAD
-      ib::error(ER_IB_MSG_80)
-          << "Page " << page_id << " "
-          << "compressed with " << Compression::to_string(meta) << " "
-          << "that is not supported by this instance";
-    }
-
-    /* From version 3.23.38 up we store the page checksum
-    to the 4 first bytes of the page end lsn field */
-    bool is_corrupted;
-    {
-      BlockReporter reporter = BlockReporter(
-          true, frame, bpage->size, fsp_is_checksum_disabled(space_id));
-      is_corrupted = reporter.is_corrupted();
-    }
-
-#ifdef UNIV_LINUX
-    /* A crash during extending file might cause the inconsistent contents.
-    No problem for the cases. Just fills with zero for them.
-    - The next log record to apply is initializing
-    - No redo log record for the page yet (brand new page) */
-    if (recv_recovery_is_on() && is_corrupted &&
-        recv_page_is_brand_new((buf_block_t *)bpage)) {
-      memset(frame, 0, bpage->size.logical());
-      is_corrupted = false;
-    }
-#endif /* UNIV_LINUX */
-
-    if (compressed_page || is_corrupted) {
-      /* Not a real corruption if it was triggered by
-      error injection */
-      DBUG_EXECUTE_IF("buf_page_import_corrupt_failure",
-                      goto page_not_corrupt;);
-
-    corrupt:
-      /* Compressed pages are basically gibberish avoid
-      printing the contents. */
-      if (!compressed_page) {
-        ib::error(ER_IB_MSG_81)
-            << "Database page corruption on disk or a failed file read of page "
-            << page_id << ". You may have to recover from a backup.";
-
-        buf_page_print(frame, bpage->size, BUF_PAGE_PRINT_NO_CRASH);
-
-        ib::info(ER_IB_MSG_82) << "It is also possible that your"
-                                  " operating system has corrupted"
-                                  " its own file cache and rebooting"
-                                  " your computer removes the error."
-                                  " If the corrupt page is an index page."
-                                  " You can also try to fix the"
-                                  " corruption by dumping, dropping,"
-                                  " and reimporting the corrupt table."
-                                  " You can use CHECK TABLE to scan"
-                                  " your table for corruption. "
-                               << FORCE_RECOVERY_MSG;
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-      ib::error(ER_IB_MSG_80)
-          << "Page " << bpage->id << " "
-          << "compressed with " << Compression::to_string(meta) << " "
-          << "that is not supported by this instance";
-    }
-
-    /* From version 3.23.38 up we store the page checksum
-    to the 4 first bytes of the page end lsn field */
-    bool is_corrupted;
-    {
-      BlockReporter reporter =
-          BlockReporter(true, frame, bpage->size,
-                        fsp_is_checksum_disabled(bpage->id.space()));
-      is_corrupted = reporter.is_corrupted();
-    }
-
-#ifdef UNIV_LINUX
-    /* A crash during extending file might cause the inconsistent contents.
-    No problem for the cases. Just fills with zero for them.
-    - The next log record to apply is initializing
-    - No redo log record for the page yet (brand new page) */
-    if (recv_recovery_is_on() && (is_corrupted || is_wrong_page_id) &&
-        recv_page_is_brand_new((buf_block_t *)bpage)) {
-      memset(frame, 0, bpage->size.logical());
-      is_corrupted = false;
-    }
-#endif /* UNIV_LINUX */
-
-    if (compressed_page || is_corrupted) {
-      /* Not a real corruption if it was triggered by
-      error injection */
-      DBUG_EXECUTE_IF("buf_page_import_corrupt_failure",
-                      goto page_not_corrupt;);
-
-    corrupt:
-      /* Compressed pages are basically gibberish avoid
-      printing the contents. */
-      if (!compressed_page) {
-        ib::error(ER_IB_MSG_81)
-            << "Database page corruption on disk"
-               " or a failed file read of page "
-            << bpage->id << ". You may have to recover from "
-            << "a backup.";
-
-        buf_page_print(frame, bpage->size, BUF_PAGE_PRINT_NO_CRASH);
-
-        ib::info(ER_IB_MSG_82) << "It is also possible that your"
-                                  " operating system has corrupted"
-                                  " its own file cache and rebooting"
-                                  " your computer removes the error."
-                                  " If the corrupt page is an index page."
-                                  " You can also try to fix the"
-                                  " corruption by dumping, dropping,"
-                                  " and reimporting the corrupt table."
-                                  " You can use CHECK TABLE to scan"
-                                  " your table for corruption. "
-                               << FORCE_RECOVERY_MSG;
-=======
         ib::error(ER_IB_MSG_80)
-            << "Page " << bpage->id << " "
+            << "Page " << page_id << " "
             << "compressed with " << Compression::to_string(meta) << " "
             << "that is not supported by this instance";
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
       }
 
       /* From version 3.23.38 up we store the page checksum
       to the 4 first bytes of the page end lsn field */
       bool is_corrupted;
       {
-        BlockReporter reporter =
-            BlockReporter(true, frame, bpage->size,
-                          fsp_is_checksum_disabled(bpage->id.space()));
+        BlockReporter reporter = BlockReporter(
+            true, frame, bpage->size, fsp_is_checksum_disabled(space_id));
         is_corrupted = reporter.is_corrupted();
       }
 
-<<<<<<< HEAD
-        buf_read_page_handle_error(bpage);
-        return DB_INDEX_CORRUPT;
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-        buf_read_page_handle_error(bpage);
-        return (false);
-=======
 #ifdef UNIV_LINUX
-      /* A crash during extending file might cause the inconsistent contents.
-      No problem for the cases. Just fills with zero for them.
-      - The next log record to apply is initializing
-      - No redo log record for the page yet (brand new page) */
-      if (recv_recovery_is_on() && (is_corrupted || is_wrong_page_id) &&
+      /* A crash during extending file might cause inconsistent contents. */
+      if (recv_recovery_is_on() && is_corrupted &&
           recv_page_is_brand_new((buf_block_t *)bpage)) {
         memset(frame, 0, bpage->size.logical());
         is_corrupted = false;
@@ -6029,62 +5903,47 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
 #endif /* UNIV_LINUX */
 
       if (compressed_page || is_corrupted) {
-        /* Not a real corruption if it was triggered by
-        error injection */
+        /* Not a real corruption if it was triggered by error injection. */
         DBUG_EXECUTE_IF("buf_page_import_corrupt_failure",
                         goto page_not_corrupt;);
 
       corrupt:
-        /* Compressed pages are basically gibberish avoid
-        printing the contents. */
+        /* Compressed pages are basically gibberish; avoid printing them. */
         if (!compressed_page) {
           ib::error(ER_IB_MSG_81)
-              << "Database page corruption on disk"
-                 " or a failed file read of page "
-              << bpage->id << ". You may have to recover from "
-              << "a backup.";
+              << "Database page corruption on disk or a failed file read of "
+                 "page "
+              << page_id << ". You may have to recover from a backup.";
 
           buf_page_print(frame, bpage->size, BUF_PAGE_PRINT_NO_CRASH);
 
           ib::info(ER_IB_MSG_82) << "It is also possible that your"
-                                    " operating system has corrupted"
-                                    " its own file cache and rebooting"
-                                    " your computer removes the error."
-                                    " If the corrupt page is an index page."
-                                    " You can also try to fix the"
-                                    " corruption by dumping, dropping,"
-                                    " and reimporting the corrupt table."
-                                    " You can use CHECK TABLE to scan"
-                                    " your table for corruption. "
-                                 << FORCE_RECOVERY_MSG;
+                                  " operating system has corrupted"
+                                  " its own file cache and rebooting"
+                                  " your computer removes the error."
+                                  " If the corrupt page is an index page."
+                                  " You can also try to fix the"
+                                  " corruption by dumping, dropping,"
+                                  " and reimporting the corrupt table."
+                                  " You can use CHECK TABLE to scan"
+                                  " your table for corruption. "
+                                  << FORCE_RECOVERY_MSG;
         }
 
-        if (srv_pass_corrupt_table && bpage->id.space() != 0 &&
-            bpage->id.space() < dict_sys_t::s_log_space_id) {
-          trx_t *trx;
+        if (srv_pass_corrupt_table && space_id != TRX_SYS_SPACE &&
+            space_id < dict_sys_t::s_log_space_id) {
+          ib::warn() << "Space " << space_id << " will be treated as corrupt";
+          fil_space_set_corrupt(space_id);
 
-          ib::warn() << "Space " << bpage->id.space()
-                     << " will be treated as corrupt.",
-              fil_space_set_corrupt(bpage->id.space());
-
-          trx = innobase_get_trx();
-          if (trx && trx->dict_operation_lock_mode == RW_X_LATCH) {
-            dict_table_set_corrupt_by_space(bpage->id.space(), false);
-          } else {
-            dict_table_set_corrupt_by_space(bpage->id.space(), true);
-          }
+          trx_t *trx = innobase_get_trx();
+          dict_table_set_corrupt_by_space(
+              space_id,
+              trx == nullptr || trx->dict_operation_lock_mode != RW_X_LATCH);
           bpage->is_corrupt = true;
         } else if (srv_force_recovery < SRV_FORCE_IGNORE_CORRUPT) {
-          /* We do not have to mark any index as
-          corrupted here, since we only know the space
-          id but not the exact index id. There could
-          be multiple tables/indexes in the same space,
-          so we will mark it later in upper layer */
-
           buf_read_page_handle_error(bpage);
-          return (false);
+          return DB_INDEX_CORRUPT;
         }
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
       }
     }
 
@@ -6097,36 +5956,12 @@ dberr_t buf_page_io_complete(buf_page_t *bpage, bool evict) {
       recv_recover_page(true, (buf_block_t *)bpage);
     } else if (uncompressed && !Compression::is_compressed_page(frame) &&
                fil_page_get_type(frame) == FIL_PAGE_INDEX &&
-<<<<<<< HEAD
                page_is_leaf(frame) && !fsp_is_system_temporary(space_id) &&
                !fsp_is_undo_tablespace(space_id) && !bpage->was_stale()) {
-      ibuf_merge_or_delete_for_page((buf_block_t *)bpage, page_id, &bpage->size,
-                                    true);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-               page_is_leaf(frame) &&
-               !fsp_is_system_temporary(bpage->id.space()) &&
-               !fsp_is_undo_tablespace(bpage->id.space()) &&
-               !bpage->was_stale()) {
-      ibuf_merge_or_delete_for_page((buf_block_t *)bpage, bpage->id,
-                                    &bpage->size, true);
-=======
-               page_is_leaf(frame) &&
-               !fsp_is_system_temporary(bpage->id.space()) &&
-               !fsp_is_undo_tablespace(bpage->id.space()) &&
-               !bpage->was_stale()) {
-      buf_block_t *block;
-      bool update_ibuf_bitmap;
-
-      if (UNIV_UNLIKELY(bpage->is_corrupt && srv_pass_corrupt_table)) {
-        block = nullptr;
-        update_ibuf_bitmap = false;
-      } else {
-        block = reinterpret_cast<buf_block_t *>(bpage);
-        update_ibuf_bitmap = true;
-      }
-      ibuf_merge_or_delete_for_page(block, bpage->id, &bpage->size,
-                                    update_ibuf_bitmap);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+      const bool accept_page = !bpage->is_corrupt || !srv_pass_corrupt_table;
+      ibuf_merge_or_delete_for_page(
+          accept_page ? reinterpret_cast<buf_block_t *>(bpage) : nullptr,
+          page_id, &bpage->size, accept_page);
     }
   }
 
