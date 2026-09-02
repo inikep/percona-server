@@ -24251,12 +24251,8 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(thread_sleep_delay),
     MYSQL_SYSVAR(tmpdir),
     MYSQL_SYSVAR(autoinc_lock_mode),
-<<<<<<< HEAD
     MYSQL_SYSVAR(autoinc_preallocate),
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-=======
     MYSQL_SYSVAR(show_locks_held),
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     MYSQL_SYSVAR(version),
     MYSQL_SYSVAR(use_native_aio),
 #ifdef HAVE_LIBNUMA
