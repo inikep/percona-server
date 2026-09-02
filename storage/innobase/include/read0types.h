@@ -36,14 +36,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <algorithm>
 #include "dict0mem.h"
-<<<<<<< HEAD
-#include "read0read_view_interface.h"
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-
-=======
-
 #include "mem0mem.h"
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+#include "read0read_view_interface.h"
 #include "trx0types.h"
 #include "ut0cpu_cache.h"
 
@@ -181,34 +175,9 @@ class ReadView : public Read_view_interface {
     return !std::binary_search(p, p + m_ids.size(), id);
   }
 
-<<<<<<< HEAD
   [[nodiscard]] bool sees_all_trxs_with_id_smaller_or_equal_to(
       trx_id_t id) const override {
     return id < m_up_limit_id;
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  /**
-  @param id             transaction to check
-  @return true if view sees transaction id */
-  bool sees(trx_id_t id) const { return (id < m_up_limit_id); }
-
-  /**
-  Mark the view as closed */
-  void close() {
-    ut_ad(m_creator_trx_id != TRX_ID_MAX);
-    m_creator_trx_id = TRX_ID_MAX;
-=======
-  /**
-  @param id             transaction to check
-  @return true if view sees transaction id */
-  bool sees(trx_id_t id) const { return (id < m_up_limit_id); }
-
-  /**
-  Mark the view as closed */
-  void close() {
-    ut_ad(m_creator_trx_id != TRX_ID_MAX);
-    m_creator_trx_id = TRX_ID_MAX;
-    m_cloned = false;
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 
   /**
@@ -216,14 +185,28 @@ class ReadView : public Read_view_interface {
   [[nodiscard]] bool is_closed() const { return m_closed.load(); }
 
   void print(FILE *file) const override {
+    fprintf(file, "Read view low limit trx n:o " TRX_ID_FMT "\n",
+            m_low_limit_no);
     fprintf(file,
             "Trx read view will not see trx with"
             " id >= " TRX_ID_FMT ", sees < " TRX_ID_FMT "\n",
             m_low_limit_id, m_up_limit_id);
+    fprintf(file, "Read view individually stored trx ids:\n");
+    for (ulint i = 0; i < m_ids.size(); ++i) {
+      fprintf(file, "Read view trx id " TRX_ID_FMT "\n", m_ids.data()[i]);
+    }
   }
 
   [[nodiscard]] trx_id_t get_lowest_needed_trx_no() const override {
     return m_low_limit_no;
+  }
+
+  [[nodiscard]] trx_id_t get_low_limit_id() const override {
+    return m_low_limit_id;
+  }
+
+  [[nodiscard]] trx_id_t get_up_limit_id() const override {
+    return m_up_limit_id;
   }
 
   /**
@@ -242,6 +225,8 @@ class ReadView : public Read_view_interface {
   in-use or released view.
   @param	from_trx	transation owning the donor read view. */
 
+  void clone(Read_view_interface *&result, trx_t *from_trx) const override;
+
   void clone(ReadView *&result, trx_t *from_trx) const;
 
 #ifdef UNIV_DEBUG
@@ -253,16 +238,7 @@ class ReadView : public Read_view_interface {
   }
 #endif /* UNIV_DEBUG */
 
-  void print(FILE *file) const noexcept {
-    fprintf(file, "Read view low limit trx n:o " TRX_ID_FMT "\n",
-            low_limit_no());
-    print_limits(file);
-    fprintf(file, "Read view individually stored trx ids:\n");
-    for (ulint i = 0; i < m_ids.size(); i++)
-      fprintf(file, "Read view trx id " TRX_ID_FMT "\n", m_ids.data()[i]);
-  }
-
-  bool is_cloned() const noexcept { return (m_cloned); }
+  [[nodiscard]] bool is_cloned() const noexcept override { return m_cloned; }
 
  private:
   /**

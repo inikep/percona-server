@@ -2393,7 +2393,7 @@ the receiver transaction will get the same read view as the donor transaction
 @param[in]	trx		receiver transaction
 @param[in]	from_trx	donor transaction
 @return read view clone */
-ReadView *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
+Read_view_interface *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
   ut_ad(locksys::owns_exclusive_global_latch());
   ut_ad(trx_sys_mutex_own());
   ut_ad(trx_mutex_own(from_trx));
@@ -2421,7 +2421,7 @@ ReadView *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
 
   trx_sys_mutex_exit();
 
-  return (trx->read_view);
+  return trx->read_view;
 }
 
 /** Prepares a transaction for commit/rollback. */
@@ -3510,23 +3510,10 @@ void trx_set_rw_mode(trx_t *trx) /*!< in/out: transaction that is RW */
 
   trx_assign_id_for_rw(trx);
 
-<<<<<<< HEAD
-  trx_sys->rw_trx_ids.push_back(trx->id);
-
-  /* So that we can see our own changes. */
-  if (trx_sys->mvcc->is_view_open(trx->read_view)) {
+  /* So that we can see our own changes unless our view is a clone. */
+  if (trx_sys->mvcc->is_view_open(trx->read_view) &&
+      !trx->read_view->is_cloned()) {
     trx_sys->mvcc->set_view_creator_trx_id(trx->read_view, trx->id);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  trx_sys->rw_trx_ids.push_back(trx->id);
-
-  /* So that we can see our own changes. */
-  if (MVCC::is_view_active(trx->read_view)) {
-    MVCC::set_view_creator_trx_id(trx->read_view, trx->id);
-=======
-  /* So that we can see our own changes unless our view is a clone */
-  if (MVCC::is_view_active(trx->read_view) && !trx->read_view->is_cloned()) {
-    MVCC::set_view_creator_trx_id(trx->read_view, trx->id);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
   trx_add_to_rw_trx_list(trx);
 

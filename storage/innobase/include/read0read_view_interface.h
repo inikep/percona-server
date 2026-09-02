@@ -53,6 +53,21 @@ class Read_view_interface {
   Logs still needed to support this read view */
   [[nodiscard]] virtual trx_id_t get_lowest_needed_trx_no() const = 0;
 
+  /** The read view does not see transactions at or above this id. */
+  [[nodiscard]] virtual trx_id_t get_low_limit_id() const = 0;
+
+  /** The read view sees all transactions below this id. */
+  [[nodiscard]] virtual trx_id_t get_up_limit_id() const = 0;
+
+  /** Whether this view was cloned for a transaction and must not be changed
+  to see that transaction's own writes. */
+  [[nodiscard]] virtual bool is_cloned() const noexcept = 0;
+
+  /** Clone this view for another transaction.
+  @param[in,out] result destination view
+  @param[in,out] from_trx transaction owning this view */
+  virtual void clone(Read_view_interface *&result, trx_t *from_trx) const = 0;
+
   /** Describe the read-view.
   @param[in] file           file to write to */
   virtual void print(FILE *file) const = 0;

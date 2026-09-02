@@ -6260,7 +6260,7 @@ static int innobase_start_trx_and_clone_read_view(handlerton *hton, THD *thd,
   innobase_srv_conc_force_exit_innodb(trx);
 
   /* If the transaction is not started yet, start it */
-  trx_start_if_not_started_xa(trx, false, UT_LOCATION_HERE);
+  trx_start_if_not_started(trx, false, UT_LOCATION_HERE);
 
   /* Clone the read view from the donor transaction.  Do this only if
   transaction is using REPEATABLE READ isolation level. */

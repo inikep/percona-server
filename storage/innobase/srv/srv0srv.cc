@@ -80,13 +80,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "os0thread-create.h"
 #include "pars0pars.h"
 #include "que0que.h"
-<<<<<<< HEAD
 #include "read0mvcc_interface.h"
 #include "read0read_view_interface.h"
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-=======
 #include "row0log.h"
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #include "row0mysql.h"
 #include "sql/current_thd.h"
 #include "sql/sql_class.h"
@@ -1554,7 +1550,8 @@ bool srv_printf_innodb_monitor(FILE *file, bool nowait, ulint *trx_start_pos,
   fprintf(file, "%lu RW transactions active inside InnoDB\n",
           UT_LIST_GET_LEN(trx_sys->rw_trx_list));
 
-  const ReadView *oldest_view = trx_sys->mvcc->get_oldest_view_stats();
+  const Read_view_interface *oldest_view =
+      trx_sys->mvcc->get_oldest_view_stats();
   if (oldest_view) {
     fprintf(file, "---OLDEST VIEW---\n");
     oldest_view->print(file);
@@ -1747,7 +1744,7 @@ void srv_export_innodb_status(void) {
       trx_sys->mvcc->get_oldest_view_stats();
   export_vars.innodb_oldest_view_low_limit_trx_id =
       oldest_view_for_low_limit_trx_id
-          ? oldest_view_for_low_limit_trx_id->low_limit_id()
+          ? oldest_view_for_low_limit_trx_id->get_low_limit_id()
           : 0;
   mutex_exit(&trx_sys->mutex);
 

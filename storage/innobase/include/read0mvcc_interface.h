@@ -123,6 +123,15 @@ class MVCC_interface {
                      Transaction instance of caller */
   virtual void view_open(Read_view_interface *&view, trx_t *trx) = 0;
 
+  /** Add an already-open view to the set tracked by MVCC.
+  @param[in] view view to track */
+  virtual void view_add(Read_view_interface *view) = 0;
+
+  /** Obtain an uninitialized view for cloning. The caller must hold the
+  transaction-system mutex.
+  @return view removed from the free list or newly allocated */
+  virtual Read_view_interface *get_view_for_clone() = 0;
+
   /** Closes a view previously opened by view_open(..). It's safe to call it on
   a view which was already closed. After the call, it is unsafe to access
   view's members, because it might be freed by this function (in which case
@@ -160,6 +169,12 @@ class MVCC_interface {
                      read view found during the call. It should be freed with
                      view_free(..). Do not call view_open(..) on it. */
   virtual void clone_oldest_view(Read_view_interface *&view) = 0;
+
+  /** Return the oldest open view for statistics. The caller must hold the
+  transaction-system mutex.
+  @return oldest open view, or nullptr */
+  [[nodiscard]] virtual const Read_view_interface *get_oldest_view_stats()
+      const = 0;
 
   /** Instructs the MVCC that the Undo Purge is about to start working and MVCC
   will be asked to clone the oldest Read View. */

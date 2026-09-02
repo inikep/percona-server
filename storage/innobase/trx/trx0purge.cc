@@ -54,15 +54,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "my_inttypes.h"
 #include "os0thread.h"
 #include "que0que.h"
-<<<<<<< HEAD
 #include "read0mvcc_interface.h"
+#include "read0read.h"
 #include "read0read_view_interface.h"
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-#include "read0read.h"
-=======
-#include "read0read.h"
 #include "row0mysql.h"
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 #include "row0purge.h"
 #include "row0upd.h"
 #include "srv0mon.h"

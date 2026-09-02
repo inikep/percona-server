@@ -346,14 +346,16 @@ MVCC::~MVCC() {
 
 /** Insert the view in the proper order into the view list.
 @param	view	view to add */
-void MVCC::view_add(const ReadView *view) {
+void MVCC::view_add(Read_view_interface *view_interface) {
   ut_ad(trx_sys_mutex_own());
 
-  UT_LIST_ADD_FIRST(m_views, const_cast<ReadView *>(view));
+  auto *view = static_cast<ReadView *>(view_interface);
+
+  UT_LIST_ADD_FIRST(m_views, view);
 
   ut_ad(!view->is_closed());
 
-  ut_ad(validate());
+  ut_d(validate());
 }
 
 /**
@@ -498,6 +500,8 @@ ReadView *MVCC::get_view() {
   return (view);
 }
 
+Read_view_interface *MVCC::get_view_for_clone() { return get_view(); }
+
 void MVCC::view_open(Read_view_interface *&view, trx_t *trx) {
   view_open((ReadView *&)view, trx);
 }
@@ -628,21 +632,7 @@ void MVCC::view_open(ReadView *&view, trx_t *trx) {
   if (view != nullptr) {
     view->prepare(trx->id);
 
-<<<<<<< HEAD
-    UT_LIST_ADD_FIRST(m_views, view);
-
-    ut_ad(!view->is_closed());
-
-    ut_d(validate());
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-    UT_LIST_ADD_FIRST(m_views, view);
-
-    ut_ad(!view->is_closed());
-
-    ut_ad(validate());
-=======
     view_add(view);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 
   trx_sys_mutex_exit();
@@ -718,7 +708,39 @@ void ReadView::copy_complete() {
   m_creator_trx_id = 0;
 }
 
-<<<<<<< HEAD
+void ReadView::clone(Read_view_interface *&result, trx_t *from_trx) const {
+  auto *read_view = static_cast<ReadView *>(result);
+  clone(read_view, from_trx);
+  result = read_view;
+}
+
+/** Clone this read view for another transaction. */
+void ReadView::clone(ReadView *&result, trx_t *from_trx) const {
+  ut_ad(from_trx->read_view == this);
+  ut_ad(trx_sys_mutex_own());
+
+  if (result == nullptr) {
+    result = static_cast<ReadView *>(trx_sys->mvcc->get_view_for_clone());
+  }
+
+  trx_id_t from_trx_id;
+  if (m_creator_trx_id != 0) {
+    from_trx_id = m_creator_trx_id;
+  } else if (from_trx->id == 0) {
+    if (from_trx->preallocated_id == 0) {
+      from_trx->preallocated_id = trx_sys_allocate_trx_id();
+    }
+    from_trx_id = from_trx->preallocated_id;
+  } else {
+    from_trx_id = from_trx->id;
+  }
+
+  result->copy_prepare(*this);
+  result->m_creator_trx_id = from_trx_id;
+  result->m_cloned = true;
+  result->m_closed.store(false);
+}
+
 void MVCC::view_free(Read_view_interface *&view) {
   if (view != nullptr) {
     /* This is a rare case in normal operation, as usually the view is already
@@ -764,60 +786,6 @@ void MVCC::clone_oldest_view(ReadView *&view) {
   } else {
     ut_a(view->is_closed());
   }
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-void MVCC::clone_oldest_view(ReadView *view) {
-=======
-/**
-Clones a read view object. The resulting read view has identical change
-visibility as the donor read view
-@param	result	pointer to resulting read view. If NULL, a view will be
-        allocated. If non-NULL, a view will overwrite a previously-existing
-        in-use or released view.
-@param	from_trx	transation owning the donor read view. */
-
-void ReadView::clone(ReadView *&result, trx_t *from_trx) const {
-  ut_ad(from_trx->read_view == this);
-  ut_ad(trx_sys_mutex_own());
-
-  if (!result)
-    result = trx_sys->mvcc->get_view();
-  else {
-    result =
-        reinterpret_cast<ReadView *>(reinterpret_cast<uintptr_t>(result) & ~1);
-  }
-
-  // Set the creating trx id of the clone to that of donor.
-  trx_id_t from_trx_id;
-  if (from_trx->read_view->m_creator_trx_id != 0) {
-    // The donor transaction is RO, and a clone itself
-    from_trx_id = from_trx->read_view->m_creator_trx_id;
-  } else if (from_trx->id == 0) {
-    // The donor transaction is RO, thus does not have a trx ID
-    // yet which the cloned view must see, if it assigned later
-    if (!from_trx->preallocated_id) {
-      // Preallocate a transaction id for the donor
-      from_trx_id = from_trx->preallocated_id = trx_sys_allocate_trx_id();
-    } else {
-      // This transaction has already been cloned
-      from_trx_id = from_trx->preallocated_id;
-    }
-  } else {
-    // The donor transaction is RW
-    from_trx_id = from_trx->id;
-  }
-
-  result->copy_prepare(*this);
-  // Calling copy_complete would be redundant for us and would force
-  // a too early trx sys mutex release.
-  result->m_creator_trx_id = from_trx_id;
-  // If the clone transaction is RO and is later promoted to RW, make
-  // sure not to add its own id to its view
-  result->m_cloned = true;
-  result->m_closed.store(false);
-}
-
-void MVCC::clone_oldest_view(ReadView *view) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   trx_sys_mutex_enter();
 
   ReadView *oldest_view;
@@ -884,47 +852,11 @@ void MVCC::view_close(ReadView *&view, bool own_mutex) {
   if (!view->m_closed.load()) {
     view->m_closed.store(true);
   }
+  view->m_cloned = false;
 
   /* Note: The assumption here is that AC-NL-RO transactions will
   call this function with own_mutex == false. */
-<<<<<<< HEAD
   if (own_mutex) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  if (!own_mutex) {
-    /* Sanitise the pointer first. */
-    ReadView *ptr = reinterpret_cast<ReadView *>(p & ~1);
-
-    /* Note this can be called for a read view that was already closed. */
-    if (!ptr->m_closed.load()) {
-      ptr->m_closed.store(true);
-    }
-
-    /* Set the view as closed. */
-    view = reinterpret_cast<ReadView *>(p | 0x1);
-  } else {
-    view = reinterpret_cast<ReadView *>(p & ~1);
-
-    view->close();
-
-=======
-  if (!own_mutex) {
-    /* Sanitise the pointer first. */
-    ReadView *ptr = reinterpret_cast<ReadView *>(p & ~1);
-
-    /* Note this can be called for a read view that was already closed. */
-    if (!ptr->m_closed.load()) {
-      ptr->m_closed.store(true);
-    }
-    ptr->m_cloned = false;
-
-    /* Set the view as closed. */
-    view = reinterpret_cast<ReadView *>(p | 0x1);
-  } else {
-    view = reinterpret_cast<ReadView *>(p & ~1);
-
-    view->close();
-
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     UT_LIST_REMOVE(m_views, view);
     UT_LIST_ADD_LAST(m_free, view);
 
@@ -936,7 +868,7 @@ void MVCC::view_close(ReadView *&view, bool own_mutex) {
 
 i_s_xtradb_read_view_t *read_fill_i_s_xtradb_read_view(
     i_s_xtradb_read_view_t *rv) {
-  const ReadView *view;
+  const Read_view_interface *view;
 
   mutex_enter(&trx_sys->mutex);
 
@@ -946,9 +878,9 @@ i_s_xtradb_read_view_t *read_fill_i_s_xtradb_read_view(
     return NULL;
   }
 
-  rv->low_limit_no = view->low_limit_no();
-  rv->up_limit_id = view->up_limit_id();
-  rv->low_limit_id = view->low_limit_id();
+  rv->low_limit_no = view->get_lowest_needed_trx_no();
+  rv->up_limit_id = view->get_up_limit_id();
+  rv->low_limit_id = view->get_low_limit_id();
 
   mutex_exit(&trx_sys->mutex);
 
