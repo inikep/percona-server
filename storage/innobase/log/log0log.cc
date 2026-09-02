@@ -1177,22 +1177,16 @@ void log_print(const log_t &log, FILE *file) {
           current_lsn, max_assigned_lsn, ready_for_write_lsn, write_lsn,
           flush_lsn, dirty_pages_added_up_to_lsn, oldest_lsn,
           last_checkpoint_lsn, file_min_id, file_max_id);
-<<<<<<< HEAD
   if (log_sys == nullptr) {
     return;
   }
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-
-=======
 
   fprintf(file,
           "Modified age no less than " LSN_PF
           "\n"
           "Checkpoint age        " LSN_PF "\n",
           current_lsn - buf_pool_get_oldest_modification_lwm(),
-          current_lsn - log_sys->last_checkpoint_lsn);
-
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+          current_lsn - last_checkpoint_lsn);
   time_t current_time = time(nullptr);
 
   double time_elapsed = difftime(current_time, log.last_printout_time);

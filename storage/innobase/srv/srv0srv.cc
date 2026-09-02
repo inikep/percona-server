@@ -1734,7 +1734,8 @@ void srv_export_innodb_status(void) {
   }
   export_vars.innodb_lsn_current = log_get_lsn(*log_sys);
   export_vars.innodb_lsn_flushed = log_sys->flushed_to_disk_lsn;
-  export_vars.innodb_lsn_last_checkpoint = log_sys->last_checkpoint_lsn;
+  export_vars.innodb_lsn_last_checkpoint =
+      pages_persistence->get_checkpoint_lsn();
   export_vars.innodb_master_thread_active_loops = srv_main_active_loops;
   export_vars.innodb_master_thread_idle_loops = srv_main_idle_loops;
   export_vars.innodb_max_trx_id = trx_sys_get_next_trx_id_or_no();

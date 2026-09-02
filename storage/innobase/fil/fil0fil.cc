@@ -9582,51 +9582,16 @@ const byte *fil_tablespace_redo_create(const byte *ptr, const byte *end,
   }
 
 #ifdef UNIV_HOTBACKUP
-<<<<<<< HEAD
   meb_tablespace_redo_create(space_id, flags, name.c_str());
   if (recv_sys->found_corrupt_fs) {
     return nullptr;
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-
-  meb_tablespace_redo_create(page_id, flags, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No file maps to this tablespace ID. It's possible that
-    the file was deleted later or is missing. */
-
-    return ptr;
-=======
-
-  meb_tablespace_redo_create(page_id, flags, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  /* The first condition is true during normal server operation, the
-  second one during server startup after
-  recv_recovery_from_checkpoint_start has completed. */
-  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
-    /* We are being called from online log tracking, file name
-    processing is a no-op, and specifically do not cause any DD
-    changes. */
-    return (ptr);
-  }
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No file maps to this tablespace ID. It's possible that
-    the file was deleted later or is missing. */
-
-    return ptr;
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 #else  /* UNIV_HOTBACKUP */
+  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
+    /* Online redo tracking parses file records but must not mutate recovery
+    state or the data dictionary. */
+    return ptr;
+  }
   /* Create the tablespace storage if it isn't there */
   pages_persistence->redo_create_tablespace(space_id, flags, name.c_str());
 #endif /* UNIV_HOTBACKUP */
@@ -9917,57 +9882,16 @@ const byte *fil_tablespace_redo_delete(const byte *ptr, const byte *end,
   }
 
 #ifdef UNIV_HOTBACKUP
-<<<<<<< HEAD
   meb_tablespace_redo_delete(space_id, name.c_str());
   if (recv_sys->found_corrupt_fs) {
     return nullptr;
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-
-  meb_tablespace_redo_delete(page_id, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  recv_sys->deleted.insert(page_id.space());
-  recv_sys->missing_ids.erase(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No files map to this tablespace ID. The drop must
-    have succeeded. */
-
-    return ptr;
-=======
-
-  meb_tablespace_redo_delete(page_id, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  /* The first condition is true during normal server operation, the
-  second one during server startup after
-  recv_recovery_from_checkpoint_start has completed. */
-  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
-    /* We are being called from online log tracking, file name
-    processing is a no-op, and specifically do not cause any DD
-    changes. */
-    return (ptr);
-  }
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  recv_sys->deleted.insert(page_id.space());
-  recv_sys->missing_ids.erase(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No files map to this tablespace ID. The drop must
-    have succeeded. */
-
-    return ptr;
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   }
 #else  /* UNIV_HOTBACKUP */
+  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
+    /* Online redo tracking parses file records but must not mutate recovery
+    state or the data dictionary. */
+    return ptr;
+  }
   fil_space_free(space_id, false);
 
   /* Drop the tablespace storage if it is there */
