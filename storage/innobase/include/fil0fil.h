@@ -44,14 +44,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #ifndef UNIV_HOTBACKUP
 #include "ibuf0types.h"
 #endif /* !UNIV_HOTBACKUP */
-<<<<<<< HEAD
 #include "srv0srv.h"
 #include "srv0start.h"
-#include "ut0expected.h"
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-=======
 #include "trx0types.h"
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+#include "ut0expected.h"
 #include "ut0new.h"
 
 #include "mysql/strings/m_ctype.h"
@@ -346,7 +342,8 @@ class fil_node_t {
   @return DB_SUCCESS if IO was successfully posted, error code otherwise */
   [[nodiscard]] dberr_t post_io_async(
       IORequest &type, byte *buf, size_t buffer_len, page_no_t page_no,
-      std::function<void(dberr_t)> callback) const;
+      std::function<void(dberr_t)> callback, trx_t *trx,
+      bool should_buffer) const;
 #endif /* !UNIV_HOTBACKUP */
 
   /** Returns true iff the node is currently opened and allows IO operations. */
@@ -906,7 +903,7 @@ class fil_space_t {
   /** true if this space is currently in unflushed_spaces */
   bool is_in_unflushed_spaces{};
 
-  bool is_corrupt;
+  bool is_corrupt{};
 
   /** Compression algorithm */
   Compression::Type compression_type{};
@@ -2106,7 +2103,6 @@ number should be zero.
 /** Read or write data for a single page from a file.
 @param[in]      type            IO type
 @param[in]      sync            If true then do synchronous IO
-<<<<<<< HEAD
 @param[in]      page_id         Page id to read or write.
 @param[in]      page_size       Structure with information on logical and
                                 physical page size in the affected tablespace.
@@ -2131,6 +2127,8 @@ number should be zero.
                                 Evicts the page after successful write. It is
                                 ignored if @p bpage is nullptr or if it is not a
                                 write request.
+@param[in]      trx             transaction responsible for this request
+@param[in]      should_buffer   whether to defer submitting a read-ahead batch
 @param[in]      pre_io_complete_callback
                                 A callback to be called exactly once when the
                                 result of this IO operation is known. It may be
@@ -2144,57 +2142,15 @@ number should be zero.
                                 `buf_page_io_complete()` is called after this
                                 callback returns DB_SUCCESS and @p bpage is not
                                 null.
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-@param[in]      page_id         page id
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-                                must be divisible by the OS block size
-@param[in]      len             how many bytes to read or write; this must
-                                not cross a file boundary; in AIO this must
-                                be a block size multiple
-@param[in,out]  buf             buffer where to store read data or from where
-                                to write; in AIO this must be appropriately
-                                aligned
-@param[in]      message         message for AIO handler if !sync, else ignored
-=======
-@param[in]      page_id         page id
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-                                must be divisible by the OS block size
-@param[in]      len             how many bytes to read or write; this must
-                                not cross a file boundary; in AIO this must
-                                be a block size multiple
-@param[in,out]  buf             buffer where to store read data or from where
-                                to write; in AIO this must be appropriately
-                                aligned
-@param[in]      message         message for AIO handler if !sync, else ignored
-@param[in]      should_buffer   whether to buffer an AIO request. Only used by
-                                AIO read ahead
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 @return error code
 @retval DB_SUCCESS on success
-<<<<<<< HEAD
 @retval DB_TABLESPACE_DELETED if the tablespace does not exist
 Note: this is not an exhaustive list of errors returned.*/
 [[nodiscard]] dberr_t fil_io(
     IORequest::Type type, bool sync, const page_id_t &page_id,
     const page_size_t &page_size, ulint len, byte *buf, buf_page_t *bpage,
-    bool evict_after_write,
+    bool evict_after_write, trx_t *trx = nullptr, bool should_buffer = false,
     std::function<void(dberr_t err)> pre_io_complete_callback = [](dberr_t) {});
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-@retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-[[nodiscard]] dberr_t fil_io(const IORequest &type, bool sync,
-                             const page_id_t &page_id,
-                             const page_size_t &page_size, ulint byte_offset,
-                             ulint len, void *buf, void *message);
-=======
-@retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-[[nodiscard]] dberr_t fil_io(const IORequest &type, bool sync,
-                             const page_id_t &page_id,
-                             const page_size_t &page_size, ulint byte_offset,
-                             ulint len, void *buf, void *message, trx_t *trx,
-                             bool should_buffer);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 
 /** Waits for an AIO operation to complete. This function is used to write the
 handler for completed requests. The aio array of pending requests is divided

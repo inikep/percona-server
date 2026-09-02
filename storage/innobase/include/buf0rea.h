@@ -60,19 +60,10 @@ flag is cleared and the x-lock released by an i/o-handler thread.
 buf_pool, or if the page is in the doublewrite buffer blocks in which case it
 is never read into the pool, or if the tablespace does not exist or is being
 dropped */
-<<<<<<< HEAD
 ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
                         ulint mode, const page_id_t &page_id,
-                        const page_size_t &page_size, bool unzip);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
-                        const page_id_t &page_id, const page_size_t &page_size,
-                        bool unzip);
-=======
-ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
-                        const page_id_t &page_id, const page_size_t &page_size,
-                        bool unzip, trx_t *trx, bool should_buffer);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+                        const page_size_t &page_size, bool unzip, trx_t *trx,
+                        bool should_buffer);
 
 /** High-level function which reads a page asynchronously from a file to the
 buffer buf_pool if it is not already there. Sets the io_fix flag and sets

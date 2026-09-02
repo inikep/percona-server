@@ -27,6 +27,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <cstdlib> /* size_t */
 #include <functional>
 #include <span>
+
+struct trx_t;
 #include "os0file.h" /* IORequest */
 
 namespace ib::fil {
@@ -148,7 +150,8 @@ class Tablespace_node_handle_interface {
   */
   [[nodiscard]] virtual Status_IO read_page_async(IORequest req, byte *buffer,
                                                   Page_number page_no,
-                                                  Callback callback) = 0;
+                                                  Callback callback, trx_t *trx,
+                                                  bool should_buffer) = 0;
 #endif /* !UNIV_HOTBACKUP */
 
   /** Writes a requested page synchronously.

@@ -52,7 +52,8 @@ class Tablespace_node_handle final : public Tablespace_node_handle_interface {
 #ifndef UNIV_HOTBACKUP
   [[nodiscard]] Status_IO read_page_async(IORequest req, byte *buffer,
                                           Page_number page_no,
-                                          Callback callback) override;
+                                          Callback callback, trx_t *trx,
+                                          bool should_buffer) override;
 #endif /* !UNIV_HOTBACKUP */
 
   [[nodiscard]] Status_IO write_page(IORequest req, byte *buffer,

@@ -836,7 +836,6 @@ class Fil_shard {
   [[nodiscard]] bool space_check_exists(space_id_t space_id, const char *name,
                                         bool print_err, bool adjust_space);
 
-<<<<<<< HEAD
   /** Read or write data for a single page from a file.
   @param[in]      type            IO type
   @param[in]      sync            If true then do synchronous IO
@@ -868,60 +867,17 @@ class Fil_shard {
     thread before returning from this method, or can be executed asynchronously
     from another thread, when @p sync is false, before or after this call
     returns.
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  /** Read or write data. This operation could be asynchronous (aio).
-  @param[in]    type            IO context
-  @param[in]    sync            whether synchronous aio is desired
-  @param[in]    page_id         page id
-  @param[in]    page_size       page size
-  @param[in]    byte_offset     remainder of offset in bytes; in AIO this must
-  be divisible by the OS block size
-  @param[in]    len             how many bytes to read or write; this
-  must not cross a file boundary; in AIO this must be a block size multiple
-  @param[in,out]        buf             buffer where to store read data or from
-  where to write; in AIO this must be appropriately aligned
-  @param[in]    message         message for AIO handler if !sync, else ignored
-=======
-  /** Read or write data. This operation could be asynchronous (aio).
-  @param[in]    type            IO context
-  @param[in]    sync            whether synchronous aio is desired
-  @param[in]    page_id         page id
-  @param[in]    page_size       page size
-  @param[in]    byte_offset     remainder of offset in bytes; in AIO this must
-  be divisible by the OS block size
-  @param[in]    len             how many bytes to read or write; this
-  must not cross a file boundary; in AIO this must be a block size multiple
-  @param[in,out]        buf             buffer where to store read data or from
-  where to write; in AIO this must be appropriately aligned
-  @param[in]    message         message for AIO handler if !sync, else ignored
-  @param[in]    should_buffer   whether to buffer an aio request. AIO read
-  ahead uses this. If you plan to use this parameter, make sure you remember to
-  call os_aio_dispatch_read_array_submit() when you're ready to commit all your
-  requests.
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+  @param[in] trx                 transaction responsible for the request
+  @param[in] should_buffer       whether to defer a read-ahead submission
   @return error code
   @retval DB_SUCCESS on success
-<<<<<<< HEAD
   @retval DB_TABLESPACE_DELETED if the tablespace does not exist
   Note: this is not an exhaustive list of errors returned. */
   [[nodiscard]] dberr_t do_io(
       const IORequest::Type type, bool sync, const page_id_t &page_id,
       const page_size_t &page_size, ulint len, byte *buf, buf_page_t *bpage,
-      std::function<dberr_t(dberr_t)> postprocess_result);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-  [[nodiscard]] dberr_t do_io(const IORequest &type, bool sync,
-                              const page_id_t &page_id,
-                              const page_size_t &page_size, ulint byte_offset,
-                              ulint len, void *buf, void *message);
-=======
-  @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-  [[nodiscard]] dberr_t do_io(const IORequest &type, bool sync,
-                              const page_id_t &page_id,
-                              const page_size_t &page_size, ulint byte_offset,
-                              ulint len, void *buf, void *message, trx_t *trx,
-                              bool should_buffer);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+      std::function<dberr_t(dberr_t)> postprocess_result, trx_t *trx,
+      bool should_buffer);
 
   /** Iterate through all persistent tablespace files (FIL_TYPE_TABLESPACE)
   returning the nodes via callback function f.
@@ -1757,7 +1713,8 @@ dberr_t fil_node_t::write_pages(std::span<const byte *> buffers,
 #ifndef UNIV_HOTBACKUP
 dberr_t fil_node_t::post_io_async(IORequest &type, byte *buf, size_t buffer_len,
                                   page_no_t page_no,
-                                  std::function<void(dberr_t)> callback) const {
+                                  std::function<void(dberr_t)> callback,
+                                  trx_t *trx, bool should_buffer) const {
   ut_a(is_open());
   const page_size_t page_size(this->space->flags);
 
@@ -1768,7 +1725,8 @@ dberr_t fil_node_t::post_io_async(IORequest &type, byte *buf, size_t buffer_len,
     still not following the documentation. */
     ut_ad(buffer_len == page_size.physical());
     return map_status_io_to_db_err(
-        m_handle->read_page_async(type, buf, page_no, callback));
+        m_handle->read_page_async(type, buf, page_no, callback, trx,
+                                  should_buffer));
   }
 
   ut_ad(type.is_write());
@@ -2116,7 +2074,6 @@ calculating the byte offset within a space. If the data on disk is compressed or
 encrypted, the data is decompressed and decrypted using tablespace's keys before
 returning in the @p buf.
 @param[in]      page_id         page id
-<<<<<<< HEAD
 @param[in]      page_size       Structure with information on logical and
                                 physical page size in the affected tablespace.
 @param[in,out]  buf             A buffer where to store read data. It must be
@@ -2130,35 +2087,6 @@ returning in the @p buf.
                                       const page_size_t &page_size, byte *buf) {
   return fil_io(IORequest::Type::READ, true, page_id, page_size,
                 page_size.physical(), buf, nullptr, false);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-must be divisible by the OS block size
-@param[in]      len             how many bytes to read; this must not cross a
-file boundary; in aio this must be a block size multiple
-@param[in,out]  buf             buffer where to store data read; in aio this
-must be appropriately aligned
-@return DB_SUCCESS, or DB_TABLESPACE_DELETED if we are trying to do
-i/o on a tablespace which does not exist */
-static dberr_t fil_read(const page_id_t &page_id, const page_size_t &page_size,
-                        ulint byte_offset, ulint len, void *buf) {
-  return fil_io(IORequestRead, true, page_id, page_size, byte_offset, len, buf,
-                nullptr);
-=======
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-must be divisible by the OS block size
-@param[in]      len             how many bytes to read; this must not cross a
-file boundary; in aio this must be a block size multiple
-@param[in,out]  buf             buffer where to store data read; in aio this
-must be appropriately aligned
-@return DB_SUCCESS, or DB_TABLESPACE_DELETED if we are trying to do
-i/o on a tablespace which does not exist */
-static dberr_t fil_read(const page_id_t &page_id, const page_size_t &page_size,
-                        ulint byte_offset, ulint len, void *buf) {
-  return fil_io(IORequestRead, true, page_id, page_size, byte_offset, len, buf,
-                nullptr, nullptr, false);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 }
 
 /** Writes data to a space from a buffer. Remember that the possible incomplete
@@ -2190,16 +2118,8 @@ calculating the byte offset within a space.
                                        byte *buf) {
   ut_ad(!srv_read_only_mode);
 
-<<<<<<< HEAD
   return fil_io(IORequest::Type::WRITE, true, page_id, page_size, len, buf,
                 nullptr, false);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  return fil_io(IORequestWrite, true, page_id, page_size, byte_offset, len, buf,
-                nullptr);
-=======
-  return fil_io(IORequestWrite, true, page_id, page_size, byte_offset, len, buf,
-                nullptr, nullptr, false);
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 }
 
 /** Look up a tablespace. The caller should hold an InnoDB table lock or
@@ -7103,16 +7023,9 @@ void fil_io_set_encryption(IORequest &req_type, const page_id_t &page_id,
 
 dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
                          const page_id_t &page_id, const page_size_t &page_size,
-<<<<<<< HEAD
                          ulint len, byte *buf, buf_page_t *bpage,
-                         std::function<dberr_t(dberr_t)> postprocess_result) {
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-                         ulint byte_offset, ulint len, void *buf,
-                         void *message) {
-=======
-                         ulint byte_offset, ulint len, void *buf, void *message,
+                         std::function<dberr_t(dberr_t)> postprocess_result,
                          trx_t *trx, bool should_buffer) {
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
   IORequest req_type(type);
 
   ut_ad(req_type.validate());
@@ -7396,113 +7309,7 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
       ut_ad(!fsp_is_system_tablespace(space->id));
       req_type.set_punch_hole();
 
-<<<<<<< HEAD
       req_type.compression_algorithm(space->compression_type);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-  ut_a(file->size - page_no >=
-       (byte_offset +
-        std::max(static_cast<uint32_t>(len), type.get_original_size()) +
-        (page_size.physical() - 1)) /
-           page_size.physical());
-
-  ut_a(len % OS_FILE_LOG_BLOCK_SIZE == 0);
-  ut_a(byte_offset % OS_FILE_LOG_BLOCK_SIZE == 0);
-
-  /* Don't compress the log, page 0 of all tablespaces, tables compressed with
-   the old compression scheme and all pages from the system tablespace. */
-  if (req_type.is_write() && !page_size.is_compressed() &&
-      page_id.page_no() > 0 && IORequest::is_punch_hole_supported() &&
-      file->punch_hole) {
-    req_type.set_punch_hole();
-
-    req_type.compression_algorithm(space->compression_type);
-
-  } else {
-    req_type.clear_compressed();
-  }
-
-  /* Set encryption information. */
-  fil_io_set_encryption(req_type, page_id, space);
-
-  req_type.block_size(file->block_size);
-
-#ifdef UNIV_HOTBACKUP
-  /* In mysqlbackup do normal I/O, not AIO */
-  if (req_type.is_read()) {
-    err = os_file_read(req_type, file->name, file->handle, buf, offset, len);
-
-  } else {
-    ut_ad(!srv_read_only_mode || fsp_is_system_temporary(page_id.space()));
-
-    err = os_file_write(req_type, file->name, file->handle, buf, offset, len);
-  }
-#else /* UNIV_HOTBACKUP */
-  /* Queue the aio request */
-  err = os_aio(
-      req_type, aio_mode, file->name, file->handle, buf, offset, len,
-      fsp_is_system_temporary(page_id.space()) ? false : srv_read_only_mode,
-      file, message);
-
-#endif /* UNIV_HOTBACKUP */
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    err = DB_SUCCESS;
-
-    if (file->punch_hole) {
-      ib::warn(ER_IB_MSG_333) << "Punch hole failed for '" << file->name << "'";
-=======
-  ut_a(file->size - page_no >=
-       (byte_offset +
-        std::max(static_cast<uint32_t>(len), type.get_original_size()) +
-        (page_size.physical() - 1)) /
-           page_size.physical());
-
-  ut_a(len % OS_FILE_LOG_BLOCK_SIZE == 0);
-  ut_a(byte_offset % OS_FILE_LOG_BLOCK_SIZE == 0);
-
-  /* Don't compress the log, page 0 of all tablespaces, tables compressed with
-   the old compression scheme and all pages from the system tablespace. */
-  if (req_type.is_write() && !page_size.is_compressed() &&
-      page_id.page_no() > 0 && IORequest::is_punch_hole_supported() &&
-      file->punch_hole) {
-    req_type.set_punch_hole();
-
-    req_type.compression_algorithm(space->compression_type);
-
-  } else {
-    req_type.clear_compressed();
-  }
-
-  /* Set encryption information. */
-  fil_io_set_encryption(req_type, page_id, space);
-
-  req_type.block_size(file->block_size);
-
-#ifdef UNIV_HOTBACKUP
-  /* In mysqlbackup do normal I/O, not AIO */
-  if (req_type.is_read()) {
-    err = os_file_read(req_type, file->name, file->handle, buf, offset, len);
-
-  } else {
-    ut_ad(!srv_read_only_mode || fsp_is_system_temporary(page_id.space()));
-
-    err = os_file_write(req_type, file->name, file->handle, buf, offset, len);
-  }
-#else /* UNIV_HOTBACKUP */
-  /* Queue the aio request */
-  err = os_aio(
-      req_type, aio_mode, file->name, file->handle, buf, offset, len,
-      fsp_is_system_temporary(page_id.space()) ? false : srv_read_only_mode,
-      file, message, page_id.space(), trx, should_buffer);
-
-#endif /* UNIV_HOTBACKUP */
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    err = DB_SUCCESS;
-
-    if (file->punch_hole) {
-      ib::warn(ER_IB_MSG_333) << "Punch hole failed for '" << file->name << "'";
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     }
 
     /* Set encryption information. */
@@ -7548,7 +7355,8 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
 
   return file->post_io_async(
       req_type, buf, len, page_no,
-      std::move(ignore_postprocessing_result_code_callback));
+      std::move(ignore_postprocessing_result_code_callback), trx,
+      should_buffer);
 #else  /* UNIV_HOTBACKUP */
   ut_error;
 #endif /* UNIV_HOTBACKUP */
@@ -7586,7 +7394,8 @@ void fil_aio_wait(ulint segment) {
 
 dberr_t fil_io(IORequest::Type type, bool sync, const page_id_t &page_id,
                const page_size_t &page_size, ulint len, byte *buf,
-               buf_page_t *bpage, bool evict_after_write,
+               buf_page_t *bpage, bool evict_after_write, trx_t *trx,
+               bool should_buffer,
                std::function<void(dberr_t err)> pre_io_complete_callback) {
   auto shard = fil_system->shard_by_id(page_id.space());
   /* evict_after_write requires the page descriptor to be specified and the IO
@@ -7649,126 +7458,8 @@ dberr_t fil_io(IORequest::Type type, bool sync, const page_id_t &page_id,
   buffer in tablespace 0, you have to be very careful not to introduce
   deadlocks in the i/o system. We keep tablespace 0 data files always
   open, and use a special i/o thread to serve insert buffer requests. */
-<<<<<<< HEAD
   return shard->do_io(type, sync, page_id, page_size, len, buf, bpage,
-                      postprocess_result);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-
-  switch (file->space->purpose) {
-    case FIL_TYPE_IMPORT:
-    case FIL_TYPE_TEMPORARY:
-    case FIL_TYPE_TABLESPACE:
-      srv_set_io_thread_op_info(segment, "complete io for buf page");
-
-      /* async single page writes from the dblwr buffer don't have
-      access to the page */
-      if (m2 != nullptr) {
-        auto bpage = static_cast<buf_page_t *>(m2);
-        ut_d(bpage->take_io_responsibility());
-        buf_page_io_complete(bpage, false, &type, m1);
-      }
-      return;
-  }
-
-  ut_d(ut_error);
-}
-#endif /* !UNIV_HOTBACKUP */
-
-dberr_t fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
-               const page_size_t &page_size, ulint byte_offset, ulint len,
-               void *buf, void *message) {
-  auto shard = fil_system->shard_by_id(page_id.space());
-#ifdef UNIV_DEBUG
-  if (!sync) {
-    /* In case of async io we transfer the io responsibility to the thread which
-    will perform the io completion routine. */
-    static_cast<buf_page_t *>(message)->release_io_responsibility();
-  }
-#endif
-
-  auto const err = shard->do_io(type, sync, page_id, page_size, byte_offset,
-                                len, buf, message);
-#ifdef UNIV_DEBUG
-  /* If the error prevented async io, then we haven't actually transferred the
-  io responsibility at all, so we revert the debug io responsibility info. */
-  auto bpage = static_cast<buf_page_t *>(message);
-
-  /* When space is deleted, we could have marked the io complete. */
-  if (err != DB_SUCCESS && !sync && bpage->was_io_fixed()) {
-    bpage->take_io_responsibility();
-  }
-#endif
-  return err;
-=======
-
-  switch (file->space->purpose) {
-    case FIL_TYPE_IMPORT:
-    case FIL_TYPE_TEMPORARY:
-    case FIL_TYPE_TABLESPACE:
-      srv_set_io_thread_op_info(segment, "complete io for buf page");
-
-      /* async single page writes from the dblwr buffer don't have
-      access to the page */
-      if (m2 != nullptr) {
-        auto bpage = static_cast<buf_page_t *>(m2);
-        ut_d(bpage->take_io_responsibility());
-        buf_page_io_complete(bpage, false, &type, m1);
-      }
-      return;
-  }
-
-  ut_d(ut_error);
-}
-#endif /* !UNIV_HOTBACKUP */
-
-/** Read or write data from a file.
-@param[in]	type		IO context
-@param[in]	sync		If true then do synchronous IO
-@param[in]	page_id		page id
-@param[in]	page_size	page size
-@param[in]	byte_offset	remainder of offset in bytes; in aio this
-                                must be divisible by the OS block size
-@param[in]	len		how many bytes to read or write; this must
-                                not cross a file boundary; in AIO this must
-                                be a block size multiple
-@param[in,out]	buf		buffer where to store read data or from where
-                                to write; in AIO this must be appropriately
-                                aligned
-@param[in]	message		message for AIO handler if !sync, else ignored
-@param[in]	should_buffer   whether to buffer an aio request. AIO read
-                                ahead uses this. If you plan to use this
-                                parameter, make sure you remember to call
-                                os_aio_dispatch_read_array_submit() when you're
-                                ready to commit all your requests.
-@return error code
-@retval DB_SUCCESS on success
-@retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-dberr_t fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
-               const page_size_t &page_size, ulint byte_offset, ulint len,
-               void *buf, void *message, trx_t *trx, bool should_buffer) {
-  auto shard = fil_system->shard_by_id(page_id.space());
-#ifdef UNIV_DEBUG
-  if (!sync) {
-    /* In case of async io we transfer the io responsibility to the thread which
-    will perform the io completion routine. */
-    static_cast<buf_page_t *>(message)->release_io_responsibility();
-  }
-#endif
-
-  auto const err = shard->do_io(type, sync, page_id, page_size, byte_offset,
-                                len, buf, message, trx, should_buffer);
-#ifdef UNIV_DEBUG
-  /* If the error prevented async io, then we haven't actually transferred the
-  io responsibility at all, so we revert the debug io responsibility info. */
-  auto bpage = static_cast<buf_page_t *>(message);
-
-  /* When space is deleted, we could have marked the io complete. */
-  if (err != DB_SUCCESS && !sync && bpage->was_io_fixed()) {
-    bpage->take_io_responsibility();
-  }
-#endif
-  return err;
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+                      postprocess_result, trx, should_buffer);
 }
 
 /** If the tablespace is on the unflushed list and there are no pending
