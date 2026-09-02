@@ -232,22 +232,14 @@ extern PSI_memory_key mem_key_undo_spaces;
 extern PSI_memory_key mem_key_ut_lock_free_hash_t;
 /* Please obey alphabetical order in the definitions above. */
 
-<<<<<<< HEAD
-/** Setup the internal objects needed for `ut::*_withkey()` to operate.
-This must be called before the first call to `ut::*_withkey()`. */
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-/** Setup the internal objects needed for ut::*_withkey() to operate.
-This must be called before the first call to ut::*_withkey(). */
-=======
 extern PSI_memory_key mem_key_log_online_modified_pages;
 extern PSI_memory_key mem_key_log_online_sys;
 extern PSI_memory_key mem_key_log_online_read_buf;
 extern PSI_memory_key mem_key_log_online_iterator_files;
 extern PSI_memory_key mem_key_log_online_iterator_page;
 
-/** Setup the internal objects needed for ut::*_withkey() to operate.
-This must be called before the first call to ut::*_withkey(). */
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
+/** Setup the internal objects needed for `ut::*_withkey()` to operate.
+This must be called before the first call to `ut::*_withkey()`. */
 void ut_new_boot();
 
 /** Setup the internal objects needed for `ut::*_withkey()` to operate.

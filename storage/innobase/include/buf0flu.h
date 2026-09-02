@@ -233,28 +233,6 @@ Requires buf_page_get_mutex(bpage).
 [[nodiscard]] bool buf_flush_ready_for_flush(buf_page_t *bpage,
                                              buf_flush_t flush_type);
 
-<<<<<<< HEAD
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-/** Check if there are any dirty pages that belong to a space id in the flush
- list in a particular buffer pool.
- @return number of dirty pages present in a single buffer pool */
-ulint buf_pool_get_dirty_pages_count(
-    buf_pool_t *buf_pool,      /*!< in: buffer pool */
-    space_id_t id,             /*!< in: space id to check */
-    Flush_observer *observer); /*!< in: flush observer to check */
-
-=======
-#ifdef UNIV_DEBUG
-/** Check if there are any dirty pages that belong to a space id in the flush
- list in a particular buffer pool.
- @return number of dirty pages present in a single buffer pool */
-ulint buf_pool_get_dirty_pages_count(
-    buf_pool_t *buf_pool,      /*!< in: buffer pool */
-    space_id_t id,             /*!< in: space id to check */
-    Flush_observer *observer); /*!< in: flush observer to check */
-#endif
-
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
 /** Executes fsync for all tablespaces, to fsync all pages written to disk. */
 void buf_flush_fsync();
 

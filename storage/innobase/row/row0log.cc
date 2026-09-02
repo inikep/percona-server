@@ -3641,16 +3641,9 @@ next_block:
       goto func_exit;
     }
 
-<<<<<<< HEAD
     IORequest request(IORequest::Type::READ | IORequest::Type::ROW_LOG);
-||||||| parent of 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
-    IORequest request(IORequest::READ | IORequest::ROW_LOG);
-=======
-    IORequest request(IORequest::READ | IORequest::ROW_LOG);
 
     byte *buf = index->online_log->head.block;
-
->>>>>>> 98e2e11388dd ([storage/innobase] PS-269: Initial Percona Server 8.0.12 tree)
     dberr_t err = os_file_read_no_error_handling_int_fd(
         request, index->online_log->path, index->online_log->file.get(), buf,
         ofs, srv_sort_buf_size, nullptr);
