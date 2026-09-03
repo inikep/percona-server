@@ -917,8 +917,6 @@ class st_alter_tablespace {
   bool wait_until_completed = true;
   const char *ts_comment = nullptr;
   const char *encryption = nullptr;
-  bool encrypt;
-  LEX_STRING encrypt_type;
 
   bool is_tablespace_command() {
     return ts_cmd_type == CREATE_TABLESPACE ||
@@ -1599,9 +1597,6 @@ typedef int (*alter_tablespace_t)(handlerton *hton, THD *thd,
                                   const dd::Tablespace *old_ts_def,
                                   dd::Tablespace *new_ts_def);
 
-using flush_changed_page_bitmaps_t = bool (*)(void);
-
-using purge_changed_page_bitmaps_t = bool (*)(ulonglong lsn);
 /**
   SE interface for getting tablespace extension.
   @return Extension of tablespace datafile name.
@@ -2931,8 +2926,6 @@ struct handlerton {
   is_valid_tablespace_name_t is_valid_tablespace_name;
   alter_tablespace_t alter_tablespace;
   get_tablespace_filename_ext_t get_tablespace_filename_ext;
-  flush_changed_page_bitmaps_t flush_changed_page_bitmaps;
-  purge_changed_page_bitmaps_t purge_changed_page_bitmaps;
   /** @deprecated Was used to upgrade from 5.7. */
   upgrade_tablespace_t upgrade_tablespace;
   /** @deprecated Was used to upgrade from 5.7. */
@@ -3280,11 +3273,6 @@ inline constexpr const decltype(handlerton::flags)
 
 
 /** Start of Percona specific HTON_* defines */
-
-/**
-  Engine supports secondary clustered keys.
-*/
-#define HTON_SUPPORTS_CLUSTERED_KEYS (1 << 29)
 
 /**
   Engine supports compressed columns.
