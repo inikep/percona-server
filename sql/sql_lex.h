@@ -4883,6 +4883,7 @@ struct LEX : public Query_tables_list {
 
   bool set_wild(LEX_STRING);
   void clear_privileges();
+  Item *donor_transaction_id;
 
   bool make_sql_cmd(Parse_tree_root *parse_tree);
 
