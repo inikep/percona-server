@@ -264,7 +264,7 @@ static bool is_name_in_list(const char *name, List<String> list_names) {
 
   SYNOPSIS
     partition_default_handling()
-    table                         Table object
+    part_handler                  Partition handler
     part_info                     Partition info to set up
     is_create_table_ind           Is this part of a table creation
     normalized_path               Normalized path name of table and database
@@ -274,17 +274,10 @@ static bool is_name_in_list(const char *name, List<String> list_names) {
     false                         Success
 */
 
-static bool partition_default_handling(TABLE *table, partition_info *part_info,
-                                       bool is_create_table_ind,
-                                       const char *normalized_path) {
-  Partition_handler *part_handler = table->file->get_partition_handler();
+[[nodiscard]] static bool partition_default_handling(
+    Partition_handler *part_handler, partition_info *part_info,
+    bool is_create_table_ind, const char *normalized_path) {
   DBUG_TRACE;
-
-  if (!part_handler) {
-    assert(0);
-    my_error(ER_PARTITION_CLAUSE_ON_NONPARTITIONED, MYF(0));
-    return true;
-  }
 
   if (!is_create_table_ind) {
     if (part_info->use_default_num_partitions) {
@@ -1516,7 +1509,15 @@ bool fix_partition_func(THD *thd, TABLE *table, bool is_create_table_ind) {
   thd->want_privilege = 0;
 
   if (!is_create_table_ind || thd->lex->sql_command != SQLCOM_CREATE_TABLE) {
-    if (partition_default_handling(table, part_info, is_create_table_ind,
+    part_handler = table->file->get_partition_handler();
+
+    if (!part_handler) {
+      assert(0);
+      my_error(ER_PARTITION_CLAUSE_ON_NONPARTITIONED, MYF(0));
+      return true;
+    }
+
+    if (partition_default_handling(part_handler, part_info, is_create_table_ind,
                                    table->s->normalized_path.str)) {
       return true;
     }
