@@ -901,6 +901,8 @@ class fil_space_t {
   /** true if this space is currently in unflushed_spaces */
   bool is_in_unflushed_spaces{};
 
+  bool is_corrupt{};
+
   /** Compression algorithm */
   Compression::Type compression_type{};
 
@@ -2620,6 +2622,10 @@ void fil_space_update_name(fil_space_t *space, const char *name);
 @param[in]      extn    file extension */
 void fil_adjust_name_import(dict_table_t *table, const char *path,
                             ib_file_suffix extn);
+
+/** Mark space as corrupt
+@param space_id	space id */
+void fil_space_set_corrupt(space_id_t space_id);
 
 #ifndef UNIV_HOTBACKUP
 
