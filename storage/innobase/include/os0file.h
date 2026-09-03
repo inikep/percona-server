@@ -521,7 +521,7 @@ class IORequest {
 
   /** @return true if the page write should not be encrypted */
   [[nodiscard]] bool is_encryption_disabled() const noexcept {
-    return ((m_type & NO_ENCRYPTION) != 0);
+    return ((m_type & Type::NO_ENCRYPTION) == Type::NO_ENCRYPTION);
   }
 
   /** Disable transformations. */
@@ -541,7 +541,7 @@ class IORequest {
   }
 
   /** Disable encryption of a page in encrypted tablespace */
-  void disable_encryption() noexcept { m_type |= NO_ENCRYPTION; }
+  void disable_encryption() noexcept { m_type |= Type::NO_ENCRYPTION; }
 
   /** Get the encryption algorithm.
   @return the encryption algorithm */
@@ -834,10 +834,12 @@ MY_COMPILER_DIAGNOSTIC_POP()
 @param[in]      operation_name  "open" or "create"; used in the diagnostic
                                 message
 @param[in]      on_error_silent if true then don't print any message to the log
+@return true if operation is success and false
 */
-void os_file_set_nocache(int fd, const char *file_name,
+bool os_file_set_nocache(int fd, const char *file_name,
                          const char *operation_name,
                          bool on_error_silent = false);
+
 /** NOTE! Use the corresponding macro os_file_create(), not directly
 this function!
 Opens an existing file or creates a new.
