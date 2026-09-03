@@ -1701,7 +1701,7 @@ dberr_t Double_write::write_to_datafile(
   ut_ad(mach_read_from_4(frame + FIL_PAGE_SPACE_ID) == bpage->space());
 
   auto err = fil_io(type, sync, bpage->id, bpage->size, len, frame, bpage, sync,
-                    pre_io_complete_callback);
+                    nullptr, false, pre_io_complete_callback);
 
   /* When a tablespace is deleted, fil_io() might return DB_PAGE_IS_STALE or
   DB_TABLESPACE_DELETED. */

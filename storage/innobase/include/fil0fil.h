@@ -46,6 +46,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #endif /* !UNIV_HOTBACKUP */
 #include "srv0srv.h"
 #include "srv0start.h"
+#include "trx0types.h"
 #include "ut0expected.h"
 #include "ut0new.h"
 
@@ -278,10 +279,13 @@ class fil_node_t {
                               compression enabled and data was not compressed
                               already.
   @param[in]      page_no     Page number where to read from or write into.
+  @param[in,out]  trx         Transaction the read is performed on behalf of,
+    used to account the InnoDB statistics reported by the slow query log, or
+    nullptr if not on behalf of a user transaction.
   @return DB_SUCCESS on successful IO completion, otherwise error code */
   [[nodiscard]] dberr_t post_io_sync(IORequest &type, byte *buf,
-                                     size_t buffer_len,
-                                     page_no_t page_no) const;
+                                     size_t buffer_len, page_no_t page_no,
+                                     trx_t *trx = nullptr) const;
 
 #ifdef UNIV_LINUX
   /** Posts a synchronous vectored WRITE IO operation on the node.
@@ -341,7 +345,8 @@ class fil_node_t {
   @return DB_SUCCESS if IO was successfully posted, error code otherwise */
   [[nodiscard]] dberr_t post_io_async(
       IORequest &type, byte *buf, size_t buffer_len, page_no_t page_no,
-      std::function<void(dberr_t)> callback) const;
+      std::function<void(dberr_t)> callback, trx_t *trx = nullptr,
+      bool should_buffer = false) const;
 #endif /* !UNIV_HOTBACKUP */
 
   /** Returns true iff the node is currently opened and allows IO operations. */
@@ -2125,6 +2130,12 @@ number should be zero.
                                 Evicts the page after successful write. It is
                                 ignored if @p bpage is nullptr or if it is not a
                                 write request.
+@param[in,out]  trx             Transaction the read is performed on behalf of,
+                                used to account the InnoDB statistics reported
+                                by the slow query log, or nullptr if the read is
+                                not on behalf of a user transaction.
+@param[in]      should_buffer   whether to buffer an AIO request. Only used by
+                                AIO read ahead
 @param[in]      pre_io_complete_callback
                                 A callback to be called exactly once when the
                                 result of this IO operation is known. It may be
@@ -2145,7 +2156,7 @@ Note: this is not an exhaustive list of errors returned.*/
 [[nodiscard]] dberr_t fil_io(
     IORequest::Type type, bool sync, const page_id_t &page_id,
     const page_size_t &page_size, ulint len, byte *buf, buf_page_t *bpage,
-    bool evict_after_write,
+    bool evict_after_write, trx_t *trx = nullptr, bool should_buffer = false,
     std::function<void(dberr_t err)> pre_io_complete_callback = [](dberr_t) {});
 
 /** Waits for an AIO operation to complete. This function is used to write the
