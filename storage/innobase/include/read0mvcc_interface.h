@@ -161,6 +161,19 @@ class MVCC_interface {
                      view_free(..). Do not call view_open(..) on it. */
   virtual void clone_oldest_view(Read_view_interface *&view) = 0;
 
+  /** Clones the read view owned by another transaction, so that the cloning
+  transaction sees exactly what the donor transaction sees. The caller must own
+  trx_sys->mutex and the donor transaction's mutex.
+  @param[in,out] view
+                     The cloning transaction's view. If nullptr, a view is
+                     allocated, otherwise the one provided is reused, in which
+                     case it must be a view obtained from view_open(..). Upon
+                     return it is open, unless a view could not be allocated,
+                     in which case it stays nullptr.
+  @param[in,out] from_trx
+                     Transaction owning the donor view. It must have one. */
+  virtual void clone_view(Read_view_interface *&view, trx_t *from_trx) = 0;
+
   /** Instructs the MVCC that the Undo Purge is about to start working and MVCC
   will be asked to clone the oldest Read View. */
   virtual void undo_purge_is_starting() = 0;

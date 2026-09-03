@@ -65,6 +65,12 @@ class Read_view_interface {
   @return the up limit id of the view */
   [[nodiscard]] virtual trx_id_t get_up_limit_id() const = 0;
 
+  /** A cloned view has the change visibility of the transaction it was cloned
+  from, so its creator transaction id must not be overwritten when the cloning
+  transaction is promoted to read-write.
+  @return true if this view is a clone of another transaction's view */
+  [[nodiscard]] virtual bool is_cloned() const = 0;
+
   /** Describe the read-view.
   @param[in] file           file to write to */
   virtual void print(FILE *file) const = 0;

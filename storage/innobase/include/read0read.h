@@ -69,6 +69,7 @@ class MVCC : public MVCC_interface {
   void view_open(Read_view_interface *&view, trx_t *trx) override;
   void view_close(Read_view_interface *&view, bool own_mutex) override;
   void clone_oldest_view(Read_view_interface *&view) override;
+  void clone_view(Read_view_interface *&view, trx_t *from_trx) override;
   void view_free(Read_view_interface *&view) override;
   [[nodiscard]] size_t get_open_views_count() const override;
   void undo_purge_is_starting() override;
