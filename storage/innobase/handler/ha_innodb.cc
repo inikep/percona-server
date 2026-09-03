@@ -2857,6 +2857,15 @@ trx_t *check_trx_exists(THD *thd) /*!< in: user thread handle */
   return (trx);
 }
 
+/** Get the transaction of the current connection handle, if either exists.
+@return transaction of the current connection handle, or NULL. */
+trx_t *innobase_get_trx(void) {
+  THD *const thd = current_thd;
+  if (UNIV_UNLIKELY(!thd)) return (nullptr);
+
+  return (thd_to_trx(thd));
+}
+
 /** InnoDB transaction object that is currently associated with THD is
 replaced with that of the 2nd argument. The previous value is
 returned through the 3rd argument's buffer, unless it's NULL.  When
@@ -7557,6 +7566,12 @@ int ha_innobase::open(const char *name, int, uint open_flags,
       dict_table_close(ib_table, false, false);
       return HA_ERR_SE_OUT_OF_MEMORY;
     }
+
+    if (UNIV_UNLIKELY(m_share->ib_table && m_share->ib_table->is_corrupt &&
+                      srv_pass_corrupt_table <= 1)) {
+      free_share(m_share);
+      return HA_ERR_CRASHED_ON_USAGE;
+    }
   }
 
   if (ib_table != nullptr &&
@@ -7580,6 +7595,12 @@ int ha_innobase::open(const char *name, int, uint open_flags,
     free_share(m_share);
     dict_table_close(ib_table, false, false);
     ib_table = nullptr;
+  }
+
+  if (UNIV_UNLIKELY(ib_table && ib_table->is_corrupt &&
+                    srv_pass_corrupt_table <= 1)) {
+    free_share(m_share);
+    return HA_ERR_CRASHED_ON_USAGE;
   }
 
   /* For encrypted table, check if the encryption info in data
@@ -10062,6 +10083,10 @@ int ha_innobase::update_row(const uchar *old_row, uchar *new_row) {
 
   ha_statistic_increment(&System_status_var::ha_update_count);
 
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt))
+    return HA_ERR_CRASHED;
+
   upd_t *uvect;
 
   if (m_prebuilt->upd_node) {
@@ -10174,6 +10199,10 @@ func_exit:
 
   innobase_active_small();
 
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt))
+    return HA_ERR_CRASHED;
+
   return err;
 }
 
@@ -10206,6 +10235,10 @@ int ha_innobase::delete_row(
 
   ha_statistic_increment(&System_status_var::ha_delete_count);
 
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt))
+    return HA_ERR_CRASHED;
+
   if (!m_prebuilt->upd_node) {
     row_get_prebuilt_update_vector(m_prebuilt);
   }
@@ -10225,6 +10258,10 @@ int ha_innobase::delete_row(
   utility threads: */
 
   innobase_active_small();
+
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt))
+    return HA_ERR_CRASHED;
 
   return convert_error_code_to_mysql(error, m_prebuilt->table->flags,
                                      m_user_thd);
@@ -10465,6 +10502,11 @@ int ha_innobase::index_read(
 
   ha_statistic_increment(&System_status_var::ha_read_key_count);
 
+  if (UNIV_UNLIKELY(srv_pass_corrupt_table <= 1 && m_share &&
+                    m_share->ib_table && m_share->ib_table->is_corrupt)) {
+    return HA_ERR_CRASHED;
+  }
+
   dict_index_t *index = m_prebuilt->index;
 
   if (index == nullptr || index->is_corrupted()) {
@@ -10579,6 +10621,11 @@ int ha_innobase::index_read(
     innobase_srv_conc_exit_innodb(m_prebuilt);
   } else {
     ret = DB_UNSUPPORTED;
+  }
+
+  if (UNIV_UNLIKELY(srv_pass_corrupt_table <= 1 && m_share &&
+                    m_share->ib_table && m_share->ib_table->is_corrupt)) {
+    return HA_ERR_CRASHED;
   }
 
   DBUG_EXECUTE_IF("ib_select_query_failure", ret = DB_ERROR;);
@@ -10698,6 +10745,10 @@ int ha_innobase::change_active_index(
 {
   DBUG_TRACE;
 
+  if (UNIV_UNLIKELY(srv_pass_corrupt_table <= 1 && m_share &&
+                    m_share->ib_table && m_share->ib_table->is_corrupt))
+    return HA_ERR_CRASHED;
+
   ut_ad(m_user_thd == ha_thd());
   ut_a(m_prebuilt->trx == thd_to_trx(m_user_thd));
 
@@ -10800,6 +10851,10 @@ int ha_innobase::general_fetch(
                      ROW_SEL_EXACT_PREFIX */
 {
   DBUG_TRACE;
+
+  if (UNIV_UNLIKELY(srv_pass_corrupt_table <= 1 && m_share &&
+                    m_share->ib_table && m_share->ib_table->is_corrupt))
+    return HA_ERR_CRASHED;
 
   const trx_t *trx = m_prebuilt->trx;
 
@@ -11440,6 +11495,11 @@ next_record:
     }
 
     int error;
+
+    if (UNIV_UNLIKELY(srv_pass_corrupt_table <= 1 && m_share &&
+                      m_share->ib_table && m_share->ib_table->is_corrupt)) {
+      return (HA_ERR_CRASHED);
+    }
 
     switch (ret) {
       case DB_SUCCESS:
@@ -15569,6 +15629,8 @@ int ha_innobase::truncate_impl(const char *name, TABLE *form,
     return HA_ERR_TABLESPACE_MISSING;
   }
 
+  if (UNIV_UNLIKELY(innodb_table->is_corrupt)) return HA_ERR_CRASHED;
+
   trx_t *trx = check_trx_exists(thd);
   innobase_register_trx(ht, thd, trx);
 
@@ -18374,10 +18436,20 @@ each index tree. This does NOT calculate exact statistics on the table.
 int ha_innobase::analyze(THD *,          /*!< in: connection thread handle */
                          HA_CHECK_OPT *) /*!< in: currently ignored */
 {
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt)) {
+    return (HA_ADMIN_CORRUPT);
+  }
+
   /* Simply call info_low() with all the flags
   and request recalculation of the statistics */
   int ret = info_low(HA_STATUS_TIME | HA_STATUS_CONST | HA_STATUS_VARIABLE,
                      true /* this is ANALYZE */);
+
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt)) {
+    return (HA_ADMIN_CORRUPT);
+  }
 
   if (ret != 0) {
     return (HA_ADMIN_FAILED);
@@ -18619,6 +18691,11 @@ int ha_innobase::check(THD *thd,                /*!< in: user thread handle */
   m_prebuilt->trx->op_info = "";
   if (thd_killed(m_user_thd)) {
     thd_set_kill_status(m_user_thd);
+  }
+
+  if (UNIV_UNLIKELY(m_share && m_share->ib_table &&
+                    m_share->ib_table->is_corrupt)) {
+    return HA_ADMIN_CORRUPT;
   }
 
   return is_ok ? HA_ADMIN_OK : HA_ADMIN_CORRUPT;
@@ -23541,6 +23618,24 @@ char **thd_innodb_interpreter(THD *thd) {
 }
 #endif /* UNIV_DEBUG */
 
+static const char *corrupt_table_action_names[] = {"assert",  /* 0 */
+                                                   "warn",    /* 1 */
+                                                   "salvage", /* 2 */
+                                                   NullS};
+
+static TYPELIB corrupt_table_action_typelib = {
+    array_elements(corrupt_table_action_names) - 1,
+    "corrupt_table_action_typelib", corrupt_table_action_names, nullptr};
+
+static MYSQL_SYSVAR_ENUM(
+    corrupt_table_action, srv_pass_corrupt_table, PLUGIN_VAR_RQCMDARG,
+    "Warn corruptions of user tables as 'corrupt table' instead of not "
+    "crashing itself, "
+    "when used with file_per_table. "
+    "All file io for the datafile after detected as corrupt are disabled, "
+    "except for the deletion.",
+    nullptr, nullptr, 0, &corrupt_table_action_typelib);
+
 static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(api_trx_level),
     MYSQL_SYSVAR(api_bk_commit_interval),
@@ -23758,6 +23853,7 @@ static SYS_VAR *innobase_system_variables[] = {
 #endif /* UNIV_DEBUG */
     MYSQL_SYSVAR(parallel_read_threads),
     MYSQL_SYSVAR(segment_reserve_factor),
+    MYSQL_SYSVAR(corrupt_table_action),
     nullptr};
 
 mysql_declare_plugin(innobase){
