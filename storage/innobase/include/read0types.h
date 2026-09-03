@@ -36,6 +36,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <algorithm>
 #include "dict0mem.h"
+#include "mem0mem.h"
 #include "read0read_view_interface.h"
 #include "trx0types.h"
 #include "ut0cpu_cache.h"
@@ -184,10 +185,19 @@ class ReadView : public Read_view_interface {
   [[nodiscard]] bool is_closed() const { return m_closed.load(); }
 
   void print(FILE *file) const override {
+    fprintf(file, "Read view low limit trx n:o " TRX_ID_FMT "\n",
+            m_low_limit_no);
     fprintf(file,
             "Trx read view will not see trx with"
             " id >= " TRX_ID_FMT ", sees < " TRX_ID_FMT "\n",
             m_low_limit_id, m_up_limit_id);
+    fprintf(file, "Read view individually stored trx ids:\n");
+    for (ulint i = 0; i < m_ids.size(); i++)
+      fprintf(file, "Read view trx id " TRX_ID_FMT "\n", m_ids.data()[i]);
+  }
+
+  [[nodiscard]] trx_id_t get_low_limit_id() const override {
+    return m_low_limit_id;
   }
 
   [[nodiscard]] trx_id_t get_lowest_needed_trx_no() const override {
@@ -206,6 +216,7 @@ class ReadView : public Read_view_interface {
     return (m_low_limit_no <= rhs->m_low_limit_no);
   }
 #endif /* UNIV_DEBUG */
+
  private:
   /**
   Copy the transaction ids from the source vector */

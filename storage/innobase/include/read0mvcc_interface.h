@@ -200,4 +200,14 @@ class MVCC_interface {
   */
   virtual void set_view_creator_trx_id(Read_view_interface *&view,
                                        trx_id_t id) = 0;
+
+  /** Get the oldest view in the system for statistical purposes.
+
+  @note This method should be used for statistical purposes only, purge needs
+  to use more strict condition (see clone_oldest_view()) when selecting the
+  oldest view.
+
+  @return oldest view if found or nullptr */
+  [[nodiscard]] virtual const Read_view_interface *get_oldest_view_stats()
+      const = 0;
 };

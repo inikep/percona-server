@@ -54,6 +54,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 /* time, difftime */
 #include <time.h>
+#include "srv0start.h"
 
 /* fprintf */
 #include <cstdio>
@@ -1179,6 +1180,14 @@ void log_print(const log_t &log, FILE *file) {
   if (log_sys == nullptr) {
     return;
   }
+
+  fprintf(file,
+          "Modified age no less than " LSN_PF
+          "\n"
+          "Checkpoint age        " LSN_PF "\n",
+          current_lsn - buf_pool_get_oldest_modification_lwm(),
+          current_lsn - last_checkpoint_lsn);
+
   time_t current_time = time(nullptr);
 
   double time_elapsed = difftime(current_time, log.last_printout_time);
