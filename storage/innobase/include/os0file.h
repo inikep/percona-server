@@ -330,7 +330,10 @@ class IORequest {
     /** Buffer this AIO request instead of submitting it immediately.
     AIO read-ahead uses this. If you set this flag, call
     os_aio_dispatch_read_array_submit() when ready to commit the batch. */
-    SHOULD_BUFFER = 1 << 14
+    SHOULD_BUFFER = 1 << 14,
+
+    /** Force write of decrypted pages in encrypted tablespace. */
+    NO_ENCRYPTION = 1 << 15
   };
 
   /** Default constructor */
@@ -516,6 +519,11 @@ class IORequest {
     return (m_type & Type::NO_COMPRESSION) != Type::NO_COMPRESSION;
   }
 
+  /** @return true if the page write should not be encrypted */
+  [[nodiscard]] bool is_encryption_disabled() const noexcept {
+    return ((m_type & NO_ENCRYPTION) != 0);
+  }
+
   /** Disable transformations. */
   void disable_compression() { m_type |= Type::NO_COMPRESSION; }
 
@@ -531,6 +539,9 @@ class IORequest {
   void disable_write_transformations() {
     m_type |= Type::NO_WRITE_TRANSFORMATIONS;
   }
+
+  /** Disable encryption of a page in encrypted tablespace */
+  void disable_encryption() noexcept { m_type |= NO_ENCRYPTION; }
 
   /** Get the encryption algorithm.
   @return the encryption algorithm */

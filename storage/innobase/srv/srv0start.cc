@@ -922,7 +922,7 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
   trx_rseg_add_rollback_segments(). */
 
   if (srv_undo_log_encrypt && enable_undo_encryption) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
+    ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
     ut_ad(!ret);
   }
 
