@@ -1013,9 +1013,10 @@ The wrapper functions have the prefix of "innodb_". */
 #define os_file_read_pfs(type, file_name, file, buf, offset, n) \
   pfs_os_file_read_func(type, file_name, file, buf, offset, n, UT_LOCATION_HERE)
 
-#define os_file_read_first_page_pfs(type, file_name, file, buf, n_pages) \
+#define os_file_read_first_page_pfs(type, file_name, file, buf, n_pages, \
+                                    exit_on_err)                         \
   pfs_os_file_read_first_page_func(type, file_name, file, buf, n_pages,  \
-                                   UT_LOCATION_HERE)
+                                   UT_LOCATION_HERE, exit_on_err)
 
 #define os_file_copy_pfs(src, src_offset, dest, dest_offset, size) \
   pfs_os_file_copy_func(src, src_offset, dest, dest_offset, size,  \
@@ -1142,10 +1143,11 @@ It does not uncompress nor decrypt any pages.
                                 of at least `UNIV_PAGE_SIZE_MAX * n_pages`.
 @param[in]      n_pages         How many pages to read.
 @param[in]      src_location    location where func invoked
+@param[in]      exit_on_err     if true then exit on error
 @return DB_SUCCESS if request was successful */
 static inline dberr_t pfs_os_file_read_first_page_func(
     IORequest &type, const char *file_name, pfs_os_file_t file, byte *buf,
-    page_no_t n_pages, ut::Location src_location);
+    page_no_t n_pages, ut::Location src_location, bool exit_on_err);
 
 /** copy data from one file to another file. Data is read/written
 at current file offset.
@@ -1355,8 +1357,9 @@ to original un-instrumented file I/O APIs */
 #define os_file_read_pfs(type, file_name, file, buf, offset, n) \
   os_file_read_func(type, file_name, file, buf, offset, n)
 
-#define os_file_read_first_page_pfs(type, file_name, file, buf, n_pages) \
-  os_file_read_first_page_func(type, file_name, file, buf, n_pages)
+#define os_file_read_first_page_pfs(type, file_name, file, buf, n_pages, \
+                                    exit_on_err)                         \
+  os_file_read_first_page_func(type, file_name, file, buf, n_pages, exit_on_err)
 
 #define os_file_copy_pfs(src, src_offset, dest, dest_offset, size) \
   os_file_copy_func(src, src_offset, dest, dest_offset, size)
@@ -1404,10 +1407,20 @@ to original un-instrumented file I/O APIs */
 
 #ifdef UNIV_PFS_IO
 #define os_file_read_first_page(type, file_name, file, buf, n_pages) \
-  os_file_read_first_page_pfs(type, file_name, file, buf, n_pages)
+  os_file_read_first_page_pfs(type, file_name, file, buf, n_pages, true)
 #else
-#define os_file_read_first_page(type, file_name, file, buf, n_pages) \
-  os_file_read_first_page_pfs(type, file_name, (file).m_file, buf, n_pages)
+#define os_file_read_first_page(type, file_name, file, buf, n_pages)        \
+  os_file_read_first_page_pfs(type, file_name, (file).m_file, buf, n_pages, \
+                              true)
+#endif
+
+#ifdef UNIV_PFS_IO
+#define os_file_read_first_page_noexit(type, file_name, file, buf, n_pages) \
+  os_file_read_first_page_pfs(type, file_name, file, buf, n_pages, false)
+#else
+#define os_file_read_first_page_noexit(type, file_name, file, buf, n_pages) \
+  os_file_read_first_page_pfs(type, file_name, (file).m_file, buf, n_pages, \
+                              false)
 #endif
 
 #ifdef UNIV_PFS_IO
@@ -1554,11 +1567,13 @@ any pages.
                                 safe to use 4KB alignment. It must have length
                                 of at least `UNIV_PAGE_SIZE_MAX * n_pages`.
 @param[in]      n_pages         How many pages to read.
+@param[in]      exit_on_err     if true then exit on error
 @return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
 [[nodiscard]] dberr_t os_file_read_first_page_func(IORequest &type,
                                                    const char *file_name,
                                                    os_file_t file, byte *buf,
-                                                   page_no_t n_pages);
+                                                   page_no_t n_pages,
+                                                   bool exit_on_err);
 
 /** Copy data from one file to another file. Data is read/written
 at current file offset.

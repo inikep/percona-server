@@ -196,7 +196,7 @@ static inline dberr_t pfs_os_file_read_func(const IORequest &type,
 
 static inline dberr_t pfs_os_file_read_first_page_func(
     IORequest &type, const char *file_name, pfs_os_file_t file, byte *buf,
-    page_no_t n_pages, ut::Location src_location) {
+    page_no_t n_pages, ut::Location src_location, bool exit_on_err) {
   PSI_file_locker_state state;
   struct PSI_file_locker *locker = nullptr;
 
@@ -209,7 +209,7 @@ static inline dberr_t pfs_os_file_read_first_page_func(
   dberr_t result;
 
   result =
-      os_file_read_first_page_func(type, file_name, file.m_file, buf, n_pages);
+      os_file_read_first_page_func(type, file_name, file.m_file, buf, n_pages, exit_on_err);
 
   register_pfs_file_io_end(locker,
                            UNIV_ZIP_SIZE_MIN + n_pages * UNIV_PAGE_SIZE);

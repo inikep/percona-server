@@ -5414,11 +5414,11 @@ dberr_t os_file_read_func(const IORequest &type, const char *file_name,
 
 dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
                                      os_file_t file, byte *buf,
-                                     page_no_t n_pages) {
+                                     page_no_t n_pages, bool exit_on_err) {
   ut_ad(type.is_read());
 
   dberr_t err = os_file_read_page(type, file_name, file, buf, 0,
-                                  UNIV_ZIP_SIZE_MIN, nullptr, true);
+                                  UNIV_ZIP_SIZE_MIN, nullptr, exit_on_err);
 
   if (err == DB_SUCCESS) {
     uint32_t flags = fsp_header_get_flags(buf);
