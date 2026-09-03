@@ -1430,6 +1430,11 @@ typedef int (*rollback_t)(handlerton *hton, THD *thd, bool all);
 
 typedef int (*prepare_t)(handlerton *hton, THD *thd, bool all);
 
+typedef int (*clone_consistent_snapshot_t)(handlerton *hton, THD *thd,
+                                           THD *from_thd);
+
+typedef int (*store_binlog_info_t)(handlerton *hton, THD *thd);
+
 typedef int (*recover_t)(handlerton *hton, XA_recover_txn *xid_list, uint len,
                          MEM_ROOT *mem_root);
 /**
@@ -1590,7 +1595,6 @@ typedef int (*alter_tablespace_t)(handlerton *hton, THD *thd,
                                   st_alter_tablespace *ts_info,
                                   const dd::Tablespace *old_ts_def,
                                   dd::Tablespace *new_ts_def);
-
 
 /**
   SE interface for getting tablespace extension.
@@ -2913,7 +2917,9 @@ struct handlerton {
   log_ddl_create_schema_t log_ddl_create_schema;
   panic_t panic;
   start_consistent_snapshot_t start_consistent_snapshot;
+  clone_consistent_snapshot_t clone_consistent_snapshot;
   flush_logs_t flush_logs;
+  store_binlog_info_t store_binlog_info;
   show_status_t show_status;
   partition_flags_t partition_flags;
   is_valid_tablespace_name_t is_valid_tablespace_name;
@@ -3264,7 +3270,6 @@ inline constexpr const decltype(handlerton::flags)
 inline constexpr const decltype(handlerton::flags)
     HTON_SECONDARY_SUPPORTS_TEMPORARY_TABLE(1 << 25);
 
-
 /** Start of Percona specific HTON_* defines */
 
 /**
@@ -3276,7 +3281,6 @@ inline constexpr const decltype(handlerton::flags)
 #define HTON_SUPPORTS_ONLINE_BACKUPS (1 << 31)
 
 /** End of Percona specific HTON_* defines */
-
 
 /* Whether the handlerton is a secondary engine. */
 inline bool hton_is_secondary_engine(const handlerton *hton) {
@@ -7457,7 +7461,7 @@ class handler {
 
   int get_lock_type() const { return m_lock_type; }
 
-public:
+ public:
   /* Read-free replication interface */
 
   /**

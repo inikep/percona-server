@@ -164,6 +164,8 @@ static void trx_init(trx_t *trx) {
 
   trx->id = 0;
 
+  trx->preallocated_id = 0;
+
   trx->no = TRX_ID_MAX;
 
   trx->persists_gtid = false;
@@ -1290,6 +1292,44 @@ void trx_assign_rseg_durable(trx_t *trx) {
   trx->rsegs.m_redo.rseg = srv_read_only_mode ? nullptr : get_next_redo_rseg();
 }
 
+/** Remove id from trx_sys->reserved_rw_ids if present.
+Caller owns trx_sys->mutex.
+@param[in] id reserved transaction id */
+static void trx_erase_reserved_rw_id(trx_id_t id) {
+  ut_ad(trx_sys_mutex_own());
+  ut_ad(id > 0);
+
+  trx_ids_t::iterator it = std::lower_bound(trx_sys->reserved_rw_ids.begin(),
+                                            trx_sys->reserved_rw_ids.end(), id);
+
+  if (it != trx_sys->reserved_rw_ids.end() && *it == id) {
+    trx_sys->reserved_rw_ids.erase(it);
+  }
+}
+
+/** Assign an id for this RW transaction and insert it into trx_sys->rw_trx_ids
+@param trx	transaction to assign an id for */
+static void trx_assign_id_for_rw(trx_t *trx) {
+  ut_ad(trx_sys_mutex_own());
+
+  trx->id =
+      trx->preallocated_id ? trx->preallocated_id : trx_sys_allocate_trx_id();
+
+  if (trx->preallocated_id) {
+    trx_erase_reserved_rw_id(trx->id);
+
+    // preallocated_id might not be received in ascending order,
+    // so we need to maintain ordering in rw_trx_ids
+    trx_ids_t::iterator it = std::lower_bound(
+        trx_sys->rw_trx_ids.begin(), trx_sys->rw_trx_ids.end(), trx->id);
+    ut_ad(it == trx_sys->rw_trx_ids.end() || *it != trx->id);
+    trx_sys->rw_trx_ids.insert(it, trx->id);
+  } else {
+    // The id is known to be greatest
+    trx_sys->rw_trx_ids.push_back(trx->id);
+  }
+}
+
 /** Assign a temp-tablespace bound rollback-segment to a transaction.
 @param[in,out]  trx     transaction that involves write to temp-table. */
 void trx_assign_rseg_temp(trx_t *trx) {
@@ -1302,9 +1342,7 @@ void trx_assign_rseg_temp(trx_t *trx) {
   if (trx->id == 0) {
     trx_sys_mutex_enter();
 
-    trx->id = trx_sys_allocate_trx_id();
-
-    trx_sys->rw_trx_ids.push_back(trx->id);
+    trx_assign_id_for_rw(trx);
 
     trx_sys_mutex_exit();
 
@@ -1420,9 +1458,7 @@ static void trx_start_low(
 
     trx_sys_mutex_enter();
 
-    trx->id = trx_sys_allocate_trx_id();
-
-    trx_sys->rw_trx_ids.push_back(trx->id);
+    trx_assign_id_for_rw(trx);
 
     ut_ad(trx->rsegs.m_redo.rseg != nullptr || srv_read_only_mode ||
           srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO);
@@ -1452,9 +1488,7 @@ static void trx_start_low(
 
         trx->state.store(TRX_STATE_ACTIVE, std::memory_order_relaxed);
 
-        trx->id = trx_sys_allocate_trx_id();
-
-        trx_sys->rw_trx_ids.push_back(trx->id);
+        trx_assign_id_for_rw(trx);
 
         trx_sys_mutex_exit();
 
@@ -2158,6 +2192,15 @@ written */
     trx_finalize_for_fts(trx, trx->undo_no != 0);
   }
 
+  /* Donor stayed read-only. Drop the id reserved at clone time before
+  trx_init() forgets preallocated_id. Take trx_sys->mutex before trx->mutex:
+  clone holds them in that order. */
+  if (trx->id == 0 && trx->preallocated_id != 0) {
+    trx_sys_mutex_enter();
+    trx_erase_reserved_rw_id(trx->preallocated_id);
+    trx_sys_mutex_exit();
+  }
+
   trx_mutex_enter(trx);
   trx->dict_operation = TRX_DICT_OP_NONE;
 
@@ -2367,6 +2410,70 @@ void trx_assign_read_view(trx_t *trx) {
 const Read_view_interface *trx_get_read_view(const trx_t *trx) {
   return (!trx_sys->mvcc->is_view_open(trx->read_view) ? nullptr
                                                        : trx->read_view);
+}
+
+/** Clones the read view from another transaction. All consistent reads within
+the receiver transaction will get the same read view as the donor transaction.
+Caller must own the global lock exclusive latch, trx_sys->mutex and
+from_trx->mutex. Releases trx_sys->mutex and from_trx->mutex.
+@param[in] trx       receiver transaction
+@param[in] from_trx  donor transaction
+@return read view clone, or nullptr if the donor has no open read view */
+Read_view_interface *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
+  ut_ad(locksys::owns_exclusive_global_latch());
+  ut_ad(trx_sys_mutex_own());
+  ut_ad(trx_mutex_own(from_trx));
+
+  if (srv_read_only_mode) {
+    ut_ad(trx->read_view == nullptr);
+    trx_mutex_exit(from_trx);
+    trx_sys_mutex_exit();
+    return (nullptr);
+  }
+
+  if (!trx_state_eq(from_trx, TRX_STATE_ACTIVE) ||
+      !trx_sys->mvcc->is_view_open(from_trx->read_view)) {
+    trx_mutex_exit(from_trx);
+    trx_sys_mutex_exit();
+    return (nullptr);
+  }
+
+  // Set the creating trx id of the clone to that of the donor.
+  // Non-zero creator: donor is RW, or itself a clone.
+  trx_id_t from_trx_id =
+      trx_sys->mvcc->get_view_creator_trx_id(from_trx->read_view);
+
+  if (from_trx_id == 0) {
+    if (from_trx->id == 0) {
+      // The donor transaction is RO, thus does not have a trx ID
+      // yet which the cloned view must see, if it assigned later
+      if (!from_trx->preallocated_id) {
+        // Preallocate a transaction id for the donor
+        from_trx_id = from_trx->preallocated_id = trx_sys_allocate_trx_id();
+        ut_ad(trx_sys->reserved_rw_ids.empty() ||
+              trx_sys->reserved_rw_ids.back() < from_trx_id);
+        trx_sys->reserved_rw_ids.push_back(from_trx_id);
+      } else {
+        // This transaction has already been cloned
+        from_trx_id = from_trx->preallocated_id;
+      }
+    } else {
+      // The donor transaction is RW
+      from_trx_id = from_trx->id;
+    }
+  }
+
+  if (!trx_sys->mvcc->view_clone(trx->read_view, from_trx->read_view,
+                                 from_trx_id)) {
+    trx_mutex_exit(from_trx);
+    trx_sys_mutex_exit();
+    return (nullptr);
+  }
+
+  trx_mutex_exit(from_trx);
+  trx_sys_mutex_exit();
+
+  return (trx->read_view);
 }
 
 /** Prepares a transaction for commit/rollback. */
@@ -3454,9 +3561,7 @@ void trx_set_rw_mode(trx_t *trx) /*!< in/out: transaction that is RW */
   trx_sys_mutex_enter();
 
   ut_ad(trx->id == 0);
-  trx->id = trx_sys_allocate_trx_id();
-
-  trx_sys->rw_trx_ids.push_back(trx->id);
+  trx_assign_id_for_rw(trx);
 
   /* So that we can see our own changes. */
   if (trx_sys->mvcc->is_view_open(trx->read_view)) {

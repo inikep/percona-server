@@ -226,6 +226,8 @@ class ReadView : public Read_view_interface {
 #endif /* UNIV_DEBUG */
 
 
+  bool is_cloned() const noexcept { return (m_cloned); }
+
  private:
   /**
   Copy the transaction ids from the source vector */
@@ -241,6 +243,14 @@ class ReadView : public Read_view_interface {
   Copy state from another view. Must call copy_complete() to finish.
   @param other          view to copy from */
   inline void copy_prepare(const ReadView &other);
+
+  /**
+  Clones a read view object. The resulting read view has identical change
+  visibility as the donor read view. Caller allocates result and inserts it
+  into the MVCC view list.
+  @param result            view to overwrite, must already be allocated
+  @param privileged_trx_id creator id the clone must see, must be > 0 */
+  void clone(ReadView *result, trx_id_t privileged_trx_id) const;
 
   /**
   Complete the copy, insert the creator transaction id into the
@@ -292,6 +302,11 @@ class ReadView : public Read_view_interface {
 
   /** False iff this view is in use by a transaction at the moment (is open).*/
   std::atomic_bool m_closed{true};
+
+  /** This is a view cloned by clone but not by
+  MVCC::clone_oldest_view. Used to make sure the cloned transaction does
+  not see its own changes. */
+  bool m_cloned;
 
   typedef UT_LIST_NODE_T(ReadView) node_t;
 
