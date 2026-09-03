@@ -209,6 +209,10 @@ class ReadView : public Read_view_interface {
   trx_id_t low_limit_id() const { return (m_low_limit_id); }
 
   /**
+  @return the up limit id */
+  trx_id_t up_limit_id() const noexcept { return (m_up_limit_id); }
+
+  /**
   @return true if there are no transaction ids in the snapshot */
   [[nodiscard]] bool empty() const { return (m_ids.empty()); }
 
