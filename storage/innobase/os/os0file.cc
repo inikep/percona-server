@@ -2882,10 +2882,7 @@ static ulint os_file_get_last_error_low(bool report_all_errors,
       }
       break;
     case EINTR:
-      if (srv_use_native_aio) {
-        return OS_FILE_AIO_INTERRUPTED;
-      }
-      break;
+      return OS_FILE_AIO_INTERRUPTED;
     case EACCES:
       return OS_FILE_ACCESS_VIOLATION;
     case ENAMETOOLONG:
@@ -3254,6 +3251,10 @@ pfs_os_file_t os_file_create_func(const char *name, ulint create_mode,
   }
 
   bool use_odirect = false;
+
+  /* Do fsync() on log and parallel doublewrite files
+  when setting O_DIRECT fails.
+  See log_io_complete() and buf_dblwr_flush_buffered_writes() */
 
   if ((!read_only || purpose == OS_CLONE_DATA_FILE) &&
       (purpose == OS_DATA_FILE || purpose == OS_CLONE_DATA_FILE ||
@@ -5268,7 +5269,7 @@ static bool os_file_handle_error_no_exit(const char *name,
       os_file_handle_error_cond_exit(name, operation, false, on_error_silent));
 }
 
-void os_file_set_nocache(int fd [[maybe_unused]],
+bool os_file_set_nocache(int fd [[maybe_unused]],
                          const char *file_name [[maybe_unused]],
                          const char *operation_name [[maybe_unused]],
                          bool on_error_silent [[maybe_unused]]) {
@@ -5282,6 +5283,7 @@ void os_file_set_nocache(int fd [[maybe_unused]],
         << operation_name << ": " << strerror(errno_save)
         << ","
            " continuing anyway.";
+    return false;
   }
 #elif defined(O_DIRECT)
   if (fcntl(fd, F_SETFL, O_DIRECT) == -1 && !on_error_silent) {
@@ -5311,8 +5313,10 @@ void os_file_set_nocache(int fd [[maybe_unused]],
                               << "; " << operation_name << " : "
                               << strerror(errno_save) << ", continuing anyway.";
     }
+    return false;
   }
 #endif /* !(UNIV_SOLARIS && DIRECTIO_ON) && O_DIRECT */
+  return true;
 }
 
 dberr_t os_file_fill_range_with_zeros(const char *const name,
