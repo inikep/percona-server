@@ -55,6 +55,8 @@
 #include "sql/transaction_info.h"  // Transaction_ctx
 #include "thr_mutex.h"
 
+#include "sql/binlog_ostream.h"
+
 class Format_description_log_event;
 class Gtid_monitoring_info;
 class Gtid_set;
@@ -544,6 +546,8 @@ class MYSQL_BIN_LOG : public TC_LOG {
   /* The previous gtid set in relay log. */
   Gtid_set *previous_gtid_set_relaylog;
 
+  bool snapshot_lock_acquired;
+
   [[nodiscard]] int open(const char *opt_name) override {
     return open_binlog(opt_name);
   }
@@ -663,6 +667,21 @@ class MYSQL_BIN_LOG : public TC_LOG {
   /// @param need_log_space_lock Information on whether to acquire the
   /// lock protecting data responsible for keeping the relay log space at bay
   void harvest_bytes_written(Relay_log_info *rli, bool need_log_space_lock);
+
+#ifdef MYSQL_SERVER
+  void xlock(void) override;
+  void xunlock(void) override;
+  void slock(void) override { mysql_rwlock_rdlock(&LOCK_consistent_snapshot); }
+  void sunlock(void) override {
+    mysql_rwlock_unlock(&LOCK_consistent_snapshot);
+  }
+#else
+  void xlock(void) override {}
+  void xunlock(void) override {}
+  void slock(void) override {}
+  void sunlock(void) override {}
+#endif /* MYSQL_SERVER */
+
   void set_max_size(ulong max_size_arg);
 
   void update_binlog_end_pos(bool need_lock = true);
@@ -1026,6 +1045,8 @@ class MYSQL_BIN_LOG : public TC_LOG {
 
  private:
   std::shared_ptr<Binlog_tc_log_processing> m_tc_log_processing;
+
+  void publish_coordinates_for_global_status(void) const;
 };
 
 struct LOAD_FILE_INFO {

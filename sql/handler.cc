@@ -94,7 +94,8 @@
 #include "sql/log.h"
 #include "sql/log_event.h"  // Write_rows_log_event
 #include "sql/mdl.h"
-#include "sql/mysqld.h"                 // global_system_variables heap_hton ..
+#include "sql/mysqld.h"  // global_system_variables heap_hton ..
+#include "sql/mysqld_thd_manager.h"
 #include "sql/opt_costconstantcache.h"  // reload_optimizer_cost_constants
 #include "sql/opt_costmodel.h"
 #include "sql/opt_hints.h"
@@ -2500,8 +2501,71 @@ int ha_release_savepoint(THD *thd, SAVEPOINT *sv) {
   return error;
 }
 
-static bool snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
-  handlerton *hton = plugin_data<handlerton *>(plugin);
+static bool clone_snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
+  handlerton *const hton = plugin_data<handlerton *>(plugin);
+
+  if (hton->state == SHOW_OPTION_YES && hton->clone_consistent_snapshot)
+    hton->clone_consistent_snapshot(hton, thd, static_cast<THD *>(arg));
+
+  return false;
+}
+
+static int ha_clone_consistent_snapshot(THD *thd) {
+  THD_ptr from_thd_ptr;
+  ulong id;
+  Item *val = thd->lex->donor_transaction_id;
+  assert(val);
+
+  if (thd->lex->table_or_sp_used()) {
+    my_error(ER_NOT_SUPPORTED_YET, MYF(0),
+             "Usage of subqueries or stored "
+             "function calls as part of this statement");
+    goto error;
+  }
+
+  if ((!val->fixed && val->fix_fields(thd, &val)) || val->check_cols(1)) {
+    my_error(ER_SET_CONSTANTS_ONLY, MYF(0));
+    goto error;
+  }
+
+  id = val->val_int();
+  if (thd->thread_id() == id) {
+    my_error(ER_NO_SUCH_THREAD, MYF(0), id);
+    goto error;
+  }
+
+  {
+    Find_thd_with_id find_thd_with_id(id, true);
+    from_thd_ptr = Global_THD_manager::get_instance()->find_thd(&find_thd_with_id);
+
+    if (!from_thd_ptr) {
+      my_error(ER_NO_SUCH_THREAD, MYF(0), id);
+      goto error;
+    }
+  }
+
+  /*
+    Blocking commits and binlog updates ensures that we get the same snapshot
+    for all engines (including the binary log). This allows us among other
+    things to do backups with START TRANSACTION WITH CONSISTENT SNAPSHOT and
+    have a consistent binlog position.
+  */
+  tc_log->xlock();
+
+  plugin_foreach(thd, clone_snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                 from_thd_ptr.get());
+
+  tc_log->xunlock();
+
+  return 0;
+
+error:
+
+  return 1;
+}
+
+static bool start_snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
+  handlerton *const hton = plugin_data<handlerton *>(plugin);
   if (hton->state == SHOW_OPTION_YES && hton->start_consistent_snapshot) {
     hton->start_consistent_snapshot(hton, thd);
     *((bool *)arg) = false;
@@ -2510,9 +2574,21 @@ static bool snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
 }
 
 int ha_start_consistent_snapshot(THD *thd) {
+  if (thd->lex->donor_transaction_id) return ha_clone_consistent_snapshot(thd);
   bool warn = true;
 
-  plugin_foreach(thd, snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN, &warn);
+  /*
+    Blocking commits and binlog updates ensures that we get the same snapshot
+    for all engines (including the binary log). This allows us among other
+    things to do backups with START TRANSACTION WITH CONSISTENT SNAPSHOT and
+    have a consistent binlog position.
+  */
+  tc_log->xlock();
+
+  plugin_foreach(thd, start_snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                 &warn);
+
+  tc_log->xunlock();
 
   /*
     Same idea as when one wants to CREATE TABLE in one engine which does not
@@ -2522,6 +2598,43 @@ int ha_start_consistent_snapshot(THD *thd) {
     push_warning(thd, Sql_condition::SL_WARNING, ER_UNKNOWN_ERROR,
                  "This MySQL server does not support any "
                  "consistent-read capable storage engine");
+  return 0;
+}
+
+static bool store_binlog_info_handlerton(THD *thd, plugin_ref plugin,
+                                         void *arg) {
+  handlerton *const hton = plugin_data<handlerton *>(plugin);
+
+  if (hton->state == SHOW_OPTION_YES && hton->store_binlog_info) {
+    hton->store_binlog_info(hton, thd);
+    *(static_cast<bool *>(arg)) = false;
+  }
+
+  return false;
+}
+
+int ha_store_binlog_info(THD *thd) {
+  if (!mysql_bin_log.is_open()) return 0;
+
+  assert(tc_log == &mysql_bin_log);
+
+  Log_info li;
+  bool warn = true;
+
+  /* Block commits to get consistent binlog coordinates */
+  tc_log->xlock();
+
+  mysql_bin_log.raw_get_current_log(&li);
+  thd->set_trans_pos(li.log_file_name, li.pos);
+
+  plugin_foreach(thd, store_binlog_info_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                 &warn);
+
+  tc_log->xunlock();
+
+  if (warn)
+    push_warning(thd, Sql_condition::SL_WARNING, ER_UNKNOWN_ERROR,
+                 "No support for storing binlog coordinates in any storage");
   return 0;
 }
 
@@ -3134,6 +3247,11 @@ int handler::ha_rnd_next(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   return result;
 }
 
@@ -3188,11 +3306,6 @@ int handler::ha_ft_read(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
-
-  if (likely(!result)) {
-    update_index_stats(active_index);
-  }
-
   return result;
 }
 
@@ -3595,10 +3708,11 @@ int handler::ha_index_prev(uchar *buf) {
     result = HA_ERR_KEY_NOT_FOUND;
 
   table->set_row_status_from_handler(result);
-
   if (likely(!result)) {
     update_index_stats(active_index);
   }
+
+  DEBUG_SYNC(ha_thd(), "handler_ha_index_next_end");
 
   return result;
 }
@@ -3638,11 +3752,10 @@ int handler::ha_index_first(uchar *buf) {
     result = HA_ERR_KEY_NOT_FOUND;
 
   table->set_row_status_from_handler(result);
+
   if (likely(!result)) {
     update_index_stats(active_index);
   }
-
-  DEBUG_SYNC(ha_thd(), "handler_ha_index_next_end");
 
   return result;
 }
@@ -3675,6 +3788,11 @@ int handler::ha_index_last(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
+
+  if (likely(!result)) {
+    update_index_stats(active_index);
+  }
+
   return result;
 }
 
@@ -3799,11 +3917,6 @@ int handler::ha_index_next_pushed(uchar *buf) {
     m_update_generated_read_fields = false;
   }
   table->set_row_status_from_handler(result);
-
-  if (likely(!result)) {
-    update_index_stats(active_index);
-  }
-
   return result;
 }
 
