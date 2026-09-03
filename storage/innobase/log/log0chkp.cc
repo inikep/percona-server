@@ -87,6 +87,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 /* DBUG_PRINT, ... */
 #include "my_dbug.h"
 
+#include "mysqld.h"
+
 /* os_event_wait_time_low */
 #include "os0event.h"
 
