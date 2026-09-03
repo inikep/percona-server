@@ -947,6 +947,8 @@ dfield_t *innobase_get_computed_value(
 
 /** This is similar to the function innobase_get_computed_value(), but for
 stored generated columns (gcol).
+@param[in]     compress_heap  memory heap used to compress/decompress
+                              blob column.
 @param[in,out] row    data tuple object.
 @param[in]     col        stored gcol
 @param[in]     table      table on which the stored gcol is defined
