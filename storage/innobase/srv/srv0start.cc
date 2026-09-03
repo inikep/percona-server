@@ -2088,10 +2088,16 @@ dberr_t srv_start(bool create_new_db) {
     }
   }
 
+  if (!srv_file_per_table && srv_pass_corrupt_table) {
+    ib::warn() << "The option innodb_file_per_table is disabled, so using the "
+                  "option innodb_pass_corrupt_table doesn't make sense.";
+  }
+
   /* Finish clone files recovery. */
   clone_files_recovery(true);
 
-  ib::info(ER_IB_MSG_1151, INNODB_VERSION_STR,
+  ib::info(ER_IB_MSG_1151,
+           "Percona XtraDB (http://www.percona.com) " INNODB_VERSION_STR,
            ulonglong{srv_force_recovery < SRV_FORCE_NO_LOG_REDO
                          ? ib::redo::handler->peek_first_unassigned_lsn()
                          : 0});

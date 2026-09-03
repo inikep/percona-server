@@ -7098,6 +7098,21 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
     fil_report_invalid_page_access(page_id.page_no(), page_id.space(),
                                    space->name, len, req_type.is_read());
   }
+
+#ifndef UNIV_HOTBACKUP
+  /* Should ignore I/O for a space that has been marked corrupt: fail the reads
+  and silently discard the writes. In the "salvage" mode (2) reads are still
+  let through, so that SELECT can retrieve whatever is still readable.
+  Completing the bpage and releasing its IO responsibility is done by
+  postprocess_result(), like on every other early exit from this function. */
+  if (UNIV_UNLIKELY(space->is_corrupt && srv_pass_corrupt_table) &&
+      (srv_pass_corrupt_table == 1 || req_type.is_write())) {
+    mutex_release();
+    return postprocess_result(req_type.is_write() ? DB_SUCCESS
+                                                  : DB_TABLESPACE_DELETED);
+  }
+#endif /* !UNIV_HOTBACKUP */
+
   /* If we got a file, prepare it for IO. This may open it if it is not opened.
    */
   if (prepare_file_for_io(file, !req_type.is_dblwr()) != DB_SUCCESS) {
@@ -10355,6 +10370,21 @@ void fil_space_t::bump_version() {
 
   ++m_version;
 }
+
+/** Mark space as corrupt
+    @param space_id	space id */
+void fil_space_set_corrupt(space_id_t space_id) {
+  auto *const shard = fil_system->shard_by_id(space_id);
+
+  shard->mutex_acquire();
+
+  auto *const space = shard->get_space_by_id(space_id);
+
+  if (space) space->is_corrupt = true;
+
+  shard->mutex_release();
+}
+
 #endif /* !UNIV_HOTBACKUP */
 
 dberr_t fil_prepare_file_for_io(space_id_t space_id, page_no_t &page_no,
