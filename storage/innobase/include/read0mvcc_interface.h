@@ -170,6 +170,15 @@ class MVCC_interface {
   trx_sys is being destroyed. */
   virtual void undo_purge_has_shutdown() = 0;
 
+  /** Get the oldest view in the system for statistical purposes.
+
+  @note This method should be used for statistical purposes only, purge needs
+  to use more strict condition (see clone_oldest_view()) when selecting the
+  oldest view.
+
+  @return oldest view if found or NULL */
+  virtual const Read_view_interface *get_oldest_view_stats() const = 0;
+
   /** Returns the number of open views. */
   [[nodiscard]] virtual size_t get_open_views_count() const = 0;
 
