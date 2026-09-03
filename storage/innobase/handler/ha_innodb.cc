@@ -23746,7 +23746,8 @@ mysql_declare_plugin(innobase){
     &innobase_storage_engine,
     innobase_hton_name,
     PLUGIN_AUTHOR_ORACLE,
-    "Supports transactions, row-level locking, and foreign keys",
+    "Percona-XtraDB, Supports transactions, row-level locking, and foreign "
+    "keys",
     PLUGIN_LICENSE_GPL,
     innodb_init,   /* Plugin Init */
     nullptr,       /* Plugin Check uninstall */
@@ -23994,8 +23995,7 @@ dfield_t *innobase_compute_stored_gcol(const dtuple_t *row,
       /* Copy the column data from dtuple to mysql_rec */
       row_sel_field_store_in_mysql_format(
           mysql_rec + templ.mysql_col_offset, &templ, table->first_index(),
-          templ.clust_rec_field_no, (const byte *)data, len,
-          ULINT_UNDEFINED);
+          templ.clust_rec_field_no, (const byte *)data, len, ULINT_UNDEFINED);
 
       if (templ.mysql_null_bit_mask) {
         /* It is a nullable column with a non-NULL value */
