@@ -48,6 +48,8 @@
 #define SYM_HK(T, A) STRING_WITH_LEN(T), SYM_OR_NULL(A), SG_HINTABLE_KEYWORDS
 #define SYM_H(T, A) STRING_WITH_LEN(T), SYM_OR_NULL(A), SG_HINTS
 
+#define SYM_PERCONA(T, A) SYM(T, A)
+
 /*
   Symbols are broken into separated arrays to allow field names with
   same name as functions.
@@ -147,6 +149,7 @@ static const SYMBOL symbols[] = {
     {SYM("CIPHER", CIPHER_SYM)},
     {SYM("CLASS_ORIGIN", CLASS_ORIGIN_SYM)},
     {SYM("CLIENT", CLIENT_SYM)},
+    {SYM_PERCONA("CLIENT_STATISTICS", CLIENT_STATS_SYM)},
     {SYM("CLONE", CLONE_SYM)},
     {SYM("CLOSE", CLOSE_SYM)},
     {SYM("COALESCE", COALESCE)},
@@ -341,6 +344,7 @@ static const SYMBOL symbols[] = {
     {SYM("IN", IN_SYM)},
     {SYM("INACTIVE", INACTIVE_SYM)},
     {SYM("INDEX", INDEX_SYM)},
+    {SYM_PERCONA("INDEX_STATISTICS", INDEX_STATS_SYM)},
     {SYM("INDEXES", INDEXES)},
     {SYM("INFILE", INFILE_SYM)},
     {SYM("INITIAL", INITIAL_SYM)},
@@ -745,6 +749,7 @@ static const SYMBOL symbols[] = {
     {SYM("TABLESAMPLE", TABLESAMPLE_SYM)},
     {SYM("TABLESPACE", TABLESPACE_SYM)},
     {SYM("TABLE_CHECKSUM", TABLE_CHECKSUM_SYM)},
+    {SYM_PERCONA("TABLE_STATISTICS", TABLE_STATS_SYM)},
     {SYM("TEMPORARY", TEMPORARY)},
     {SYM("TEMPTABLE", TEMPTABLE_SYM)},
     {SYM("TERMINATED", TERMINATED)},
@@ -752,6 +757,7 @@ static const SYMBOL symbols[] = {
     {SYM("THAN", THAN_SYM)},
     {SYM("THEN", THEN_SYM)},
     {SYM("THREAD_PRIORITY", THREAD_PRIORITY_SYM)},
+    {SYM_PERCONA("THREAD_STATISTICS", THREAD_STATS_SYM)},
     {SYM("TIES", TIES_SYM)},
     {SYM("TIME", TIME_SYM)},
     {SYM("TIMESTAMP", TIMESTAMP_SYM)},
@@ -792,6 +798,7 @@ static const SYMBOL symbols[] = {
     {SYM("USE", USE_SYM)},
     {SYM("USER", USER)},
     {SYM("USER_RESOURCES", RESOURCES)},
+    {SYM_PERCONA("USER_STATISTICS", USER_STATS_SYM)},
     {SYM("USE_FRM", USE_FRM)},
     {SYM("USING", USING)},
     {SYM("UTC_DATE", UTC_DATE_SYM)},
