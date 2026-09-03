@@ -58,6 +58,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 #include "sql_const.h"
 #include "srv0srv.h"
 #include "srv0start.h"
+#include "trx0trx.h"
 #include "ut0counting_semaphore.h"
 #include "ut0mem.h" /* ut::is_zeros() */
 #ifndef UNIV_HOTBACKUP
@@ -356,7 +357,6 @@ struct Slot {
   bool io_already_done{false};
 
   std::function<void(dberr_t)> callback;
-
   /** AIO completion status */
   dberr_t err{DB_ERROR_UNSET};
 
@@ -478,7 +478,6 @@ class AIO {
                                    const char *name, void *buf,
                                    os_offset_t offset, ulint len,
                                    std::function<void(dberr_t)> callback);
-
   /** @return number of reserved slots */
   ulint pending_io_count() const;
 
@@ -4860,10 +4859,14 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
   meb_mutex.unlock();
 #endif /* UNIV_HOTBACKUP */
 
+  const auto start_time = trx_stats::start_io_read(type.trx(), n);
+
   os_n_pending_reads.fetch_add(1);
   MONITOR_ATOMIC_INC(MONITOR_OS_PENDING_READS);
 
   ssize_t n_bytes = os_file_io(type, file, buf, n, offset, err);
+
+  trx_stats::end_io_read(type.trx(), start_time);
 
   os_n_pending_reads.fetch_sub(1);
   MONITOR_ATOMIC_DEC(MONITOR_OS_PENDING_READS);
@@ -5351,7 +5354,6 @@ static dberr_t os_file_copy_read_write(os_file_t src_file,
 
     err = os_file_read_func(read_request, nullptr, src_file, buf, src_offset,
                             request_size);
-
     if (err != DB_SUCCESS) {
       return (err);
     }
@@ -6541,13 +6543,17 @@ dberr_t os_aio_func(IORequest &type, AIO_mode aio_mode, const char *name,
 #endif /* _WIN32 */
 
   ut_a(aio_mode == AIO_mode::NORMAL || aio_mode == AIO_mode::IBUF);
-
   const auto array = AIO::select_slot_array(type, aio_mode);
   bool io_dispatched = false;
   while (!io_dispatched) {
     {
       auto slot = array->reserve_slot(type, file, name, buf, offset, n,
                                       std::move(callback));
+      if (type.is_read()) {
+        trx_stats::bump_io_read(type.trx(), n);
+      }
+      /* Completion-path reads (simulated AIO) must not time user-thread IO. */
+      slot->type.set_trx(nullptr);
       if (srv_use_native_aio) {
         if (type.is_read()) {
           ++os_n_file_reads;

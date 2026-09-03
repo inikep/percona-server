@@ -71,6 +71,8 @@ string so that it never conflicts with MySQL schema directory. */
 /** File node of a tablespace or the log data space */
 class fil_node_t;
 
+struct trx_t;
+
 extern bool os_was_file_write_error_reported;
 
 /** Number of retries for partial I/O's */
@@ -323,7 +325,12 @@ class IORequest {
     IBUF = 1 << 12,
 
     /** Force raw write, do not try to compress or encrypt. */
-    NO_WRITE_TRANSFORMATIONS = 1 << 13
+    NO_WRITE_TRANSFORMATIONS = 1 << 13,
+
+    /** Buffer this AIO request instead of submitting it immediately.
+    AIO read-ahead uses this. If you set this flag, call
+    os_aio_dispatch_read_array_submit() when ready to commit the batch. */
+    SHOULD_BUFFER = 1 << 14
   };
 
   /** Default constructor */
@@ -429,6 +436,21 @@ class IORequest {
   }
 
   void set_ibuf() { m_type |= Type::IBUF; }
+
+  /** @return true if this AIO request should be buffered for later submit */
+  [[nodiscard]] bool is_should_buffer() const {
+    return (m_type & Type::SHOULD_BUFFER) == Type::SHOULD_BUFFER;
+  }
+
+  /** Buffer this AIO request for later submit. */
+  void set_should_buffer() { m_type |= Type::SHOULD_BUFFER; }
+
+  /** Transaction that requested this IO, for slow query log stats.
+  nullptr if the IO is not on behalf of a user transaction. */
+  [[nodiscard]] trx_t *trx() const { return m_trx; }
+
+  /** Set the transaction that requested this IO. */
+  void set_trx(trx_t *trx) { m_trx = trx; }
 
   /** Clear the do not wake flag */
   void clear_do_not_wake() { m_type &= ~Type::DO_NOT_WAKE; }
@@ -578,6 +600,7 @@ class IORequest {
     PRINT_MASK_ELEMENT(IGNORE_MISSING);
     PRINT_MASK_ELEMENT(DISABLE_PARTIAL_IO_WARNINGS);
     PRINT_MASK_ELEMENT(NO_WRITE_TRANSFORMATIONS);
+    PRINT_MASK_ELEMENT(SHOULD_BUFFER);
 #undef PRINT_MASK_ELEMENT
 
     os << ", comp: " << m_compression.to_string();
@@ -612,6 +635,9 @@ class IORequest {
   For writes it is a length up to which the write is to be extended with a punch
   hole, if supported. */
   uint32_t m_original_size{};
+
+  /** Transaction that requested this IO, or nullptr. */
+  trx_t *m_trx{};
 
   friend constexpr IORequest::Type operator~(const IORequest::Type type);
   friend constexpr IORequest::Type operator&(const IORequest::Type a,
@@ -1101,7 +1127,6 @@ static inline dberr_t pfs_os_file_read_func(const IORequest &type,
                                             pfs_os_file_t file, byte *buf,
                                             os_offset_t offset, ulint n,
                                             ut::Location src_location);
-
 /** NOTE! Please use the corresponding macro os_file_read_first_page(),
 not directly this function!
 This is the performance schema instrumented wrapper function for
@@ -1194,7 +1219,7 @@ must not cross a file boundary; in AIO this must be a block size multiple
                                 executed or if it failed. It will be executed
                                 asynchronously from another thread, before or
                                 after this call returns.
-@param[in]      location    location where func invoked
+@param[in]      location        location where func invoked
 @return DB_SUCCESS if request was queued successfully, false if fail */
 static inline dberr_t pfs_os_aio_func(IORequest &type, AIO_mode mode,
                                       const char *name, pfs_os_file_t file,
@@ -1327,7 +1352,6 @@ to original un-instrumented file I/O APIs */
 
 #define os_aio(type, mode, name, file, buf, offset, n, callback) \
   os_aio_func(type, mode, name, file, buf, offset, n, callback)
-
 #define os_file_read_pfs(type, file_name, file, buf, offset, n) \
   os_file_read_func(type, file_name, file, buf, offset, n)
 
@@ -1517,7 +1541,6 @@ Requests a synchronous read operation of page 0 of IBD file.
 [[nodiscard]] dberr_t os_file_read_func(const IORequest &type,
                                         const char *file_name, os_file_t file,
                                         byte *buf, os_offset_t offset, ulint n);
-
 /** NOTE! Use the corresponding macro os_file_read_first_page(),
 not directly this function!
 Requests a synchronous read operation for first @p n_pages pages of the @p file,
@@ -1701,7 +1724,6 @@ Requests an asynchronous i/o operation.
                                   const char *name, pfs_os_file_t file,
                                   byte *buf, os_offset_t offset, ulint n,
                                   std::function<void(dberr_t)> callback);
-
 /** Wakes up all async i/o threads so that they know to exit themselves in
 shutdown. */
 void os_aio_wake_all_threads_at_shutdown();

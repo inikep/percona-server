@@ -154,7 +154,6 @@ static inline dberr_t pfs_os_aio_func(IORequest &type, AIO_mode aio_mode,
 
   dberr_t result = os_aio_func(type, aio_mode, name, file, buf, offset, n,
                                std::move(callback));
-
   register_pfs_file_io_end(locker, n);
 
   return (result);

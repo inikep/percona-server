@@ -46,6 +46,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #endif /* !UNIV_HOTBACKUP */
 #include "srv0srv.h"
 #include "srv0start.h"
+#include "trx0types.h"
 #include "ut0expected.h"
 #include "ut0new.h"
 
@@ -2138,6 +2139,9 @@ number should be zero.
                                 `buf_page_io_complete()` is called after this
                                 callback returns DB_SUCCESS and @p bpage is not
                                 null.
+@param[in]      trx             transaction requesting this IO, or nullptr
+@param[in]      should_buffer   whether to buffer an AIO request. Only used by
+                                AIO read ahead
 @return error code
 @retval DB_SUCCESS on success
 @retval DB_TABLESPACE_DELETED if the tablespace does not exist
@@ -2146,7 +2150,8 @@ Note: this is not an exhaustive list of errors returned.*/
     IORequest::Type type, bool sync, const page_id_t &page_id,
     const page_size_t &page_size, ulint len, byte *buf, buf_page_t *bpage,
     bool evict_after_write,
-    std::function<void(dberr_t err)> pre_io_complete_callback = [](dberr_t) {});
+    std::function<void(dberr_t err)> pre_io_complete_callback = [](dberr_t) {},
+    trx_t *trx = nullptr, bool should_buffer = false);
 
 /** Waits for an AIO operation to complete. This function is used to write the
 handler for completed requests. The aio array of pending requests is divided
