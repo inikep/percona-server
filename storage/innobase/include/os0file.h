@@ -348,7 +348,10 @@ class IORequest {
     IBUF = 1 << 12,
 
     /** Force raw write, do not try to compress or encrypt. */
-    NO_WRITE_TRANSFORMATIONS = 1 << 13
+    NO_WRITE_TRANSFORMATIONS = 1 << 13,
+
+    /** Force write of decrypted pages in encrypted tablespace. */
+    NO_ENCRYPTION = 1 << 14
   };
 
   /** Default constructor */
@@ -519,6 +522,11 @@ class IORequest {
     return (m_type & Type::NO_COMPRESSION) != Type::NO_COMPRESSION;
   }
 
+  /** @return true if the page write should not be encrypted */
+  [[nodiscard]] bool is_encryption_disabled() const noexcept {
+    return (m_type & Type::NO_ENCRYPTION) == Type::NO_ENCRYPTION;
+  }
+
   /** Disable transformations. */
   void disable_compression() { m_type |= Type::NO_COMPRESSION; }
 
@@ -534,6 +542,9 @@ class IORequest {
   void disable_write_transformations() {
     m_type |= Type::NO_WRITE_TRANSFORMATIONS;
   }
+
+  /** Disable encryption of a page in encrypted tablespace */
+  void disable_encryption() noexcept { m_type |= Type::NO_ENCRYPTION; }
 
   /** Get the encryption algorithm.
   @return the encryption algorithm */
