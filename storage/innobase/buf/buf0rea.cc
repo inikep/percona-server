@@ -549,7 +549,7 @@ ulint buf_read_ahead_linear(const page_id_t &page_id,
     if (!ibuf_bitmap_page(cur_page_id, page_size)) {
       count += buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
                                  ibuf_mode, cur_page_id, page_size, false, trx,
-                                 false);
+                                 true);
 
       if (err == DB_TABLESPACE_DELETED) {
         ib::warn(ER_IB_MSG_142) << "linear readahead trying to"
@@ -560,6 +560,7 @@ ulint buf_read_ahead_linear(const page_id_t &page_id,
       }
     }
   }
+  os_aio_dispatch_read_array_submit();
 
   /* In simulated aio we wake the aio handler threads only after
   queuing all aio requests. */
