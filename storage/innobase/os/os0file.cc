@@ -306,6 +306,7 @@ mysql_pfs_key_t innodb_temp_file_key;
 mysql_pfs_key_t innodb_dblwr_file_key;
 mysql_pfs_key_t innodb_arch_file_key;
 mysql_pfs_key_t innodb_clone_file_key;
+mysql_pfs_key_t innodb_bmp_file_key;
 #endif /* UNIV_PFS_IO */
 
 /** The asynchronous I/O context */
@@ -3064,6 +3065,17 @@ bool os_file_flush_func(os_file_t file) {
   return (false);
 }
 
+/** NOTE! Use the corresponding macro os_file_set_eof_at(), not directly this
+function!
+Truncates a file at the specified position.
+@param[in]	file	file to truncate
+@param[in]	new_len	new file length
+@return true if success */
+bool os_file_set_eof_at_func(os_file_t file, uint64_t new_len) {
+  /* TODO: works only with -D_FILE_OFFSET_BITS=64 ? */
+  return (!ftruncate(file, new_len));
+}
+
 /** This function attempts to create a directory named pathname. The new
 directory gets default permissions. On Unix the permissions are
 (0770 & ~umask). If the directory exists already, nothing is done and
@@ -3450,6 +3462,34 @@ bool os_file_close_func(os_file_t file) {
   return (true);
 }
 
+/** Announces an intention to access file data in a specific pattern in the
+future.
+@param[in,out]	file	handle to a file
+@param[in]	offset	file region offset
+@param[in]	len	file region length
+@param[in]	advice	advice for access pattern
+@return true if success */
+bool os_file_advise(pfs_os_file_t file, os_offset_t offset, os_offset_t len,
+                    ulint advice) {
+#ifdef UNIV_LINUX
+  int native_advice = 0;
+  if ((advice & OS_FILE_ADVISE_NORMAL) != 0) native_advice |= POSIX_FADV_NORMAL;
+  if ((advice & OS_FILE_ADVISE_RANDOM) != 0) native_advice |= POSIX_FADV_RANDOM;
+  if ((advice & OS_FILE_ADVISE_SEQUENTIAL) != 0)
+    native_advice |= POSIX_FADV_SEQUENTIAL;
+  if ((advice & OS_FILE_ADVISE_WILLNEED) != 0)
+    native_advice |= POSIX_FADV_WILLNEED;
+  if ((advice & OS_FILE_ADVISE_DONTNEED) != 0)
+    native_advice |= POSIX_FADV_DONTNEED;
+  if ((advice & OS_FILE_ADVISE_NOREUSE) != 0)
+    native_advice |= POSIX_FADV_NOREUSE;
+
+  return (posix_fadvise(file.m_file, offset, len, native_advice) == 0);
+#else
+  return (true);
+#endif
+}
+
 /** Gets a file size.
 @param[in]      file            Handle to a file
 @return file size, or (os_offset_t) -1 on failure */
@@ -3581,14 +3621,12 @@ bool os_file_set_eof(FILE *file) /*!< in: file to be truncated */
   return (!ftruncate(fileno(file), ftell(file)));
 }
 
-#ifdef UNIV_HOTBACKUP
 /** Closes a file handle.
 @param[in]      file            Handle to a file
 @return true if success */
-bool os_file_close_no_error_handling(os_file_t file) {
+bool os_file_close_no_error_handling_func(os_file_t file) {
   return (close(file) != -1);
 }
-#endif /* UNIV_HOTBACKUP */
 
 /** This function can be called if one wants to post a batch of reads and
 prefers an i/o-handler thread to handle them all at once later. You must
@@ -4582,14 +4620,41 @@ bool os_file_set_eof(FILE *file) {
   return (SetEndOfFile(h));
 }
 
-#ifdef UNIV_HOTBACKUP
+/** NOTE! Use the corresponding macro os_file_set_eof_at(), not directly this
+function!
+Truncates a file at the specified position.
+@param[in]      file            file to truncate
+@param[in]      new_len         new file length
+@return true if success */
+bool os_file_set_eof_at_func(os_file_t file, uint64_t new_len) {
+  LARGE_INTEGER length;
+
+  length.QuadPart = new_len;
+
+  return (SetFilePointerEx(file, length, nullptr, FILE_BEGIN) &&
+          SetEndOfFile(file));
+}
+
 /** Closes a file handle.
 @param[in]      file            Handle to close
 @return true if success */
-bool os_file_close_no_error_handling(os_file_t file) {
+bool os_file_close_no_error_handling_func(os_file_t file) {
   return (CloseHandle(file) ? true : false);
 }
-#endif /* UNIV_HOTBACKUP */
+
+/** Announces an intention to access file data in a specific pattern in the
+future. This is a no-op on Windows.
+@param[in,out]  file            handle to a file
+@param[in]      offset          file region offset
+@param[in]      len             file region length
+@param[in]      advice          advice for access pattern
+@return true */
+bool os_file_advise(pfs_os_file_t file [[maybe_unused]],
+                    os_offset_t offset [[maybe_unused]],
+                    os_offset_t len [[maybe_unused]],
+                    ulint advice [[maybe_unused]]) {
+  return (true);
+}
 
 #ifndef UNIV_HOTBACKUP
 /** This function can be called if one wants to post a batch of reads and
@@ -5422,14 +5487,26 @@ dberr_t os_file_read_func(const IORequest &type, const char *file_name,
                             true, trx));
 }
 
+/** NOTE! Use the corresponding macro os_file_read_first_page(),
+not directly this function!
+Requests a synchronous read operation for first @p n_pages pages of the @p file,
+using the page size stored on the first page. It does not uncompress nor decrypt
+any pages.
+@param[in,out]  type            IO request context
+@param[in]      file_name       file name
+@param[in]      file            open file handle
+@param[in,out]  buf             buffer where to read data to
+@param[in]      n_pages         number of pages to read
+@param[in]      exit_on_err     if true then exit on error
+@return DB_SUCCESS or error code */
 dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
                                      os_file_t file, byte *buf,
-                                     page_no_t n_pages) {
+                                     page_no_t n_pages, bool exit_on_err) {
   ut_ad(type.is_read());
 
   dberr_t err =
       os_file_read_page(type, file_name, file, buf, 0, UNIV_ZIP_SIZE_MIN,
-                        nullptr, true, nullptr);
+                        nullptr, exit_on_err, nullptr);
 
   if (err == DB_SUCCESS) {
     uint32_t flags = fsp_header_get_flags(buf);
@@ -5442,7 +5519,7 @@ dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
     const size_t read_size = page_size.physical() * n_pages;
     ut_ad(read_size > 0);
     err = os_file_read_page(type, file_name, file, buf, 0, read_size, nullptr,
-                            true, nullptr);
+                            exit_on_err, nullptr);
   }
   return (err);
 }

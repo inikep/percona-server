@@ -136,6 +136,28 @@ static inline bool pfs_os_file_close_func(pfs_os_file_t file,
   return (result);
 }
 
+/** NOTE! Use the corresponding macro os_file_close_no_error_handling(), not
+directly this function!
+Closes a file handle.
+@param[in] file		handle to a file
+@param[in]      src_location    location where func invoked
+@return true if success */
+static inline bool pfs_os_file_close_no_error_handling_func(
+    pfs_os_file_t file, ut::Location src_location) {
+  struct PSI_file_locker *locker = nullptr;
+  PSI_file_locker_state state;
+
+  /* register the file close */
+  register_pfs_file_io_begin(&state, locker, file, 0, PSI_FILE_CLOSE,
+                             src_location);
+
+  const bool result = os_file_close_no_error_handling_func(file.m_file);
+
+  register_pfs_file_io_end(locker, 0);
+
+  return (result);
+}
+
 #ifndef UNIV_HOTBACKUP
 static inline dberr_t pfs_os_aio_func(IORequest &type, AIO_mode aio_mode,
                                       const char *name, pfs_os_file_t file,
@@ -194,9 +216,26 @@ static inline dberr_t pfs_os_file_read_func(
   return (result);
 }
 
+/** NOTE! Please use the corresponding macro os_file_read_first_page(),
+not directly this function!
+This is the performance schema instrumented wrapper function for
+os_file_read_first_page() which requests a synchronous read operation for first
+@p n_pages pages of the @p file, using the page size stored on the first page.
+It does not uncompress nor decrypt any pages.
+@param[in, out] type            IO request context
+@param[in]      file_name       file name
+@param[in]      file            Open file handle
+@param[in,out]  buf             Buffer where to read data to. It must be
+                                aligned to OS device block size, it should be
+                                safe to use 4KB alignment. It must have length
+                                of at least `UNIV_PAGE_SIZE_MAX * n_pages`.
+@param[in]      n_pages         How many pages to read.
+@param[in]      src_location    location where func invoked
+@param[in]      exit_on_err     if true then exit on error
+@return DB_SUCCESS if request was successful */
 static inline dberr_t pfs_os_file_read_first_page_func(
     IORequest &type, const char *file_name, pfs_os_file_t file, byte *buf,
-    page_no_t n_pages, ut::Location src_location) {
+    page_no_t n_pages, ut::Location src_location, bool exit_on_err) {
   PSI_file_locker_state state;
   struct PSI_file_locker *locker = nullptr;
 
@@ -208,8 +247,8 @@ static inline dberr_t pfs_os_file_read_first_page_func(
 
   dberr_t result;
 
-  result =
-      os_file_read_first_page_func(type, file_name, file.m_file, buf, n_pages);
+  result = os_file_read_first_page_func(type, file_name, file.m_file, buf,
+                                        n_pages, exit_on_err);
 
   register_pfs_file_io_end(locker,
                            UNIV_ZIP_SIZE_MIN + n_pages * UNIV_PAGE_SIZE);
@@ -479,4 +518,26 @@ static inline bool pfs_os_file_delete_if_exists_func(
 
   return (result);
 }
+
+/** NOTE! Use the corresponding macro os_file_set_eof_at(), not directly this
+function!
+Truncates a file at the specified position.
+@param[in]	file	file to truncate
+@param[in]	new_len	new file length
+@param[in]      src_location    location where func invoked
+@return true if success */
+static inline bool pfs_os_file_set_eof_at_func(
+    pfs_os_file_t file, uint64_t new_len, ut::Location src_location) {
+  struct PSI_file_locker *locker = nullptr;
+  PSI_file_locker_state state;
+
+  register_pfs_file_io_begin(&state, locker, file, 0, PSI_FILE_CHSIZE,
+                             src_location);
+  const bool result = os_file_set_eof_at_func(file.m_file, new_len);
+
+  register_pfs_file_io_end(locker, 0);
+
+  return (result);
+}
+
 #endif /* UNIV_PFS_IO */
