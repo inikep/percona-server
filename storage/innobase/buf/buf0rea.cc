@@ -133,7 +133,7 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
       return (0);
     }
 
-    ut_error;
+    SRV_CORRUPT_TABLE_CHECK(*err == DB_SUCCESS, bpage->is_corrupt = true;);
   }
 
   return *err == DB_SUCCESS;
