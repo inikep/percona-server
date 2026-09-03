@@ -58,6 +58,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 #include "sql_const.h"
 #include "srv0srv.h"
 #include "srv0start.h"
+#include "trx0trx.h"
 #include "ut0counting_semaphore.h"
 #include "ut0mem.h" /* ut::is_zeros() */
 #ifndef UNIV_HOTBACKUP
@@ -4860,10 +4861,14 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
   meb_mutex.unlock();
 #endif /* UNIV_HOTBACKUP */
 
+  const auto start_time = trx_stats::start_io_read(type.trx(), n);
+
   os_n_pending_reads.fetch_add(1);
   MONITOR_ATOMIC_INC(MONITOR_OS_PENDING_READS);
 
   ssize_t n_bytes = os_file_io(type, file, buf, n, offset, err);
+
+  trx_stats::end_io_read(type.trx(), start_time);
 
   os_n_pending_reads.fetch_sub(1);
   MONITOR_ATOMIC_DEC(MONITOR_OS_PENDING_READS);
@@ -6546,7 +6551,15 @@ dberr_t os_aio_func(IORequest &type, AIO_mode aio_mode, const char *name,
   bool io_dispatched = false;
   while (!io_dispatched) {
     {
-      auto slot = array->reserve_slot(type, file, name, buf, offset, n,
+      if (type.is_read()) {
+        trx_stats::bump_io_read(type.trx(), n);
+      }
+      /* The slot is visible to the simulated-AIO thread once reserve_slot()
+      drops the array mutex. A completion read goes through os_file_pread(),
+      which would charge this trx again. Async reads count bytes only. */
+      IORequest posted = type;
+      posted.set_trx(nullptr);
+      auto slot = array->reserve_slot(posted, file, name, buf, offset, n,
                                       std::move(callback));
       if (srv_use_native_aio) {
         if (type.is_read()) {
