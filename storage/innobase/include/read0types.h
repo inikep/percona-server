@@ -200,6 +200,10 @@ class ReadView : public Read_view_interface {
     return m_low_limit_id;
   }
 
+  [[nodiscard]] trx_id_t get_up_limit_id() const override {
+    return m_up_limit_id;
+  }
+
   [[nodiscard]] trx_id_t get_lowest_needed_trx_no() const override {
     return m_low_limit_no;
   }

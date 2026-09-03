@@ -59,6 +59,12 @@ class Read_view_interface {
   @return the low limit id of the view */
   [[nodiscard]] virtual trx_id_t get_low_limit_id() const = 0;
 
+  /** The read view sees the changes made by all transactions with an id
+  strictly smaller than this value.
+  @note This is exposed for reporting purposes only.
+  @return the up limit id of the view */
+  [[nodiscard]] virtual trx_id_t get_up_limit_id() const = 0;
+
   /** Describe the read-view.
   @param[in] file           file to write to */
   virtual void print(FILE *file) const = 0;
