@@ -237,7 +237,8 @@ static int thread_pool_plugin_init(void *plugin [[maybe_unused]]) {
            << ", thread_pool_algorithm = "
            << (thread_pool_algorithm ? "High Concurrency Algorithm"
                                      : "Low Concurrency Algorithm")
-           << ", thread_pool_stall_limit = " << thread_pool_stall_limit
+           << ", thread_pool_stall_limit = "
+           << effective_thread_pool_stall_limit()
            << ", thread_pool_prio_kickup_timer = "
            << thread_pool_prio_kickup_timer
            << ", thread_pool_max_unused_threads = "
@@ -874,14 +875,32 @@ static inline bool update_config_defaults(SERVICE_TYPE(registry) * reg_svc) {
                                          TP_MIN_POOL_SIZE, TP_MAX_POOL_SIZE);
   }
 
+  /*
+    The plugin reads its stall limit live from the server-owned Percona
+    global (see effective_thread_pool_stall_limit()), so assigning the
+    plugin's own thread_pool_stall_limit here would have no effect at all.
+
+    What actually matters is the unconfigured case. Percona's
+    thread_pool_stall_limit defaults to 500 milliseconds, a value tuned for
+    Percona's own thread pool implementation, while this plugin's
+    DEF_STALL_LIMIT is 6 centiseconds (60 ms). Silently inheriting the
+    former makes an untuned Percona Server declare a worker stalled - and
+    therefore start a replacement thread - roughly 8x later than an untuned
+    MySQL, which collapses group concurrency whenever a worker blocks on a
+    row lock or on IO. Publish this plugin's own default into the server
+    global instead, so that an untuned server behaves like MySQL and
+    @@global.thread_pool_stall_limit truthfully reports the value in force.
+
+    Writing the global directly is safe: its ON_UPDATE hook only forwards
+    the value to Percona's native pool timer, which is never running while
+    this plugin is loaded (see the --thread-handling guard in
+    thread_pool_plugin_init()).
+  */
   result =
       sysvar_source_svc->get(STRING_WITH_LEN("thread_pool_stall_limit"), &src);
   assert(!result);
   if (src == COMPILED) {
-    thread_pool_stall_limit = DEF_STALL_LIMIT;
-  } else {
-    thread_pool_stall_limit =
-        percona_stall_limit_to_plugin_units(threadpool_stall_limit);
+    threadpool_stall_limit = DEF_STALL_LIMIT * 10;
   }
 #else
   /* thread_pool_size: Update the default value */

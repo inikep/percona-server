@@ -1,0 +1,36 @@
+# The server variable reports the value actually in force (milliseconds).
+SELECT @@GLOBAL.thread_pool_stall_limit;
+@@GLOBAL.thread_pool_stall_limit
+60
+# ... and it is not Percona's native-pool default of 500ms.
+SELECT @@GLOBAL.thread_pool_stall_limit = 500 AS "Expect 0";
+Expect 0
+0
+# The stall checker applies it in the plugin's centisecond units.
+SELECT DISTINCT STALL_LIMIT
+FROM performance_schema.tp_thread_group_state;
+STALL_LIMIT
+6
+# information_schema must agree with performance_schema.
+SELECT (SELECT DISTINCT STALL_LIMIT FROM information_schema.tp_thread_group_state)
+= (SELECT DISTINCT STALL_LIMIT FROM performance_schema.tp_thread_group_state)
+AS "Expect 1";
+Expect 1
+1
+Warnings:
+Warning	1287	'information_schema.tp_thread_group_state' is deprecated and will be removed in a future release. Please use performance_schema.tp_thread_group_state instead
+# A runtime change is still picked up live by both tables.
+SET @saved = @@GLOBAL.thread_pool_stall_limit;
+SET GLOBAL thread_pool_stall_limit = 1000;
+SELECT DISTINCT STALL_LIMIT
+FROM performance_schema.tp_thread_group_state;
+STALL_LIMIT
+100
+SELECT (SELECT DISTINCT STALL_LIMIT FROM information_schema.tp_thread_group_state)
+= (SELECT DISTINCT STALL_LIMIT FROM performance_schema.tp_thread_group_state)
+AS "Expect 1";
+Expect 1
+1
+Warnings:
+Warning	1287	'information_schema.tp_thread_group_state' is deprecated and will be removed in a future release. Please use performance_schema.tp_thread_group_state instead
+SET GLOBAL thread_pool_stall_limit = @saved;

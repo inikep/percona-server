@@ -5167,7 +5167,10 @@ int fill_thread_group_state_table(THD *thd, Table_ref *tables, Item *) {
     table->field[4]->store(connection_count, true);
     table->field[5]->store(queued_queries, true);
     table->field[6]->store(queued_transactions, true);
-    table->field[7]->store(thread_pool_stall_limit, true);
+    /* Must match performance_schema.tp_thread_group_state.STALL_LIMIT and
+    the limit the stall checker actually applies; under compat mode the
+    plugin's own thread_pool_stall_limit is not the value in force. */
+    table->field[7]->store(effective_thread_pool_stall_limit(), true);
     table->field[8]->store(thread_pool_prio_kickup_timer, true);
     table->field[9]->store(algorithm_str, strlen(algorithm_str),
                            system_charset_info);

@@ -1,0 +1,42 @@
+###############################################################################
+# thread_pool_stall_limit must default to the thread_pool plugin's own default
+# (DEF_STALL_LIMIT = 6 centiseconds = 60ms), not to the 500ms default of
+# Percona's native thread pool.
+#
+# Under PERCONA_THREADPOOL_COMPAT the plugin does not register its own
+# thread_pool_stall_limit sysvar and reads the server-level (Percona) one
+# instead. Inheriting Percona's 500ms default made an untuned server detect
+# stalled workers ~8x later than upstream MySQL, which collapses group
+# concurrency whenever a worker blocks on a row lock or on IO.
+#
+# This test must run without any thread_pool_stall_limit setting, so that the
+# variable's source stays COMPILED.
+###############################################################################
+
+--source include/have_thread_pool.inc
+--source include/have_perfschema.inc
+
+--echo # The server variable reports the value actually in force (milliseconds).
+SELECT @@GLOBAL.thread_pool_stall_limit;
+
+--echo # ... and it is not Percona's native-pool default of 500ms.
+SELECT @@GLOBAL.thread_pool_stall_limit = 500 AS "Expect 0";
+
+--echo # The stall checker applies it in the plugin's centisecond units.
+SELECT DISTINCT STALL_LIMIT
+  FROM performance_schema.tp_thread_group_state;
+
+--echo # information_schema must agree with performance_schema.
+SELECT (SELECT DISTINCT STALL_LIMIT FROM information_schema.tp_thread_group_state)
+     = (SELECT DISTINCT STALL_LIMIT FROM performance_schema.tp_thread_group_state)
+       AS "Expect 1";
+
+--echo # A runtime change is still picked up live by both tables.
+SET @saved = @@GLOBAL.thread_pool_stall_limit;
+SET GLOBAL thread_pool_stall_limit = 1000;
+SELECT DISTINCT STALL_LIMIT
+  FROM performance_schema.tp_thread_group_state;
+SELECT (SELECT DISTINCT STALL_LIMIT FROM information_schema.tp_thread_group_state)
+     = (SELECT DISTINCT STALL_LIMIT FROM performance_schema.tp_thread_group_state)
+       AS "Expect 1";
+SET GLOBAL thread_pool_stall_limit = @saved;
