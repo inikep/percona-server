@@ -446,12 +446,18 @@ bool Server::reset() {
 
   m_state.wait_for(allowed_values);
 
+<<<<<<< HEAD
 #if defined(__cpp_lib_atomic_shared_ptr)
   auto context = m_ssl_context.load();
 #else
   auto context = std::atomic_load(&m_ssl_context);
 #endif
   context->reset();
+||||||| merged common ancestors
+  m_ssl_context->reset();
+=======
+  if (!m_ssl_context->reset()) return false;
+>>>>>>> mysql-26.7.0
   m_id_generator.reset(new Document_id_generator());
   m_factory.reset(new xpl::Server_factory());
 

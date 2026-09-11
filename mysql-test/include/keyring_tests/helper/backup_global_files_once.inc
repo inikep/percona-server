@@ -47,9 +47,13 @@ if (! $GLOBAL_BACKUP_SUFFIX) {
 # backup global config
 --let $CONFIG_FILE_PATH = $COMPONENT_DIR/$COMPONENT_NAME.cnf
 --let $BACKUP_CONFIG_FILE_PATH = $COMPONENT_DIR/$COMPONENT_NAME.cnf.$GLOBAL_BACKUP_SUFFIX
+# Clean up any leftover backup from a failed run.
+--error 0,1
+--remove_file $BACKUP_CONFIG_FILE_PATH
 --copy_file $CONFIG_FILE_PATH $BACKUP_CONFIG_FILE_PATH
 
 # backup global manifest
+<<<<<<< HEAD
 --perl
   use strict;
   use File::Basename;
@@ -62,3 +66,21 @@ if (! $GLOBAL_BACKUP_SUFFIX) {
   copy($manifest_file_path, $backup_manifest_file_path)
     or die "Could not copy $manifest_file_path to $backup_manifest_file_path: $!";
 EOF
+||||||| merged common ancestors
+--let $MYSQLD_EXT_LEN = `SELECT LENGTH(SUBSTRING_INDEX("$MYSQLD", "mysqld", -1))`
+--let $MYSQLD_FULL_LEN = `SELECT LENGTH("$MYSQLD")`
+--let $MYSQLD_NO_EXT = `SELECT LEFT("$MYSQLD", $MYSQLD_FULL_LEN - $MYSQLD_EXT_LEN)`
+--let $MANIFEST_FILE_PATH = $MYSQLD_NO_EXT.my
+--let $BACKUP_MANIFEST_FILE_PATH = $MANIFEST_FILE_PATH.$GLOBAL_BACKUP_SUFFIX
+--copy_file $MANIFEST_FILE_PATH $BACKUP_MANIFEST_FILE_PATH
+=======
+--let $MYSQLD_EXT_LEN = `SELECT LENGTH(SUBSTRING_INDEX("$MYSQLD", "mysqld", -1))`
+--let $MYSQLD_FULL_LEN = `SELECT LENGTH("$MYSQLD")`
+--let $MYSQLD_NO_EXT = `SELECT LEFT("$MYSQLD", $MYSQLD_FULL_LEN - $MYSQLD_EXT_LEN)`
+--let $MANIFEST_FILE_PATH = $MYSQLD_NO_EXT.my
+--let $BACKUP_MANIFEST_FILE_PATH = $MANIFEST_FILE_PATH.$GLOBAL_BACKUP_SUFFIX
+# Clean up any leftover backup from a failed run.
+--error 0,1
+--remove_file $BACKUP_MANIFEST_FILE_PATH
+--copy_file $MANIFEST_FILE_PATH $BACKUP_MANIFEST_FILE_PATH
+>>>>>>> mysql-26.7.0

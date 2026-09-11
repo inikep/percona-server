@@ -151,12 +151,22 @@ IF(DEFINED MTR_MAX_PARALLEL)
   SET(NPROC ${MTR_MAX_PARALLEL})
 ENDIF()
 
+# FIXME Temporarily accept more failures as many tests fail after
+# version bump to 10.X.Y. Reduce max-test-fail back to 10 once enough
+# tests have been fixed
+
 ADD_CUSTOM_TARGET(run-profile-suite
   COMMAND perl ./mysql-test-run.pl
   --accept-test-fail
   --clean-vardir
   --force
+<<<<<<< HEAD
   --max-test-fail=0
+||||||| merged common ancestors
+  --max-test-fail=10
+=======
+  --max-test-fail=100
+>>>>>>> mysql-26.7.0
   --mem
   --mysqld=--binlog-format=row
   --parallel=${NPROC}

@@ -1232,6 +1232,7 @@ dberr_t Builder::key_buffer_sort(size_t thread_id) noexcept {
 }
 
 dberr_t Builder::handle_error(dberr_t err) noexcept {
+  ut_ad(err != DB_SUCCESS);
   set_error(err);
 
   if (m_btr_load != nullptr) {
@@ -1520,17 +1521,7 @@ dberr_t Builder::bulk_add_row(Cursor &cursor, Row &row, size_t thread_id,
         if (!cursor.eof()) {
           /* Copy the row data and release any latches held by the parallel
           scan thread. Required for the log_free_check() during mtr.commit(). */
-          err = cursor.copy_row(thread_id, row);
-
-          if (DBUG_EVALUATE_IF("builder_bulk_add_row_trigger_error_2", true,
-                               false)) {
-            err = DB_INVALID_NULL;
-          }
-
-          if (err != DB_SUCCESS) {
-            set_error(err);
-            return get_error();
-          }
+          cursor.copy_row(thread_id, row);
 
           err = latch_release();
 
@@ -2008,6 +1999,7 @@ dberr_t Builder::fts_sort_and_build() noexcept {
   }
 }
 
+<<<<<<< HEAD
 space_id_t Builder::get_space_id() {
   auto new_table = m_ctx.m_new_table;
   return new_table != nullptr ? new_table->space
@@ -2015,6 +2007,11 @@ space_id_t Builder::get_space_id() {
 }
 
 dberr_t Builder::finalize(bool apply_log) noexcept {
+||||||| merged common ancestors
+dberr_t Builder::finalize() noexcept {
+=======
+void Builder::finalize() noexcept {
+>>>>>>> mysql-26.7.0
   ut_a(m_ctx.m_need_observer);
   ut_a(get_state() == State::FINISH);
 
@@ -2046,8 +2043,6 @@ dberr_t Builder::finalize(bool apply_log) noexcept {
   if (err != DB_SUCCESS) {
     set_error(err);
   }
-
-  return err;
 }
 
 dberr_t Builder::merge_sort(size_t thread_id) noexcept {
@@ -2116,10 +2111,19 @@ dberr_t Builder::finish() noexcept {
     thread_ctx->m_file.m_file.close();
   }
 
+<<<<<<< HEAD
   dberr_t err{DB_SUCCESS};
   if (get_error() == DB_SUCCESS && !m_index->table->is_temporary()) {
     bool apply_log = true;
+||||||| merged common ancestors
+  dberr_t err{DB_SUCCESS};
+
+  if (get_error() != DB_SUCCESS || !m_ctx.m_online) {
+=======
+  if (get_error() != DB_SUCCESS || !m_ctx.m_online) {
+>>>>>>> mysql-26.7.0
     /* Do not apply any online log. */
+<<<<<<< HEAD
     if (!m_ctx.m_online) {
       apply_log = false;
     } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
@@ -2131,6 +2135,29 @@ dberr_t Builder::finish() noexcept {
     if (err != DB_SUCCESS) {
       set_error(err);
     }
+||||||| merged common ancestors
+  } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
+    ut_a(!m_index->online_log);
+    ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
+
+    auto observer = m_ctx.m_trx->flush_observer;
+    observer->flush();
+
+  } else {
+    err = finalize();
+
+    if (err != DB_SUCCESS) {
+      set_error(err);
+    }
+=======
+  } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
+    ut_a(!m_index->online_log);
+    ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
+
+    m_ctx.m_trx->flush_observer->flush();
+  } else {
+    finalize();
+>>>>>>> mysql-26.7.0
   }
 
   set_next_state();

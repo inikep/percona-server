@@ -279,10 +279,19 @@ struct Builder {
   @return DB_SUCCESS or error code. */
   [[nodiscard]] dberr_t create_merge_sort_tasks() noexcept;
 
+<<<<<<< HEAD
   /** Flush all dirty pages, apply the row log and write the redo log record.
   @param[in] apply_log apply the row log
   @return DB_SUCCESS or error code. */
   dberr_t finalize(bool apply_log) noexcept;
+||||||| merged common ancestors
+  /** Flush all dirty pages, apply the row log and write the redo log record.
+  @return DB_SUCCESS or error code. */
+  dberr_t finalize() noexcept;
+=======
+  /** Flush all dirty pages, apply the row log and write the redo log record. */
+  void finalize() noexcept;
+>>>>>>> mysql-26.7.0
 
   /** Convert the field data from compact to redundant format.
   @param[in]    clust_index           Clustered index being built
@@ -410,6 +419,7 @@ struct Builder {
   @return DB_SUCCESS or error code. */
   [[nodiscard]] dberr_t check_duplicates(Thread_ctxs &dupcheck) noexcept;
 
+ public:
   /** Cleanup DDL after error in online build
   Note: To be called if DDL must cleanup due to error in online build. Pages
   which are buffer-fixed (in Page_load::release) until the next iteration, must

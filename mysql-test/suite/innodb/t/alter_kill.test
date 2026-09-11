@@ -143,8 +143,16 @@ XA PREPARE 'x';
 
 -- echo # Attempt to start without an *.ibd file.
 let SEARCH_FILE= $MYSQLTEST_VARDIR/log/my_restart.err;
+<<<<<<< HEAD
 -- error 1
 -- exec $MYSQLD_CMD --core-file --console > $SEARCH_FILE 2>&1;
+||||||| merged common ancestors
+-- error 1,42
+-- exec $MYSQLD_CMD --core-file --console > $SEARCH_FILE 2>&1;
+=======
+-- error 1,42
+-- exec $MYSQLD_CMD --console > $SEARCH_FILE 2>&1;
+>>>>>>> mysql-26.7.0
 
 let SEARCH_PATTERN= \[ERROR\].*Could not find any file associated with the tablespace ID:.*;
 -- source include/search_pattern.inc

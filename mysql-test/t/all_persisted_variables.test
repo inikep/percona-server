@@ -56,6 +56,7 @@ let $total_global_vars=`SELECT COUNT(*)
    FROM performance_schema.global_variables
    WHERE variable_name NOT LIKE 'ndb_%'
    AND variable_name NOT LIKE 'debug_%'
+<<<<<<< HEAD
    AND variable_name NOT LIKE '%telemetry%'`;
 let $total_persistent_vars= `SELECT $total_global_vars - 225`;
 
@@ -119,6 +120,15 @@ let $total_included_vars=`SELECT COUNT(*) FROM performance_schema.global_variabl
 '_list_end_'
 )`;
 let $total_persistent_vars= `SELECT $total_persistent_vars + $total_included_vars`;
+||||||| merged common ancestors
+   AND variable_name NOT LIKE '%telemetry%'`;
+=======
+   AND variable_name NOT LIKE '%telemetry%'
+   AND variable_name NOT LIKE '%pqc%'
+   AND variable_name NOT LIKE '%tls_kex%'`;
+
+let $total_persistent_vars=451;
+>>>>>>> mysql-26.7.0
 
 --echo ***************************************************************
 --echo * 0. Verify that variables present in performance_schema.global
@@ -202,6 +212,8 @@ WHERE variable_name NOT IN
 AND variable_name NOT LIKE 'ndb_%'
 AND variable_name NOT LIKE 'debug_%'
 AND variable_name NOT LIKE '%telemetry%'
+AND variable_name NOT LIKE '%pqc%'
+AND variable_name NOT LIKE '%tls_kex%'
 ORDER BY variable_name;
 
 --let $count_vars= `SELECT COUNT(*) FROM all_vars;`

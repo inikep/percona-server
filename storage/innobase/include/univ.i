@@ -55,10 +55,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #define INNODB_VERSION_MINOR MYSQL_VERSION_MINOR
 #define INNODB_VERSION_BUGFIX MYSQL_VERSION_PATCH
 
-#ifndef PERCONA_INNODB_VERSION
-#define PERCONA_INNODB_VERSION 1
-#endif
-
 /* The following is the InnoDB version as shown in
 SELECT plugin_version FROM information_schema.plugins;
 calculated in make_version_string() in sql/sql_show.cc like this:
@@ -67,10 +63,9 @@ because the version is shown with only one dot, we skip the last
 component, i.e. we show M.N.P as M.N */
 #define INNODB_VERSION_SHORT (INNODB_VERSION_MAJOR << 8 | INNODB_VERSION_MINOR)
 
-#define INNODB_VERSION_STR                           \
-  IB_TO_STR(INNODB_VERSION_MAJOR)                    \
-  "." IB_TO_STR(INNODB_VERSION_MINOR) "." IB_TO_STR( \
-      INNODB_VERSION_BUGFIX) "-" IB_TO_STR(PERCONA_INNODB_VERSION)
+#define INNODB_VERSION_STR        \
+  IB_TO_STR(INNODB_VERSION_MAJOR) \
+  "." IB_TO_STR(INNODB_VERSION_MINOR) "." IB_TO_STR(INNODB_VERSION_BUGFIX)
 
 #define REFMAN                                  \
   "http://dev.mysql.com/doc/refman/" IB_TO_STR( \
@@ -219,9 +214,6 @@ srv_start() has executed using the call command. */
                                    assertions. */
 #define UNIV_LRU_DEBUG             /* debug the buffer pool LRU */
 #define UNIV_HASH_DEBUG            /* debug HASH_ macros */
-#define UNIV_LOG_LSN_DEBUG         /* write LSN to the redo log;               \
-this will break redo log file compatibility, but it may be useful when \
-debugging redo log application problems. */
 #define UNIV_IBUF_DEBUG            /* debug the insert buffer */
 #define UNIV_IBUF_COUNT_DEBUG      /* debug the insert buffer;               \
 this limits the database to IBUF_COUNT_N_SPACES and IBUF_COUNT_N_PAGES, \
@@ -452,6 +444,12 @@ constexpr ib_id_t IB_ID_MAX = std::numeric_limits<uint64_t>::max();
 typedef uint32_t page_no_t;
 /** Tablespace identifier */
 typedef uint32_t space_id_t;
+
+/** Maximum Page Number, one less than FIL_NULL */
+constexpr page_no_t PAGE_NO_MAX = std::numeric_limits<page_no_t>::max() - 1;
+
+/** Unknown space id */
+constexpr space_id_t SPACE_UNKNOWN = std::numeric_limits<space_id_t>::max();
 
 #define SPACE_ID_PF UINT32PF
 #define SPACE_ID_PFS UINT32PFS
