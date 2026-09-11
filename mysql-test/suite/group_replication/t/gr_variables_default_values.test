@@ -95,13 +95,7 @@ SET @@GLOBAL.group_replication_preemptive_garbage_collection = default;
 --let $saved_gr_xcom_ssl_accept_retries = `SELECT @@GLOBAL.group_replication_xcom_ssl_accept_retries;`
 
 # Total number of GR variables.
-<<<<<<< HEAD
---let $total_gr_vars= 66
-||||||| merged common ancestors
---let $total_gr_vars= 60
-=======
---let $total_gr_vars= 63
->>>>>>> mysql-26.7.0
+--let $total_gr_vars= 69
 
 --echo #
 --echo # Test Unit#1

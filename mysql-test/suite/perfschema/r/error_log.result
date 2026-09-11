@@ -82,7 +82,7 @@ System	MY-013577	InnoDB	InnoDB initialization has ended.
 SELECT prio,error_code,subsystem
 FROM performance_schema.error_log
 WHERE logged>=@startup
-AND error_code NOT IN("MY-010097", "MY-015641",
+AND error_code NOT IN("MY-010097", "MY-015641", "MY-048400",
 "MY-011243", "MY-011240", "MY-011245", "MY-010931",
 "MY-010949", "MY-010747", "MY-013546", "MY-010051",
 "MY-011946", "MY-012922", "MY-011810", "MY-012932",
@@ -94,13 +94,7 @@ AND error_code NOT IN("MY-010097", "MY-015641",
 "MY-013884", "MY-013908", "MY-013930", "MY-014013",
 "MY-000068", "MY-014066", "MY-014067", "MY-014068",
 "MY-013932", "MY-010101", "MY-010099", "MY-011070",
-<<<<<<< HEAD
-"MY-011872", "MY-011874", "MY-015140", "MY-048400")
-||||||| merged common ancestors
-"MY-011872", "MY-011874", "MY-015140")
-=======
 "MY-011872", "MY-011874", "MY-015140", "MY-015696")
->>>>>>> mysql-26.7.0
 ORDER BY logged, error_code;
 prio	error_code	subsystem
 System	MY-015015	Server

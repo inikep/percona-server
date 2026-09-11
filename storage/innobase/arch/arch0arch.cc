@@ -438,7 +438,6 @@ dberr_t Arch_File_Ctx::open_next(lsn_t start_lsn, uint64_t file_offset,
 dberr_t Arch_File_Ctx::read(byte *to_buffer, uint64_t offset, uint size) {
   ut_ad(!is_closed());
 
-<<<<<<< HEAD
   if (offset > m_size || static_cast<uint64_t>(size) > (m_size - offset)) {
     ib::error(ER_IB_MSG_17)
         << "Page archiver: attempt to read " << size << " bytes at offset "
@@ -447,16 +446,7 @@ dberr_t Arch_File_Ctx::read(byte *to_buffer, uint64_t offset, uint size) {
     return DB_IO_ERROR;
   }
 
-  IORequest request(IORequest::READ);
-  request.disable_compression();
-  request.clear_encrypted();
-||||||| merged common ancestors
-  IORequest request(IORequest::READ);
-  request.disable_compression();
-  request.clear_encrypted();
-=======
   IORequest request(IORequest::Type::READ | IORequest::Type::NO_COMPRESSION);
->>>>>>> mysql-26.7.0
 
   return os_file_read_no_error_handling(request, m_path_name, m_file, to_buffer,
                                         offset, size, nullptr);

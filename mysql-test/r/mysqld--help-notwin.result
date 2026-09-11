@@ -2245,17 +2245,13 @@ transaction-prealloc-size 4096
 transaction-read-only FALSE
 updatable-views-with-limit YES
 upgrade AUTO
-<<<<<<< HEAD
+use-pqc-sign FALSE
 userstat FALSE
 utility-user (No default value)
 utility-user-dynamic-privileges (No default value)
 utility-user-password (No default value)
 utility-user-privileges 
 utility-user-schema-access (No default value)
-||||||| merged common ancestors
-=======
-use-pqc-sign FALSE
->>>>>>> mysql-26.7.0
 validate-config FALSE
 validate-user-plugins TRUE
 verbose TRUE

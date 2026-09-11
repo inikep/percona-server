@@ -56,15 +56,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fsp0sysspace.h"
 #include "ibuf0ibuf.h"
 #include "log0chkp.h"
-<<<<<<< HEAD
-#include "log0recv.h"
-#include "log0write.h"
-||||||| merged common ancestors
-#include "log0write.h"
-=======
 #include "log0handler_interface.h"
 #include "log0helpers.h"
->>>>>>> mysql-26.7.0
+#include "log0recv.h"
 #include "my_compiler.h"
 #include "os0file.h"
 #include "os0thread-create.h"
@@ -3776,28 +3770,6 @@ bool buf_flush_validate(buf_pool_t *buf_pool) {
 }
 #endif /* UNIV_DEBUG || UNIV_BUF_DEBUG */
 
-<<<<<<< HEAD
-/** Check if there are any dirty pages that belong to a space id in the flush
- list in a particular buffer pool.
- @return number of dirty pages present in a single buffer pool */
-ulint buf_pool_get_dirty_pages_count(
-    buf_pool_t *buf_pool,     /*!< in: buffer pool */
-    space_id_t id,            /*!< in: space id to check */
-    Flush_observer *observer) /*!< in: flush observer to check */
-{
-  ulint count = 0;
-||||||| merged common ancestors
-/** Check if there are any dirty pages that belong to a space id in the flush
- list in a particular buffer pool.
- @return number of dirty pages present in a single buffer pool */
-ulint buf_pool_get_dirty_pages_count(
-    buf_pool_t *buf_pool,     /*!< in: buffer pool */
-    space_id_t id,            /*!< in: space id to check */
-    Flush_observer *observer) /*!< in: flush observer to check */
-
-{
-  ulint count = 0;
-=======
 /** Counts how many dirty pages that belong to a specified flush observer are in
  a specified BufferPool instance.
  @param[in] buf_pool BufferPool instance to check dirty pages in.
@@ -3812,7 +3784,6 @@ ulint buf_pool_get_dirty_pages_count(
     bool abort_when_interrupted) {
   size_t count = 0;
   size_t processed = 0;
->>>>>>> mysql-26.7.0
 
   buf_flush_list_mutex_enter(buf_pool);
 

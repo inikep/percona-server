@@ -61,25 +61,15 @@ class MVCC : public MVCC_interface {
   Free all the views in the m_free list */
   ~MVCC() override;
 
-<<<<<<< HEAD
   /** Insert the view in the proper order into the view list.
-  @param	view	view to add */
+  @param view   view to add */
   void view_add(const ReadView *view);
 
-  /** Allocate and create a view.
-  @param view   View owned by this class created for the caller. Must be
-  freed by calling view_close()
-  @param trx    Transaction instance of caller */
-||||||| merged common ancestors
-  /** Allocate and create a view.
-  @param view   View owned by this class created for the caller. Must be
-  freed by calling view_close()
-  @param trx    Transaction instance of caller */
-=======
   void initialize(trx_id_t max_committed_trx_id, trx_ids_t active_ids) override;
   void view_open(Read_view_interface *&view, trx_t *trx) override;
   void view_close(Read_view_interface *&view, bool own_mutex) override;
   void clone_oldest_view(Read_view_interface *&view) override;
+  void clone_view(Read_view_interface *&view, trx_t *from_trx) override;
   void view_free(Read_view_interface *&view) override;
   [[nodiscard]] size_t get_open_views_count() const override;
   void undo_purge_is_starting() override;
@@ -96,7 +86,6 @@ class MVCC : public MVCC_interface {
   falls back to the slow path, which requires a trx_sys mutex to (re)initialize
   the view.
   @see view_open(Read_view_interface*&,trx_t*) */
->>>>>>> mysql-26.7.0
   void view_open(ReadView *&view, trx_t *trx);
 
   /** A helper for the interface method with the same name, which makes it
@@ -149,49 +138,23 @@ class MVCC : public MVCC_interface {
   /** Asserts the read view list is sorted. */
   void validate() const;
 
-<<<<<<< HEAD
-  friend class ReadView;
-
-  /**
-  Find a free view from the active list, if none found then allocate
-  a new view. This function will also attempt to move delete marked
-  views from the active list to the freed list.
-||||||| merged common ancestors
-  /**
-  Find a free view from the active list, if none found then allocate
-  a new view. This function will also attempt to move delete marked
-  views from the active list to the freed list.
-=======
   /** Get a view from the free list, or allocate a new one if it's empty.
->>>>>>> mysql-26.7.0
   @return a view to use */
   inline ReadView *get_view();
 
-<<<<<<< HEAD
  public:
-  /**
-  Get the oldest view in the system for statistical purposes.
+  /** Get the oldest view in the system for statistical purposes.
 
   @note This method should be used for statistical purposes only, purge needs
   to use more strict condition (see clone_oldest_view()) when selecting the
   oldest view.
 
-  @return oldest view if found or NULL */
-  const ReadView *get_oldest_view_stats() const;
+  @return oldest view if found or nullptr */
+  [[nodiscard]] const ReadView *get_oldest_view_stats() const override;
 
  private:
-  // Prevent copying
-  MVCC(const MVCC &);
-  MVCC &operator=(const MVCC &);
-||||||| merged common ancestors
- private:
-  // Prevent copying
-  MVCC(const MVCC &);
-  MVCC &operator=(const MVCC &);
-=======
   MVCC(const MVCC &) = delete;
   MVCC &operator=(const MVCC &) = delete;
->>>>>>> mysql-26.7.0
 
  private:
   typedef UT_LIST_BASE_NODE_T(ReadView, m_view_list) view_list_t;

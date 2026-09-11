@@ -1178,7 +1178,7 @@ bool Builder::create_file(ddl::file_t &file) noexcept {
 }
 
 dberr_t Builder::append(ddl::file_t &file, IO_buffer io_buffer,
-                        void *crypt_buffer, uint32_t space_id) noexcept {
+                        byte *crypt_buffer, uint32_t space_id) noexcept {
   auto err = ddl::pwrite(file.m_file.get(), io_buffer.first, io_buffer.second,
                          file.m_size, crypt_buffer, space_id);
 
@@ -1999,19 +1999,13 @@ dberr_t Builder::fts_sort_and_build() noexcept {
   }
 }
 
-<<<<<<< HEAD
 space_id_t Builder::get_space_id() {
   auto new_table = m_ctx.m_new_table;
   return new_table != nullptr ? new_table->space
                               : dict_sys_t::s_invalid_space_id;
 }
 
-dberr_t Builder::finalize(bool apply_log) noexcept {
-||||||| merged common ancestors
-dberr_t Builder::finalize() noexcept {
-=======
-void Builder::finalize() noexcept {
->>>>>>> mysql-26.7.0
+void Builder::finalize(bool apply_log) noexcept {
   ut_a(m_ctx.m_need_observer);
   ut_a(get_state() == State::FINISH);
 
@@ -2111,19 +2105,9 @@ dberr_t Builder::finish() noexcept {
     thread_ctx->m_file.m_file.close();
   }
 
-<<<<<<< HEAD
-  dberr_t err{DB_SUCCESS};
   if (get_error() == DB_SUCCESS && !m_index->table->is_temporary()) {
     bool apply_log = true;
-||||||| merged common ancestors
-  dberr_t err{DB_SUCCESS};
-
-  if (get_error() != DB_SUCCESS || !m_ctx.m_online) {
-=======
-  if (get_error() != DB_SUCCESS || !m_ctx.m_online) {
->>>>>>> mysql-26.7.0
     /* Do not apply any online log. */
-<<<<<<< HEAD
     if (!m_ctx.m_online) {
       apply_log = false;
     } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
@@ -2131,33 +2115,7 @@ dberr_t Builder::finish() noexcept {
       ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
       apply_log = false;
     }
-    err = finalize(apply_log);
-    if (err != DB_SUCCESS) {
-      set_error(err);
-    }
-||||||| merged common ancestors
-  } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
-    ut_a(!m_index->online_log);
-    ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
-
-    auto observer = m_ctx.m_trx->flush_observer;
-    observer->flush();
-
-  } else {
-    err = finalize();
-
-    if (err != DB_SUCCESS) {
-      set_error(err);
-    }
-=======
-  } else if (m_ctx.m_old_table != m_ctx.m_new_table) {
-    ut_a(!m_index->online_log);
-    ut_a(m_index->online_status == ONLINE_INDEX_COMPLETE);
-
-    m_ctx.m_trx->flush_observer->flush();
-  } else {
-    finalize();
->>>>>>> mysql-26.7.0
+    finalize(apply_log);
   }
 
   set_next_state();

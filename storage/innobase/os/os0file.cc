@@ -133,21 +133,11 @@ static Blocks *block_cache;
 /** Number of blocks to allocate for sync read/writes */
 static const size_t MAX_BLOCKS = 128;
 
-<<<<<<< HEAD
-/** Block buffer size */
-#define BUFFER_BLOCK_SIZE ((ulint)(UNIV_PAGE_SIZE * 1.3))
-
 /** Set to true when default master key is used. This variable
 main purpose is to avoid extra Encryption::get_master_key() when there
 are no encrypted tablespaces */
 bool default_master_key_used = false;
 
-||||||| merged common ancestors
-/** Block buffer size */
-#define BUFFER_BLOCK_SIZE ((ulint)(UNIV_PAGE_SIZE * 1.3))
-
-=======
->>>>>>> mysql-26.7.0
 /** Determine if O_DIRECT is supported
 @retval true    if O_DIRECT is supported.
 @retval false   if O_DIRECT is not supported. */
@@ -372,25 +362,7 @@ struct Slot {
   to the caller of os_aio_simulated_handler */
   bool io_already_done{false};
 
-<<<<<<< HEAD
-  space_id_t space_id;
-
-  /** The file node for which the IO is requested. */
-  fil_node_t *m1{nullptr};
-
-  /** the requester of an aio operation and which can be used
-  to identify which pending aio operation was completed */
-  void *m2{nullptr};
-||||||| merged common ancestors
-  /** The file node for which the IO is requested. */
-  fil_node_t *m1{nullptr};
-
-  /** the requester of an aio operation and which can be used
-  to identify which pending aio operation was completed */
-  void *m2{nullptr};
-=======
   std::function<void(dberr_t)> callback;
->>>>>>> mysql-26.7.0
 
   /** AIO completion status */
   dberr_t err{DB_ERROR_UNSET};
@@ -502,34 +474,18 @@ class AIO {
   @param[in,out]        buf     buffer where to read or from which to write
   @param[in]    offset          file offset, where to read from or start writing
   @param[in]    len             length of the block to read or write
-<<<<<<< HEAD
-  @param[in]    e_block         Encrypted block or nullptr.
-  @return pointer to slot */
-  [[nodiscard]] Slot *reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                                   pfs_os_file_t file, const char *name,
-                                   void *buf, os_offset_t offset, ulint len,
-                                   const file::Block *e_block,
-                                   space_id_t space_id);
-||||||| merged common ancestors
-  @param[in]    e_block         Encrypted block or nullptr.
-  @return pointer to slot */
-  [[nodiscard]] Slot *reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                                   pfs_os_file_t file, const char *name,
-                                   void *buf, os_offset_t offset, ulint len,
-                                   const file::Block *e_block);
-=======
   @param[in]    callback        A lambda to be called when the result of this
                                 operation is known. It may be a success if the
                                 read or write succeeded or a subset of `dberr_t`
                                 errors if the write or read could not be
                                 executed or if it failed. It will be executed
                                 asynchronously from another thread, before or
-                                after this call returns. */
+                                after this call returns.
+  @return pointer to slot */
   [[nodiscard]] Slot *reserve_slot(const IORequest &type, pfs_os_file_t file,
                                    const char *name, void *buf,
                                    os_offset_t offset, ulint len,
                                    std::function<void(dberr_t)> callback);
->>>>>>> mysql-26.7.0
 
   /** @return number of reserved slots */
   ulint pending_io_count() const;
@@ -786,15 +742,14 @@ class AIO {
   /** Initialise the Linux native AIO data structures
   @return DB_SUCCESS or error code */
   [[nodiscard]] dberr_t init_linux_native_aio();
-#endif /* LINUX_NATIVE_AIO */
 
   /** Submit buffered AIO requests on the array to the kernel.
   (low level function).
   @param[in] acquire_mutex specifies whether to lock array mutex
   @param[in] arr for which to submit IO */
-  static void os_aio_dispatch_read_array_submit_low_for_array(bool acquire_mutex
-                                                              [[maybe_unused]],
-                                                              const AIO *arr);
+  static void os_aio_dispatch_read_array_submit_low_for_array(
+      bool acquire_mutex, const AIO *arr);
+#endif /* LINUX_NATIVE_AIO */
 
  private:
   typedef std::vector<Slot> Slots;
@@ -2049,15 +2004,9 @@ static file::Block *os_file_encrypt_log(const IORequest &type, byte *&buf,
   Encryption encryption(type.encryption_algorithm());
   file::Block *block{};
 
-<<<<<<< HEAD
   ut_ad(type.is_write());
-  ut_ad(type.is_encrypted());
+  ut_ad(type.is_encryption_requested());
   ut_ad(type.is_log());
-||||||| merged common ancestors
-  ut_ad(type.is_write() && type.is_encrypted() && type.is_log());
-=======
-  ut_ad(type.is_write() && type.is_encryption_requested() && type.is_log());
->>>>>>> mysql-26.7.0
   ut_ad(n % OS_FILE_LOG_BLOCK_SIZE == 0);
 
   if (n <= UNIV_PAGE_SIZE) {
@@ -2600,47 +2549,13 @@ dberr_t LinuxAIOHandler::poll(std::function<void(dberr_t)> &callback,
   return (err);
 }
 
-<<<<<<< HEAD
-/** This function is only used in Linux native asynchronous i/o.
-Waits for an aio operation to complete. This function is used to wait for
-the completed requests. The aio array of pending requests is divided
-into segments. The thread specifies which segment or slot it wants to wait
-for. NOTE: this function will also take care of freeing the aio slot,
-therefore no other thread is allowed to do the freeing!
+#endif /* LINUX_NATIVE_AIO */
 
-@param[in]      global_segment  segment number in the aio array
-                                to wait for; segment 0 is the ibuf i/o thread,
-                                then follow the non-ibuf read threads,
-                                and the last are the non-ibuf write threads.
-@param[out]     m1              the messages passed with the
-@param[out]     m2                      AIO request; note that in case the
-                                AIO operation failed, these output
-                                parameters are valid and can be used to
-                                restart the operation.
-@param[out]     request         IO context
-@return DB_SUCCESS if the IO was successful */
-static dberr_t os_aio_linux_handler(ulint global_segment, fil_node_t **m1,
-                                    void **m2, IORequest *request) {
-  LinuxAIOHandler handler(global_segment);
-
-  dberr_t err = handler.poll(m1, m2, request);
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    if (!request->is_dblwr()) {
-      fil_no_punch_hole(*m1);
-      err = DB_SUCCESS;
-    }
-  }
-
-  return (err);
-}
-#endif
-
-/** Submit buffered AIO requests on the given segment to the kernel.
+#if defined(LINUX_NATIVE_AIO)
+/** Submit buffered AIO requests on the read arrays to the kernel.
 (low level function).
 @param[in] acquire_mutex specifies whether to lock array mutex */
-void AIO::os_aio_dispatch_read_array_submit_low(bool acquire_mutex
-                                                [[maybe_unused]]) {
+void AIO::os_aio_dispatch_read_array_submit_low(bool acquire_mutex) {
   os_aio_dispatch_read_array_submit_low_for_array(acquire_mutex, s_reads);
   if (s_ibuf != nullptr) {
     os_aio_dispatch_read_array_submit_low_for_array(acquire_mutex, s_ibuf);
@@ -2651,20 +2566,17 @@ void AIO::os_aio_dispatch_read_array_submit_low(bool acquire_mutex
 (low level function).
 @param[in] acquire_mutex specifies whether to lock array mutex
 @param[in] arr for which to submit IO */
-void AIO::os_aio_dispatch_read_array_submit_low_for_array(bool acquire_mutex
-                                                          [[maybe_unused]],
-                                                          const AIO *arr) {
-  if (!srv_use_native_aio) {
-    return;
-  }
-#if defined(LINUX_NATIVE_AIO)
-  const AIO *array = arr;
+void AIO::os_aio_dispatch_read_array_submit_low_for_array(
+    bool acquire_mutex, const AIO *array) {
   ulint total_submitted = 0;
-  if (acquire_mutex) array->acquire();
+  if (acquire_mutex) {
+    array->acquire();
+  }
+
   /* Submit aio requests buffered on all segments. */
   ut_ad(array->m_pending);
   ut_ad(array->m_count);
-  for (ulint i = 0; i < array->m_n_segments; i++) {
+  for (ulint i = 0; i < array->m_n_segments; ++i) {
     const int count = array->m_count[i];
     int offset = 0;
     while (offset != count) {
@@ -2687,13 +2599,13 @@ void AIO::os_aio_dispatch_read_array_submit_low_for_array(bool acquire_mutex
         /* Terminating with fatal error */
         const char *errmsg = strerror(-submitted);
         ib::fatal(UT_LOCATION_HERE)
-            << "Trying to sumbit " << count << " aio requests, io_submit() set "
+            << "Trying to submit " << count << " aio requests, io_submit() set "
             << "errno to " << -submitted << ": "
             << (errmsg ? errmsg : "<unknown>");
       }
       ut_ad(submitted <= partial_count);
       if (submitted < partial_count) {
-        ib::warn() << "Trying to sumbit " << count
+        ib::warn() << "Trying to submit " << count
                    << " aio requests, io_submit() "
                    << "submitted only " << submitted;
       }
@@ -2704,55 +2616,24 @@ void AIO::os_aio_dispatch_read_array_submit_low_for_array(bool acquire_mutex
   /* Reset the aio request buffer. */
   memset(array->m_pending, 0x0, sizeof(struct iocb *) * array->m_slots.size());
   memset(array->m_count, 0x0, sizeof(ulint) * array->m_n_segments);
-  if (acquire_mutex) array->release();
+  if (acquire_mutex) {
+    array->release();
+  }
 
   srv_stats.n_aio_submitted.add(total_submitted);
-#endif
 }
+#endif /* LINUX_NATIVE_AIO */
 
 /** Submit buffered AIO requests on the given segment to the kernel. */
 void os_aio_dispatch_read_array_submit() {
-  AIO::os_aio_dispatch_read_array_submit_low(true);
+#if defined(LINUX_NATIVE_AIO)
+  if (srv_use_native_aio) {
+    AIO::os_aio_dispatch_read_array_submit_low(true);
+  }
+#endif /* LINUX_NATIVE_AIO */
 }
 
 #if defined(LINUX_NATIVE_AIO)
-||||||| merged common ancestors
-/** This function is only used in Linux native asynchronous i/o.
-Waits for an aio operation to complete. This function is used to wait for
-the completed requests. The aio array of pending requests is divided
-into segments. The thread specifies which segment or slot it wants to wait
-for. NOTE: this function will also take care of freeing the aio slot,
-therefore no other thread is allowed to do the freeing!
-
-@param[in]      global_segment  segment number in the aio array
-                                to wait for; segment 0 is the ibuf i/o thread,
-                                then follow the non-ibuf read threads,
-                                and the last are the non-ibuf write threads.
-@param[out]     m1              the messages passed with the
-@param[out]     m2                      AIO request; note that in case the
-                                AIO operation failed, these output
-                                parameters are valid and can be used to
-                                restart the operation.
-@param[out]     request         IO context
-@return DB_SUCCESS if the IO was successful */
-static dberr_t os_aio_linux_handler(ulint global_segment, fil_node_t **m1,
-                                    void **m2, IORequest *request) {
-  LinuxAIOHandler handler(global_segment);
-
-  dberr_t err = handler.poll(m1, m2, request);
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    if (!request->is_dblwr()) {
-      fil_no_punch_hole(*m1);
-      err = DB_SUCCESS;
-    }
-  }
-
-  return (err);
-}
-
-=======
->>>>>>> mysql-26.7.0
 /** Dispatch an AIO request to the kernel.
 @param[in,out]  slot            an already reserved slot
 @param[in]      should_buffer   should buffer the request
@@ -3226,21 +3107,15 @@ bool os_file_flush_func(os_file_t file) {
   return (false);
 }
 
-/** NOTE! Use the corresponding macro os_file_flush(), not directly this
+/** NOTE! Use the corresponding macro os_file_set_eof_at(), not directly this
 function!
 Truncates a file at the specified position.
 @param[in]	file	file to truncate
 @param[in]	new_len	new file length
 @return true if success */
 bool os_file_set_eof_at_func(os_file_t file, uint64_t new_len) {
-#ifdef __WIN__
-  LARGE_INTEGER li, li2;
-  li.QuadPart = new_len;
-  return (SetFilePointerEx(file, li, &li2, FILE_BEGIN) && SetEndOfFile(file));
-#else
   /* TODO: works only with -D_FILE_OFFSET_BITS=64 ? */
   return (!ftruncate(file, new_len));
-#endif
 }
 
 /** This function attempts to create a directory named pathname. The new
@@ -3642,9 +3517,6 @@ future.
 @return true if success */
 bool os_file_advise(pfs_os_file_t file, os_offset_t offset, os_offset_t len,
                     ulint advice) {
-#ifdef __WIN__
-  return (true);
-#else
 #ifdef UNIV_LINUX
   int native_advice = 0;
   if ((advice & OS_FILE_ADVISE_NORMAL) != 0) native_advice |= POSIX_FADV_NORMAL;
@@ -3662,7 +3534,6 @@ bool os_file_advise(pfs_os_file_t file, os_offset_t offset, os_offset_t len,
 #else
   return (true);
 #endif
-#endif /* __WIN__ */
 }
 
 /** Gets a file size.
@@ -4795,11 +4666,40 @@ bool os_file_set_eof(FILE *file) {
   return (SetEndOfFile(h));
 }
 
+/** NOTE! Use the corresponding macro os_file_set_eof_at(), not directly this
+function!
+Truncates a file at the specified position.
+@param[in]      file            file to truncate
+@param[in]      new_len         new file length
+@return true if success */
+bool os_file_set_eof_at_func(os_file_t file, uint64_t new_len) {
+  LARGE_INTEGER length;
+
+  length.QuadPart = new_len;
+
+  return (SetFilePointerEx(file, length, nullptr, FILE_BEGIN) &&
+          SetEndOfFile(file));
+}
+
 /** Closes a file handle.
 @param[in]      file            Handle to close
 @return true if success */
 bool os_file_close_no_error_handling_func(os_file_t file) {
   return (CloseHandle(file) ? true : false);
+}
+
+/** Announces an intention to access file data in a specific pattern in the
+future. This is a no-op on Windows.
+@param[in,out]  file            handle to a file
+@param[in]      offset          file region offset
+@param[in]      len             file region length
+@param[in]      advice          advice for access pattern
+@return true */
+bool os_file_advise(pfs_os_file_t file [[maybe_unused]],
+                    os_offset_t offset [[maybe_unused]],
+                    os_offset_t len [[maybe_unused]],
+                    ulint advice [[maybe_unused]]) {
+  return (true);
 }
 
 #ifndef UNIV_HOTBACKUP
@@ -5178,20 +5078,10 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
 @param[in]      n               number of bytes to read, starting from offset
 @param[out]     err             DB_SUCCESS or error code
 @return number of bytes read, -1 if error */
-<<<<<<< HEAD
-[[nodiscard]] static ssize_t os_file_pread(IORequest &type, os_file_t file,
-                                           void *buf, ulint n,
-                                           os_offset_t offset, trx_t *trx,
-                                           dberr_t *err) {
-||||||| merged common ancestors
-[[nodiscard]] static ssize_t os_file_pread(IORequest &type, os_file_t file,
-                                           void *buf, ulint n,
-                                           os_offset_t offset, dberr_t *err) {
-=======
 [[nodiscard]] static ssize_t os_file_pread(const IORequest &type,
                                            os_file_t file, byte *buf, ulint n,
-                                           os_offset_t offset, dberr_t *err) {
->>>>>>> mysql-26.7.0
+                                           os_offset_t offset, trx_t *trx,
+                                           dberr_t *err) {
 #ifdef UNIV_HOTBACKUP
   static meb::Mutex meb_mutex;
 
@@ -5228,23 +5118,12 @@ NUM_RETRIES_ON_PARTIAL_IO times to read/write the complete data.
 @param[out]     o               number of bytes actually read
 @param[in]      exit_on_err     if true then exit on error
 @return DB_SUCCESS or error code */
-<<<<<<< HEAD
-[[nodiscard]] static dberr_t os_file_read_page(
-    IORequest &type, const char *file_name, os_file_t file, void *buf,
-    os_offset_t offset, ulint n, ulint *o, bool exit_on_err, trx_t *trx) {
-||||||| merged common ancestors
-[[nodiscard]] static dberr_t os_file_read_page(IORequest &type,
-                                               const char *file_name,
-                                               os_file_t file, void *buf,
-                                               os_offset_t offset, ulint n,
-                                               ulint *o, bool exit_on_err) {
-=======
 [[nodiscard]] static dberr_t os_file_read_page(const IORequest &type,
                                                const char *file_name,
                                                os_file_t file, byte *buf,
                                                os_offset_t offset, ulint n,
-                                               ulint *o, bool exit_on_err) {
->>>>>>> mysql-26.7.0
+                                               ulint *o, bool exit_on_err,
+                                               trx_t *trx) {
   dberr_t err(DB_ERROR_UNSET);
 
 #ifdef UNIV_HOTBACKUP
@@ -5656,78 +5535,30 @@ bool os_file_seek(const char *pathname, os_file_t file, os_offset_t offset) {
   return (success);
 }
 
-<<<<<<< HEAD
-/** NOTE! Use the corresponding macro os_file_read_first_page(), not directly
-this function!
-Requests a synchronous read operation of page 0 of IBD file.
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      offset          file offset where to read
-@param[in]      n               number of bytes to read
-@return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-dberr_t os_file_read_func(IORequest &type, const char *file_name,
-                          os_file_t file, void *buf, os_offset_t offset,
-                          ulint n, trx_t *trx) {
-||||||| merged common ancestors
-/** NOTE! Use the corresponding macro os_file_read_first_page(), not directly
-this function!
-Requests a synchronous read operation of page 0 of IBD file.
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      offset          file offset where to read
-@param[in]      n               number of bytes to read
-@return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-dberr_t os_file_read_func(IORequest &type, const char *file_name,
-                          os_file_t file, void *buf, os_offset_t offset,
-                          ulint n) {
-=======
 dberr_t os_file_read_func(const IORequest &type, const char *file_name,
                           os_file_t file, byte *buf, os_offset_t offset,
-                          ulint n) {
->>>>>>> mysql-26.7.0
+                          ulint n, trx_t *trx) {
   ut_ad(type.is_read());
 
   return (os_file_read_page(type, file_name, file, buf, offset, n, nullptr,
                             true, trx));
 }
 
-<<<<<<< HEAD
 /** NOTE! Use the corresponding macro os_file_read_first_page(),
 not directly this function!
-Requests a synchronous read operation of page 0 of IBD file
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      n               number of bytes to read
+Requests a synchronous read operation for first @p n_pages pages of the @p file,
+using the page size stored on the first page. It does not uncompress nor decrypt
+any pages.
+@param[in,out]  type            IO request context
+@param[in]      file_name       file name
+@param[in]      file            open file handle
+@param[in,out]  buf             buffer where to read data to
+@param[in]      n_pages         number of pages to read
 @param[in]      exit_on_err     if true then exit on error
 @return DB_SUCCESS or error code */
-||||||| merged common ancestors
-/** NOTE! Use the corresponding macro os_file_read_first_page(),
-not directly this function!
-Requests a synchronous read operation of page 0 of IBD file
-@param[in]      type            IO request context
-@param[in]  file_name file name
-@param[in]      file            Open file handle
-@param[out]     buf             buffer where to read
-@param[in]      n               number of bytes to read
-@return DB_SUCCESS if request was successful, DB_IO_ERROR on failure */
-=======
->>>>>>> mysql-26.7.0
 dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
-<<<<<<< HEAD
-                                     os_file_t file, void *buf, ulint n,
-                                     bool exit_on_err) {
-||||||| merged common ancestors
-                                     os_file_t file, void *buf, ulint n) {
-=======
                                      os_file_t file, byte *buf,
-                                     page_no_t n_pages) {
->>>>>>> mysql-26.7.0
+                                     page_no_t n_pages, bool exit_on_err) {
   ut_ad(type.is_read());
 
   dberr_t err =
@@ -5745,7 +5576,7 @@ dberr_t os_file_read_first_page_func(IORequest &type, const char *file_name,
     const size_t read_size = page_size.physical() * n_pages;
     ut_ad(read_size > 0);
     err = os_file_read_page(type, file_name, file, buf, 0, read_size, nullptr,
-                            true, nullptr);
+                            exit_on_err, nullptr);
     if (err == DB_SUCCESS) {
       srv_stats.page0_read.add(1);
     }
@@ -5782,16 +5613,8 @@ static dberr_t os_file_copy_read_write(os_file_t src_file,
       request_size = size;
     }
 
-<<<<<<< HEAD
-    err = os_file_read_func(read_request, nullptr, src_file, &buf, src_offset,
-                            request_size, nullptr);
-||||||| merged common ancestors
-    err = os_file_read_func(read_request, nullptr, src_file, &buf, src_offset,
-                            request_size);
-=======
     err = os_file_read_func(read_request, nullptr, src_file, buf, src_offset,
-                            request_size);
->>>>>>> mysql-26.7.0
+                            request_size, nullptr);
 
     if (err != DB_SUCCESS) {
       return (err);
@@ -6552,21 +6375,9 @@ ulint AIO::get_segment_no_from_slot(const AIO *array, const Slot *slot) {
   return earlier_segments + slot->pos / s_writes->slots_per_segment();
 }
 
-<<<<<<< HEAD
-Slot *AIO::reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                        pfs_os_file_t file, const char *name, void *buf,
-                        os_offset_t offset, ulint len,
-                        const file::Block *e_block, space_id_t space_id) {
-||||||| merged common ancestors
-Slot *AIO::reserve_slot(IORequest &type, fil_node_t *m1, void *m2,
-                        pfs_os_file_t file, const char *name, void *buf,
-                        os_offset_t offset, ulint len,
-                        const file::Block *e_block) {
-=======
 Slot *AIO::reserve_slot(const IORequest &type, pfs_os_file_t file,
                         const char *name, void *buf, os_offset_t offset,
                         ulint len, std::function<void(dberr_t)> callback) {
->>>>>>> mysql-26.7.0
   ut_a(!type.is_log());
 #ifdef _WIN32
   ut_a((len & 0xFFFFFFFFUL) == len);
@@ -6680,14 +6491,6 @@ Slot *AIO::reserve_slot(const IORequest &type, pfs_os_file_t file,
     }
   }
   slot->io_already_done = false;
-<<<<<<< HEAD
-  slot->space_id = space_id;
-  slot->buf_block = nullptr;
-||||||| merged common ancestors
-  slot->buf_block = nullptr;
-=======
->>>>>>> mysql-26.7.0
-
   if (!type.are_write_transformations_enabled()) {
     ut_ad(!type.is_compression_requested());
     ut_ad(!type.is_encryption_requested());
@@ -7017,19 +6820,11 @@ static dberr_t os_aio_native_handler(
 }
 
 dberr_t os_aio_func(IORequest &type, AIO_mode aio_mode, const char *name,
-<<<<<<< HEAD
-                    pfs_os_file_t file, void *buf, os_offset_t offset, ulint n,
-                    bool read_only, fil_node_t *m1, void *m2,
-                    space_id_t space_id, trx_t *trx, bool should_buffer) {
-||||||| merged common ancestors
-                    pfs_os_file_t file, void *buf, os_offset_t offset, ulint n,
-                    bool read_only, fil_node_t *m1, void *m2) {
-=======
                     pfs_os_file_t file, byte *buf, os_offset_t offset, ulint n,
-                    std::function<void(dberr_t)> callback) {
+                    std::function<void(dberr_t)> callback, trx_t *trx,
+                    bool should_buffer) {
   /* We do not support os_aio() calls to redo log files. They need to use sync
   IO methods. */
->>>>>>> mysql-26.7.0
   ut_a(!type.is_log());
 
   ut_ad(n > 0);
@@ -7041,56 +6836,14 @@ dberr_t os_aio_func(IORequest &type, AIO_mode aio_mode, const char *name,
   ut_ad((n & 0xFFFFFFFFUL) == n);
 #endif /* _WIN32 */
 
-<<<<<<< HEAD
-  if (aio_mode == AIO_mode::SYNC) {
-    /* This is actually an ordinary synchronous read or write:
-    no need to use an i/o-handler thread. NOTE that if we use
-    Windows "async" overlapped i/o, Windows does not allow us to use
-    ordinary synchronous operations etc. on the same file. The os_file_read()
-    and os_file_write() are handling this case correctly.
-    Also note that the Performance Schema instrumentation has
-    been performed by current os_aio_func()'s wrapper function
-    pfs_os_aio_func(). So we would no longer need to call
-    Performance Schema instrumented os_file_read() and
-    os_file_write(). Instead, we should use os_file_read_func()
-    and os_file_write_func() */
-    if (type.is_read()) {
-      return (os_file_read_func(type, name, file.m_file, buf, offset, n, trx));
-    }
-||||||| merged common ancestors
-  if (aio_mode == AIO_mode::SYNC) {
-    /* This is actually an ordinary synchronous read or write:
-    no need to use an i/o-handler thread. NOTE that if we use
-    Windows "async" overlapped i/o, Windows does not allow us to use
-    ordinary synchronous operations etc. on the same file. The os_file_read()
-    and os_file_write() are handling this case correctly.
-    Also note that the Performance Schema instrumentation has
-    been performed by current os_aio_func()'s wrapper function
-    pfs_os_aio_func(). So we would no longer need to call
-    Performance Schema instrumented os_file_read() and
-    os_file_write(). Instead, we should use os_file_read_func()
-    and os_file_write_func() */
-    if (type.is_read()) {
-      return (os_file_read_func(type, name, file.m_file, buf, offset, n));
-    }
-=======
   ut_a(aio_mode == AIO_mode::NORMAL || aio_mode == AIO_mode::IBUF);
->>>>>>> mysql-26.7.0
 
   const auto array = AIO::select_slot_array(type, aio_mode);
   bool io_dispatched = false;
   while (!io_dispatched) {
     {
-<<<<<<< HEAD
-      auto slot = array->reserve_slot(type, m1, m2, file, name, buf, offset, n,
-                                      e_block, space_id);
-||||||| merged common ancestors
-      auto slot = array->reserve_slot(type, m1, m2, file, name, buf, offset, n,
-                                      e_block);
-=======
       auto slot = array->reserve_slot(type, file, name, buf, offset, n,
                                       std::move(callback));
->>>>>>> mysql-26.7.0
       if (srv_use_native_aio) {
         if (type.is_read()) {
           trx_stats::bump_io_read(trx, n);

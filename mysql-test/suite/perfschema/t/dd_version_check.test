@@ -180,7 +180,7 @@ insert into test.pfs_published_schema
 
 insert into test.pfs_published_schema
  values("MySQL 10.0.0", 100000,
-        "3f3a73ef2a9f7238be4a9c6e0be64fe8e94e2c74b354079824d57edc6fcfb4ba");
+        "e07c48fceb5c0738080366a28fc0139ef21391d2414ee719a56fdd2f341aadb6");
 
 create table test.pfs_check_table
   (id int NOT NULL AUTO_INCREMENT,

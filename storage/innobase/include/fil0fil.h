@@ -44,14 +44,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #ifndef UNIV_HOTBACKUP
 #include "ibuf0types.h"
 #endif /* !UNIV_HOTBACKUP */
-<<<<<<< HEAD
-#include "trx0types.h"
-||||||| merged common ancestors
-=======
 #include "srv0srv.h"
 #include "srv0start.h"
+#include "trx0types.h"
 #include "ut0expected.h"
->>>>>>> mysql-26.7.0
 #include "ut0new.h"
 
 #include "mysql/strings/m_ctype.h"
@@ -283,10 +279,13 @@ class fil_node_t {
                               compression enabled and data was not compressed
                               already.
   @param[in]      page_no     Page number where to read from or write into.
+  @param[in,out]  trx         Transaction the read is performed on behalf of,
+    used to account the InnoDB statistics reported by the slow query log, or
+    nullptr if not on behalf of a user transaction.
   @return DB_SUCCESS on successful IO completion, otherwise error code */
   [[nodiscard]] dberr_t post_io_sync(IORequest &type, byte *buf,
-                                     size_t buffer_len,
-                                     page_no_t page_no) const;
+                                     size_t buffer_len, page_no_t page_no,
+                                     trx_t *trx = nullptr) const;
 
 #ifdef UNIV_LINUX
   /** Posts a synchronous vectored WRITE IO operation on the node.
@@ -346,7 +345,8 @@ class fil_node_t {
   @return DB_SUCCESS if IO was successfully posted, error code otherwise */
   [[nodiscard]] dberr_t post_io_async(
       IORequest &type, byte *buf, size_t buffer_len, page_no_t page_no,
-      std::function<void(dberr_t)> callback) const;
+      std::function<void(dberr_t)> callback, trx_t *trx = nullptr,
+      bool should_buffer = false) const;
 #endif /* !UNIV_HOTBACKUP */
 
   /** Returns true iff the node is currently opened and allows IO operations. */
@@ -906,7 +906,7 @@ class fil_space_t {
   /** true if this space is currently in unflushed_spaces */
   bool is_in_unflushed_spaces{};
 
-  bool is_corrupt;
+  bool is_corrupt{};
 
   /** Compression algorithm */
   Compression::Type compression_type{};
@@ -2106,33 +2106,6 @@ number should be zero.
 /** Read or write data for a single page from a file.
 @param[in]      type            IO type
 @param[in]      sync            If true then do synchronous IO
-<<<<<<< HEAD
-@param[in]      page_id         page id
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-                                must be divisible by the OS block size
-@param[in]      len             how many bytes to read or write; this must
-                                not cross a file boundary; in AIO this must
-                                be a block size multiple
-@param[in,out]  buf             buffer where to store read data or from where
-                                to write; in AIO this must be appropriately
-                                aligned
-@param[in]      message         message for AIO handler if !sync, else ignored
-@param[in]      should_buffer   whether to buffer an AIO request. Only used by
-                                AIO read ahead
-||||||| merged common ancestors
-@param[in]      page_id         page id
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-                                must be divisible by the OS block size
-@param[in]      len             how many bytes to read or write; this must
-                                not cross a file boundary; in AIO this must
-                                be a block size multiple
-@param[in,out]  buf             buffer where to store read data or from where
-                                to write; in AIO this must be appropriately
-                                aligned
-@param[in]      message         message for AIO handler if !sync, else ignored
-=======
 @param[in]      page_id         Page id to read or write.
 @param[in]      page_size       Structure with information on logical and
                                 physical page size in the affected tablespace.
@@ -2157,6 +2130,12 @@ number should be zero.
                                 Evicts the page after successful write. It is
                                 ignored if @p bpage is nullptr or if it is not a
                                 write request.
+@param[in,out]  trx             Transaction the read is performed on behalf of,
+                                used to account the InnoDB statistics reported
+                                by the slow query log, or nullptr if the read is
+                                not on behalf of a user transaction.
+@param[in]      should_buffer   whether to buffer an AIO request. Only used by
+                                AIO read ahead
 @param[in]      pre_io_complete_callback
                                 A callback to be called exactly once when the
                                 result of this IO operation is known. It may be
@@ -2170,31 +2149,15 @@ number should be zero.
                                 `buf_page_io_complete()` is called after this
                                 callback returns DB_SUCCESS and @p bpage is not
                                 null.
->>>>>>> mysql-26.7.0
 @return error code
 @retval DB_SUCCESS on success
-<<<<<<< HEAD
-@retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-[[nodiscard]] dberr_t fil_io(const IORequest &type, bool sync,
-                             const page_id_t &page_id,
-                             const page_size_t &page_size, ulint byte_offset,
-                             ulint len, void *buf, void *message, trx_t *trx,
-                             bool should_buffer);
-||||||| merged common ancestors
-@retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-[[nodiscard]] dberr_t fil_io(const IORequest &type, bool sync,
-                             const page_id_t &page_id,
-                             const page_size_t &page_size, ulint byte_offset,
-                             ulint len, void *buf, void *message);
-=======
 @retval DB_TABLESPACE_DELETED if the tablespace does not exist
 Note: this is not an exhaustive list of errors returned.*/
 [[nodiscard]] dberr_t fil_io(
     IORequest::Type type, bool sync, const page_id_t &page_id,
     const page_size_t &page_size, ulint len, byte *buf, buf_page_t *bpage,
-    bool evict_after_write,
+    bool evict_after_write, trx_t *trx = nullptr, bool should_buffer = false,
     std::function<void(dberr_t err)> pre_io_complete_callback = [](dberr_t) {});
->>>>>>> mysql-26.7.0
 
 /** Waits for an AIO operation to complete. This function is used to write the
 handler for completed requests. The aio array of pending requests is divided
@@ -2458,62 +2421,13 @@ dberr_t fil_set_autoextend_size(space_id_t space_id, uint64_t autoextend_size);
 @return the number of tablespaces that failed to rotate. */
 [[nodiscard]] size_t fil_encryption_rotate();
 
-<<<<<<< HEAD
-/** Roencrypt the tablespace keys by current master key. */
-void fil_encryption_reencrypt(std::vector<space_id_t> &sid_vector);
-
-/** During crash recovery, open a tablespace if it had not been opened
-yet, to get valid size and flags.
-@param[in,out]  space           Tablespace instance */
-inline void fil_space_open_if_needed(fil_space_t *space) {
-  if (space->size == 0) {
-    /* Initially, size and flags will be set to 0,
-    until the files are opened for the first time.
-    fil_space_get_size() will open the file
-    and adjust the size and flags. */
-    page_no_t size = fil_space_get_size(space->id);
-
-    ut_a(size == space->size);
-  }
-}
-
-/** Enable encryption of temporary tablespace
-@param[in,out]	space	tablespace object
-@return DB_SUCCESS on success, DB_ERROR on failure */
-[[nodiscard]]
-dberr_t fil_temp_update_encryption(fil_space_t *space);
-
-/** Note that the file system where the file resides doesn't support PUNCH HOLE.
-Called from AIO handlers when IO returns DB_IO_NO_PUNCH_HOLE
-@param[in,out]  file            file to set */
-void fil_no_punch_hole(fil_node_t *file);
-||||||| merged common ancestors
-/** Roencrypt the tablespace keys by current master key. */
-void fil_encryption_reencrypt(std::vector<space_id_t> &sid_vector);
-
-/** During crash recovery, open a tablespace if it had not been opened
-yet, to get valid size and flags.
-@param[in,out]  space           Tablespace instance */
-inline void fil_space_open_if_needed(fil_space_t *space) {
-  if (space->size == 0) {
-    /* Initially, size and flags will be set to 0,
-    until the files are opened for the first time.
-    fil_space_get_size() will open the file
-    and adjust the size and flags. */
-    page_no_t size = fil_space_get_size(space->id);
-
-    ut_a(size == space->size);
-  }
-}
-
-/** Note that the file system where the file resides doesn't support PUNCH HOLE.
-Called from AIO handlers when IO returns DB_IO_NO_PUNCH_HOLE
-@param[in,out]  file            file to set */
-void fil_no_punch_hole(fil_node_t *file);
-=======
 /** Re-encrypt the tablespace keys by current master key. */
 void fil_encryption_reencrypt(const std::vector<space_id_t> &sid_vector);
->>>>>>> mysql-26.7.0
+
+/** Enable encryption of temporary tablespace
+@param[in,out]  space   tablespace object
+@return DB_SUCCESS on success, DB_ERROR on failure */
+[[nodiscard]] dberr_t fil_temp_update_encryption(fil_space_t *space);
 
 #ifdef UNIV_ENABLE_UNIT_TEST_MAKE_FILEPATH
 void test_make_filepath();

@@ -479,28 +479,6 @@ class MYSQL_BIN_LOG : public TC_LOG {
   */
   bool reencrypt_logs();
 
-<<<<<<< HEAD
- private:
-  std::atomic<enum_log_state> atomic_log_state{LOG_CLOSED};
-
-  /* The previous gtid set in relay log. */
-  Gtid_set *previous_gtid_set_relaylog;
-
-  bool snapshot_lock_acquired;
-
-  int open(const char *opt_name) override { return open_binlog(opt_name); }
-
-||||||| merged common ancestors
- private:
-  std::atomic<enum_log_state> atomic_log_state{LOG_CLOSED};
-
-  /* The previous gtid set in relay log. */
-  Gtid_set *previous_gtid_set_relaylog;
-
-  int open(const char *opt_name) override { return open_binlog(opt_name); }
-
-=======
->>>>>>> mysql-26.7.0
   /**
     Enter a stage of the ordered commit procedure.
 
@@ -568,6 +546,8 @@ class MYSQL_BIN_LOG : public TC_LOG {
 
   /* The previous gtid set in relay log. */
   Gtid_set *previous_gtid_set_relaylog;
+
+  bool snapshot_lock_acquired;
 
   [[nodiscard]] int open(const char *opt_name) override {
     return open_binlog(opt_name);
@@ -1057,12 +1037,6 @@ class MYSQL_BIN_LOG : public TC_LOG {
 
  private:
   mysql_mutex_t LOCK_log_info;
-<<<<<<< HEAD
-
- private:
-  void publish_coordinates_for_global_status(void) const;
-||||||| merged common ancestors
-=======
 
  public:
   [[nodiscard]] bool binlog_register_observer();
@@ -1074,7 +1048,8 @@ class MYSQL_BIN_LOG : public TC_LOG {
 
  private:
   std::shared_ptr<Binlog_tc_log_processing> m_tc_log_processing;
->>>>>>> mysql-26.7.0
+
+  void publish_coordinates_for_global_status(void) const;
 };
 
 struct LOAD_FILE_INFO {

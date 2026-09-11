@@ -63,19 +63,10 @@ read-ahead is not done: this is to prevent flooding the buffer pool with
 i/o-fixed buffer blocks */
 static constexpr uint32_t BUF_READ_AHEAD_PEND_LIMIT = 2;
 
-<<<<<<< HEAD
-ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
-                        const page_id_t &page_id, const page_size_t &page_size,
-                        bool unzip, trx_t *trx, bool should_buffer) {
-||||||| merged common ancestors
-ulint buf_read_page_low(dberr_t *err, bool sync, ulint type, ulint mode,
-                        const page_id_t &page_id, const page_size_t &page_size,
-                        bool unzip) {
-=======
 ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
                         ulint mode, const page_id_t &page_id,
-                        const page_size_t &page_size, bool unzip) {
->>>>>>> mysql-26.7.0
+                        const page_size_t &page_size, bool unzip, trx_t *trx,
+                        bool should_buffer) {
   buf_page_t *bpage;
 
   *err = DB_SUCCESS;
@@ -98,7 +89,6 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
     sync = true;
   }
 
-<<<<<<< HEAD
   /* buf_page_init_for_read() makes the page hash-visible, io-fixed for
   read and linked into the LRU list before we dispatch the read IO below.
   This does not stop a concurrent tablespace drop or truncation:
@@ -110,17 +100,6 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
   against a space which was dropped meanwhile, the page is detected as
   stale (buf_page_t::was_stale()) and freed lazily by
   buf_page_free_stale(), which waits out the read io-fix. */
-||||||| merged common ancestors
-  /* The following call will also check if the tablespace does not exist
-  or is being dropped; if we succeed in initing the page in the buffer
-  pool for read, then DISCARD cannot proceed until the read has
-  completed */
-=======
-  /* The following call will also check if the tablespace does not exist
-  or is being dropped; if we succeed in initializing the page in the buffer
-  pool for read, then DISCARD cannot proceed until the read has
-  completed */
->>>>>>> mysql-26.7.0
   bpage = buf_page_init_for_read(mode, page_id, page_size, unzip);
 
   ut_a(bpage == nullptr || bpage->get_space()->id == page_id.space());
@@ -148,29 +127,8 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
   }
 
   *err = fil_io(type | IORequest::Type::READ, sync, page_id, page_size,
-                page_size.physical(), dst, bpage, false);
+                page_size.physical(), dst, bpage, false, trx, should_buffer);
 
-<<<<<<< HEAD
-  *err = fil_io(request, sync, page_id, page_size, 0, page_size.physical(), dst,
-                bpage, trx, should_buffer);
-
-  if (sync) {
-    thd_wait_end(nullptr);
-  }
-
-  if (*err != DB_SUCCESS) {
-    if (IORequest::ignore_missing(type) || *err == DB_TABLESPACE_DELETED) {
-||||||| merged common ancestors
-  *err = fil_io(request, sync, page_id, page_size, 0, page_size.physical(), dst,
-                bpage);
-
-  if (sync) {
-    thd_wait_end(nullptr);
-  }
-
-  if (*err != DB_SUCCESS) {
-    if (IORequest::ignore_missing(type) || *err == DB_TABLESPACE_DELETED) {
-=======
   /* The DB_INDEX_CORRUPT is returned from fil_io's callback that is running
   buf_page_io_complete. */
   if (*err != DB_SUCCESS && *err != DB_INDEX_CORRUPT) {
@@ -179,7 +137,6 @@ ulint buf_read_page_low(dberr_t *err, bool sync, IORequest::Type type,
     if ((type & IORequest::Type::IGNORE_MISSING) ==
             IORequest::Type::IGNORE_MISSING ||
         *err == DB_TABLESPACE_DELETED) {
->>>>>>> mysql-26.7.0
       buf_read_page_handle_error(bpage);
       return (0);
     }
@@ -290,16 +247,9 @@ read_ahead:
     const page_id_t cur_page_id(page_id.space(), i);
 
     if (!ibuf_bitmap_page(cur_page_id, page_size)) {
-<<<<<<< HEAD
-      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
-                                 cur_page_id, page_size, false, trx, false);
-||||||| merged common ancestors
-      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
-                                 cur_page_id, page_size, false);
-=======
       count += buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
-                                 ibuf_mode, cur_page_id, page_size, false);
->>>>>>> mysql-26.7.0
+                                 ibuf_mode, cur_page_id, page_size, false, trx,
+                                 false);
 
       if (err == DB_TABLESPACE_DELETED) {
         ib::warn(ER_IB_MSG_140) << "Random readahead trying to"
@@ -337,16 +287,9 @@ bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size,
   ulint count;
   dberr_t err;
 
-<<<<<<< HEAD
-  count = buf_read_page_low(&err, true, 0, BUF_READ_ANY_PAGE, page_id,
-                            page_size, false, trx, false);
-||||||| merged common ancestors
-  count = buf_read_page_low(&err, true, 0, BUF_READ_ANY_PAGE, page_id,
-                            page_size, false);
-=======
   count = buf_read_page_low(&err, true, IORequest::Type::UNSET,
-                            BUF_READ_ANY_PAGE, page_id, page_size, false);
->>>>>>> mysql-26.7.0
+                            BUF_READ_ANY_PAGE, page_id, page_size, false, trx,
+                            false);
 
   srv_stats.buf_pool_reads.add(count);
 
@@ -366,20 +309,10 @@ bool buf_read_page_background(const page_id_t &page_id,
   ulint count;
   dberr_t err;
 
-<<<<<<< HEAD
-  count = buf_read_page_low(
-      &err, sync, IORequest::DO_NOT_WAKE | IORequest::IGNORE_MISSING,
-      BUF_READ_ANY_PAGE, page_id, page_size, false, nullptr, false);
-||||||| merged common ancestors
-  count = buf_read_page_low(&err, sync,
-                            IORequest::DO_NOT_WAKE | IORequest::IGNORE_MISSING,
-                            BUF_READ_ANY_PAGE, page_id, page_size, false);
-=======
   count = buf_read_page_low(
       &err, sync,
       IORequest::Type::DO_NOT_WAKE | IORequest::Type::IGNORE_MISSING,
-      BUF_READ_ANY_PAGE, page_id, page_size, false);
->>>>>>> mysql-26.7.0
+      BUF_READ_ANY_PAGE, page_id, page_size, false, nullptr, false);
 
   srv_stats.buf_pool_reads.add(count);
 
@@ -621,16 +554,9 @@ ulint buf_read_ahead_linear(const page_id_t &page_id,
     const page_id_t cur_page_id(page_id.space(), i);
 
     if (!ibuf_bitmap_page(cur_page_id, page_size)) {
-<<<<<<< HEAD
-      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
-                                 cur_page_id, page_size, false, trx, true);
-||||||| merged common ancestors
-      count += buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, ibuf_mode,
-                                 cur_page_id, page_size, false);
-=======
       count += buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
-                                 ibuf_mode, cur_page_id, page_size, false);
->>>>>>> mysql-26.7.0
+                                 ibuf_mode, cur_page_id, page_size, false, trx,
+                                 true);
 
       if (err == DB_TABLESPACE_DELETED) {
         ib::warn(ER_IB_MSG_142) << "linear readahead trying to"
@@ -706,16 +632,8 @@ void buf_read_ibuf_merge_pages(bool sync, const space_id_t *space_ids,
     dberr_t err;
 
     buf_read_page_low(&err, sync && (i + 1 == n_stored),
-<<<<<<< HEAD
-                      IORequest::IGNORE_MISSING, BUF_READ_ANY_PAGE, page_id,
-                      page_size, true, nullptr, false);
-||||||| merged common ancestors
-                      IORequest::IGNORE_MISSING, BUF_READ_ANY_PAGE, page_id,
-                      page_size, true);
-=======
                       IORequest::Type::IGNORE_MISSING, BUF_READ_ANY_PAGE,
-                      page_id, page_size, true);
->>>>>>> mysql-26.7.0
+                      page_id, page_size, true, nullptr, false);
 
     if (err == DB_TABLESPACE_DELETED) {
       /* We have deleted or are deleting the single-table
@@ -776,17 +694,9 @@ void buf_read_recv_pages(space_id_t space_id, const page_no_t *page_nos,
 
   for (ulint i = 0; i < n_stored; i++) {
     dberr_t err;
-<<<<<<< HEAD
-    buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, BUF_READ_ANY_PAGE,
-                      {space_id, page_nos[i]}, page_size, true, nullptr, false);
-||||||| merged common ancestors
-    buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, BUF_READ_ANY_PAGE,
-                      {space_id, page_nos[i]}, page_size, true);
-=======
     buf_read_page_low(&err, false, IORequest::Type::DO_NOT_WAKE,
                       BUF_READ_ANY_PAGE, {space_id, page_nos[i]}, page_size,
-                      true);
->>>>>>> mysql-26.7.0
+                      true, nullptr, false);
   }
 
   os_aio_simulated_wake_handler_threads();

@@ -53,12 +53,8 @@
 #include <limits>
 
 #include "include/compression.h"
-<<<<<<< HEAD
-#include "mysys/buffered_error_log.h"
-||||||| merged common ancestors
-=======
 #include "include/dh_ecdh_config.h"
->>>>>>> mysql-26.7.0
+#include "mysys/buffered_error_log.h"
 
 #include "mysql/components/library_mysys/my_system.h"  // my_physical_memory
 #include "mysql/components/services/log_builtins.h"

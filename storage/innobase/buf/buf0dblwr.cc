@@ -456,33 +456,6 @@ bool Pages::is_actual_page_corrupted(const fil_space_t &space,
       fil_io(IORequest::Type::READ | IORequest::Type::DBLWR, true, page_id,
              page_size, page_size.physical(), buffer.begin(), nullptr, false);
 
-<<<<<<< HEAD
-  IORequest request;
-
-  request.dblwr();
-
-  /* Read in the page from the data file to compare. */
-  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
-                    buffer.begin(), nullptr, nullptr, false);
-
-  if (err != DB_SUCCESS) {
-    ib::warn(ER_IB_MSG_DBLWR_1314)
-        << "Double write fle recovery: " << page_id << " read failed with "
-        << "error: " << ut_strerr(err);
-||||||| merged common ancestors
-  IORequest request;
-
-  request.dblwr();
-
-  /* Read in the page from the data file to compare. */
-  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
-                    buffer.begin(), nullptr);
-
-  if (err != DB_SUCCESS) {
-    ib::warn(ER_IB_MSG_DBLWR_1314)
-        << "Double write fle recovery: " << page_id << " read failed with "
-        << "error: " << ut_strerr(err);
-=======
   if (err != DB_SUCCESS && err != DB_IO_DECRYPT_FAIL &&
       err != DB_IO_DECOMPRESS_FAIL) {
     /* We must be able to read a page. We are running this for a known
@@ -492,7 +465,6 @@ bool Pages::is_actual_page_corrupted(const fil_space_t &space,
     ib::fatal(UT_LOCATION_HERE, ER_IB_MSG_DBLWR_1314,
               page_id.to_string().c_str(), node_and_page.first.c_str(),
               ulong{node_and_page.second}, ut_strerr(err));
->>>>>>> mysql-26.7.0
   }
 
   /* Is the page read from the data file corrupt? */
@@ -1724,26 +1696,10 @@ dberr_t Double_write::write_to_datafile(
   ut_ad(mach_read_from_4(frame + FIL_PAGE_SPACE_ID) == bpage->space());
 
   auto err = fil_io(type, sync, bpage->id, bpage->size, len, frame, bpage, sync,
-                    pre_io_complete_callback);
+                    nullptr, false, pre_io_complete_callback);
 
-<<<<<<< HEAD
-  io_request.set_original_size(bpage->size.physical());
-  auto err = fil_io(io_request, sync, bpage->id, bpage->size, 0, len, frame,
-                    bpage, nullptr, false);
-
-  /* When a tablespace is deleted with BUF_REMOVE_NONE, fil_io() might
-  return DB_PAGE_IS_STALE or DB_TABLESPACE_DELETED. */
-||||||| merged common ancestors
-  io_request.set_original_size(bpage->size.physical());
-  auto err =
-      fil_io(io_request, sync, bpage->id, bpage->size, 0, len, frame, bpage);
-
-  /* When a tablespace is deleted with BUF_REMOVE_NONE, fil_io() might
-  return DB_PAGE_IS_STALE or DB_TABLESPACE_DELETED. */
-=======
   /* When a tablespace is deleted, fil_io() might return DB_PAGE_IS_STALE or
   DB_TABLESPACE_DELETED. */
->>>>>>> mysql-26.7.0
   ut_a(err == DB_SUCCESS || err == DB_TABLESPACE_DELETED ||
        err == DB_PAGE_IS_STALE);
 
@@ -3116,20 +3072,10 @@ it needed.
     IORequest req_type{IORequest::Type::UNSET};
     size_t z_page_size;
 
-<<<<<<< HEAD
-    en.set(space->m_encryption_metadata);
-    req_type.set_encryption_algorithm(Encryption::AES);
-    fil_node_t *node = space->get_file_node(&page_no);
-    req_type.block_size(node->block_size);
-||||||| merged common ancestors
-    en.set(space->m_encryption_metadata);
-    fil_node_t *node = space->get_file_node(&page_no);
-    req_type.block_size(node->block_size);
-=======
     en.set(space.m_encryption_metadata);
+    req_type.set_encryption_algorithm(Encryption::AES);
     const auto node = space.get_node_for_page_no(page_no);
     req_type.block_size(node->get_block_size());
->>>>>>> mysql-26.7.0
 
     page_type_t page_type = fil_page_get_type(page);
     ut_ad(fil_is_page_type_valid(page_type));
@@ -3201,51 +3147,9 @@ void recv::Pages::dblwr_recover_page(const fil_space_t &space,
     return;
   }
 
-<<<<<<< HEAD
-  const page_size_t page_size(space->flags);
-  const page_id_t page_id(space->id, page_no);
-
-  /* We want to ensure that for partial reads the
-  unread portion of the page is NUL. */
-  memset(buffer.begin(), 0x0, page_size.physical());
-
-  IORequest request;
-
-  request.dblwr();
-
-  /* Read in the page from the data file to compare. */
-  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
-                    buffer.begin(), nullptr, nullptr, false);
-
-  if (err != DB_SUCCESS) {
-    ib::warn(ER_IB_MSG_DBLWR_1314)
-        << "Double write file recovery: " << page_id << " read failed with "
-        << "error: " << ut_strerr(err);
-||||||| merged common ancestors
-  const page_size_t page_size(space->flags);
-  const page_id_t page_id(space->id, page_no);
-
-  /* We want to ensure that for partial reads the
-  unread portion of the page is NUL. */
-  memset(buffer.begin(), 0x0, page_size.physical());
-
-  IORequest request;
-
-  request.dblwr();
-
-  /* Read in the page from the data file to compare. */
-  auto err = fil_io(request, true, page_id, page_size, 0, page_size.physical(),
-                    buffer.begin(), nullptr);
-
-  if (err != DB_SUCCESS) {
-    ib::warn(ER_IB_MSG_DBLWR_1314)
-        << "Double write file recovery: " << page_id << " read failed with "
-        << "error: " << ut_strerr(err);
-=======
   if (!is_actual_page_corrupted(space, page_id)) {
     /* Database page is fine. No need to restore from dblwr. */
     return;
->>>>>>> mysql-26.7.0
   }
 
   ib::info(ER_IB_MSG_DBLWR_1315)
@@ -3253,115 +3157,12 @@ void recv::Pages::dblwr_recover_page(const fil_space_t &space,
       << ". Trying to recover it from the doublewrite buffer.";
   ut_ad(!Encryption::is_encrypted_page(dblwr_page));
 
-<<<<<<< HEAD
-  if (data_file_page.is_corrupted()) {
-    ib::info(ER_IB_MSG_DBLWR_1315) << "Database page corruption or"
-                                   << " a failed file read of page " << page_id
-                                   << ". Trying to recover it from the"
-                                   << " doublewrite file.";
-
-    dberr_t dblwr_err;
-
-    const bool dblwr_corrupted =
-        is_dblwr_page_corrupted(page, space, page_no, &dblwr_err);
-
-    if (dblwr_corrupted) {
-      std::ostringstream out;
-
-      out << "Dumping the data file page (page_id=" << page_id << "):";
-      ib::error(ER_IB_MSG_DBLWR_1304, out.str().c_str());
-
-      buf_page_print(buffer.begin(), page_size, BUF_PAGE_PRINT_NO_CRASH);
-
-      out.str("");
-      out << "Dumping the DBLWR page (dblwr_page_no=" << dblwr_page_no << "):";
-      ib::error(ER_IB_MSG_DBLWR_1295, out.str().c_str());
-
-      buf_page_print(page, page_size, BUF_PAGE_PRINT_NO_CRASH);
-
-      ib::fatal(UT_LOCATION_HERE, ER_IB_MSG_DBLWR_1306);
-    }
-
-  } else {
-    bool data_page_zeroes = buf_page_is_zeroes(buffer.begin(), page_size);
-    bool dblwr_zeroes = buf_page_is_zeroes(page, page_size);
-    dberr_t dblwr_err;
-
-    if (data_page_zeroes && !dblwr_zeroes &&
-        !is_dblwr_page_corrupted(page, space, page_no, &dblwr_err)) {
-      /* Database page contained only zeroes, while a valid copy is
-      available in dblwr buffer. */
-    } else {
-      /* Database page is fine.  No need to restore from dblwr. */
-      return false;
-    }
-  }
-
-  ut_ad(!Encryption::is_encrypted_page(page));
-
-  bool found = false;
-  lsn_t reduced_lsn = LSN_MAX;
-  std::tie(found, reduced_lsn) = find_entry(page_id);
-  lsn_t dblwr_lsn = mach_read_from_8(page + FIL_PAGE_LSN);
-||||||| merged common ancestors
-  if (data_file_page.is_corrupted()) {
-    ib::info(ER_IB_MSG_DBLWR_1315) << "Database page corruption or"
-                                   << " a failed file read of page " << page_id
-                                   << ". Trying to recover it from the"
-                                   << " doublewrite file.";
-
-    dberr_t dblwr_err;
-
-    const bool dblwr_corrupted =
-        is_dblwr_page_corrupted(page, space, page_no, &dblwr_err);
-
-    if (dblwr_corrupted) {
-      std::ostringstream out;
-
-      out << "Dumping the data file page (page_id=" << page_id << "):";
-      ib::error(ER_IB_MSG_DBLWR_1304, out.str().c_str());
-
-      buf_page_print(buffer.begin(), page_size, BUF_PAGE_PRINT_NO_CRASH);
-
-      out.str("");
-      out << "Dumping the DBLWR page (dblwr_page_no=" << dblwr_page_no << "):";
-      ib::error(ER_IB_MSG_DBLWR_1295, out.str().c_str());
-
-      buf_page_print(page, page_size, BUF_PAGE_PRINT_NO_CRASH);
-
-      ib::fatal(UT_LOCATION_HERE, ER_IB_MSG_DBLWR_1306);
-    }
-
-  } else {
-    bool data_page_zeroes = buf_page_is_zeroes(buffer.begin(), page_size);
-    bool dblwr_zeroes = buf_page_is_zeroes(page, page_size);
-    dberr_t dblwr_err;
-    const bool dblwr_corrupted =
-        is_dblwr_page_corrupted(page, space, page_no, &dblwr_err);
-
-    if (data_page_zeroes && !dblwr_zeroes && !dblwr_corrupted) {
-      /* Database page contained only zeroes, while a valid copy is
-      available in dblwr buffer. */
-    } else {
-      /* Database page is fine.  No need to restore from dblwr. */
-      return false;
-    }
-  }
-
-  ut_ad(!Encryption::is_encrypted_page(page));
-
-  bool found = false;
-  lsn_t reduced_lsn = LSN_MAX;
-  std::tie(found, reduced_lsn) = find_entry(page_id);
-  lsn_t dblwr_lsn = mach_read_from_8(page + FIL_PAGE_LSN);
-=======
   /* FIXME we should not be checking against reduced entries, as long as the
   current page LSN is higher than the checkpoint LSN, we are fine to recover it.
   Check similar usage in recv::Pages::get_first_page_content_for_recovery.
   */
   const auto reduced_lsn = get_max_lsn_of_reduced_page_entries(page_id);
   lsn_t dblwr_lsn = mach_read_from_8(dblwr_page + FIL_PAGE_LSN);
->>>>>>> mysql-26.7.0
 
   /* If we find a newer version of page that is in reduced dblwr, we
   shouldn't restore the old/stale page from regular dblwr. We should
@@ -3382,25 +3183,7 @@ void recv::Pages::dblwr_recover_page(const fil_space_t &space,
                           true, page_id, page_size, page_size.physical(),
                           const_cast<byte *>(dblwr_page), nullptr, false);
 
-<<<<<<< HEAD
-  /* Write the good page from the doublewrite buffer to the
-  intended position. */
-
-  err = fil_io(write_request, true, page_id, page_size, 0, page_size.physical(),
-               const_cast<byte *>(page), nullptr, nullptr, false);
-
-  ut_a(err == DB_SUCCESS || err == DB_TABLESPACE_DELETED);
-||||||| merged common ancestors
-  /* Write the good page from the doublewrite buffer to the
-  intended position. */
-
-  err = fil_io(write_request, true, page_id, page_size, 0, page_size.physical(),
-               const_cast<byte *>(page), nullptr);
-
-  ut_a(err == DB_SUCCESS || err == DB_TABLESPACE_DELETED);
-=======
   ut_a(err == DB_SUCCESS);
->>>>>>> mysql-26.7.0
 
   ib::info(ER_IB_MSG_DBLWR_1308)
       << "Recovered page " << page_id << " from the doublewrite buffer.";

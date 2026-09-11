@@ -220,6 +220,11 @@ extern PSI_memory_key mem_key_dict_stats_bg_recalc_pool_t;
 extern PSI_memory_key mem_key_dict_stats_index_map_t;
 extern PSI_memory_key mem_key_dict_stats_n_diff_on_level;
 extern PSI_memory_key mem_key_fil_space_t;
+extern PSI_memory_key mem_key_log_online_iterator_files;
+extern PSI_memory_key mem_key_log_online_iterator_page;
+extern PSI_memory_key mem_key_log_online_modified_pages;
+extern PSI_memory_key mem_key_log_online_read_buf;
+extern PSI_memory_key mem_key_log_online_sys;
 extern PSI_memory_key mem_key_mtr_t;
 extern PSI_memory_key mem_key_lock_sys;
 extern PSI_memory_key mem_key_redo_log_archive_queue_element;
@@ -233,22 +238,8 @@ extern PSI_memory_key mem_key_undo_spaces;
 extern PSI_memory_key mem_key_ut_lock_free_hash_t;
 /* Please obey alphabetical order in the definitions above. */
 
-<<<<<<< HEAD
-extern PSI_memory_key mem_key_log_online_modified_pages;
-extern PSI_memory_key mem_key_log_online_sys;
-extern PSI_memory_key mem_key_log_online_read_buf;
-extern PSI_memory_key mem_key_log_online_iterator_files;
-extern PSI_memory_key mem_key_log_online_iterator_page;
-
-/** Setup the internal objects needed for ut::*_withkey() to operate.
-This must be called before the first call to ut::*_withkey(). */
-||||||| merged common ancestors
-/** Setup the internal objects needed for ut::*_withkey() to operate.
-This must be called before the first call to ut::*_withkey(). */
-=======
 /** Setup the internal objects needed for `ut::*_withkey()` to operate.
 This must be called before the first call to `ut::*_withkey()`. */
->>>>>>> mysql-26.7.0
 void ut_new_boot();
 
 /** Setup the internal objects needed for `ut::*_withkey()` to operate.

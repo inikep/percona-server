@@ -697,34 +697,10 @@ void trx_sys_close(void) {
     return;
   }
 
-<<<<<<< HEAD
-  ulint size = trx_sys->mvcc->size();
-
-  if (size > 0) {
-    ib::error(ER_IB_MSG_1201) << "All read views were not closed before"
-                                 " shutdown: "
-                              << size << " read views open";
-  }
-
   if (trx_dummy_sess) {
     sess_close(trx_dummy_sess);
     trx_dummy_sess = nullptr;
   }
-||||||| merged common ancestors
-  ulint size = trx_sys->mvcc->size();
-
-  if (size > 0) {
-    ib::error(ER_IB_MSG_1201) << "All read views were not closed before"
-                                 " shutdown: "
-                              << size << " read views open";
-  }
-
-  sess_close(trx_dummy_sess);
-  trx_dummy_sess = nullptr;
-=======
-  sess_close(trx_dummy_sess);
-  trx_dummy_sess = nullptr;
->>>>>>> mysql-26.7.0
 
   trx_purge_sys_close();
 

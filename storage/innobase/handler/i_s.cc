@@ -7029,28 +7029,32 @@ static int i_s_dict_fill_innodb_tablespaces(
     if (filepath == nullptr) {
       filepath = Fil_path::make_ibd_from_table_name(name);
     }
-  }
 
-  ut_a(filepath != nullptr);
+    ut_a(filepath != nullptr);
+  }
 
   uint32_t block_size = 0;
   uint64_t total_size = 0;
   uint64_t alloc_size = 0;
   using ib::fil::Tablespaces_nodes_interface;
 
-  const auto node_info = tablespaces_nodes->get_node_info(
-      space_id, 0, {.m_path = filepath}, page_size.physical());
+  /* The system tablespace is reported here too, but it has no single
+  "first path", so its size columns are left at zero. */
+  if (filepath != nullptr) {
+    const auto node_info = tablespaces_nodes->get_node_info(
+        space_id, 0, {.m_path = filepath}, page_size.physical());
 
-  if (node_info) {
-    block_size = node_info->block_size;
-    alloc_size = node_info->alloc_size;
-    total_size = node_info->size * page_size.physical();
-  } else if (node_info.error() !=
-             Tablespaces_nodes_interface::Node_error::NODE_DOES_NOT_EXIST) {
-    ib::warn(ER_IB_MSG_FAILED_TO_GET_FILE_STATS, filepath);
+    if (node_info) {
+      block_size = node_info->block_size;
+      alloc_size = node_info->alloc_size;
+      total_size = node_info->size * page_size.physical();
+    } else if (node_info.error() !=
+               Tablespaces_nodes_interface::Node_error::NODE_DOES_NOT_EXIST) {
+      ib::warn(ER_IB_MSG_FAILED_TO_GET_FILE_STATS, filepath);
+    }
+
+    ut::free(filepath);
   }
-
-  ut::free(filepath);
 
   OK(fields[INNODB_TABLESPACES_FS_BLOCK_SIZE]->store(block_size, true));
 

@@ -178,6 +178,8 @@ ut::Expected<ut::unique_ptr_aligned<byte[]>> Datafile::read_first_page(
   }
   ut_a(n_read == physical_page_size);
 
+  srv_stats.page0_read.add(1);
+
 #ifndef UNIV_HOTBACKUP
   /* If Double-Write Buffer is available, in case the page is corrupted, check
   if it can be recovered from the Double-Write Buffer. */
@@ -217,35 +219,7 @@ ut::Expected<ut::unique_ptr_aligned<byte[]>> Datafile::read_first_page(
   }
 #endif
 
-<<<<<<< HEAD
-  if (err == DB_SUCCESS && m_order == 0) {
-    srv_stats.page0_read.add(1);
-
-    m_flags = fsp_header_get_flags(m_first_page);
-
-    m_space_id = fsp_header_get_space_id(m_first_page);
-
-    m_server_version = fsp_header_get_server_version(m_first_page);
-
-    m_space_version = fsp_header_get_space_version(m_first_page);
-  }
-
-  return (err);
-||||||| merged common ancestors
-  if (err == DB_SUCCESS && m_order == 0) {
-    m_flags = fsp_header_get_flags(m_first_page);
-
-    m_space_id = fsp_header_get_space_id(m_first_page);
-
-    m_server_version = fsp_header_get_server_version(m_first_page);
-
-    m_space_version = fsp_header_get_space_version(m_first_page);
-  }
-
-  return (err);
-=======
   return page;
->>>>>>> mysql-26.7.0
 }
 
 void Datafile::extract_fields_from_first_page(const byte *page) {
@@ -393,120 +367,6 @@ dberr_t Datafile::validate_first_page(const byte *page, space_id_t space_id,
                                        filepath, for_import, encryption_key);
   ut_a(get_cached_space_flags() == validated_space_flags);
 
-<<<<<<< HEAD
-  if (error_txt != nullptr) {
-    ib::error(ER_IB_MSG_399)
-        << error_txt << " in datafile: " << m_filepath
-        << ", Space ID:" << m_space_id << ", Flags: " << m_flags << ". "
-        << TROUBLESHOOT_DATADICT_MSG;
-    m_is_valid = false;
-
-    free_first_page();
-
-    return (DB_CORRUPTION);
-  }
-
-  /* For encrypted tablespace, check the encryption info in the
-  first page can be decrypt by master key, otherwise, this table
-  can't be open. And for importing, we skip checking it. */
-  if (FSP_FLAGS_GET_ENCRYPTION(m_flags) && !for_import) {
-    m_encryption_key = static_cast<byte *>(
-        ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, Encryption::KEY_LEN));
-    m_encryption_iv = static_cast<byte *>(
-        ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, Encryption::KEY_LEN));
-#ifdef UNIV_ENCRYPT_DEBUG
-    fprintf(stderr, "Got from file %u:", m_space_id);
-#endif
-
-    Encryption_key e_key{m_encryption_key, m_encryption_iv};
-    if (!fsp_header_get_encryption_key(m_flags, e_key, m_first_page)) {
-      ib::error(ER_IB_MSG_401)
-          << "Encryption information in datafile: " << m_filepath
-          << " can't be decrypted, please confirm that"
-          << " keyring is loaded.";
-
-      m_is_valid = false;
-      free_first_page();
-      ut::free(m_encryption_key);
-      ut::free(m_encryption_iv);
-      m_encryption_key = nullptr;
-      m_encryption_iv = nullptr;
-      return (DB_INVALID_ENCRYPTION_META);
-    } else {
-#ifdef UNIV_DEBUG
-      ib::info(ER_IB_MSG_402) << "Read encryption metadata from " << m_filepath
-                              << " successfully, encryption"
-                              << " of this tablespace enabled.";
-#endif
-      m_encryption_master_key_id = e_key.m_master_key_id;
-    }
-
-    if (recv_recovery_is_on() &&
-        memcmp(m_encryption_key, m_encryption_iv, Encryption::KEY_LEN) == 0) {
-      ut::free(m_encryption_key);
-      ut::free(m_encryption_iv);
-      m_encryption_key = nullptr;
-      m_encryption_iv = nullptr;
-    }
-  }
-||||||| merged common ancestors
-  if (error_txt != nullptr) {
-    ib::error(ER_IB_MSG_399)
-        << error_txt << " in datafile: " << m_filepath
-        << ", Space ID:" << m_space_id << ", Flags: " << m_flags << ". "
-        << TROUBLESHOOT_DATADICT_MSG;
-    m_is_valid = false;
-
-    free_first_page();
-
-    return (DB_CORRUPTION);
-  }
-
-  /* For encrypted tablespace, check the encryption info in the
-  first page can be decrypt by master key, otherwise, this table
-  can't be open. And for importing, we skip checking it. */
-  if (FSP_FLAGS_GET_ENCRYPTION(m_flags) && !for_import) {
-    m_encryption_key = static_cast<byte *>(
-        ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, Encryption::KEY_LEN));
-    m_encryption_iv = static_cast<byte *>(
-        ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, Encryption::KEY_LEN));
-#ifdef UNIV_ENCRYPT_DEBUG
-    fprintf(stderr, "Got from file %u:", m_space_id);
-#endif
-
-    Encryption_key e_key{m_encryption_key, m_encryption_iv};
-    if (!fsp_header_get_encryption_key(m_flags, e_key, m_first_page)) {
-      ib::error(ER_IB_MSG_401)
-          << "Encryption information in datafile: " << m_filepath
-          << " can't be decrypted, please confirm that"
-             " keyring is loaded.";
-
-      m_is_valid = false;
-      free_first_page();
-      ut::free(m_encryption_key);
-      ut::free(m_encryption_iv);
-      m_encryption_key = nullptr;
-      m_encryption_iv = nullptr;
-      return (DB_INVALID_ENCRYPTION_META);
-    } else {
-#ifdef UNIV_DEBUG
-      ib::info(ER_IB_MSG_402) << "Read encryption metadata from " << m_filepath
-                              << " successfully, encryption"
-                              << " of this tablespace enabled.";
-#endif
-      m_encryption_master_key_id = e_key.m_master_key_id;
-    }
-
-    if (recv_recovery_is_on() &&
-        memcmp(m_encryption_key, m_encryption_iv, Encryption::KEY_LEN) == 0) {
-      ut::free(m_encryption_key);
-      ut::free(m_encryption_iv);
-      m_encryption_key = nullptr;
-      m_encryption_iv = nullptr;
-    }
-  }
-=======
->>>>>>> mysql-26.7.0
 #ifndef UNIV_HOTBACKUP
   /* Set encryption operation in progress based on operation type at page 0. */
   m_encryption_op_in_progress = fsp_header_encryption_op_type_in_progress(

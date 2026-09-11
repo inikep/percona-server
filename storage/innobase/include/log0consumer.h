@@ -57,7 +57,7 @@ class Log_consumer {
   enum class consumer_type { SERVER, USER };
 
   /** @return Type of this consumer. */
-  virtual consumer_type get_consumer_type() const = 0;
+  [[nodiscard]] virtual consumer_type get_consumer_type() const = 0;
 };
 
 class Log_user_consumer : public Log_consumer {
@@ -77,7 +77,7 @@ class Log_user_consumer : public Log_consumer {
 
   void consumption_requested(lsn_t request_lsn) override;
 
-  Log_consumer::consumer_type get_consumer_type() const override;
+  [[nodiscard]] Log_consumer::consumer_type get_consumer_type() const override;
 
  private:
   /** Name of this consumer (saved value from ctor). */
@@ -93,15 +93,9 @@ class Log_checkpoint_consumer : public Log_consumer {
  public:
   explicit Log_checkpoint_consumer(log_t &log);
 
-<<<<<<< HEAD
-  Log_consumer::consumer_type get_consumer_type() const override;
+  [[nodiscard]] Log_consumer::consumer_type get_consumer_type() const override;
 
-  const std::string &get_name() const override;
-||||||| merged common ancestors
-  const std::string &get_name() const override;
-=======
   [[nodiscard]] const std::string &get_name() const override;
->>>>>>> mysql-26.7.0
 
   [[nodiscard]] lsn_t get_consumed_lsn() const override;
 

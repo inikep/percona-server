@@ -2415,32 +2415,28 @@ the receiver transaction will get the same read view as the donor transaction
 @param[in]	trx		receiver transaction
 @param[in]	from_trx	donor transaction
 @return read view clone */
-ReadView *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
+Read_view_interface *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
   ut_ad(locksys::owns_exclusive_global_latch());
   ut_ad(trx_sys_mutex_own());
   ut_ad(trx_mutex_own(from_trx));
 
   if (UNIV_UNLIKELY(srv_read_only_mode)) {
     ut_ad(trx->read_view == nullptr);
-    trx_sys_mutex_exit();
     trx_mutex_exit(from_trx);
+    trx_sys_mutex_exit();
     return (nullptr);
   }
 
-  if (from_trx->state != TRX_STATE_ACTIVE || from_trx->read_view == nullptr) {
-    trx_sys_mutex_exit();
+  if (from_trx->state != TRX_STATE_ACTIVE ||
+      !trx_sys->mvcc->is_view_open(from_trx->read_view)) {
     trx_mutex_exit(from_trx);
+    trx_sys_mutex_exit();
     return (nullptr);
   }
 
-  const bool needs_adding = (trx->read_view == nullptr);
-
-  from_trx->read_view->clone(trx->read_view, from_trx);
+  trx_sys->mvcc->clone_view(trx->read_view, from_trx);
 
   trx_mutex_exit(from_trx);
-
-  if (needs_adding) trx_sys->mvcc->view_add(trx->read_view);
-
   trx_sys_mutex_exit();
 
   return (trx->read_view);
@@ -3532,23 +3528,10 @@ void trx_set_rw_mode(trx_t *trx) /*!< in/out: transaction that is RW */
 
   trx_assign_id_for_rw(trx);
 
-<<<<<<< HEAD
   /* So that we can see our own changes unless our view is a clone */
-  if (MVCC::is_view_active(trx->read_view) && !trx->read_view->is_cloned()) {
-    MVCC::set_view_creator_trx_id(trx->read_view, trx->id);
-||||||| merged common ancestors
-  trx_sys->rw_trx_ids.push_back(trx->id);
-
-  /* So that we can see our own changes. */
-  if (MVCC::is_view_active(trx->read_view)) {
-    MVCC::set_view_creator_trx_id(trx->read_view, trx->id);
-=======
-  trx_sys->rw_trx_ids.push_back(trx->id);
-
-  /* So that we can see our own changes. */
-  if (trx_sys->mvcc->is_view_open(trx->read_view)) {
+  if (trx_sys->mvcc->is_view_open(trx->read_view) &&
+      !trx->read_view->is_cloned()) {
     trx_sys->mvcc->set_view_creator_trx_id(trx->read_view, trx->id);
->>>>>>> mysql-26.7.0
   }
   trx_add_to_rw_trx_list(trx);
 

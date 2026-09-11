@@ -13452,7 +13452,96 @@ ER_WARN_AUDIT_LOG_SYSVAR_ADJUSTED
 ER_WARN_AUDIT_LOG_SYSVAR_DISCARDED
   eng "Variable '%s' value change was discarded, to make pruning slower than rotation."
 
-<<<<<<< HEAD
+ER_WARN_TLS_SESSION_WITHOUT_PQC
+  eng "TLS channel '%s' is not configured to require post-quantum key exchange algorithms; future TLS sessions may use a non-post-quantum key exchange algorithm because force_pqc is disabled"
+
+#
+# End of 9.7 error messages intended to be written to the server error log.
+#
+
+
+#
+# MySQL moves from semantic-style versioning to calendar-based versioning
+# starting with the 26.7 release base. Upgrade/downgrade compatibility is
+# tracked through compatibility lineage. The first calendar release base, 26.7,
+# belongs to the 9.7 CalVer compatibility lineage. If 28.4 becomes LTS, the
+# 9.7 lineage continues through 28.4. The first Innovation release after that,
+# 28.7, starts the 28.4 compatibility lineage.
+#
+
+#
+# Start of "9.7 cal-ver compatibility lineage (starts from 26.7)" error messages intended
+# to be written to the server error log.
+#
+# Append 9.7 error log messages to the end of the previous section.
+# Messages intended to be sent to _clients_ go in messages_to_clients.txt!
+#
+
+start-error-number 16000
+
+ER_CSA_RPL_RECOVERY_SKIPPED
+  eng "Relay log recovery skipped for Change Stream Applier."
+
+ER_CSA_MSG
+  eng "%s"
+
+ER_IB_MSG_TABLESPACE_NOT_OPENED
+  eng "Tablespace with id '%lu' can not be opened. Recovery can't continue."
+
+ER_IB_MSG_REDO_PARSE_START_NOT_FOUND
+  eng "Could not find the start point for REDO parsing. REDO log may be corrupted. Recovery can't continue."
+
+ER_IB_MSG_PARSE_START_AND_CHECKPOINT
+  eng "Starting to parse redo log at lsn = %llu, whereas checkpoint_lsn = %llu"
+
+ER_IB_ERR_INNODB_REDO_HANDLER_FAILURE
+  eng "The %s failed because of %s reporting an error: %s."
+
+ER_IB_REDO_HANDLER_NO_ENCRYPTION_SUPPORT
+  eng "The Redo Log Handler doesn't support Redo log encryption."
+
+ER_IB_REDO_HANDLER_COULD_NOT_ACK_TO_TRUNCATE_LSN
+  eng "The Redo Log Handler could not acknowledge to truncate logs smaller than lsn = %llu. It indicates that server may run out of the redo log capacity in future."
+
+ER_IB_ERR_INNODB_PAGES_PERSISTENCE_FAILURE
+  eng "The %s failed because of %s returning %llu."
+
+ER_IB_CANT_CREATE_RAW_DEVICE
+  eng "Can't create the %s because it should be an existing raw device."
+
+ER_IB_TABLESPACE_FILE_MISSING
+  eng "The %s is missing, but it should exist as it is a part of the tablespace."
+
+ER_IB_NODE_FILLING_FAILED
+  eng "Could not set the file size of '%s'. Error message: %s"
+
+ER_IB_INVALID_PAGE_SIZE
+  eng "Invalid page size specification in tablespace flags: Physical size %lu is larger than logical %lu. FSP flags: %lu."
+
+ER_IB_SYS_SPACE_NODE_ERROR_INFO
+  eng "node '%s' with expected path of '%s' of tablespace %s"
+
+ER_IB_MSG_TABLESPACE_FILE_NAME_MISMATCH
+  eng "%sTablespace %lu, name '%s', expected file name '%s' differs from the actual file '%s' that contains this tablespace."
+
+ER_INNODB_VIO_WRITE_FAILED
+  eng "Failed to write data to file: %s. Got os error %s. Expected %zu but only %zu were written."
+
+ER_IB_UNEXPECTED_GET_NODE_INFO
+  eng "Unexpected get_node_info(%s) result: %s."
+
+ER_IB_MSG_UNDO_TS_NOT_FOUND
+  eng "No undo tablespaces found. Cannot continue operation."
+
+ER_DD_DOWNGRADE
+  eng "Data dictionary downgrade from version '%u' to '%u'."
+
+ER_INVALID_SERVER_UPGRADE_SKIPS_LTS_LINEAGE
+  eng "Invalid MySQL server upgrade: Cannot upgrade from %u to %u. Target MySQL server version belongs to a compatibility lineage whose previous LTS is %u, not %u."
+
+#
+# End of "9.7 cal-ver compatibility lineage (starts from 26.7)" messages intended to be written to the server error log.
+#
 #
 # End of MySQL 9.x error messages intended to be written to the server error log.
 #
@@ -14060,99 +14149,6 @@ ER_VECTOR_DISTANCE_SIMD_DISPATCH
 #
 
 
-||||||| merged common ancestors
-=======
-ER_WARN_TLS_SESSION_WITHOUT_PQC
-  eng "TLS channel '%s' is not configured to require post-quantum key exchange algorithms; future TLS sessions may use a non-post-quantum key exchange algorithm because force_pqc is disabled"
-
-#
-# End of 9.7 error messages intended to be written to the server error log.
-#
-
-
-#
-# MySQL moves from semantic-style versioning to calendar-based versioning
-# starting with the 26.7 release base. Upgrade/downgrade compatibility is
-# tracked through compatibility lineage. The first calendar release base, 26.7,
-# belongs to the 9.7 CalVer compatibility lineage. If 28.4 becomes LTS, the
-# 9.7 lineage continues through 28.4. The first Innovation release after that,
-# 28.7, starts the 28.4 compatibility lineage.
-#
-
-#
-# Start of "9.7 cal-ver compatibility lineage (starts from 26.7)" error messages intended
-# to be written to the server error log.
-#
-# Append 9.7 error log messages to the end of the previous section.
-# Messages intended to be sent to _clients_ go in messages_to_clients.txt!
-#
-
-start-error-number 16000
-
-ER_CSA_RPL_RECOVERY_SKIPPED
-  eng "Relay log recovery skipped for Change Stream Applier."
-
-ER_CSA_MSG
-  eng "%s"
-
-ER_IB_MSG_TABLESPACE_NOT_OPENED
-  eng "Tablespace with id '%lu' can not be opened. Recovery can't continue."
-
-ER_IB_MSG_REDO_PARSE_START_NOT_FOUND
-  eng "Could not find the start point for REDO parsing. REDO log may be corrupted. Recovery can't continue."
-
-ER_IB_MSG_PARSE_START_AND_CHECKPOINT
-  eng "Starting to parse redo log at lsn = %llu, whereas checkpoint_lsn = %llu"
-
-ER_IB_ERR_INNODB_REDO_HANDLER_FAILURE
-  eng "The %s failed because of %s reporting an error: %s."
-
-ER_IB_REDO_HANDLER_NO_ENCRYPTION_SUPPORT
-  eng "The Redo Log Handler doesn't support Redo log encryption."
-
-ER_IB_REDO_HANDLER_COULD_NOT_ACK_TO_TRUNCATE_LSN
-  eng "The Redo Log Handler could not acknowledge to truncate logs smaller than lsn = %llu. It indicates that server may run out of the redo log capacity in future."
-
-ER_IB_ERR_INNODB_PAGES_PERSISTENCE_FAILURE
-  eng "The %s failed because of %s returning %llu."
-
-ER_IB_CANT_CREATE_RAW_DEVICE
-  eng "Can't create the %s because it should be an existing raw device."
-
-ER_IB_TABLESPACE_FILE_MISSING
-  eng "The %s is missing, but it should exist as it is a part of the tablespace."
-
-ER_IB_NODE_FILLING_FAILED
-  eng "Could not set the file size of '%s'. Error message: %s"
-
-ER_IB_INVALID_PAGE_SIZE
-  eng "Invalid page size specification in tablespace flags: Physical size %lu is larger than logical %lu. FSP flags: %lu."
-
-ER_IB_SYS_SPACE_NODE_ERROR_INFO
-  eng "node '%s' with expected path of '%s' of tablespace %s"
-
-ER_IB_MSG_TABLESPACE_FILE_NAME_MISMATCH
-  eng "%sTablespace %lu, name '%s', expected file name '%s' differs from the actual file '%s' that contains this tablespace."
-
-ER_INNODB_VIO_WRITE_FAILED
-  eng "Failed to write data to file: %s. Got os error %s. Expected %zu but only %zu were written."
-
-ER_IB_UNEXPECTED_GET_NODE_INFO
-  eng "Unexpected get_node_info(%s) result: %s."
-
-ER_IB_MSG_UNDO_TS_NOT_FOUND
-  eng "No undo tablespaces found. Cannot continue operation."
-
-ER_DD_DOWNGRADE
-  eng "Data dictionary downgrade from version '%u' to '%u'."
-
-ER_INVALID_SERVER_UPGRADE_SKIPS_LTS_LINEAGE
-  eng "Invalid MySQL server upgrade: Cannot upgrade from %u to %u. Target MySQL server version belongs to a compatibility lineage whose previous LTS is %u, not %u."
-
-#
-# End of "9.7 cal-ver compatibility lineage (starts from 26.7)" messages intended to be written to the server error log.
-#
->>>>>>> mysql-26.7.0
 ################################################################################
 # Error numbers 50000 to 51999 are reserved. Please do not use them for
 # other error messages.

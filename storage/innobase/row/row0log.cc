@@ -3814,16 +3814,10 @@ next_block:
       goto func_exit;
     }
 
-<<<<<<< HEAD
-    IORequest request(IORequest::READ | IORequest::ROW_LOG);
+    IORequest request(IORequest::Type::READ | IORequest::Type::ROW_LOG);
 
     byte *buf = index->online_log->head.block;
 
-||||||| merged common ancestors
-    IORequest request(IORequest::READ | IORequest::ROW_LOG);
-=======
-    IORequest request(IORequest::Type::READ | IORequest::Type::ROW_LOG);
->>>>>>> mysql-26.7.0
     dberr_t err = os_file_read_no_error_handling_int_fd(
         request, index->online_log->path, index->online_log->file.get(), buf,
         ofs, srv_sort_buf_size, nullptr);

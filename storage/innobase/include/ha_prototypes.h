@@ -466,8 +466,7 @@ void innobase_commit_low(trx_t *trx);
 
 /** Get the transaction of the current connection handle, if either exists.
 @return transaction of the current connection handle or NULL. */
-[[nodiscard]]
-trx_t *innobase_get_trx(void);
+[[nodiscard]] trx_t *innobase_get_trx(void);
 
 /** Get the transaction of the current connection handle if slow query log
 InnoDB extended statistics should be collected.

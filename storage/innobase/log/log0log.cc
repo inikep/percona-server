@@ -1117,17 +1117,9 @@ void log_print(const log_t &log, FILE *file) {
   lsn_t max_assigned_lsn;
   lsn_t current_lsn;
   lsn_t oldest_lsn;
-<<<<<<< HEAD
-  lsn_t max_checkpoint_age;
-  uint64_t file_min_id;
-  uint64_t file_max_id;
-||||||| merged common ancestors
-  uint64_t file_min_id;
-  uint64_t file_max_id;
-=======
+  lsn_t max_checkpoint_age{};
   uint64_t file_min_id{};
   uint64_t file_max_id{};
->>>>>>> mysql-26.7.0
 
   if (log_sys != nullptr) {
     log_files_mutex_enter(log);
@@ -1138,20 +1130,6 @@ void log_print(const log_t &log, FILE *file) {
   max_assigned_lsn = ib::redo::handler->peek_first_unassigned_lsn();
   current_lsn = max_assigned_lsn;
 
-<<<<<<< HEAD
-  log_limits_mutex_enter(log);
-  oldest_lsn = log.available_for_checkpoint_lsn;
-  max_checkpoint_age = log_free_check_capacity(log);
-  log_limits_mutex_exit(log);
-
-  log_files_mutex_exit(log);
-||||||| merged common ancestors
-  log_limits_mutex_enter(log);
-  oldest_lsn = log.available_for_checkpoint_lsn;
-  log_limits_mutex_exit(log);
-
-  log_files_mutex_exit(log);
-=======
   if (log_sys != nullptr) {
     write_lsn = log.write_lsn.load();
     ready_for_write_lsn = log_buffer_ready_for_write_lsn(log);
@@ -1163,12 +1141,14 @@ void log_print(const log_t &log, FILE *file) {
     dirty_pages_added_up_to_lsn =
         buf_flush_list_added->smallest_not_added_lsn();
     oldest_lsn = log_checkpointing->get_available_for_checkpoint_lsn();
+    max_checkpoint_age = ut_uint64_align_down(
+        ib::redo::handler->get_capacity_estimate().max_history_length,
+        OS_FILE_LOG_BLOCK_SIZE);
     log_limits_mutex_exit();
   } else {
     oldest_lsn = last_checkpoint_lsn;
     dirty_pages_added_up_to_lsn = 0;
   }
->>>>>>> mysql-26.7.0
 
   if (log_sys != nullptr) {
     log_files_mutex_exit(log);
@@ -1201,7 +1181,9 @@ void log_print(const log_t &log, FILE *file) {
           current_lsn, max_assigned_lsn, ready_for_write_lsn, write_lsn,
           flush_lsn, dirty_pages_added_up_to_lsn, oldest_lsn,
           last_checkpoint_lsn, file_min_id, file_max_id);
-<<<<<<< HEAD
+  if (log_sys == nullptr) {
+    return;
+  }
 
   fprintf(file,
           "Modified age no less than    " LSN_PF
@@ -1210,15 +1192,8 @@ void log_print(const log_t &log, FILE *file) {
           "\n"
           "Max checkpoint age           " LSN_PF "\n",
           current_lsn - buf_pool_get_oldest_modification_lwm(),
-          current_lsn - log_sys->last_checkpoint_lsn, max_checkpoint_age);
+          current_lsn - last_checkpoint_lsn, max_checkpoint_age);
 
-||||||| merged common ancestors
-
-=======
-  if (log_sys == nullptr) {
-    return;
-  }
->>>>>>> mysql-26.7.0
   time_t current_time = time(nullptr);
 
   double time_elapsed = difftime(current_time, log.last_printout_time);

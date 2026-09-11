@@ -4390,16 +4390,8 @@ static void innobase_post_recover() {
       srv_undo_log_encrypt = false;
     } else {
       /* Enable encryption for UNDO tablespaces */
-<<<<<<< HEAD
-      mutex_enter(&undo::ddl_mutex);
-      if (srv_enable_undo_encryption(nullptr)) {
-||||||| merged common ancestors
-      mutex_enter(&undo::ddl_mutex);
-      if (srv_enable_undo_encryption()) {
-=======
       mutex_enter(&undo_truncate::ddl_mutex);
-      if (srv_enable_undo_encryption()) {
->>>>>>> mysql-26.7.0
+      if (srv_enable_undo_encryption(nullptr)) {
         srv_undo_log_encrypt = false;
         ut_d(ut_error);
       }
@@ -4824,15 +4816,15 @@ bool innobase_fix_tablespaces_empty_uuid() {
   ibt::tbsp_pool->iterate_active_tbsp(find_encrypted);
 #endif /* UNIV_DEBUG */
 
-  undo::spaces->s_lock();
-  for (auto undo_space : undo::spaces->m_spaces) {
+  undo_truncate::spaces->s_lock(UT_LOCATION_HERE);
+  for (auto undo_space : undo_truncate::spaces->m_spaces) {
     /* We already added system tablespace */
     if (undo_space->id() == TRX_SYS_SPACE) {
       continue;
     }
     space_ids.push_back(undo_space->id());
   }
-  undo::spaces->s_unlock();
+  undo_truncate::spaces->s_unlock();
 
   /* Rotate log tablespace */
 
@@ -6032,20 +6024,8 @@ static int innodb_init(void *p) {
 
 #endif /* HAVE_PSI_INTERFACE */
 
-<<<<<<< HEAD
-  os_event_global_init();
-
   if (innodb_init_params()) {
     return innodb_init_abort();
-||||||| merged common ancestors
-  os_event_global_init();
-
-  if (int error = innodb_init_params()) {
-    return error;
-=======
-  if (int error = innodb_init_params()) {
-    return error;
->>>>>>> mysql-26.7.0
   }
 
   /* After this point, error handling has to use innodb_init_abort(). */
@@ -6121,40 +6101,12 @@ static bool dd_open_hardcoded(space_id_t space_id, const char *filename,
     /* ADD SDI flag presence in predefined flags of mysql
     tablespace. */
 
-<<<<<<< HEAD
-    if (strstr(space->files.front().name, filename) != nullptr &&
-        /* Ignore encryption flag as it might have changed */
-        !((space->flags ^ flags) & ~(FSP_FLAGS_MASK_ENCRYPTION))) {
-      fil_space_open_if_needed(space);
-
-    } else {
-      fail = true;
-    }
-||||||| merged common ancestors
-    if (strstr(space->files.front().name, filename) != nullptr &&
-        /* Ignore encryption flag as it might have changed */
-        !((space->flags ^ predefined_flags) & ~(FSP_FLAGS_MASK_ENCRYPTION))) {
-      fil_space_open_if_needed(space);
-
-    } else {
-      fail = true;
-    }
-=======
     fail = strstr(space->files.front().name, filename) == nullptr ||
            /* Ignore encryption flag as it might have changed */
-           ((space->flags ^ predefined_flags) & ~(FSP_FLAGS_MASK_ENCRYPTION));
->>>>>>> mysql-26.7.0
+           ((space->flags ^ flags) & ~(FSP_FLAGS_MASK_ENCRYPTION));
 
     fil_space_release(space);
-<<<<<<< HEAD
-
   } else if (fil_ibd_open(true, FIL_TYPE_TABLESPACE, space_id, flags,
-||||||| merged common ancestors
-
-  } else if (fil_ibd_open(true, FIL_TYPE_TABLESPACE, space_id, 0,
-=======
-  } else if (fil_ibd_open(true, FIL_TYPE_TABLESPACE, space_id, predefined_flags,
->>>>>>> mysql-26.7.0
                           dict_sys_t::s_dd_space_name, filename, true,
                           false) != DB_SUCCESS) {
     fail = true;
@@ -6477,7 +6429,7 @@ static int innobase_start_trx_and_clone_read_view(handlerton *hton, THD *thd,
   innobase_srv_conc_force_exit_innodb(trx);
 
   /* If the transaction is not started yet, start it */
-  trx_start_if_not_started_xa(trx, false, UT_LOCATION_HERE);
+  trx_start_if_not_started(trx, false, UT_LOCATION_HERE);
 
   /* Clone the read view from the donor transaction.  Do this only if
   transaction is using REPEATABLE READ isolation level. */
@@ -23006,37 +22958,6 @@ static void innodb_log_checksums_update(THD *, SYS_VAR *, void *var_ptr,
   innodb_log_checksums_func_update(check);
 }
 
-<<<<<<< HEAD
-/** Enable or disable encryption of temporary tablespace
-@param[in]	thd	thread handle
-@param[in]	var	system variable
-@param[out]	var_ptr	current value
-@param[in]	save	immediate result from check function */
-static void innodb_temp_tablespace_encryption_update(THD *thd, SYS_VAR *var,
-                                                     void *var_ptr,
-                                                     const void *save) {
-  if (srv_read_only_mode) {
-    push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WRONG_ARGUMENTS,
-                        " Temporary tablespace cannot be"
-                        " encrypted in innodb_read_only mode");
-    return;
-  }
-
-  bool check = *static_cast<const bool *>(save);
-
-  dberr_t err = srv_temp_encryption_update(check);
-  if (err != DB_SUCCESS) {
-    push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WRONG_ARGUMENTS,
-                        " Temporary tablespace couldn't be"
-                        " encrypted. Check if keyring plugin"
-                        " is loaded.");
-  } else {
-    *static_cast<bool *>(var_ptr) = *static_cast<const bool *>(save);
-  }
-}
-
-||||||| merged common ancestors
-=======
 /** Update the innodb_adaptive_flushing_lwm parameter.
 @param[in]  thd       thread handle
 @param[in]  save      immediate result from check function */
@@ -23085,7 +23006,33 @@ static void innodb_idle_flush_pct_update(THD *thd, SYS_VAR *, void *,
       thd, "innodb_idle_flush_pct", static_cast<uint64_t>(val));
 }
 
->>>>>>> mysql-26.7.0
+/** Enable or disable encryption of temporary tablespace
+@param[in]  thd       thread handle
+@param[out] var_ptr   current value
+@param[in]  save      immediate result from check function */
+static void innodb_temp_tablespace_encryption_update(THD *thd, SYS_VAR *,
+                                                     void *var_ptr,
+                                                     const void *save) {
+  if (srv_read_only_mode) {
+    push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WRONG_ARGUMENTS,
+                        " Temporary tablespace cannot be"
+                        " encrypted in innodb_read_only mode");
+    return;
+  }
+
+  bool check = *static_cast<const bool *>(save);
+
+  dberr_t err = srv_temp_encryption_update(check);
+  if (err != DB_SUCCESS) {
+    push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WRONG_ARGUMENTS,
+                        " Temporary tablespace couldn't be"
+                        " encrypted. Check if keyring plugin"
+                        " is loaded.");
+  } else {
+    *static_cast<bool *>(var_ptr) = *static_cast<const bool *>(save);
+  }
+}
+
 static SHOW_VAR innodb_status_variables_export[] = {
     {"Innodb", (char *)&show_innodb_vars, SHOW_FUNC, SHOW_SCOPE_GLOBAL},
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_GLOBAL}};
@@ -24708,12 +24655,8 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(thread_sleep_delay),
     MYSQL_SYSVAR(tmpdir),
     MYSQL_SYSVAR(autoinc_lock_mode),
-<<<<<<< HEAD
-    MYSQL_SYSVAR(show_locks_held),
-||||||| merged common ancestors
-=======
     MYSQL_SYSVAR(autoinc_preallocate),
->>>>>>> mysql-26.7.0
+    MYSQL_SYSVAR(show_locks_held),
     MYSQL_SYSVAR(version),
     MYSQL_SYSVAR(use_native_aio),
 #ifdef HAVE_LIBNUMA

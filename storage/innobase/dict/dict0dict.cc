@@ -2129,7 +2129,7 @@ ulint dict_index_node_ptr_max_size(const dict_index_t *index) /*!< in: index */
   ulint comp;
   ulint i;
   /* maximum possible storage size of a record */
-  ulint rec_max_size;
+  size_t rec_max_size;
 
   if (dict_index_is_ibuf(index)) {
     /* cannot estimate accurately */
@@ -6064,7 +6064,7 @@ static std::tuple<bool, bool> get_mysql_ibd_page_0_io() {
 
   pfs_os_file_t file = os_file_create_simple_no_error_handling(
       innodb_data_file_key, dict_sys_t::s_dd_space_file_name, OS_FILE_OPEN,
-      OS_FILE_READ_ONLY, srv_read_only_mode, &successfully_opened);
+      OS_FILE_READ_ONLY, &successfully_opened);
 
   if (!successfully_opened) {
     return (result);
@@ -6075,9 +6075,9 @@ static std::tuple<bool, bool> get_mysql_ibd_page_0_io() {
 
   ut_ad(page == page_align(page));
 
-  IORequest request(IORequest::READ);
+  IORequest request(IORequest::Type::READ);
   dberr_t err = os_file_read_first_page_noexit(
-      request, dict_sys_t::s_dd_space_file_name, file, page, UNIV_PAGE_SIZE);
+      request, dict_sys_t::s_dd_space_file_name, file, page, 1);
 
   os_file_close(file);
 

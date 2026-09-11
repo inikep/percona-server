@@ -35,14 +35,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #ifndef buf0flu_h
 #define buf0flu_h
 
-<<<<<<< HEAD
+#include <atomic>
 #include <utility>
 
-||||||| merged common ancestors
-=======
-#include <atomic>
-
->>>>>>> mysql-26.7.0
 #include "buf0types.h"
 #include "log0types.h" /* lsn_t */
 #include "univ.i"
@@ -252,28 +247,6 @@ Requires buf_page_get_mutex(bpage).
 [[nodiscard]] bool buf_flush_ready_for_flush(buf_page_t *bpage,
                                              buf_flush_t flush_type);
 
-<<<<<<< HEAD
-#ifdef UNIV_DEBUG
-/** Check if there are any dirty pages that belong to a space id in the flush
- list in a particular buffer pool.
- @return number of dirty pages present in a single buffer pool */
-ulint buf_pool_get_dirty_pages_count(
-    buf_pool_t *buf_pool,      /*!< in: buffer pool */
-    space_id_t id,             /*!< in: space id to check */
-    Flush_observer *observer); /*!< in: flush observer to check */
-#endif
-
-||||||| merged common ancestors
-/** Check if there are any dirty pages that belong to a space id in the flush
- list in a particular buffer pool.
- @return number of dirty pages present in a single buffer pool */
-ulint buf_pool_get_dirty_pages_count(
-    buf_pool_t *buf_pool,      /*!< in: buffer pool */
-    space_id_t id,             /*!< in: space id to check */
-    Flush_observer *observer); /*!< in: flush observer to check */
-
-=======
->>>>>>> mysql-26.7.0
 /** Executes fsync for all tablespaces, to fsync all pages written to disk. */
 void buf_flush_fsync();
 

@@ -177,14 +177,8 @@ struct Row {
 @param[in] size                 Number of bytes to write.
 @param[in] offset               Byte offset where to write.
 @return DB_SUCCESS or error code */
-<<<<<<< HEAD
-dberr_t pwrite(os_fd_t fd, void *ptr, size_t size, os_offset_t offset,
-               void *crypt_buf, space_id_t space_id) noexcept;
-||||||| merged common ancestors
-dberr_t pwrite(os_fd_t fd, void *ptr, size_t size, os_offset_t offset) noexcept;
-=======
-dberr_t pwrite(os_fd_t fd, byte *ptr, size_t size, os_offset_t offset) noexcept;
->>>>>>> mysql-26.7.0
+dberr_t pwrite(os_fd_t fd, byte *ptr, size_t size, os_offset_t offset,
+               byte *crypt_buf, space_id_t space_id) noexcept;
 
 /** Read a merge block from the file system.
 @param[in] fd                   file descriptor.
@@ -192,17 +186,9 @@ dberr_t pwrite(os_fd_t fd, byte *ptr, size_t size, os_offset_t offset) noexcept;
 @param[in] len                  Number of bytes to read.
 @param[in] offset               Byte offset to start reading from.
 @return DB_SUCCESS or error code */
-<<<<<<< HEAD
-[[nodiscard]] dberr_t pread(os_fd_t fd, void *ptr, size_t len,
-                            os_offset_t offset, void *crypt_buf,
-                            space_id_t space_id) noexcept;
-||||||| merged common ancestors
-[[nodiscard]] dberr_t pread(os_fd_t fd, void *ptr, size_t len,
-                            os_offset_t offset) noexcept;
-=======
 [[nodiscard]] dberr_t pread(os_fd_t fd, byte *ptr, size_t len,
-                            os_offset_t offset) noexcept;
->>>>>>> mysql-26.7.0
+                            os_offset_t offset, byte *crypt_buf,
+                            space_id_t space_id) noexcept;
 
 }  // namespace ddl
 

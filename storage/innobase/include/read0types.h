@@ -36,14 +36,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <algorithm>
 #include "dict0mem.h"
-<<<<<<< HEAD
-
 #include "mem0mem.h"
-||||||| merged common ancestors
-
-=======
 #include "read0read_view_interface.h"
->>>>>>> mysql-26.7.0
 #include "trx0types.h"
 #include "ut0cpu_cache.h"
 
@@ -181,34 +175,9 @@ class ReadView : public Read_view_interface {
     return !std::binary_search(p, p + m_ids.size(), id);
   }
 
-<<<<<<< HEAD
-  /**
-  @param id             transaction to check
-  @return true if view sees transaction id */
-  bool sees(trx_id_t id) const { return (id < m_up_limit_id); }
-
-  /**
-  Mark the view as closed */
-  void close() {
-    ut_ad(m_creator_trx_id != TRX_ID_MAX);
-    m_creator_trx_id = TRX_ID_MAX;
-    m_cloned = false;
-||||||| merged common ancestors
-  /**
-  @param id             transaction to check
-  @return true if view sees transaction id */
-  bool sees(trx_id_t id) const { return (id < m_up_limit_id); }
-
-  /**
-  Mark the view as closed */
-  void close() {
-    ut_ad(m_creator_trx_id != TRX_ID_MAX);
-    m_creator_trx_id = TRX_ID_MAX;
-=======
   [[nodiscard]] bool sees_all_trxs_with_id_smaller_or_equal_to(
       trx_id_t id) const override {
     return id < m_up_limit_id;
->>>>>>> mysql-26.7.0
   }
 
   /**
@@ -216,10 +185,23 @@ class ReadView : public Read_view_interface {
   [[nodiscard]] bool is_closed() const { return m_closed.load(); }
 
   void print(FILE *file) const override {
+    fprintf(file, "Read view low limit trx n:o " TRX_ID_FMT "\n",
+            m_low_limit_no);
     fprintf(file,
             "Trx read view will not see trx with"
             " id >= " TRX_ID_FMT ", sees < " TRX_ID_FMT "\n",
             m_low_limit_id, m_up_limit_id);
+    fprintf(file, "Read view individually stored trx ids:\n");
+    for (ulint i = 0; i < m_ids.size(); i++)
+      fprintf(file, "Read view trx id " TRX_ID_FMT "\n", m_ids.data()[i]);
+  }
+
+  [[nodiscard]] trx_id_t get_low_limit_id() const override {
+    return m_low_limit_id;
+  }
+
+  [[nodiscard]] trx_id_t get_up_limit_id() const override {
+    return m_up_limit_id;
   }
 
   [[nodiscard]] trx_id_t get_lowest_needed_trx_no() const override {
@@ -227,22 +209,8 @@ class ReadView : public Read_view_interface {
   }
 
   /**
-  @return the up limit id */
-  trx_id_t up_limit_id() const noexcept { return (m_up_limit_id); }
-
-  /**
   @return true if there are no transaction ids in the snapshot */
   [[nodiscard]] bool empty() const { return (m_ids.empty()); }
-
-  /**
-  Clones a read view object. The resulting read view has identical change
-  visibility as the donor read view
-  @param	result	pointer to resulting read view. If NULL, a view will be
-  allocated. If non-NULL, a view will overwrite a previously-existing
-  in-use or released view.
-  @param	from_trx	transation owning the donor read view. */
-
-  void clone(ReadView *&result, trx_t *from_trx) const;
 
 #ifdef UNIV_DEBUG
   /**
@@ -253,16 +221,7 @@ class ReadView : public Read_view_interface {
   }
 #endif /* UNIV_DEBUG */
 
-  void print(FILE *file) const noexcept {
-    fprintf(file, "Read view low limit trx n:o " TRX_ID_FMT "\n",
-            low_limit_no());
-    print_limits(file);
-    fprintf(file, "Read view individually stored trx ids:\n");
-    for (ulint i = 0; i < m_ids.size(); i++)
-      fprintf(file, "Read view trx id " TRX_ID_FMT "\n", m_ids.data()[i]);
-  }
-
-  bool is_cloned() const noexcept { return (m_cloned); }
+  [[nodiscard]] bool is_cloned() const override { return (m_cloned); }
 
  private:
   /**
@@ -284,6 +243,13 @@ class ReadView : public Read_view_interface {
   Complete the copy, insert the creator transaction id into the
   m_trx_ids too and adjust the m_up_limit_id *, if required */
   inline void copy_complete();
+
+  /**
+  Clones this read view into result, which ends up with identical change
+  visibility as this, the donor read view.
+  @param[out]     result          view to clone into
+  @param[in,out]  from_trx        transaction owning the donor read view */
+  void clone(ReadView &result, trx_t *from_trx) const;
 
   /**
   Set the creator transaction id, existing id must be 0 */

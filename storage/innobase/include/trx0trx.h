@@ -223,7 +223,7 @@ transaction.
 @param[in]	from_trx	donor transaction
 @return read view clone */
 [[nodiscard]]
-ReadView *trx_clone_read_view(trx_t *trx, trx_t *from_trx);
+Read_view_interface *trx_clone_read_view(trx_t *trx, trx_t *from_trx);
 
 /** Prepares a transaction for commit/rollback. */
 void trx_commit_or_rollback_prepare(trx_t *trx); /*!< in/out: transaction */

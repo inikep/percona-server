@@ -430,6 +430,56 @@ ut::Expected<SysTablespace::Opened_storage_node> SysTablespace::open_node(
 
 #ifndef UNIV_HOTBACKUP
 
+ut::Expected<Encryption_metadata> SysTablespace::read_encryption_metadata() {
+  ut_ad(space_id() == TRX_SYS_SPACE);
+  ut_a(!m_nodes.empty());
+
+  const auto filepath = get_node_full_path(0);
+  bool success = false;
+  const auto file = os_file_create_simple_no_error_handling(
+      innodb_data_file_key, filepath.c_str(), OS_FILE_OPEN, OS_FILE_READ_ONLY,
+      &success);
+  if (!success) {
+    return ut::Unexpected(DB_CANNOT_OPEN_FILE);
+  }
+
+  const auto page =
+      ut::make_unique_aligned<byte[]>(UNIV_PAGE_SIZE, UNIV_PAGE_SIZE_MAX);
+  IORequest request{IORequest::Type::READ |
+                    IORequest::Type::DISABLE_PARTIAL_IO_WARNINGS |
+                    IORequest::Type::NO_COMPRESSION};
+  ulint n_read = 0;
+  const auto io_err = os_file_read_no_error_handling(
+      request, filepath.c_str(), file, page.get(), 0, UNIV_PAGE_SIZE, &n_read);
+  os_file_close(file);
+  if (io_err != DB_SUCCESS) {
+    ib::error(ER_IB_MSG_393) << "Cannot read first page of '" << filepath
+                             << "' " << ut_strerr(io_err);
+    return ut::Unexpected(io_err);
+  }
+  ut_a(n_read == UNIV_PAGE_SIZE);
+
+  Encryption_metadata encryption_metadata{};
+  uint32_t space_flags_on_disk = fsp_header_get_flags(page.get());
+  if (!FSP_FLAGS_GET_ENCRYPTION(space_flags_on_disk)) {
+    return encryption_metadata;
+  }
+
+  Encryption_key encryption_key{encryption_metadata.m_key,
+                                encryption_metadata.m_iv};
+  const auto err =
+      fsp_header_validate(page.get(), space_id(), space_flags_on_disk,
+                          filepath, false, encryption_key);
+  if (err != DB_SUCCESS) {
+    return ut::Unexpected(err);
+  }
+
+  encryption_metadata.m_type = Encryption::AES;
+  encryption_metadata.m_key_len = Encryption::KEY_LEN;
+
+  return encryption_metadata;
+}
+
 ut::Expected<lsn_t> SysTablespace::read_lsn_and_check_flags() {
   /* Methods like page_get_page_no() are checking for UNIV_PAGE_SIZE alignment
   where for IO the UNIV_SECTOR_SIZE would be sufficient. */
@@ -479,9 +529,16 @@ ut::Expected<lsn_t> SysTablespace::read_lsn_and_check_flags() {
   if (err != DB_SUCCESS) {
     return err;
   }
-  /* The System Tablespaces are never encrypted. Match against empty key to
-  check no non-zero key was extracted from FSP header. */
-  ut_a(Encryption_metadata{}.match(encryption_metadata));
+
+  if (FSP_FLAGS_GET_ENCRYPTION(space_flags_on_disk)) {
+    encryption_metadata.m_type = Encryption::AES;
+    encryption_metadata.m_key_len = Encryption::KEY_LEN;
+  }
+
+  const auto space = fil_space_get_sys_space();
+  ut_a(space != nullptr);
+  ut_a(space->m_encryption_metadata.match(encryption_metadata));
+
   /* The flags of srv_sys_space do not have SDI Flag set.
   Update the flags of system tablespace to indicate the presence of SDI */
   set_flags(space_flags_on_disk);

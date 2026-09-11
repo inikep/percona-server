@@ -4359,18 +4359,17 @@ static void mark_all_page_dirty_in_tablespace(THD *thd, space_id_t space_id,
     mtr_commit(&mtr);
 
     /* Flush the just-processed pages to disk before advancing the progress
-    persisted on page 0. buf_LRU_flush_or_remove_pages() drains the space's
-    flush list and fsyncs the file via fil_flush(), so once it returns the
-    pages are durably in their target encryption state. Advancing the progress
-    only after that keeps the persisted progress from ever running ahead of the
-    on-disk state. Otherwise a crash could leave pages below the progress still
-    in the old state on disk (a page's on-disk encryption state is decided at
-    write time in fil_io_set_encryption(), not by the redo-logged rewrite
-    above); the resumed operation would skip them and decrypt_end() would erase
-    the key, leaving unreadable pages that abort the next read with
-    DB_IO_DECRYPT_FAIL (PS-8670). */
-    buf_LRU_flush_or_remove_pages(space_id, BUF_REMOVE_FLUSH_WRITE, nullptr,
-                                  false);
+    persisted on page 0. persist_tablespace() drains the space's flush list,
+    waits for the writes and fsyncs the file, so once it returns the pages are
+    durably in their target encryption state. Advancing the progress only after
+    that keeps the persisted progress from ever running ahead of the on-disk
+    state. Otherwise a crash could leave pages below the progress still in the
+    old state on disk (a page's on-disk encryption state is decided at write
+    time in fil_io_set_encryption(), not by the redo-logged rewrite above); the
+    resumed operation would skip them and decrypt_end() would erase the key,
+    leaving unreadable pages that abort the next read with DB_IO_DECRYPT_FAIL
+    (PS-8670). */
+    pages_persistence->persist_tablespace(space_id, nullptr);
 
     mtr_start(&mtr);
     /* Write (Un)Encryption progress on page 0 */

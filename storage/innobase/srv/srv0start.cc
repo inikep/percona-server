@@ -52,16 +52,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <sys/types.h>
 #include <zlib.h>
 
-<<<<<<< HEAD
 #include <algorithm>
 
-#include "my_dbug.h"
-
-||||||| merged common ancestors
-#include "my_dbug.h"
-
-=======
->>>>>>> mysql-26.7.0
 #include "btr0btr.h"
 #include "btr0cur.h"
 #include "buf0buf.h"
@@ -80,13 +72,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_prototypes.h"
 #include "ibuf0ibuf.h"
 #include "log0chkp.h"
-<<<<<<< HEAD
 #include "log0ddl.h"
-||||||| merged common ancestors
-=======
 #include "log0handler.h"
 #include "log0helpers.h"
->>>>>>> mysql-26.7.0
 #include "log0recv.h"
 #include "log0write.h"
 #include "mem0mem.h"
@@ -306,7 +294,7 @@ static dberr_t srv_undo_tablespace_read_encryption(
       ut::aligned_alloc(UNIV_PAGE_SIZE_MAX, UNIV_PAGE_SIZE));
 
   ib::fil::Tablespace_node_handle_interface::Status_IO status =
-      file_handle->read_page(request, first_page, 0);
+      file_handle->read_page(request, first_page, 0, nullptr);
 
   if (status != ib::fil::Tablespace_node_handle_interface::Status_IO::SUCCESS) {
     ib::info(ER_IB_MSG_FIRST_PAGE_READ_FAILED, space->name, ut_strerr(err));
@@ -691,7 +679,7 @@ static dberr_t srv_undo_tablespace_open_by_num(const space_id_t space_num) {
           ut::make_unique_aligned<byte[]>(srv_page_size, srv_page_size);
 
       ib::fil::Tablespace_node_handle_interface::Status_IO page_read_status =
-          handle->get()->read_page(request, first_page.get(), 0);
+          handle->get()->read_page(request, first_page.get(), 0, nullptr);
 
       if (page_read_status !=
           ib::fil::Tablespace_node_handle_interface::Status_IO::SUCCESS) {
@@ -910,13 +898,6 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
     }
   }
 
-<<<<<<< HEAD
-  if (srv_undo_log_encrypt) {
-    ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
-||||||| merged common ancestors
-  if (srv_undo_log_encrypt) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
-=======
   log_free_check();
 
   mtr_t mtr;
@@ -941,8 +922,7 @@ static dberr_t srv_undo_prepare_empty_structure(space_id_t space_id,
   trx_rseg_add_rollback_segments(). */
 
   if (srv_undo_log_encrypt && enable_undo_encryption) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
->>>>>>> mysql-26.7.0
+    ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
     ut_ad(!ret);
   }
 
@@ -1107,7 +1087,7 @@ static dberr_t srv_undo_create_implicit_tablespaces_with_empty_structure() {
   }
 
   if (srv_undo_log_encrypt) {
-    ut_d(bool ret =) srv_enable_undo_encryption();
+    ut_d(bool ret =) srv_enable_undo_encryption(nullptr);
     ut_ad(!ret);
   }
 
@@ -1171,104 +1151,8 @@ static dberr_t srv_open_tmp_tablespace(ib::fsp::SysTablespace &tmp_space) {
 
   const auto err = tmp_space.check_file_spec(true, 12 * 1024 * 1024, false);
 
-<<<<<<< HEAD
-  RECOVERY_CRASH(100);
-
-  dberr_t err =
-      tmp_space->check_file_spec(create_new_temp_space, 12 * 1024 * 1024);
-
-  if (err == DB_FAIL) {
-    ib::error(ER_IB_MSG_1099, tmp_space->name());
-
-    err = DB_ERROR;
-
-  } else if (err != DB_SUCCESS) {
-    ib::error(ER_IB_MSG_1100, tmp_space->name());
-
-  } else if ((err = tmp_space->open_or_create(true, create_new_db,
-                                              &sum_of_new_sizes, nullptr)) !=
-             DB_SUCCESS) {
-    ib::error(ER_IB_MSG_1101, tmp_space->name());
-
-  } else {
-    mtr_t mtr;
-    page_no_t size = tmp_space->get_sum_of_sizes();
-
-    /* Open this shared temp tablespace in the fil_system so that
-    it stays open until shutdown. */
-    if (fil_space_open(tmp_space->space_id())) {
-      if (srv_tmp_tablespace_encrypt) {
-        /* Make sure the keyring is loaded. */
-        if (!Encryption::check_keyring()) {
-          srv_tmp_tablespace_encrypt = false;
-          ib::error() << "Can't set temporary"
-                      << " tablespace to be encrypted"
-                      << " because keyring plugin is"
-                      << " not available.";
-          return (DB_ERROR);
-        }
-        fil_space_t *const space = fil_space_get(dict_sys_t::s_temp_space_id);
-        err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
-        tmp_space->set_flags(space->flags);
-        ut_a(err == DB_SUCCESS);
-      }
-
-      /* Initialize the header page */
-      mtr_start(&mtr);
-      mtr_set_log_mode(&mtr, MTR_LOG_NO_REDO);
-
-      fsp_header_init(tmp_space->space_id(), size, &mtr);
-
-      mtr_commit(&mtr);
-    } else {
-      /* This file was just opened in the code above! */
-      ib::error(ER_IB_MSG_1102, tmp_space->name());
-
-      err = DB_ERROR;
-    }
-||||||| merged common ancestors
-  RECOVERY_CRASH(100);
-
-  dberr_t err =
-      tmp_space->check_file_spec(create_new_temp_space, 12 * 1024 * 1024);
-
-  if (err == DB_FAIL) {
-    ib::error(ER_IB_MSG_1099, tmp_space->name());
-
-    err = DB_ERROR;
-
-  } else if (err != DB_SUCCESS) {
-    ib::error(ER_IB_MSG_1100, tmp_space->name());
-
-  } else if ((err = tmp_space->open_or_create(true, create_new_db,
-                                              &sum_of_new_sizes, nullptr)) !=
-             DB_SUCCESS) {
-    ib::error(ER_IB_MSG_1101, tmp_space->name());
-
-  } else {
-    mtr_t mtr;
-    page_no_t size = tmp_space->get_sum_of_sizes();
-
-    /* Open this shared temp tablespace in the fil_system so that
-    it stays open until shutdown. */
-    if (fil_space_open(tmp_space->space_id())) {
-      /* Initialize the header page */
-      mtr_start(&mtr);
-      mtr_set_log_mode(&mtr, MTR_LOG_NO_REDO);
-
-      fsp_header_init(tmp_space->space_id(), size, &mtr);
-
-      mtr_commit(&mtr);
-    } else {
-      /* This file was just opened in the code above! */
-      ib::error(ER_IB_MSG_1102, tmp_space->name());
-
-      err = DB_ERROR;
-    }
-=======
   if (err != DB_SUCCESS) {
     return err;
->>>>>>> mysql-26.7.0
   }
 
   const auto prepare_err = tmp_space.prepare_nodes();
@@ -1287,6 +1171,27 @@ static dberr_t srv_open_tmp_tablespace(ib::fsp::SysTablespace &tmp_space) {
     ib::error(ER_IB_MSG_1102, tmp_space.name());
     return space.error();
   } else {
+    if (srv_tmp_tablespace_encrypt) {
+      /* Make sure the keyring is loaded. */
+      if (!Encryption::check_keyring()) {
+        srv_tmp_tablespace_encrypt = false;
+        ib::error() << "Can't set temporary"
+                    << " tablespace to be encrypted"
+                    << " because keyring plugin is"
+                    << " not available.";
+        fil_space_release(*space);
+        return DB_ERROR;
+      }
+
+      const auto encryption_err = fil_set_encryption(
+          (*space)->id, Encryption::AES, nullptr, nullptr);
+      if (encryption_err != DB_SUCCESS) {
+        fil_space_release(*space);
+        return encryption_err;
+      }
+      tmp_space.set_flags((*space)->flags);
+    }
+
     fil_space_release(*space);
   }
 
@@ -1540,15 +1445,21 @@ static dberr_t srv_sys_enable_encryption(bool create_new_db) {
   fil_space_t *space = fil_space_get(TRX_SYS_SPACE);
   dberr_t err = DB_SUCCESS;
 
-  if (create_new_db && srv_sys_tablespace_encrypt) {
-    fsp_flags_set_encryption(space->flags);
-    srv_sys_space.set_flags(space->flags);
+  if (create_new_db) {
+    if (srv_sys_tablespace_encrypt) {
+      fsp_flags_set_encryption(space->flags);
+      srv_sys_space.set_flags(space->flags);
 
-    err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
-    ut_ad(err == DB_SUCCESS);
+      err = fil_set_encryption(space->id, Encryption::AES, nullptr, nullptr);
+      ut_ad(err == DB_SUCCESS);
+    }
   } else {
-    const auto fsp_flags = srv_sys_space.m_files.begin()->flags();
-    const bool is_encrypted = FSP_FLAGS_GET_ENCRYPTION(fsp_flags);
+    auto encryption_metadata = srv_sys_space.read_encryption_metadata();
+    if (!encryption_metadata) {
+      return encryption_metadata.error();
+    }
+
+    const bool is_encrypted = encryption_metadata->can_encrypt();
 
     if (is_encrypted && !srv_sys_tablespace_encrypt) {
       ib::error() << "The system tablespace is encrypted but"
@@ -1571,8 +1482,8 @@ static dberr_t srv_sys_enable_encryption(bool create_new_db) {
       srv_sys_space.set_flags(space->flags);
 
       err = fil_set_encryption(space->id, Encryption::AES,
-                               srv_sys_space.m_files.begin()->m_encryption_key,
-                               srv_sys_space.m_files.begin()->m_encryption_iv);
+                               encryption_metadata->m_key,
+                               encryption_metadata->m_iv);
       ut_ad(err == DB_SUCCESS);
     }
   }
@@ -1765,19 +1676,10 @@ dberr_t srv_start(bool create_new_db) {
   ib::info(ER_IB_MSG_1130, size, unit, srv_buf_pool_instances, chunk_size,
            chunk_unit);
 
-<<<<<<< HEAD
-  err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_populate,
-                      srv_buf_pool_instances);
-
-  if (err != DB_SUCCESS) {
-||||||| merged common ancestors
-  err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
-
-  if (err != DB_SUCCESS) {
-=======
-  if (const auto err = buf_pool_init(srv_buf_pool_size, srv_buf_pool_instances);
+  if (const auto err = buf_pool_init(srv_buf_pool_size,
+                                     srv_buf_pool_populate,
+                                     srv_buf_pool_instances);
       err != DB_SUCCESS) {
->>>>>>> mysql-26.7.0
     ib::error(ER_IB_MSG_1131);
 
     return srv_init_abort(DB_ERROR);
@@ -1826,10 +1728,13 @@ dberr_t srv_start(bool create_new_db) {
 
   /* Open or create the data files for the System Tablespace. */
   switch (const auto err = srv_sys_space.prepare_nodes(); err) {
-    case DB_SUCCESS:
-      err = srv_sys_enable_encryption(create_new_db);
-      if (err != DB_SUCCESS) return (srv_init_abort(err));
+    case DB_SUCCESS: {
+      const auto encryption_err = srv_sys_enable_encryption(create_new_db);
+      if (encryption_err != DB_SUCCESS) {
+        return srv_init_abort(encryption_err);
+      }
       break;
+    }
     case DB_CANNOT_OPEN_FILE:
       ib::error(ER_IB_MSG_1134);
       [[fallthrough]];
@@ -2004,7 +1909,6 @@ dberr_t srv_start(bool create_new_db) {
     and there must be no page in the buf_flush list. */
     buf_pool_invalidate();
 
-<<<<<<< HEAD
     /* Start monitor thread early enough so that e.g. crash recovery failing to
     find free pages in the buffer pool is diagnosed. */
     if (!srv_read_only_mode) {
@@ -2015,59 +1919,12 @@ dberr_t srv_start(bool create_new_db) {
       srv_monitor_thread_created = true;
     }
 
-    /* Open all data files in the system tablespace:
-    we keep them open until database shutdown. */
-    fil_open_system_tablespace_files();
-
-    /* We always try to do a recovery, even if the database had
-    been shut down normally: this is the normal startup path */
-    RECOVERY_CRASH(1);
-
-    if (new_files_lsn != 0) {
-      /* This means that either no log files have been found
-      or the existing log files were marked as uninitialized. */
-      flushed_lsn = new_files_lsn;
-    }
-
-    ut_a(log_sys->m_format <= Log_format::CURRENT);
-
-    const bool log_upgrade = log_sys->m_format < Log_format::CURRENT;
-
-    if (log_upgrade) {
-      if (srv_read_only_mode) {
-        ib::error(ER_IB_MSG_LOG_UPGRADE_IN_READ_ONLY_MODE,
-                  ulong{to_int(log_sys->m_format)});
-||||||| merged common ancestors
-    /* Open all data files in the system tablespace:
-    we keep them open until database shutdown. */
-    fil_open_system_tablespace_files();
-
-    /* We always try to do a recovery, even if the database had
-    been shut down normally: this is the normal startup path */
-    RECOVERY_CRASH(1);
-
-    if (new_files_lsn != 0) {
-      /* This means that either no log files have been found
-      or the existing log files were marked as uninitialized. */
-      flushed_lsn = new_files_lsn;
-    }
-
-    ut_a(log_sys->m_format <= Log_format::CURRENT);
-
-    const bool log_upgrade = log_sys->m_format < Log_format::CURRENT;
-
-    if (log_upgrade) {
-      if (srv_read_only_mode) {
-        ib::error(ER_IB_MSG_LOG_UPGRADE_IN_READ_ONLY_MODE,
-                  ulong{to_int(log_sys->m_format)});
-=======
     auto recovered_lsn = flushed_lsn;
     /* Do the recovery and persist all the changes to tablespace pages found in
     REDO. Also create undo number to space id mapping for UNDO tablespaces. */
     {
       const auto space_ids = pages_persistence->recover_pages(recovered_lsn);
       if (!space_ids.has_value()) {
->>>>>>> mysql-26.7.0
         return srv_init_abort(DB_ERROR);
       }
 
@@ -2092,6 +1949,11 @@ dberr_t srv_start(bool create_new_db) {
         return srv_init_abort(DB_ERROR);
       }
 
+      DBUG_EXECUTE_IF("ib_recovery_print_mysql_binlog_offset",
+                      if (recv_needed_recovery) {
+                        trx_sys_print_mysql_binlog_offset();
+                      });
+
       /* Validate a few system page types that were left uninitialized
       by older versions of MySQL. */
       verify_page_type({IBUF_SPACE_ID, FSP_IBUF_HEADER_PAGE_NO},
@@ -2106,123 +1968,16 @@ dberr_t srv_start(bool create_new_db) {
     /* We should not start checkpointer before persisted metadata is stored. */
     ut_a(!log_checkpointer_is_active());
 
-<<<<<<< HEAD
-    if (srv_force_recovery == 0 && fil_check_missing_tablespaces()) {
-      ib::error(ER_IB_MSG_1139);
-      RECOVERY_CRASH(3);
-
-      /* Set the abort flag to true. */
-      auto p = recv_recovery_from_checkpoint_finish(true);
-
-      ut_a(p == nullptr);
-
-      return (srv_init_abort(DB_ERROR));
-    }
-
-    /* We have successfully recovered from the redo log. The
-    data dictionary should now be readable. */
-
-    DBUG_EXECUTE_IF(
-        "ib_recovery_print_mysql_binlog_offset",
-        if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO &&
-            recv_needed_recovery) { trx_sys_print_mysql_binlog_offset(); });
-
-    if (recv_sys->found_corrupt_log) {
-      ib::warn(ER_IB_MSG_RECOVERY_CORRUPT);
-    }
-
-    if (!srv_force_recovery && !srv_read_only_mode) {
-      buf_flush_sync_all_buf_pools();
-    }
-
-    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
-    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
-    RECOVERY_CRASH(3);
-
-    auto *dict_metadata = recv_recovery_from_checkpoint_finish(false);
-    ut_a(dict_metadata != nullptr);
-
-    /* We need to save the dynamic metadata collected from redo log to DD
-    buffer table here. This is to make sure that the dynamic metadata is not
-    lost by any future checkpoint. Since DD and data dictionary in memory
-    objects are not fully initialized at this point, the usual mechanism to
-    persist dynamic metadata at checkpoint wouldn't work. */
-    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
-    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
-
-    /* We must start the log threads because we might need to write out the dict
-    persistent data into redolog, if the server is not in read-only mode. */
-    if (!srv_read_only_mode) {
-      log_start_background_threads(*log_sys);
-    }
-
-    /* We could possibly execute it much later if not the current dict_persist
-    functionality implementation, which requires it to work properly. */
-    err = dict_boot();
-    DBUG_EXECUTE_IF("ib_dic_boot_error", err = DB_ERROR;);
-
-    if (err != DB_SUCCESS) {
-      return (srv_init_abort(err));
-||||||| merged common ancestors
-    if (srv_force_recovery == 0 && fil_check_missing_tablespaces()) {
-      ib::error(ER_IB_MSG_1139);
-      RECOVERY_CRASH(3);
-
-      /* Set the abort flag to true. */
-      auto p = recv_recovery_from_checkpoint_finish(true);
-
-      ut_a(p == nullptr);
-
-      return (srv_init_abort(DB_ERROR));
-    }
-
-    /* We have successfully recovered from the redo log. The
-    data dictionary should now be readable. */
-
-    if (recv_sys->found_corrupt_log) {
-      ib::warn(ER_IB_MSG_RECOVERY_CORRUPT);
-    }
-
-    if (!srv_force_recovery && !srv_read_only_mode) {
-      buf_flush_sync_all_buf_pools();
-    }
-
-    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
-    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
-    RECOVERY_CRASH(3);
-
-    auto *dict_metadata = recv_recovery_from_checkpoint_finish(false);
-    ut_a(dict_metadata != nullptr);
-
-    /* We need to save the dynamic metadata collected from redo log to DD
-    buffer table here. This is to make sure that the dynamic metadata is not
-    lost by any future checkpoint. Since DD and data dictionary in memory
-    objects are not fully initialized at this point, the usual mechanism to
-    persist dynamic metadata at checkpoint wouldn't work. */
-    ut_a(checkpoint_lsn_after_recovery == log_sys->last_checkpoint_lsn.load());
-    ut_a(write_lsn_after_recovery == log_get_lsn(*log_sys));
-
-    /* We must start the log threads because we might need to write out the dict
-    persistent data into redolog, if the server is not in read-only mode. */
-    if (!srv_read_only_mode) {
-      log_start_background_threads(*log_sys);
-    }
-
-    /* We could possibly execute it much later if not the current dict_persist
-    functionality implementation, which requires it to work properly. */
-    err = dict_boot();
-
-    if (err != DB_SUCCESS) {
-      return (srv_init_abort(err));
-=======
     /* We have to call dict_boot() either before setting recv_lsn_checks_on,
     or after ib::redo::handler->start_writing(), as it will read pages from
     disc. dict_boot() also initializes the change buffer which is needed for any
     disk i/o. We need to call dict_boot() so pages_persistence->recover_tables()
     can access dict_table_t and dict_index_t objects. */
-    if (const auto err = dict_boot(); err != DB_SUCCESS) {
+    auto err = dict_boot();
+    DBUG_EXECUTE_IF("ib_dic_boot_error", err = DB_ERROR;);
+
+    if (err != DB_SUCCESS) {
       return srv_init_abort(err);
->>>>>>> mysql-26.7.0
     }
 
     DBUG_EXECUTE_IF("log_first_rec_group_test", {
@@ -2417,22 +2172,8 @@ dberr_t srv_start(bool create_new_db) {
 
   ut_a(trx_purge_state() == PURGE_STATE_INIT);
 
-<<<<<<< HEAD
-  sum_of_data_file_sizes = srv_sys_space.get_sum_of_sizes();
-  ut_a(sum_of_new_sizes != FIL_NULL);
-||||||| merged common ancestors
-  /* wake main loop of page cleaner up */
-  os_event_set(buf_flush_event);
-
-  sum_of_data_file_sizes = srv_sys_space.get_sum_of_sizes();
-  ut_a(sum_of_new_sizes != FIL_NULL);
-=======
-  /* wake main loop of page cleaner up */
-  os_event_set(buf_flush_event);
-
   const auto sum_of_data_file_sizes_in_pages =
       fil_space_get_size(TRX_SYS_SPACE);
->>>>>>> mysql-26.7.0
 
   const auto tablespace_size_in_header = fsp_header_get_tablespace_size();
 
@@ -2464,35 +2205,19 @@ dberr_t srv_start(bool create_new_db) {
     }
   }
 
-<<<<<<< HEAD
   if (!srv_file_per_table && srv_pass_corrupt_table) {
     ib::warn() << "The option innodb_file_per_table is disabled, so using the "
                   "option innodb_pass_corrupt_table doesn't make sense.";
   }
 
-  /* Finish clone files recovery. This call is idempotent and is no op
-  if it is already done before creating new log files. */
-||||||| merged common ancestors
-  /* Finish clone files recovery. This call is idempotent and is no op
-  if it is already done before creating new log files. */
-=======
   /* Finish clone files recovery. */
->>>>>>> mysql-26.7.0
   clone_files_recovery(true);
 
-<<<<<<< HEAD
   ib::info(ER_IB_MSG_1151,
            "Percona XtraDB (http://www.percona.com) " INNODB_VERSION_STR,
-           ulonglong{log_get_lsn(*log_sys)});
-||||||| merged common ancestors
-  ib::info(ER_IB_MSG_1151, INNODB_VERSION_STR,
-           ulonglong{log_get_lsn(*log_sys)});
-=======
-  ib::info(ER_IB_MSG_1151, INNODB_VERSION_STR,
            ulonglong{srv_force_recovery < SRV_FORCE_NO_LOG_REDO
                          ? ib::redo::handler->peek_first_unassigned_lsn()
                          : 0});
->>>>>>> mysql-26.7.0
 
   return DB_SUCCESS;
 }
@@ -3082,14 +2807,6 @@ static lsn_t srv_shutdown_log() {
   log_background_threads_inactive_validate();
   buf_assert_all_are_replaceable();
 
-<<<<<<< HEAD
-  lsn_t lsn = log_get_lsn(*log_sys);
-
-||||||| merged common ancestors
-  const lsn_t lsn = log_get_lsn(*log_sys);
-
-=======
->>>>>>> mysql-26.7.0
   if (!srv_read_only_mode) {
     /* Redo log has been flushed at the log_flusher's exit. */
     fil_flush_file_spaces();
@@ -3102,16 +2819,7 @@ static lsn_t srv_shutdown_log() {
 
   ut_a(lsn == pages_persistence->get_checkpoint_lsn() ||
        srv_force_recovery >= SRV_FORCE_NO_LOG_REDO);
-<<<<<<< HEAD
-  ut_a(lsn == log_get_lsn(*log_sys));
 
-||||||| merged common ancestors
-
-  ut_a(lsn == log_get_lsn(*log_sys));
-
-=======
-
->>>>>>> mysql-26.7.0
   if (!srv_read_only_mode) {
     ut_a(srv_force_recovery < SRV_FORCE_NO_LOG_REDO);
 
@@ -3284,15 +2992,9 @@ void srv_shutdown() {
 
   ibuf_close();
   ddl_log_close();
-<<<<<<< HEAD
-  log_sys_close();
-  recv_sys_free();
-||||||| merged common ancestors
-  log_sys_close();
-=======
   delete ib::redo::handler;
   pages_persistence->deinit();
->>>>>>> mysql-26.7.0
+  recv_sys_free();
   recv_sys_close();
   trx_sys_close();
   lock_sys_close();

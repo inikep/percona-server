@@ -56,15 +56,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "my_inttypes.h"
 #include "os0thread.h"
 #include "que0que.h"
-<<<<<<< HEAD
-#include "read0read.h"
-#include "row0mysql.h"
-||||||| merged common ancestors
-#include "read0read.h"
-=======
 #include "read0mvcc_interface.h"
 #include "read0read_view_interface.h"
->>>>>>> mysql-26.7.0
+#include "row0mysql.h"
 #include "row0purge.h"
 #include "row0upd.h"
 #include "srv0mon.h"

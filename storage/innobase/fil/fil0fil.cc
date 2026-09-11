@@ -836,37 +836,6 @@ class Fil_shard {
   [[nodiscard]] bool space_check_exists(space_id_t space_id, const char *name,
                                         bool print_err, bool adjust_space);
 
-<<<<<<< HEAD
-  /** Read or write data. This operation could be asynchronous (aio).
-  @param[in]    type            IO context
-  @param[in]    sync            whether synchronous aio is desired
-  @param[in]    page_id         page id
-  @param[in]    page_size       page size
-  @param[in]    byte_offset     remainder of offset in bytes; in AIO this must
-  be divisible by the OS block size
-  @param[in]    len             how many bytes to read or write; this
-  must not cross a file boundary; in AIO this must be a block size multiple
-  @param[in,out]        buf             buffer where to store read data or from
-  where to write; in AIO this must be appropriately aligned
-  @param[in]    message         message for AIO handler if !sync, else ignored
-  @param[in]    should_buffer   whether to buffer an aio request. AIO read
-  ahead uses this. If you plan to use this parameter, make sure you remember to
-  call os_aio_dispatch_read_array_submit() when you're ready to commit all your
-  requests.
-||||||| merged common ancestors
-  /** Read or write data. This operation could be asynchronous (aio).
-  @param[in]    type            IO context
-  @param[in]    sync            whether synchronous aio is desired
-  @param[in]    page_id         page id
-  @param[in]    page_size       page size
-  @param[in]    byte_offset     remainder of offset in bytes; in AIO this must
-  be divisible by the OS block size
-  @param[in]    len             how many bytes to read or write; this
-  must not cross a file boundary; in AIO this must be a block size multiple
-  @param[in,out]        buf             buffer where to store read data or from
-  where to write; in AIO this must be appropriately aligned
-  @param[in]    message         message for AIO handler if !sync, else ignored
-=======
   /** Read or write data for a single page from a file.
   @param[in]      type            IO type
   @param[in]      sync            If true then do synchronous IO
@@ -898,30 +867,20 @@ class Fil_shard {
     thread before returning from this method, or can be executed asynchronously
     from another thread, when @p sync is false, before or after this call
     returns.
->>>>>>> mysql-26.7.0
+  @param[in,out]  trx             Transaction the read is performed on behalf
+    of, used to account the InnoDB statistics reported by the slow query log,
+    or nullptr if not on behalf of a user transaction.
+  @param[in]      should_buffer   whether to buffer an AIO request. Only used
+    by AIO read ahead.
   @return error code
   @retval DB_SUCCESS on success
-<<<<<<< HEAD
-  @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-  [[nodiscard]] dberr_t do_io(const IORequest &type, bool sync,
-                              const page_id_t &page_id,
-                              const page_size_t &page_size, ulint byte_offset,
-                              ulint len, void *buf, void *message, trx_t *trx,
-                              bool should_buffer);
-||||||| merged common ancestors
-  @retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-  [[nodiscard]] dberr_t do_io(const IORequest &type, bool sync,
-                              const page_id_t &page_id,
-                              const page_size_t &page_size, ulint byte_offset,
-                              ulint len, void *buf, void *message);
-=======
   @retval DB_TABLESPACE_DELETED if the tablespace does not exist
   Note: this is not an exhaustive list of errors returned. */
   [[nodiscard]] dberr_t do_io(
       const IORequest::Type type, bool sync, const page_id_t &page_id,
       const page_size_t &page_size, ulint len, byte *buf, buf_page_t *bpage,
+      trx_t *trx, bool should_buffer,
       std::function<dberr_t(dberr_t)> postprocess_result);
->>>>>>> mysql-26.7.0
 
   /** Iterate through all persistent tablespace files (FIL_TYPE_TABLESPACE)
   returning the nodes via callback function f.
@@ -1724,14 +1683,15 @@ dberr_t fil_node_t::map_status_io_to_db_err(
 }
 
 dberr_t fil_node_t::post_io_sync(IORequest &type, byte *buf, size_t buffer_len,
-                                 page_no_t page_no) const {
+                                 page_no_t page_no, trx_t *trx) const {
   ut_a(is_open());
   const page_size_t page_size(this->space->flags);
 
   if (type.is_read()) {
     /* Buffer must be big enough to hold the page being read. */
     ut_a(buffer_len >= page_size.physical());
-    return map_status_io_to_db_err(m_handle->read_page(type, buf, page_no));
+    return map_status_io_to_db_err(
+        m_handle->read_page(type, buf, page_no, trx));
   }
 
   ut_ad(type.is_write());
@@ -1757,7 +1717,8 @@ dberr_t fil_node_t::write_pages(std::span<const byte *> buffers,
 #ifndef UNIV_HOTBACKUP
 dberr_t fil_node_t::post_io_async(IORequest &type, byte *buf, size_t buffer_len,
                                   page_no_t page_no,
-                                  std::function<void(dberr_t)> callback) const {
+                                  std::function<void(dberr_t)> callback,
+                                  trx_t *trx, bool should_buffer) const {
   ut_a(is_open());
   const page_size_t page_size(this->space->flags);
 
@@ -1767,8 +1728,8 @@ dberr_t fil_node_t::post_io_async(IORequest &type, byte *buf, size_t buffer_len,
     /* If the size is not equal the following method will work fine, but it is
     still not following the documentation. */
     ut_ad(buffer_len == page_size.physical());
-    return map_status_io_to_db_err(
-        m_handle->read_page_async(type, buf, page_no, callback));
+    return map_status_io_to_db_err(m_handle->read_page_async(
+        type, buf, page_no, trx, should_buffer, callback));
   }
 
   ut_ad(type.is_write());
@@ -1968,6 +1929,7 @@ fil_space_t *Fil_shard::space_add(ut::unique_ptr<fil_space_t> space) {
         oss << "'" << file.name << "'";
       }
 
+      ut_ad(existing_space->id != space->id);
       ib::info(ER_IB_ADDING_SPACE_WITH_NAME_ALREADY_IN_USE, space->name,
                ulong{space->id}, existing_space->name,
                ulong{existing_space->id}, oss.str().c_str());
@@ -2116,35 +2078,6 @@ calculating the byte offset within a space. If the data on disk is compressed or
 encrypted, the data is decompressed and decrypted using tablespace's keys before
 returning in the @p buf.
 @param[in]      page_id         page id
-<<<<<<< HEAD
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-must be divisible by the OS block size
-@param[in]      len             how many bytes to read; this must not cross a
-file boundary; in aio this must be a block size multiple
-@param[in,out]  buf             buffer where to store data read; in aio this
-must be appropriately aligned
-@return DB_SUCCESS, or DB_TABLESPACE_DELETED if we are trying to do
-i/o on a tablespace which does not exist */
-static dberr_t fil_read(const page_id_t &page_id, const page_size_t &page_size,
-                        ulint byte_offset, ulint len, void *buf) {
-  return fil_io(IORequestRead, true, page_id, page_size, byte_offset, len, buf,
-                nullptr, nullptr, false);
-||||||| merged common ancestors
-@param[in]      page_size       page size
-@param[in]      byte_offset     remainder of offset in bytes; in aio this
-must be divisible by the OS block size
-@param[in]      len             how many bytes to read; this must not cross a
-file boundary; in aio this must be a block size multiple
-@param[in,out]  buf             buffer where to store data read; in aio this
-must be appropriately aligned
-@return DB_SUCCESS, or DB_TABLESPACE_DELETED if we are trying to do
-i/o on a tablespace which does not exist */
-static dberr_t fil_read(const page_id_t &page_id, const page_size_t &page_size,
-                        ulint byte_offset, ulint len, void *buf) {
-  return fil_io(IORequestRead, true, page_id, page_size, byte_offset, len, buf,
-                nullptr);
-=======
 @param[in]      page_size       Structure with information on logical and
                                 physical page size in the affected tablespace.
 @param[in,out]  buf             A buffer where to store read data. It must be
@@ -2158,7 +2091,6 @@ static dberr_t fil_read(const page_id_t &page_id, const page_size_t &page_size,
                                       const page_size_t &page_size, byte *buf) {
   return fil_io(IORequest::Type::READ, true, page_id, page_size,
                 page_size.physical(), buf, nullptr, false);
->>>>>>> mysql-26.7.0
 }
 
 /** Writes data to a space from a buffer. Remember that the possible incomplete
@@ -2190,16 +2122,8 @@ calculating the byte offset within a space.
                                        byte *buf) {
   ut_ad(!srv_read_only_mode);
 
-<<<<<<< HEAD
-  return fil_io(IORequestWrite, true, page_id, page_size, byte_offset, len, buf,
-                nullptr, nullptr, false);
-||||||| merged common ancestors
-  return fil_io(IORequestWrite, true, page_id, page_size, byte_offset, len, buf,
-                nullptr);
-=======
   return fil_io(IORequest::Type::WRITE, true, page_id, page_size, len, buf,
                 nullptr, false);
->>>>>>> mysql-26.7.0
 }
 
 /** Look up a tablespace. The caller should hold an InnoDB table lock or
@@ -2612,122 +2536,6 @@ dberr_t fil_space_t::validate_first_page() {
   fsp_flags_unset_sdi(flags);
   flags |= on_disk_flags & FSP_FLAGS_MASK_SDI;
 
-<<<<<<< HEAD
-  /* Data dictionary and tablespace are flushed at different points in
-  time. If a crash happens in between, they can have different
-  encryption flags as long as the redo log is not replayed. To avoid a
-  recovery error due to differing encryption flags, ensure that the
-  fil_space_t instance has the same setting as the header page. First
-  clear the encryption flag, then set it from the flags found in the
-  file. */
-  if (recv_recovery_is_on()) {
-    fsp_flags_unset_encryption(space->flags);
-    space->flags |= flags & FSP_FLAGS_MASK_ENCRYPTION;
-  }
-
-  /* Make a copy of space->flags and flags from the page header
-  so that they can be compared. */
-  /* Do not compare the data directory flag, in case this tablespace was
-  relocated. */
-  auto fil_space_flags = space->flags & ~FSP_FLAGS_MASK_DATA_DIR;
-  auto header_fsp_flags = flags & ~FSP_FLAGS_MASK_DATA_DIR;
-
-  /* Make sure the space_flags are the same as the header page flags. */
-  if (UNIV_UNLIKELY(fil_space_flags != header_fsp_flags)) {
-    ib::error(ER_IB_MSG_272, ulong{space->flags}, file->name, ulonglong{flags});
-    ut_error;
-  }
-
-  {
-    page_no_t size = fsp_header_get_field(page, FSP_SIZE);
-
-    page_no_t free_limit;
-
-    free_limit = fsp_header_get_field(page, FSP_FREE_LIMIT);
-
-    ulint free_len;
-
-    free_len = flst_get_len(FSP_HEADER_OFFSET + FSP_FREE + page);
-
-    ut_ad(space->free_limit == 0 || space->free_limit == free_limit);
-
-    ut_ad(space->free_len == 0 || space->free_len == free_len);
-
-    space->size_in_header = size;
-    space->free_limit = free_limit;
-
-    ut_a(free_len < std::numeric_limits<uint32_t>::max());
-
-    space->free_len = (uint32_t)free_len;
-
-    /* TODO: Get consistent flag from recovered DD. For that, DD should be
-    recovered already. */
-    /* Set estimated value for space->compression_type
-    during recovery process. */
-
-    if (recv_recovery_is_on() &&
-        (Compression::is_compressed_page(page + page_size.physical()) ||
-         Compression::is_compressed_encrypted_page(page +
-                                                   page_size.physical()))) {
-      ut_ad(buf_size >= (UNIV_PAGE_SIZE * 2));
-      Compression::meta_t header;
-      Compression::deserialize_header(page + page_size.physical(), &header);
-      space->compression_type = header.m_algorithm;
-||||||| merged common ancestors
-  /* Data dictionary and tablespace are flushed at different points in
-  time. If a crash happens in between, they can have different
-  encryption flags as long as the redo log is not replayed. To avoid a
-  recovery error due to differing encryption flags, ensure that the
-  fil_space_t instance has the same setting as the header page. First
-  clear the encryption flag, then set it from the flags found in the
-  file. */
-  if (recv_recovery_is_on()) {
-    fsp_flags_unset_encryption(space->flags);
-    space->flags |= flags & FSP_FLAGS_MASK_ENCRYPTION;
-  }
-
-  /* Make sure the space_flags are the same as the header page flags. */
-  if (space->flags != flags) {
-    ib::error(ER_IB_MSG_272, ulong{space->flags}, file->name, ulonglong{flags});
-    ut_error;
-  }
-
-  {
-    page_no_t size = fsp_header_get_field(page, FSP_SIZE);
-
-    page_no_t free_limit;
-
-    free_limit = fsp_header_get_field(page, FSP_FREE_LIMIT);
-
-    ulint free_len;
-
-    free_len = flst_get_len(FSP_HEADER_OFFSET + FSP_FREE + page);
-
-    ut_ad(space->free_limit == 0 || space->free_limit == free_limit);
-
-    ut_ad(space->free_len == 0 || space->free_len == free_len);
-
-    space->size_in_header = size;
-    space->free_limit = free_limit;
-
-    ut_a(free_len < std::numeric_limits<uint32_t>::max());
-
-    space->free_len = (uint32_t)free_len;
-
-    /* TODO: Get consistent flag from recovered DD. For that, DD should be
-    recovered already. */
-    /* Set estimated value for space->compression_type
-    during recovery process. */
-
-    if (recv_recovery_is_on() &&
-        (Compression::is_compressed_page(page + page_size.physical()) ||
-         Compression::is_compressed_encrypted_page(page +
-                                                   page_size.physical()))) {
-      ut_ad(buf_size >= (UNIV_PAGE_SIZE * 2));
-      Compression::meta_t header;
-      Compression::deserialize_header(page + page_size.physical(), &header);
-      space->compression_type = header.m_algorithm;
-=======
   /* Make sure the space_flags are the same as the header page flags. However,
   during the tablespace recovery we don't have the DD to have flags to
   confront the flags on disk against, and we really want to use these on disk
@@ -2739,10 +2547,14 @@ dberr_t fil_space_t::validate_first_page() {
   if (recv_recovery_is_on() || id == TRX_SYS_SPACE) {
     flags = on_disk_flags;
   } else {
-    if (flags != on_disk_flags) {
+    /* Do not compare the data directory flag, in case this tablespace was
+    relocated. */
+    const auto fil_space_flags = flags & ~FSP_FLAGS_MASK_DATA_DIR;
+    const auto header_fsp_flags = on_disk_flags & ~FSP_FLAGS_MASK_DATA_DIR;
+
+    if (UNIV_UNLIKELY(fil_space_flags != header_fsp_flags)) {
       ib::fatal(UT_LOCATION_HERE, ER_IB_MSG_TABLESPACE_FLAGS_MISMATCH,
                 ulong{flags}, file.name, ulonglong{on_disk_flags});
->>>>>>> mysql-26.7.0
     }
   }
 
@@ -3312,80 +3124,7 @@ ut::unique_ptr<fil_space_t> Fil_shard::space_create(const char *name,
   ut_ad(fsp_flags_is_valid(flags));
   ut_ad(srv_page_size == UNIV_PAGE_SIZE_ORIG || flags != 0);
 
-<<<<<<< HEAD
-  /* Look for a matching tablespace. */
-  fil_space_t *space = get_space_by_name(name);
-
-  if (space == nullptr) {
-    space = get_space_by_id(space_id);
-  }
-
-  if (space != nullptr) {
-    std::ostringstream oss;
-
-    for (size_t i = 0; i < space->files.size(); ++i) {
-      oss << "'" << space->files[i].name << "'";
-
-      if (i < space->files.size() - 1) {
-        oss << ", ";
-      }
-    }
-
-    ut_ad(space->id != space_id);
-    ib::info(ER_IB_MSG_281)
-        << "Trying to add tablespace '" << name << "'"
-        << " with id " << space_id << " to the tablespace"
-        << " memory cache, but tablespace"
-        << " '" << space->name << "'"
-        << " already exists in the cache with space ID " << space->id
-        << ". It maps to the following file(s): " << oss.str();
-
-    return nullptr;
-  }
-
-  space = static_cast<fil_space_t *>(
-      ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, sizeof(*space)));
-  /* This could be just a placement new constructor call if, only if it compiles
-  OK on SunPro. */
-  space->initialize();
-||||||| merged common ancestors
-  /* Look for a matching tablespace. */
-  fil_space_t *space = get_space_by_name(name);
-
-  if (space == nullptr) {
-    space = get_space_by_id(space_id);
-  }
-
-  if (space != nullptr) {
-    std::ostringstream oss;
-
-    for (size_t i = 0; i < space->files.size(); ++i) {
-      oss << "'" << space->files[i].name << "'";
-
-      if (i < space->files.size() - 1) {
-        oss << ", ";
-      }
-    }
-
-    ib::info(ER_IB_MSG_281)
-        << "Trying to add tablespace '" << name << "'"
-        << " with id " << space_id << " to the tablespace"
-        << " memory cache, but tablespace"
-        << " '" << space->name << "'"
-        << " already exists in the cache with space ID " << space->id
-        << ". It maps to the following file(s): " << oss.str();
-
-    return nullptr;
-  }
-
-  space = static_cast<fil_space_t *>(
-      ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, sizeof(*space)));
-  /* This could be just a placement new constructor call if, only if it compiles
-  OK on SunPro. */
-  space->initialize();
-=======
   auto space = ut::make_unique<fil_space_t>(UT_NEW_THIS_FILE_PSI_KEY);
->>>>>>> mysql-26.7.0
 
   space->id = space_id;
   space->name = mem_strdup(name);
@@ -3396,16 +3135,6 @@ ut::unique_ptr<fil_space_t> Fil_shard::space_create(const char *name,
   space->m_encryption_metadata.m_type = Encryption::NONE;
   space->encryption_op_in_progress = Encryption::Progress::NONE;
 
-<<<<<<< HEAD
-  rw_lock_create(fil_space_latch_key, &space->latch, LATCH_ID_FIL_SPACE);
-
-  space->is_corrupt = false;
-
-||||||| merged common ancestors
-  rw_lock_create(fil_space_latch_key, &space->latch, LATCH_ID_FIL_SPACE);
-
-=======
->>>>>>> mysql-26.7.0
 #ifndef UNIV_HOTBACKUP
   if (space->purpose == FIL_TYPE_TEMPORARY) {
     ut_d(space->latch.set_temp_fsp());
@@ -7247,16 +6976,9 @@ void fil_io_set_encryption(IORequest &req_type, const page_id_t &page_id,
 
 dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
                          const page_id_t &page_id, const page_size_t &page_size,
-<<<<<<< HEAD
-                         ulint byte_offset, ulint len, void *buf, void *message,
-                         trx_t *trx, bool should_buffer) {
-||||||| merged common ancestors
-                         ulint byte_offset, ulint len, void *buf,
-                         void *message) {
-=======
-                         ulint len, byte *buf, buf_page_t *bpage,
+                         ulint len, byte *buf, buf_page_t *bpage, trx_t *trx,
+                         bool should_buffer,
                          std::function<dberr_t(dberr_t)> postprocess_result) {
->>>>>>> mysql-26.7.0
   IORequest req_type(type);
 
   ut_ad(req_type.validate());
@@ -7420,35 +7142,24 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
     fil_report_invalid_page_access(page_id.page_no(), page_id.space(),
                                    space->name, len, req_type.is_read());
   }
-<<<<<<< HEAD
 
 #ifndef UNIV_HOTBACKUP
-  if (UNIV_UNLIKELY(space->is_corrupt && srv_pass_corrupt_table)) {
-    /* should ignore i/o for the crashed space */
-    if (srv_pass_corrupt_table == 1 || req_type.is_write()) {
-      complete_io(file, type);
-      if (aio_mode == AIO_mode::NORMAL) {
-        ut_a(space->purpose == FIL_TYPE_TABLESPACE);
-        buf_page_io_complete(static_cast<buf_page_t *>(message), false);
-      }
-    }
-
-    if (srv_pass_corrupt_table == 1 && req_type.is_read())
-      return (DB_TABLESPACE_DELETED);
-    else if (req_type.is_write())
-      return (DB_SUCCESS);
+  /* Should ignore I/O for a space that has been marked corrupt: fail the reads
+  and silently discard the writes. In the "salvage" mode (2) reads are still
+  let through, so that SELECT can retrieve whatever is still readable.
+  Completing the bpage and releasing its IO responsibility is done by
+  postprocess_result(), like on every other early exit from this function. */
+  if (UNIV_UNLIKELY(space->is_corrupt && srv_pass_corrupt_table) &&
+      (srv_pass_corrupt_table == 1 || req_type.is_write())) {
+    mutex_release();
+    return postprocess_result(req_type.is_write() ? DB_SUCCESS
+                                                  : DB_TABLESPACE_DELETED);
   }
-#endif
+#endif /* !UNIV_HOTBACKUP */
 
-  if (!prepare_file_for_io(file)) {
-||||||| merged common ancestors
-
-  if (!prepare_file_for_io(file)) {
-=======
   /* If we got a file, prepare it for IO. This may open it if it is not opened.
    */
   if (prepare_file_for_io(file, !req_type.is_dblwr()) != DB_SUCCESS) {
->>>>>>> mysql-26.7.0
 #ifndef UNIV_HOTBACKUP
     if (space->is_deleted()) {
       mutex_release();
@@ -7518,8 +7229,12 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
   }
 #endif /* !UNIV_HOTBACKUP */
 
-  /* Set encryption information. */
-  fil_io_set_encryption(req_type, page_id, space);
+  /* Set encryption information. This is done while still holding the shard
+  mutex, because fil_reset_encryption() modifies the space's encryption fields
+  under that same mutex and would otherwise race with the reads here. */
+  if (req_type.are_write_transformations_enabled()) {
+    fil_io_set_encryption(req_type, page_id, space);
+  }
 
   mutex_release();
 
@@ -7527,6 +7242,10 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
 
   ut_a(page_size.is_compressed() ||
        page_size.physical() == page_size.logical());
+
+  if (page_size.is_compressed()) {
+    ut_ad(page_size.physical() > 0);
+  }
 
   /* Assert that access is not out of bound of node, that is:
   page_no * page_size + page_size <= file->size * page_size. */
@@ -7543,118 +7262,8 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
       ut_ad(!fsp_is_system_tablespace(space->id));
       req_type.set_punch_hole();
 
-<<<<<<< HEAD
-  ut_a(file->size - page_no >=
-       (byte_offset +
-        std::max(static_cast<uint32_t>(len), type.get_original_size()) +
-        (page_size.physical() - 1)) /
-           page_size.physical());
-
-  ut_a(len % OS_FILE_LOG_BLOCK_SIZE == 0);
-  ut_a(byte_offset % OS_FILE_LOG_BLOCK_SIZE == 0);
-
-  /* Don't compress the log, page 0 of all tablespaces, tables compressed with
-   the old compression scheme and all pages from the system tablespace. */
-  if (req_type.is_write() && !page_size.is_compressed() &&
-      page_id.page_no() > 0 && IORequest::is_punch_hole_supported() &&
-      file->punch_hole) {
-    req_type.set_punch_hole();
-
-    req_type.compression_algorithm(space->compression_type);
-
-  } else {
-    req_type.clear_compressed();
-  }
-
-  if (page_size.is_compressed()) {
-    ut_ad(page_size.physical() > 0);
-  }
-
-  req_type.block_size(file->block_size);
-
-#ifdef UNIV_HOTBACKUP
-  /* In mysqlbackup do normal I/O, not AIO */
-  if (req_type.is_read()) {
-    err = os_file_read(req_type, file->name, file->handle, buf, offset, len);
-
-  } else {
-    ut_ad(!srv_read_only_mode || fsp_is_system_temporary(page_id.space()));
-
-    err = os_file_write(req_type, file->name, file->handle, buf, offset, len);
-  }
-#else /* UNIV_HOTBACKUP */
-  /* Queue the aio request */
-  err = os_aio(
-      req_type, aio_mode, file->name, file->handle, buf, offset, len,
-      fsp_is_system_temporary(page_id.space()) ? false : srv_read_only_mode,
-      file, message, page_id.space(), trx, should_buffer);
-
-#endif /* UNIV_HOTBACKUP */
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    err = DB_SUCCESS;
-
-    if (file->punch_hole) {
-      ib::warn(ER_IB_MSG_333) << "Punch hole failed for '" << file->name << "'";
-||||||| merged common ancestors
-  ut_a(file->size - page_no >=
-       (byte_offset +
-        std::max(static_cast<uint32_t>(len), type.get_original_size()) +
-        (page_size.physical() - 1)) /
-           page_size.physical());
-
-  ut_a(len % OS_FILE_LOG_BLOCK_SIZE == 0);
-  ut_a(byte_offset % OS_FILE_LOG_BLOCK_SIZE == 0);
-
-  /* Don't compress the log, page 0 of all tablespaces, tables compressed with
-   the old compression scheme and all pages from the system tablespace. */
-  if (req_type.is_write() && !page_size.is_compressed() &&
-      page_id.page_no() > 0 && IORequest::is_punch_hole_supported() &&
-      file->punch_hole) {
-    req_type.set_punch_hole();
-
-    req_type.compression_algorithm(space->compression_type);
-
-  } else {
-    req_type.clear_compressed();
-  }
-
-  /* Set encryption information. */
-  fil_io_set_encryption(req_type, page_id, space);
-
-  req_type.block_size(file->block_size);
-
-#ifdef UNIV_HOTBACKUP
-  /* In mysqlbackup do normal I/O, not AIO */
-  if (req_type.is_read()) {
-    err = os_file_read(req_type, file->name, file->handle, buf, offset, len);
-
-  } else {
-    ut_ad(!srv_read_only_mode || fsp_is_system_temporary(page_id.space()));
-
-    err = os_file_write(req_type, file->name, file->handle, buf, offset, len);
-  }
-#else /* UNIV_HOTBACKUP */
-  /* Queue the aio request */
-  err = os_aio(
-      req_type, aio_mode, file->name, file->handle, buf, offset, len,
-      fsp_is_system_temporary(page_id.space()) ? false : srv_read_only_mode,
-      file, message);
-
-#endif /* UNIV_HOTBACKUP */
-
-  if (err == DB_IO_NO_PUNCH_HOLE) {
-    err = DB_SUCCESS;
-
-    if (file->punch_hole) {
-      ib::warn(ER_IB_MSG_333) << "Punch hole failed for '" << file->name << "'";
-=======
       req_type.compression_algorithm(space->compression_type);
->>>>>>> mysql-26.7.0
     }
-
-    /* Set encryption information. */
-    fil_io_set_encryption(req_type, page_id, space);
 
     req_type.block_size(file->get_block_size());
   } else {
@@ -7679,7 +7288,7 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
 
   if (sync) {
     return assert_io_succeeded_complete_io_and_postprocess_result(
-        file->post_io_sync(req_type, buf, len, page_no));
+        file->post_io_sync(req_type, buf, len, page_no, trx));
   }
 #ifndef UNIV_HOTBACKUP
   /* Queue the io request */
@@ -7696,7 +7305,8 @@ dberr_t Fil_shard::do_io(const IORequest::Type type, bool sync,
 
   return file->post_io_async(
       req_type, buf, len, page_no,
-      std::move(ignore_postprocessing_result_code_callback));
+      std::move(ignore_postprocessing_result_code_callback), trx,
+      should_buffer);
 #else  /* UNIV_HOTBACKUP */
   ut_error;
 #endif /* UNIV_HOTBACKUP */
@@ -7734,7 +7344,8 @@ void fil_aio_wait(ulint segment) {
 
 dberr_t fil_io(IORequest::Type type, bool sync, const page_id_t &page_id,
                const page_size_t &page_size, ulint len, byte *buf,
-               buf_page_t *bpage, bool evict_after_write,
+               buf_page_t *bpage, bool evict_after_write, trx_t *trx,
+               bool should_buffer,
                std::function<void(dberr_t err)> pre_io_complete_callback) {
   auto shard = fil_system->shard_by_id(page_id.space());
   /* evict_after_write requires the page descriptor to be specified and the IO
@@ -7797,126 +7408,8 @@ dberr_t fil_io(IORequest::Type type, bool sync, const page_id_t &page_id,
   buffer in tablespace 0, you have to be very careful not to introduce
   deadlocks in the i/o system. We keep tablespace 0 data files always
   open, and use a special i/o thread to serve insert buffer requests. */
-<<<<<<< HEAD
-
-  switch (file->space->purpose) {
-    case FIL_TYPE_IMPORT:
-    case FIL_TYPE_TEMPORARY:
-    case FIL_TYPE_TABLESPACE:
-      srv_set_io_thread_op_info(segment, "complete io for buf page");
-
-      /* async single page writes from the dblwr buffer don't have
-      access to the page */
-      if (m2 != nullptr) {
-        auto bpage = static_cast<buf_page_t *>(m2);
-        ut_d(bpage->take_io_responsibility());
-        buf_page_io_complete(bpage, false, &type, m1);
-      }
-      return;
-  }
-
-  ut_d(ut_error);
-}
-#endif /* !UNIV_HOTBACKUP */
-
-/** Read or write data from a file.
-@param[in]	type		IO context
-@param[in]	sync		If true then do synchronous IO
-@param[in]	page_id		page id
-@param[in]	page_size	page size
-@param[in]	byte_offset	remainder of offset in bytes; in aio this
-                                must be divisible by the OS block size
-@param[in]	len		how many bytes to read or write; this must
-                                not cross a file boundary; in AIO this must
-                                be a block size multiple
-@param[in,out]	buf		buffer where to store read data or from where
-                                to write; in AIO this must be appropriately
-                                aligned
-@param[in]	message		message for AIO handler if !sync, else ignored
-@param[in]	should_buffer   whether to buffer an aio request. AIO read
-                                ahead uses this. If you plan to use this
-                                parameter, make sure you remember to call
-                                os_aio_dispatch_read_array_submit() when you're
-                                ready to commit all your requests.
-@return error code
-@retval DB_SUCCESS on success
-@retval DB_TABLESPACE_DELETED if the tablespace does not exist */
-dberr_t fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
-               const page_size_t &page_size, ulint byte_offset, ulint len,
-               void *buf, void *message, trx_t *trx, bool should_buffer) {
-  auto shard = fil_system->shard_by_id(page_id.space());
-#ifdef UNIV_DEBUG
-  if (!sync) {
-    /* In case of async io we transfer the io responsibility to the thread which
-    will perform the io completion routine. */
-    static_cast<buf_page_t *>(message)->release_io_responsibility();
-  }
-#endif
-
-  auto const err = shard->do_io(type, sync, page_id, page_size, byte_offset,
-                                len, buf, message, trx, should_buffer);
-#ifdef UNIV_DEBUG
-  /* If the error prevented async io, then we haven't actually transferred the
-  io responsibility at all, so we revert the debug io responsibility info. */
-  auto bpage = static_cast<buf_page_t *>(message);
-
-  /* When space is deleted, we could have marked the io complete. */
-  if (err != DB_SUCCESS && !sync && bpage->was_io_fixed()) {
-    bpage->take_io_responsibility();
-  }
-#endif
-  return err;
-||||||| merged common ancestors
-
-  switch (file->space->purpose) {
-    case FIL_TYPE_IMPORT:
-    case FIL_TYPE_TEMPORARY:
-    case FIL_TYPE_TABLESPACE:
-      srv_set_io_thread_op_info(segment, "complete io for buf page");
-
-      /* async single page writes from the dblwr buffer don't have
-      access to the page */
-      if (m2 != nullptr) {
-        auto bpage = static_cast<buf_page_t *>(m2);
-        ut_d(bpage->take_io_responsibility());
-        buf_page_io_complete(bpage, false, &type, m1);
-      }
-      return;
-  }
-
-  ut_d(ut_error);
-}
-#endif /* !UNIV_HOTBACKUP */
-
-dberr_t fil_io(const IORequest &type, bool sync, const page_id_t &page_id,
-               const page_size_t &page_size, ulint byte_offset, ulint len,
-               void *buf, void *message) {
-  auto shard = fil_system->shard_by_id(page_id.space());
-#ifdef UNIV_DEBUG
-  if (!sync) {
-    /* In case of async io we transfer the io responsibility to the thread which
-    will perform the io completion routine. */
-    static_cast<buf_page_t *>(message)->release_io_responsibility();
-  }
-#endif
-
-  auto const err = shard->do_io(type, sync, page_id, page_size, byte_offset,
-                                len, buf, message);
-#ifdef UNIV_DEBUG
-  /* If the error prevented async io, then we haven't actually transferred the
-  io responsibility at all, so we revert the debug io responsibility info. */
-  auto bpage = static_cast<buf_page_t *>(message);
-
-  /* When space is deleted, we could have marked the io complete. */
-  if (err != DB_SUCCESS && !sync && bpage->was_io_fixed()) {
-    bpage->take_io_responsibility();
-  }
-#endif
-  return err;
-=======
-  return shard->do_io(type, sync, page_id, page_size, len, buf, bpage,
-                      postprocess_result);
->>>>>>> mysql-26.7.0
+  return shard->do_io(type, sync, page_id, page_size, len, buf, bpage, trx,
+                      should_buffer, postprocess_result);
 }
 
 /** If the tablespace is on the unflushed list and there are no pending
@@ -8800,16 +8293,6 @@ dberr_t fil_set_encryption(space_id_t space_id, Encryption::Type algorithm,
 dberr_t fil_reset_encryption(space_id_t space_id) {
   ut_ad(space_id != TRX_SYS_SPACE);
 
-<<<<<<< HEAD
-||||||| merged common ancestors
-  if (fsp_is_system_or_temp_tablespace(space_id)) {
-    return DB_IO_NO_ENCRYPT_TABLESPACE;
-  }
-
-=======
-  ut_a(!fsp_is_system_or_temp_tablespace(space_id));
-
->>>>>>> mysql-26.7.0
   auto shard = fil_system->shard_by_id(space_id);
 
   shard->mutex_acquire();
@@ -10101,49 +9584,9 @@ const byte *fil_tablespace_redo_create(const byte *ptr, const byte *end,
   }
 
 #ifdef UNIV_HOTBACKUP
-<<<<<<< HEAD
-
-  meb_tablespace_redo_create(page_id, flags, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  /* The first condition is true during normal server operation, the
-  second one during server startup after
-  recv_recovery_from_checkpoint_start has completed. */
-  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
-    /* We are being called from online log tracking, file name
-    processing is a no-op, and specifically do not cause any DD
-    changes. */
-    return (ptr);
-  }
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No file maps to this tablespace ID. It's possible that
-    the file was deleted later or is missing. */
-
-    return ptr;
-||||||| merged common ancestors
-
-  meb_tablespace_redo_create(page_id, flags, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No file maps to this tablespace ID. It's possible that
-    the file was deleted later or is missing. */
-
-    return ptr;
-=======
   meb_tablespace_redo_create(space_id, flags, name.c_str());
   if (recv_sys->found_corrupt_fs) {
     return nullptr;
->>>>>>> mysql-26.7.0
   }
 #else  /* UNIV_HOTBACKUP */
   /* Create the tablespace storage if it isn't there */
@@ -10436,55 +9879,9 @@ const byte *fil_tablespace_redo_delete(const byte *ptr, const byte *end,
   }
 
 #ifdef UNIV_HOTBACKUP
-<<<<<<< HEAD
-
-  meb_tablespace_redo_delete(page_id, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  /* The first condition is true during normal server operation, the
-  second one during server startup after
-  recv_recovery_from_checkpoint_start has completed. */
-  if (!recv_recovery_is_on() || recv_lsn_checks_on) {
-    /* We are being called from online log tracking, file name
-    processing is a no-op, and specifically do not cause any DD
-    changes. */
-    return (ptr);
-  }
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  recv_sys->deleted.insert(page_id.space());
-  recv_sys->missing_ids.erase(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No files map to this tablespace ID. The drop must
-    have succeeded. */
-
-    return ptr;
-||||||| merged common ancestors
-
-  meb_tablespace_redo_delete(page_id, name.c_str());
-
-#else  /* !UNIV_HOTBACKUP */
-
-  const auto result =
-      fil_system->get_scanned_filename_by_space_id(page_id.space());
-
-  recv_sys->deleted.insert(page_id.space());
-  recv_sys->missing_ids.erase(page_id.space());
-
-  if (result.second == nullptr) {
-    /* No files map to this tablespace ID. The drop must
-    have succeeded. */
-
-    return ptr;
-=======
   meb_tablespace_redo_delete(space_id, name.c_str());
   if (recv_sys->found_corrupt_fs) {
     return nullptr;
->>>>>>> mysql-26.7.0
   }
 #else  /* UNIV_HOTBACKUP */
   fil_space_free(space_id, false);

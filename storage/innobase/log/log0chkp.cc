@@ -66,15 +66,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 /* recv_recovery_is_on() */
 #include "log0recv.h"
 
-<<<<<<< HEAD
-#include "mysqld.h"
-
-||||||| merged common ancestors
-=======
 /* ib::redo::handler */
 #include "log0handler_interface.h"
 
->>>>>>> mysql-26.7.0
+#include "mysqld.h"
+
 /* log_t::X */
 #include "log0sys.h"
 

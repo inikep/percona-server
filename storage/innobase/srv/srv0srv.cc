@@ -80,13 +80,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "os0thread-create.h"
 #include "pars0pars.h"
 #include "que0que.h"
-<<<<<<< HEAD
-#include "row0log.h"
-||||||| merged common ancestors
-=======
 #include "read0mvcc_interface.h"
 #include "read0read_view_interface.h"
->>>>>>> mysql-26.7.0
+#include "row0log.h"
 #include "row0mysql.h"
 #include "sql/current_thd.h"
 #include "sql/sql_class.h"
@@ -1601,7 +1597,8 @@ bool srv_printf_innodb_monitor(FILE *file, bool nowait, ulint *trx_start_pos,
   fprintf(file, "%lu RW transactions active inside InnoDB\n",
           UT_LIST_GET_LEN(trx_sys->rw_trx_list));
 
-  const ReadView *oldest_view = trx_sys->mvcc->get_oldest_view_stats();
+  const Read_view_interface *oldest_view =
+      trx_sys->mvcc->get_oldest_view_stats();
   if (oldest_view) {
     fprintf(file, "---OLDEST VIEW---\n");
     oldest_view->print(file);
@@ -1784,11 +1781,11 @@ void srv_export_innodb_status(void) {
   }
   if (!srv_read_only_mode) {
     export_vars.innodb_checkpoint_age =
-        (log_get_lsn(*log_sys) - log_sys->last_checkpoint_lsn);
+        (log_get_lsn(*log_sys) - pages_persistence->get_checkpoint_lsn());
 
-    log_limits_mutex_enter(*log_sys);
-    export_vars.innodb_checkpoint_max_age = log_free_check_capacity(*log_sys);
-    log_limits_mutex_exit(*log_sys);
+    export_vars.innodb_checkpoint_max_age = ut_uint64_align_down(
+        ib::redo::handler->get_capacity_estimate().max_history_length,
+        OS_FILE_LOG_BLOCK_SIZE);
   } else {
     export_vars.innodb_checkpoint_age = 0;
     export_vars.innodb_checkpoint_max_age = 0;
@@ -1798,7 +1795,8 @@ void srv_export_innodb_status(void) {
                           &export_vars.innodb_ibuf_segment_size);
   export_vars.innodb_lsn_current = log_get_lsn(*log_sys);
   export_vars.innodb_lsn_flushed = log_sys->flushed_to_disk_lsn;
-  export_vars.innodb_lsn_last_checkpoint = log_sys->last_checkpoint_lsn;
+  export_vars.innodb_lsn_last_checkpoint =
+      pages_persistence->get_checkpoint_lsn();
   export_vars.innodb_master_thread_active_loops = srv_main_active_loops;
   export_vars.innodb_master_thread_idle_loops = srv_main_idle_loops;
   export_vars.innodb_max_trx_id = trx_sys_get_next_trx_id_or_no();
@@ -1808,7 +1806,7 @@ void srv_export_innodb_status(void) {
       trx_sys->mvcc->get_oldest_view_stats();
   export_vars.innodb_oldest_view_low_limit_trx_id =
       oldest_view_for_low_limit_trx_id
-          ? oldest_view_for_low_limit_trx_id->low_limit_id()
+          ? oldest_view_for_low_limit_trx_id->get_low_limit_id()
           : 0;
   mutex_exit(&trx_sys->mutex);
 
@@ -2709,7 +2707,6 @@ static bool srv_master_do_shutdown_tasks(
   return (n_bytes_merged != 0);
 }
 
-<<<<<<< HEAD
 /** Set temporary tablespace to be encrypted if global variable
 innodb_temp_tablespace_encrypt is TRUE
 @param[in]	enable	true to enable encryption, false to disable
@@ -2756,15 +2753,15 @@ void undo_rotate_default_master_key() {
   /* If the undo log space is using default key, rotate
   it. We need the server_uuid initialized, otherwise,
   the keyname will not contains server uuid. */
-  if (Encryption::get_master_key_id() != 0 || srv_read_only_mode ||
-      strlen(server_uuid) == 0) {
+  if (Encryption::get_master_key_id() != Encryption::DEFAULT_MASTER_KEY_ID ||
+      srv_read_only_mode || strlen(server_uuid) == 0) {
     return;
   }
 
   DBUG_EXECUTE_IF("skip_rotating_default_master_key", return;);
 
-  undo::spaces->s_lock();
-  for (auto undo_space : undo::spaces->m_spaces) {
+  undo_truncate::spaces->s_lock(UT_LOCATION_HERE);
+  for (auto undo_space : undo_truncate::spaces->m_spaces) {
     ut_ad(fsp_is_undo_tablespace(undo_space->id()));
 
     space = fil_space_get(undo_space->id());
@@ -2796,17 +2793,9 @@ void undo_rotate_default_master_key() {
     }
     mtr_commit(&mtr);
   }
-  undo::spaces->s_unlock();
+  undo_truncate::spaces->s_unlock();
 }
 
-/* Enable REDO tablespace encryption */
-bool srv_enable_redo_encryption() {
-  log_t &log = *log_sys;
-||||||| merged common ancestors
-/* Enable REDO tablespace encryption */
-bool srv_enable_redo_encryption() {
-  log_t &log = *log_sys;
-=======
 /** Ensure that the first master key exists before taking an outer
 master_key_id_mutex guard.
 @return true iff success. */
@@ -2814,7 +2803,6 @@ static bool srv_ensure_master_key_exists() {
   if (Encryption::get_master_key_id() != Encryption::DEFAULT_MASTER_KEY_ID) {
     return true;
   }
->>>>>>> mysql-26.7.0
 
   byte *master_key = nullptr;
   uint32_t master_key_id = Encryption::DEFAULT_MASTER_KEY_ID;
@@ -2925,19 +2913,9 @@ bool set_undo_tablespace_encryption(THD *thd, space_id_t space_id, mtr_t *mtr) {
 }
 
 /* Enable UNDO tablespace encryption */
-<<<<<<< HEAD
 bool srv_enable_undo_encryption(THD *thd) {
-  /* Make sure undo::ddl_mutex is owned. */
-  ut_ad(mutex_own(&undo::ddl_mutex));
-||||||| merged common ancestors
-bool srv_enable_undo_encryption() {
-  /* Make sure undo::ddl_mutex is owned. */
-  ut_ad(mutex_own(&undo::ddl_mutex));
-=======
-bool srv_enable_undo_encryption() {
   /* Make sure undo_truncate::ddl_mutex is owned. */
   ut_ad(mutex_own(&undo_truncate::ddl_mutex));
->>>>>>> mysql-26.7.0
   bool ret_val = false;
 
   /* Traverse over all UNDO tablespaces and mark them encrypted. */

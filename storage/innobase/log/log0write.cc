@@ -2085,26 +2085,11 @@ static void log_writer_wait_on_consumers(log_t &log, lsn_t next_write_lsn) {
       break;
     }
     const std::string name = consumer->get_name();
-<<<<<<< HEAD
-
-    log_files_mutex_exit(*log_sys);
-    /* This should not be a checkpointer nor archiver (CONSUMER_TYPE_SERVER), as
+    /* This should not be a checkpointer nor archiver (SERVER), as
     we've used dedicated log_writer_wait_on_checkpoint() and
     log_writer_wait_on_archiver() to wait for them already */
     ut_ad(consumer->get_consumer_type() == Log_consumer::consumer_type::USER);
-||||||| merged common ancestors
-    log_files_mutex_exit(*log_sys);
-    /* This should not be a checkpointer nor archiver, as we've used dedicated
-    log_writer_wait_on_checkpoint() and log_writer_wait_on_archiver() to wait
-    for them already */
-    ut_ad(name == "MEB");
-=======
     log_limits_mutex_exit();
-    /* This should not be a checkpointer nor archiver, as we've used dedicated
-    log_writer_wait_on_checkpoint() and log_writer_wait_on_archiver() to wait
-    for them already */
-    ut_ad(name == "MEB");
->>>>>>> mysql-26.7.0
     log_writer_mutex_exit(log);
     log_sync_point("log_writer_waits_for_consumer");
     if (attempt++ % ATTEMPTS_BETWEEN_WARNINGS == 0) {

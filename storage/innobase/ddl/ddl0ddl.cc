@@ -95,15 +95,9 @@ void Dup::report() noexcept {
   }
 }
 
-<<<<<<< HEAD
-dberr_t pread(os_fd_t fd, void *ptr, size_t len, os_offset_t offset,
-              void *crypt_buf, /*!< in: crypt buf or NULL */
+dberr_t pread(os_fd_t fd, byte *ptr, size_t len, os_offset_t offset,
+              byte *crypt_buf, /*!< in: crypt buf or NULL */
               space_id_t space_id) noexcept {
-||||||| merged common ancestors
-dberr_t pread(os_fd_t fd, void *ptr, size_t len, os_offset_t offset) noexcept {
-=======
-dberr_t pread(os_fd_t fd, byte *ptr, size_t len, os_offset_t offset) noexcept {
->>>>>>> mysql-26.7.0
   IF_ENABLED("ddl_read_failure", return DB_IO_ERROR;)
 
   /* Merge sort pages are never compressed. */
@@ -132,15 +126,9 @@ dberr_t pread(os_fd_t fd, byte *ptr, size_t len, os_offset_t offset) noexcept {
   return err;
 }
 
-<<<<<<< HEAD
-dberr_t pwrite(os_fd_t fd, void *ptr, size_t len, os_offset_t offset,
-               void *crypt_buf,                /*!< in: crypt buf or NULL */
+dberr_t pwrite(os_fd_t fd, byte *ptr, size_t len, os_offset_t offset,
+               byte *crypt_buf,                /*!< in: crypt buf or NULL */
                space_id_t space_id) noexcept { /*!< in: tablespace id */
-||||||| merged common ancestors
-dberr_t pwrite(os_fd_t fd, void *ptr, size_t len, os_offset_t offset) noexcept {
-=======
-dberr_t pwrite(os_fd_t fd, byte *ptr, size_t len, os_offset_t offset) noexcept {
->>>>>>> mysql-26.7.0
   IF_ENABLED("ddl_write_failure", return DB_IO_ERROR;)
 
   IORequest request(IORequest::Type::WRITE | IORequest::Type::NO_COMPRESSION);

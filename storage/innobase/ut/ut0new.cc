@@ -55,6 +55,11 @@ PSI_memory_key mem_key_dict_stats_bg_recalc_pool_t;
 PSI_memory_key mem_key_dict_stats_index_map_t;
 PSI_memory_key mem_key_dict_stats_n_diff_on_level;
 PSI_memory_key mem_key_fil_space_t;
+PSI_memory_key mem_key_log_online_iterator_files;
+PSI_memory_key mem_key_log_online_iterator_page;
+PSI_memory_key mem_key_log_online_modified_pages;
+PSI_memory_key mem_key_log_online_read_buf;
+PSI_memory_key mem_key_log_online_sys;
 PSI_memory_key mem_key_mtr_t;
 PSI_memory_key mem_key_lock_sys;
 PSI_memory_key mem_key_other;
@@ -66,12 +71,6 @@ PSI_memory_key mem_key_trx_sys_t_rw_trx_ids;
 PSI_memory_key mem_key_undo_spaces;
 PSI_memory_key mem_key_ut_lock_free_hash_t;
 /* Please obey alphabetical order in the definitions above. */
-
-PSI_memory_key mem_key_log_online_modified_pages;
-PSI_memory_key mem_key_log_online_sys;
-PSI_memory_key mem_key_log_online_read_buf;
-PSI_memory_key mem_key_log_online_iterator_files;
-PSI_memory_key mem_key_log_online_iterator_page;
 
 #ifdef UNIV_PFS_MEMORY
 

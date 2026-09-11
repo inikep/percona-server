@@ -229,22 +229,6 @@ static int binlog_set_prepared_in_tc(handlerton *hton, THD *thd);
 static void binlog_prepare_row_images(const THD *thd, TABLE *table);
 static bool is_loggable_xa_prepare(THD *thd);
 
-<<<<<<< HEAD
-namespace {
-/**
-  Finishes the transaction in the engines. If the `commit_low` flag is set,
-  will commit in the engines, otherwise, if the underlying statement is an
-  `XA ROLLBACK`, it will rollback in the engines.
-
-  @param thd The THD session object holding the transaction to finalize.
-  @param all Finalizing a transaction (i.e. true) or a statement
-             (i.e. false).
-  @param run_after_commit In the case of a commit being issued, whether or
-                          not to run the `after_commit` hook.
- */
-void finish_transaction_in_engines(THD *thd, bool all, bool run_after_commit);
-}  // namespace
-
 static int binlog_start_consistent_snapshot(handlerton *hton, THD *thd);
 static int binlog_clone_consistent_snapshot(handlerton *hton, THD *thd,
                                             THD *from_thd);
@@ -267,24 +251,6 @@ static SHOW_VAR binlog_status_vars_detail[] = {
      SHOW_SCOPE_GLOBAL},
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_GLOBAL}};
 
-||||||| merged common ancestors
-namespace {
-/**
-  Finishes the transaction in the engines. If the `commit_low` flag is set,
-  will commit in the engines, otherwise, if the underlying statement is an
-  `XA ROLLBACK`, it will rollback in the engines.
-
-  @param thd The THD session object holding the transaction to finalize.
-  @param all Finalizing a transaction (i.e. true) or a statement
-             (i.e. false).
-  @param run_after_commit In the case of a commit being issued, whether or
-                          not to run the `after_commit` hook.
- */
-void finish_transaction_in_engines(THD *thd, bool all, bool run_after_commit);
-}  // namespace
-
-=======
->>>>>>> mysql-26.7.0
 /**
   @brief Checks whether purge conditions are met to be able to run purge
          for binary log files.
@@ -3394,15 +3360,9 @@ MYSQL_BIN_LOG::MYSQL_BIN_LOG(uint *sync_period, bool relay_log)
       is_relay_log(relay_log),
       checksum_alg_reset(mysql::binlog::event::BINLOG_CHECKSUM_ALG_UNDEF),
       relay_log_checksum_alg(mysql::binlog::event::BINLOG_CHECKSUM_ALG_UNDEF),
-<<<<<<< HEAD
       previous_gtid_set_relaylog(nullptr),
-      snapshot_lock_acquired(false) {
-||||||| merged common ancestors
-      previous_gtid_set_relaylog(nullptr) {
-=======
-      previous_gtid_set_relaylog(nullptr),
+      snapshot_lock_acquired(false),
       m_tc_log_processing(std::make_unique<Binlog_tc_log>()) {
->>>>>>> mysql-26.7.0
   /*
     We don't want to initialize locks here as such initialization depends on
     safe_mutex (when using safe_mutex) which depends on MY_INIT(), which is
@@ -10860,7 +10820,6 @@ int THD::binlog_query(THD::enum_binlog_query_type qtype, const char *query_arg,
   return 0;
 }
 
-<<<<<<< HEAD
 static const binlog_cache_mngr *get_cache_mngr(THD *thd) {
   const binlog_cache_mngr *cache_mngr =
       (thd && opt_bin_log)
@@ -10916,33 +10875,6 @@ static SHOW_VAR binlog_status_vars_top[] = {
      (char *)&show_binlog_snapshot_gtid_executed, SHOW_FUNC, SHOW_SCOPE_GLOBAL},
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_GLOBAL}};
 
-namespace {
-void finish_transaction_in_engines(THD *thd, bool all, bool run_after_commit) {
-  if (thd->get_transaction()->m_flags.commit_low) {
-    if (trx_coordinator::commit_in_engines(thd, all, run_after_commit))
-      thd->commit_error = THD::CE_COMMIT_ERROR;
-  } else if (is_xa_rollback(thd)) {
-    if (trx_coordinator::rollback_in_engines(thd, all))
-      thd->commit_error = THD::CE_COMMIT_ERROR;
-  }
-}
-}  // namespace
-
-||||||| merged common ancestors
-namespace {
-void finish_transaction_in_engines(THD *thd, bool all, bool run_after_commit) {
-  if (thd->get_transaction()->m_flags.commit_low) {
-    if (trx_coordinator::commit_in_engines(thd, all, run_after_commit))
-      thd->commit_error = THD::CE_COMMIT_ERROR;
-  } else if (is_xa_rollback(thd)) {
-    if (trx_coordinator::rollback_in_engines(thd, all))
-      thd->commit_error = THD::CE_COMMIT_ERROR;
-  }
-}
-}  // namespace
-
-=======
->>>>>>> mysql-26.7.0
 struct st_mysql_storage_engine binlog_storage_engine = {
     MYSQL_HANDLERTON_INTERFACE_VERSION};
 

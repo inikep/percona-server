@@ -127,13 +127,7 @@ let $mysqld=$MYSQLTEST_SAFE_PROCESS --nocore -- $MYSQLD_CMD --console > $error_l
 #----------------------------------------------------------------------------------
 --echo # 1.1 The value assigned is a number.
 # Detailed explanations of what happens are placed nearby the checks.
-<<<<<<< HEAD
---error 1
-||||||| merged common ancestors
---error 1,42
-=======
 --error 1,2,-2147483645
->>>>>>> mysql-26.7.0
 --exec $mysqld=$other_page_size
 if ( $default_page_size != $other_page_size )
 {
@@ -149,13 +143,7 @@ if ( $default_page_size != $other_page_size )
 --let SEARCH_PATTERN= \[ERROR\] \[[^]]*\] \[[^]]*\] Assertion failure: fil0fil.cc
 --source include/search_pattern.inc
 --echo # 1.2 The value assigned is a number followed by 'k'.
-<<<<<<< HEAD
---error 1
-||||||| merged common ancestors
---error 1,42
-=======
 --error 1,2,-2147483645
->>>>>>> mysql-26.7.0
 --exec $mysqld=$other_page_size_nk
 if ( $default_page_size != $other_page_size )
 {
@@ -182,13 +170,7 @@ if ( $default_page_size != $other_page_size )
 # 1. not supported
 # 2. below the smallest supported one
 # The restart attempt has to fail.
-<<<<<<< HEAD
---error 1
-||||||| merged common ancestors
---error 1,42
-=======
 --error 1,2,-2147483645
->>>>>>> mysql-26.7.0
 --exec $mysqld=$out_range_page_size
 # The innodb page size gets raised to the lowest or biggest legal value.
 --replace_result $out_range_page_size OUT_RANGE_PAGE_SIZE $adjust_page_size ADJUST_PAGE_SIZE
@@ -216,13 +198,7 @@ if ($zero_test)
    {
      --echo # We do not omit the test.
    }
-<<<<<<< HEAD
---error 1
-||||||| merged common ancestors
---error 1,42
-=======
 --error 1,2,-2147483645
->>>>>>> mysql-26.7.0
 --exec $mysqld=garbage
 # General server properties cause that
 # - the plain wrong value "garbage" assigned to innodb page size gets
@@ -247,16 +223,8 @@ let SEARCH_PATTERN=  innodb-page-size has been changed from the default value $d
 # Properties of the value:
 # 1. not supported
 # 2. between smallest (4k) and biggest (16k) supported one
-<<<<<<< HEAD
 # InnoDB aborts
---error 1
-||||||| merged common ancestors
-# InnoDB aborts, so ASAN may report leaks
---error 1,42
-=======
-# InnoDB aborts, so ASAN may report leaks
---error 1,2,42,-2147483645
->>>>>>> mysql-26.7.0
+--error 1,2,-2147483645
 --exec $mysqld=$illegal_pagesize
 # InnoDB cannot handle this value.
 --replace_result $illegal_pagesize ILLEGAL_PAGESIZE
@@ -269,13 +237,7 @@ let SEARCH_PATTERN= \[ERROR\] .*MY-\\d+.* Invalid page size=$illegal_pagesize;
 --echo #    <number>k is a legal page size.
 #---------------------------------------------------------------------------------
 # The restart attempt has to fail.
-<<<<<<< HEAD
---error 1
-||||||| merged common ancestors
---error 1,42
-=======
 --error 1,2,-2147483645
->>>>>>> mysql-26.7.0
 --exec $mysqld=$other_page_size_nkaramel
 # The plain wrong value "<number>karamel" assigned to innodb page size seems
 # to get mangled to "<number>k" which is a legal value.

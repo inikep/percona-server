@@ -92,7 +92,16 @@ uint clone_restart_timeout;
 /** Clone system variable: time delay after removing data */
 uint clone_delay_after_data_drop;
 
-<<<<<<< HEAD
+#ifndef NDEBUG
+/** Debug-only test hook to corrupt a cloned file index descriptor. */
+bool clone_inject_invalid_file_index;
+
+/** Debug-only test hook to force a recipient locator/task mismatch before
+descriptor apply. Tests use this to verify runtime protocol validation for
+task-vector indexing. */
+bool clone_inject_missing_task_mapping;
+#endif
+
 /** Clone system variable: list of plugins that will not be matched on
 recipient */
 char *clone_exclude_plugins_list;
@@ -106,19 +115,6 @@ static std::vector<std::string> disallow_list{"daemon_keyring_proxy_plugin",
                                               "keyring_file",
                                               "keyring_vault"};
 
-||||||| merged common ancestors
-=======
-#ifndef NDEBUG
-/** Debug-only test hook to corrupt a cloned file index descriptor. */
-bool clone_inject_invalid_file_index;
-
-/** Debug-only test hook to force a recipient locator/task mismatch before
-descriptor apply. Tests use this to verify runtime protocol validation for
-task-vector indexing. */
-bool clone_inject_missing_task_mapping;
-#endif
-
->>>>>>> mysql-26.7.0
 /** Key for registering clone allocations with performance schema */
 PSI_memory_key clone_mem_key;
 
@@ -743,7 +739,6 @@ static MYSQL_SYSVAR_UINT(delay_after_data_drop, clone_delay_after_data_drop,
                          60 * 60,             /* Maximum =  1 hour */
                          1);                  /* Step    =  1 sec */
 
-<<<<<<< HEAD
 /**  Remote cloning insists on the same list of plugins to be installed on
 recipient. These list of plugins are not required to be installed on recipient.
 */
@@ -754,8 +749,6 @@ static MYSQL_SYSVAR_STR(exclude_plugins_list, clone_exclude_plugins_list,
                         "active on donor but not installed on recipient",
                         clone_exclude_plugins_list_validate, nullptr, nullptr);
 
-||||||| merged common ancestors
-=======
 #ifndef NDEBUG
 static MYSQL_SYSVAR_BOOL(inject_invalid_file_index,
                          clone_inject_invalid_file_index, PLUGIN_VAR_OPCMDARG,
@@ -770,7 +763,6 @@ static MYSQL_SYSVAR_BOOL(inject_missing_task_mapping,
                          nullptr, nullptr, false);
 #endif
 
->>>>>>> mysql-26.7.0
 /** Clone system variables */
 static SYS_VAR *clone_system_variables[] = {
     MYSQL_SYSVAR(buffer_size),
@@ -787,17 +779,13 @@ static SYS_VAR *clone_system_variables[] = {
     MYSQL_SYSVAR(ssl_ca),
     MYSQL_SYSVAR(donor_timeout_after_network_failure),
     MYSQL_SYSVAR(delay_after_data_drop),
-<<<<<<< HEAD
-    MYSQL_SYSVAR(exclude_plugins_list),
-    MYSQL_SYSVAR(compression_algorithm),
-    MYSQL_SYSVAR(zstd_compression_level),
-||||||| merged common ancestors
-=======
 #ifndef NDEBUG
     MYSQL_SYSVAR(inject_invalid_file_index),
     MYSQL_SYSVAR(inject_missing_task_mapping),
 #endif
->>>>>>> mysql-26.7.0
+    MYSQL_SYSVAR(exclude_plugins_list),
+    MYSQL_SYSVAR(compression_algorithm),
+    MYSQL_SYSVAR(zstd_compression_level),
     nullptr};
 
 /** Declare clone plugin */

@@ -55,12 +55,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "que0que.h"
 #include "row0ins.h"
 #include "row0mysql.h"
-<<<<<<< HEAD
 #include "row0sel.h"
-||||||| merged common ancestors
-=======
 #include "scope_guard.h"
->>>>>>> mysql-26.7.0
 #include "srv0start.h"
 #include "trx0roll.h"
 #include "usr0sess.h"
