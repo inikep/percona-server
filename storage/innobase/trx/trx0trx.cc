@@ -2418,7 +2418,8 @@ Caller must own the global lock exclusive latch, trx_sys->mutex and
 from_trx->mutex. Releases trx_sys->mutex and from_trx->mutex.
 @param[in] trx       receiver transaction
 @param[in] from_trx  donor transaction
-@return read view clone, or nullptr if the donor has no open read view */
+@return read view clone, or nullptr if the donor has no open read view or is
+an autocommit non-locking read-only transaction */
 Read_view_interface *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
   ut_ad(locksys::owns_exclusive_global_latch());
   ut_ad(trx_sys_mutex_own());
@@ -2432,8 +2433,13 @@ Read_view_interface *trx_clone_read_view(trx_t *trx, trx_t *from_trx) {
   }
 
   /* Not trx_state_eq(): it asserts in debug builds when the donor is
-  TRX_STATE_NOT_STARTED, which is the case for an idle donor session. */
+  TRX_STATE_NOT_STARTED, which is the case for an idle donor session.
+  An autocommit non-locking read-only donor is refused: its view lives
+  only for one statement, and it commits without trx_sys->mutex or
+  from_trx->mutex, so a preallocated id could outlive it in
+  trx_sys->reserved_rw_ids. */
   if (from_trx->state.load(std::memory_order_relaxed) != TRX_STATE_ACTIVE ||
+      trx_is_autocommit_non_locking(from_trx) ||
       !trx_sys->mvcc->is_view_open(from_trx->read_view)) {
     trx_mutex_exit(from_trx);
     trx_sys_mutex_exit();

@@ -223,7 +223,8 @@ Caller must own the global lock exclusive latch, trx_sys->mutex and
 from_trx->mutex. Releases trx_sys->mutex and from_trx->mutex.
 @param[in]	trx	receiver transaction
 @param[in]	from_trx	donor transaction
-@return read view clone, or nullptr if the donor has no open read view */
+@return read view clone, or nullptr if the donor has no open read view or is
+an autocommit non-locking read-only transaction */
 [[nodiscard]] Read_view_interface *trx_clone_read_view(trx_t *trx,
                                                        trx_t *from_trx);
 
