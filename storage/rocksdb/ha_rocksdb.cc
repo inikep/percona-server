@@ -58,6 +58,7 @@
 #include "sql/dd/dd.h"                       // dd::get_dictionary
 #include "sql/dd/dictionary.h"               // dd::Dictionary
 #include "sql/debug_sync.h"
+#include "sql/mysqld.h"
 #include "sql/rpl_rli.h"
 #include "sql/sql_audit.h"
 #include "sql/sql_class.h"
@@ -6412,8 +6413,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
 
       THD *thd = tx->get_thd();
       char buffer[1024];
-      thd_security_context_internal(thd, buffer, sizeof buffer, 0,
-                                    current_thd->variables.show_query_digest);
+      thd_security_context(thd, buffer, sizeof buffer, 0);
       m_data += format_string(
           "%s\n"
           "earliest snapshot never created\n"
@@ -8428,7 +8428,7 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
   assert(kd.has_ttl());
   assert(kd.m_ttl_rec_offset != UINT_MAX);
   auto *const thd = tx.get_thd();
-  const int64_t curr_ts = tx.get_snapshot_timestamp();
+  const int64_t curr_ts = tx.get_snapshot_ts();
 
   /*
     Curr_ts can only be 0 if there are no snapshots open.
@@ -14045,9 +14045,6 @@ int ha_rocksdb::extra(enum ha_extra_function operation) {
       // that indicates the end of REPLACE / INSERT ON DUPLICATE KEY
       m_insert_with_update = false;
       break;
-    case HA_EXTRA_NO_READ_LOCKING:
-      m_no_read_locking = true;
-      break;
     case HA_EXTRA_END_ALTER_COPY:
       tx = get_tx_from_thd(ha_thd());
       rtn = tx->commit_bulk_load();
@@ -15573,8 +15570,7 @@ int ha_rocksdb::inplace_populate_sk(
     if (res == ER_DUP_ENTRY) {
       assert(new_table_arg->key_info[index->get_keyno()].flags & HA_NOSAME);
       print_keydup_error(new_table_arg,
-                         &new_table_arg->key_info[index->get_keyno()], MYF(0),
-                         thd);
+                         &new_table_arg->key_info[index->get_keyno()], MYF(0));
     }
 
     if (res && is_critical_error) {
@@ -18207,7 +18203,5 @@ mysql_declare_plugin(rocksdb_se){
     myrocks::rdb_i_s_global_info, myrocks::rdb_i_s_ddl,
     myrocks::rdb_i_s_sst_props, myrocks::rdb_i_s_index_file_map,
     myrocks::rdb_i_s_lock_info, myrocks::rdb_i_s_trx_info,
-    myrocks::rdb_i_s_deadlock_info,
-    myrocks::rdb_i_s_bypass_rejected_query_history,
-    myrocks::rdb_i_s_live_files_metadata, myrocks::rdb_i_s_vector_index_config,
+    myrocks::rdb_i_s_deadlock_info, myrocks::rdb_i_s_live_files_metadata,
     myrocks::rdb_i_s_bulk_load_history_config mysql_declare_plugin_end;
