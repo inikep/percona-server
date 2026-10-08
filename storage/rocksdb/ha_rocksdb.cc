@@ -17089,39 +17089,6 @@ void Rdb_compaction_stats::record_end(rocksdb::CompactionJobInfo info) {
   m_history.emplace_back(std::move(record));
 }
 
-select_bypass_policy_type get_select_bypass_policy() {
-  return static_cast<select_bypass_policy_type>(rocksdb_select_bypass_policy);
-}
-
-bool should_fail_unsupported_select_bypass() {
-  return rocksdb_select_bypass_fail_unsupported;
-}
-
-bool should_log_rejected_select_bypass() {
-  return rocksdb_select_bypass_log_rejected;
-}
-
-bool should_log_failed_select_bypass() {
-  return rocksdb_select_bypass_log_failed;
-}
-
-bool should_allow_filters_select_bypass() {
-  return rocksdb_select_bypass_allow_filters;
-}
-
-uint32_t get_select_bypass_rejected_query_history_size() {
-  return rocksdb_select_bypass_rejected_query_history_size;
-}
-
-uint32_t get_select_bypass_debug_row_delay() {
-  return rocksdb_select_bypass_debug_row_delay;
-}
-
-unsigned long long  // NOLINT(runtime/int)
-get_select_bypass_multiget_min() {
-  return rocksdb_select_bypass_multiget_min;
-}
-
 unsigned long long get_partial_index_sort_max_mem(THD *thd) {
   return THDVAR(thd, partial_index_sort_max_mem);
 }
@@ -17315,5 +17282,4 @@ mysql_declare_plugin(rocksdb_se){
     myrocks::rdb_i_s_sst_props, myrocks::rdb_i_s_index_file_map,
     myrocks::rdb_i_s_lock_info, myrocks::rdb_i_s_trx_info,
     myrocks::rdb_i_s_deadlock_info,
-    myrocks::rdb_i_s_bypass_rejected_query_history,
     myrocks::rdb_i_s_live_files_metadata mysql_declare_plugin_end;
