@@ -147,6 +147,9 @@ INCLUDE_DIRECTORIES(
   ${ROCKSDB_ROOT}/third-party/gtest-1.8.1/fused-src
 )
 
+# FB adds Boost to the global include path; upstream MySQL does not.
+INCLUDE_DIRECTORIES(SYSTEM ${BOOST_PATCHES_DIR} ${BOOST_INCLUDE_DIR})
+
 SET(ROCKSDB_SE_SOURCES
   ha_rocksdb.cc ha_rocksdb.h ha_rocksdb_proto.h
   logger.h
@@ -158,14 +161,12 @@ SET(ROCKSDB_SE_SOURCES
   event_listener.cc event_listener.h
   rdb_i_s.cc rdb_i_s.h
   rdb_index_merge.cc rdb_index_merge.h
-  rdb_io_watchdog.cc rdb_io_watchdog.h
   rdb_perf_context.cc rdb_perf_context.h
   rdb_mutex_wrapper.cc rdb_mutex_wrapper.h
   rdb_psi.h rdb_psi.cc
   rdb_sst_info.cc rdb_sst_info.h
   rdb_utils.cc rdb_utils.h rdb_buff.h
   rdb_threads.cc rdb_threads.h
-  nosql_access.cc nosql_access.h
 )
 
 IF(WITH_FB_TSAN)
@@ -211,6 +212,10 @@ IF (WITH_LZ4 AND LZ4_PATH)
   SET(rocksdb_static_libs ${rocksdb_static_libs}
     ${LZ4_LIBRARY})
   ADD_DEFINITIONS(-DLZ4)
+ELSEIF (WITH_LZ4)
+  # Use the server's LZ4 (system or bundled)
+  SET(rocksdb_static_libs ${rocksdb_static_libs} ext::lz4)
+  ADD_DEFINITIONS(-DLZ4)
 ENDIF()
 
 IF (WITH_BZ2)
@@ -223,7 +228,7 @@ IF (WITH_BZ2)
 ENDIF()
 
 IF (WITH_ZSTD)
-  SET(rocksdb_static_libs ${rocksdb_static_libs} ${ZSTD_LIBRARY})
+  SET(rocksdb_static_libs ${rocksdb_static_libs} ext::zstd)
   ADD_DEFINITIONS(-DZSTD)
   ADD_DEFINITIONS(-DZSTD_STATIC_LINKING_ONLY)
 ENDIF()
@@ -241,7 +246,7 @@ CHECK_INCLUDE_FILES(zlib.h HAVE_ZLIB_H)
 
 IF (HAVE_ZLIB_H)
   ADD_DEFINITIONS(-DZLIB)
-  SET(rocksdb_static_libs ${rocksdb_static_libs} ${ZLIB_LIBRARY})
+  SET(rocksdb_static_libs ${rocksdb_static_libs} ext::zlib)
 ENDIF()
 
 SET(rocksdb_static_libs ${rocksdb_static_libs} "-ldl" "-lpthread")

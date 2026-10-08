@@ -25,7 +25,6 @@ rocksdb.autoinc_crash_safe_partition : BUG#888001 partition feature is missing i
 rocksdb.validate_datadic : BUG#0000 native partitioning not supported
 
 # Missing features
-rocksdb.explicit_snapshot : BUG#0000 missing patch 0b671a35cc7 SQL to create and manage explicit snapshots
 rocksdb.skip_core_dump_on_error : BUG#0000 missing patch
 rocksdb_rpl.rpl_mts_dependency_unique_key_conflicts : BUG#0000 missing patch
 rocksdb.innodb_i_s_tables_disabled : BUG#0000 missing patch
@@ -66,11 +65,7 @@ rocksdb.add_index_inplace : BUG#0000 : ALTER TABLE ALGORITHM=INPLACE fails
 
 # Rebase: not-yet-implemented bugs
 rocksdb.rqg_examples : BUG#0000 Rebase: not-yet-implemented
-rocksdb.bypass_select_range_pk_bloom : BUG#0000 Rebase: not-yet-implemented
-rocksdb.bypass_select_scenarios_bloom : BUG#0000 Rebase: not-yet-implemented
 rocksdb.verify_tbl_share_primary_idx : BUG#0000 Rebase: not-yet-implemented
-rocksdb.bypass_select_range_sk_bloom : BUG#0000 Rebase: not-yet-implemented
-rocksdb.bypass_select_basic_bloom : BUG#0000 Rebase: not-yet-implemented
 rocksdb.rocksdb_deadlock_detect_rc : BUG#0000 Rebase: not-yet-implemented
 rocksdb.rocksdb_deadlock_detect_rr : BUG#0000 Rebase: not-yet-implemented
 rocksdb.bloomfilter2 : BUG#0000 Rebase: not-yet-implemented

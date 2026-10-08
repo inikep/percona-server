@@ -276,16 +276,6 @@ void Rdb_io_perf::end_and_record(THD *thd) {
     io_write_bytes = 0;
     io_write_requests = 0;
   }
-
-  if (rocksdb::get_perf_context()->internal_key_skipped_count != 0) {
-    thd->status_var.ha_key_skipped_count +=
-        rocksdb::get_perf_context()->internal_key_skipped_count;
-  }
-
-  if (rocksdb::get_perf_context()->internal_delete_skipped_count != 0) {
-    thd->status_var.ha_delete_skipped_count +=
-        rocksdb::get_perf_context()->internal_delete_skipped_count;
-  }
 }
 
 }  // namespace myrocks

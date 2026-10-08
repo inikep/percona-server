@@ -52,7 +52,6 @@
 #include "./rdb_buff.h"
 #include "./rdb_global.h"
 #include "./rdb_index_merge.h"
-#include "./rdb_io_watchdog.h"
 #include "./rdb_perf_context.h"
 #include "./rdb_sst_info.h"
 #include "./rdb_utils.h"
@@ -1110,28 +1109,6 @@ class Rdb_compaction_stats {
 
 extern Rdb_compaction_stats compaction_stats;
 
-/* Whether ROCKSDB_ENABLE_SELECT_BYPASS is enabled */
-select_bypass_policy_type get_select_bypass_policy();
-
-/* Whether we should log unsupported SELECT bypass */
-bool should_fail_unsupported_select_bypass();
-
-/* Whether we should log rejected unsupported SELECT bypass */
-bool should_log_rejected_select_bypass();
-
-/* Whether we should log failed unsupported SELECT bypass */
-bool should_log_failed_select_bypass();
-
-/* Whether we should allow non-optimal filters in SELECT bypass */
-bool should_allow_filters_select_bypass();
-
-uint32_t get_select_bypass_rejected_query_history_size();
-
-uint32_t get_select_bypass_debug_row_delay();
-
-unsigned long long  // NOLINT(runtime/int)
-get_select_bypass_multiget_min();
-
 Rdb_transaction *get_tx_from_thd(THD *const thd);
 
 const rocksdb::ReadOptions &rdb_tx_acquire_snapshot(Rdb_transaction *tx);
@@ -1180,9 +1157,5 @@ bool can_use_bloom_filter(THD *thd, const Rdb_key_def &kd,
                           const bool use_all_keys);
 
 bool rdb_tx_started(Rdb_transaction *tx);
-
-extern std::atomic<uint64_t> rocksdb_select_bypass_executed;
-extern std::atomic<uint64_t> rocksdb_select_bypass_rejected;
-extern std::atomic<uint64_t> rocksdb_select_bypass_failed;
 
 }  // namespace myrocks

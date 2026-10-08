@@ -83,7 +83,6 @@
 #include "./event_listener.h"
 #include "./ha_rocksdb_proto.h"
 #include "./logger.h"
-#include "./nosql_access.h"
 #include "./rdb_cf_manager.h"
 #include "./rdb_cf_options.h"
 #include "./rdb_converter.h"
@@ -146,102 +145,6 @@ static std::vector<std::string> rdb_tables_to_recalc;
 static Rdb_exec_time st_rdb_exec_time;
 
 int mysql_value_to_bool(struct st_mysql_value *value, bool *return_value);
-
-enum snapshot_operation {
-  SNAPSHOT_CREATE,
-  SNAPSHOT_ATTACH,
-  SNAPSHOT_RELEASE,
-  SNAPSHOT_NONE
-};
-
-struct snapshot_info_st {
-  std::string binlog_file;
-  ulonglong binlog_pos = 0;
-  std::string gtid_executed;
-  ulonglong snapshot_id = 0;
-  enum snapshot_operation op = snapshot_operation::SNAPSHOT_NONE;
-  ulonglong snapshot_hlc = 0;
-};
-
-class explicit_snapshot {
- protected:
-  virtual ~explicit_snapshot() {}
-
- public:
-  snapshot_info_st ss_info;
-  explicit_snapshot(snapshot_info_st ss_info) : ss_info(ss_info) {}
-};
-
-class Rdb_explicit_snapshot : public explicit_snapshot {
- public:
-  static std::shared_ptr<Rdb_explicit_snapshot> create(
-      snapshot_info_st *ssinfo, rocksdb::DB *db,
-      const rocksdb::Snapshot *snapshot) {
-    std::lock_guard<std::mutex> lock(explicit_snapshot_mutex);
-    auto s = std::unique_ptr<rocksdb::ManagedSnapshot>(
-        new rocksdb::ManagedSnapshot(db, snapshot));
-    if (!s) {
-      return nullptr;
-    }
-    ssinfo->snapshot_id = ++explicit_snapshot_counter;
-    auto ret = std::make_shared<Rdb_explicit_snapshot>(*ssinfo, std::move(s));
-    if (!ret) {
-      return nullptr;
-    }
-    explicit_snapshots[ssinfo->snapshot_id] = ret;
-    return ret;
-  }
-
-  static std::string dump_snapshots() {
-    std::string str;
-    std::lock_guard<std::mutex> lock(explicit_snapshot_mutex);
-    for (const auto &elem : explicit_snapshots) {
-      const auto &ss = elem.second.lock();
-      assert(ss != nullptr);
-      const auto &info = ss->ss_info;
-      str += "\nSnapshot ID: " + std::to_string(info.snapshot_id) +
-             "\nBinlog File: " + info.binlog_file +
-             "\nBinlog Pos: " + std::to_string(info.binlog_pos) +
-             "\nGtid Executed: " + info.gtid_executed + "\n";
-    }
-
-    return str;
-  }
-
-  static std::shared_ptr<Rdb_explicit_snapshot> get(
-      const ulonglong snapshot_id) {
-    std::lock_guard<std::mutex> lock(explicit_snapshot_mutex);
-    auto elem = explicit_snapshots.find(snapshot_id);
-    if (elem == explicit_snapshots.end()) {
-      return nullptr;
-    }
-    return elem->second.lock();
-  }
-
-  rocksdb::ManagedSnapshot *get_snapshot() { return snapshot.get(); }
-
-  Rdb_explicit_snapshot(snapshot_info_st ssinfo,
-                        std::unique_ptr<rocksdb::ManagedSnapshot> &&snapshot)
-      : explicit_snapshot(ssinfo), snapshot(std::move(snapshot)) {}
-
-  virtual ~Rdb_explicit_snapshot() {
-    std::lock_guard<std::mutex> lock(explicit_snapshot_mutex);
-    explicit_snapshots.erase(ss_info.snapshot_id);
-  }
-
- private:
-  std::unique_ptr<rocksdb::ManagedSnapshot> snapshot;
-
-  static std::mutex explicit_snapshot_mutex;
-  static ulonglong explicit_snapshot_counter;
-  static std::unordered_map<ulonglong, std::weak_ptr<Rdb_explicit_snapshot>>
-      explicit_snapshots;
-};
-
-std::mutex Rdb_explicit_snapshot::explicit_snapshot_mutex;
-ulonglong Rdb_explicit_snapshot::explicit_snapshot_counter = 0;
-std::unordered_map<ulonglong, std::weak_ptr<Rdb_explicit_snapshot>>
-    Rdb_explicit_snapshot::explicit_snapshots;
 
 /**
   Updates row counters based on the table type and operation type.
@@ -307,10 +210,6 @@ static std::shared_ptr<Rdb_tbl_prop_coll_factory> properties_collector_factory;
 static Rdb_dict_manager dict_manager;
 static Rdb_cf_manager cf_manager;
 static Rdb_ddl_manager ddl_manager;
-static Rdb_binlog_manager binlog_manager;
-#ifndef __APPLE__
-static Rdb_io_watchdog *io_watchdog = nullptr;
-#endif
 
 /**
   MyRocks background thread control
@@ -506,10 +405,6 @@ static void rocksdb_max_compaction_history_update(
 static bool parse_fault_injection_params(bool *retryable,
                                          uint32_t *failure_ratio,
                                          std::vector<rocksdb::FileType> *types);
-
-static void rocksdb_select_bypass_rejected_query_history_size_update(
-    my_core::THD *const thd, my_core::SYS_VAR *const /* unused */,
-    void *const var_ptr, const void *const save);
 
 static void rocksdb_force_flush_memtable_now_stub(
     THD *const thd MY_ATTRIBUTE((__unused__)),
@@ -782,9 +677,6 @@ static int rocksdb_debug_ttl_snapshot_ts = 0;
 static int rocksdb_debug_ttl_read_filter_ts = 0;
 static bool rocksdb_debug_ttl_ignore_pk = 0;
 static bool rocksdb_reset_stats = 0;
-#ifndef __APPLE__
-static uint32_t rocksdb_io_write_timeout_secs = 0;
-#endif
 static uint32_t rocksdb_seconds_between_stat_computes = 3600;
 static long long rocksdb_compaction_sequential_deletes = 0l;
 static long long rocksdb_compaction_sequential_deletes_window = 0l;
@@ -824,16 +716,6 @@ static bool rocksdb_enable_insert_with_update_caching = true;
 /* Use unsigned long long instead of uint64_t because of MySQL compatibility */
 static unsigned long long  // NOLINT(runtime/int)
     rocksdb_max_compaction_history = 0;
-static ulong rocksdb_select_bypass_policy =
-    select_bypass_policy_type::default_value;
-static bool rocksdb_select_bypass_fail_unsupported = true;
-static bool rocksdb_select_bypass_log_rejected = true;
-static bool rocksdb_select_bypass_log_failed = false;
-static bool rocksdb_select_bypass_allow_filters = true;
-static uint32_t rocksdb_select_bypass_rejected_query_history_size = 0;
-static uint32_t rocksdb_select_bypass_debug_row_delay = 0;
-static unsigned long long  // NOLINT(runtime/int)
-    rocksdb_select_bypass_multiget_min = 0;
 
 std::atomic<uint64_t> rocksdb_row_lock_deadlocks(0);
 std::atomic<uint64_t> rocksdb_row_lock_wait_timeouts(0);
@@ -846,9 +728,6 @@ std::atomic<uint64_t> rocksdb_manual_compactions_pending(0);
 #ifndef NDEBUG
 std::atomic<uint64_t> rocksdb_num_get_for_update_calls(0);
 #endif
-std::atomic<uint64_t> rocksdb_select_bypass_executed(0);
-std::atomic<uint64_t> rocksdb_select_bypass_rejected(0);
-std::atomic<uint64_t> rocksdb_select_bypass_failed(0);
 
 static int rocksdb_trace_block_cache_access(
     THD *const thd MY_ATTRIBUTE((__unused__)),
@@ -1032,15 +911,6 @@ static TYPELIB read_free_rpl_typelib = {array_elements(read_free_rpl_names) - 1,
                                         "read_free_rpl_typelib",
                                         read_free_rpl_names, nullptr};
 
-/* This enum needs to be kept up to date with myrocks::select_bypass_policy_type
- */
-static const char *select_bypass_policy_names[] = {"always_off", "always_on",
-                                                   "opt_in", "opt_out", NullS};
-
-static TYPELIB select_bypass_policy_typelib = {
-    array_elements(select_bypass_policy_names) - 1,
-    "select_bypass_policy_typelib", select_bypass_policy_names, nullptr};
-
 /* This enum needs to be kept up to date with rocksdb::InfoLogLevel */
 static const char *info_log_level_names[] = {"debug_level", "info_level",
                                              "warn_level",  "error_level",
@@ -1114,28 +984,6 @@ static void rocksdb_set_reset_stats(
 
   RDB_MUTEX_UNLOCK_CHECK(rdb_sysvars_mutex);
 }
-
-#ifndef __APPLE__
-
-static void rocksdb_set_io_write_timeout(
-    my_core::THD *const thd MY_ATTRIBUTE((__unused__)),
-    my_core::SYS_VAR *const var MY_ATTRIBUTE((__unused__)),
-    void *const var_ptr MY_ATTRIBUTE((__unused__)), const void *const save) {
-  assert(save != nullptr);
-  assert(rdb != nullptr);
-  assert(io_watchdog != nullptr);
-
-  RDB_MUTEX_LOCK_CHECK(rdb_sysvars_mutex);
-
-  const uint32_t new_val = *static_cast<const uint32_t *>(save);
-
-  rocksdb_io_write_timeout_secs = new_val;
-  io_watchdog->reset_timeout(rocksdb_io_write_timeout_secs);
-
-  RDB_MUTEX_UNLOCK_CHECK(rdb_sysvars_mutex);
-}
-
-#endif  // !__APPLE__
 
 enum rocksdb_flush_log_at_trx_commit_type : unsigned int {
   FLUSH_LOG_NEVER = 0,
@@ -2141,17 +1989,6 @@ static MYSQL_SYSVAR_BOOL(
     "Reset the RocksDB internal statistics without restarting the DB.", nullptr,
     rocksdb_set_reset_stats, false);
 
-#ifndef __APPLE__
-
-static MYSQL_SYSVAR_UINT(io_write_timeout, rocksdb_io_write_timeout_secs,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Timeout for experimental I/O watchdog.", nullptr,
-                         rocksdb_set_io_write_timeout, /* default */ 0,
-                         /* min */ 0L,
-                         /* max */ UINT_MAX, 0);
-
-#endif  // !__APPLE__
-
 static MYSQL_SYSVAR_BOOL(enable_2pc, rocksdb_enable_2pc, PLUGIN_VAR_RQCMDARG,
                          "Enable two phase commit for MyRocks", nullptr,
                          nullptr, true);
@@ -2416,60 +2253,6 @@ static MYSQL_THDVAR_BOOL(disable_file_deletions,
                          PLUGIN_VAR_NOCMDARG | PLUGIN_VAR_RQCMDARG,
                          "Prevent file deletions", nullptr,
                          rocksdb_disable_file_deletions_update, false);
-static MYSQL_SYSVAR_ENUM(
-    select_bypass_policy, rocksdb_select_bypass_policy, PLUGIN_VAR_RQCMDARG,
-    "Change bypass SELECT related policy and allow directly talk to RocksDB. "
-    "Valid values include 'always_off', 'always_on', 'opt_in', 'opt_out'. ",
-    nullptr, nullptr, select_bypass_policy_type::default_value,
-    &select_bypass_policy_typelib);
-
-static MYSQL_SYSVAR_BOOL(
-    select_bypass_fail_unsupported, rocksdb_select_bypass_fail_unsupported,
-    PLUGIN_VAR_RQCMDARG,
-    "Select bypass would fail for unsupported SELECT commands", nullptr,
-    nullptr, true);
-
-static MYSQL_SYSVAR_BOOL(select_bypass_log_rejected,
-                         rocksdb_select_bypass_log_rejected,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Log rejected SELECT bypass queries", nullptr, nullptr,
-                         true);
-
-static MYSQL_SYSVAR_BOOL(select_bypass_log_failed,
-                         rocksdb_select_bypass_log_failed, PLUGIN_VAR_RQCMDARG,
-                         "Log failed SELECT bypass queries", nullptr, nullptr,
-                         false);
-
-static MYSQL_SYSVAR_BOOL(select_bypass_allow_filters,
-                         rocksdb_select_bypass_allow_filters,
-                         PLUGIN_VAR_RQCMDARG,
-                         "Allow non-optimal filters in SELECT bypass queries",
-                         nullptr, nullptr, true);
-
-static MYSQL_SYSVAR_UINT(
-    select_bypass_rejected_query_history_size,
-    rocksdb_select_bypass_rejected_query_history_size, PLUGIN_VAR_RQCMDARG,
-    "History size of rejected bypass queries in "
-    "information_schema.bypass_rejected_query_history. "
-    "Set to 0 to turn off",
-    nullptr, rocksdb_select_bypass_rejected_query_history_size_update, 0,
-    /* min */ 0, /* max */ INT_MAX, 0);
-
-static MYSQL_SYSVAR_UINT(
-    select_bypass_debug_row_delay, rocksdb_select_bypass_debug_row_delay,
-    PLUGIN_VAR_RQCMDARG,
-    "Test only to inject delays in bypass select to simulate long queries "
-    "for each row sent",
-    nullptr, nullptr, 0, /* min */ 0, /* max */ INT_MAX, 0);
-
-static MYSQL_SYSVAR_ULONGLONG(
-    select_bypass_multiget_min, rocksdb_select_bypass_multiget_min,
-    PLUGIN_VAR_RQCMDARG,
-    "Minimum number of items to use RocksDB MultiGet API. Default is "
-    "SIZE_T_MAX meaning it is turned off. Set to 0 to enable always using "
-    "MultiGet",
-    nullptr, nullptr, SIZE_T_MAX, /* min */ 0, /* max */ SIZE_T_MAX, 0);
-
 static const int ROCKSDB_ASSUMED_KEY_VALUE_DISK_SIZE = 100;
 
 static struct SYS_VAR *rocksdb_system_variables[] = {
@@ -2609,9 +2392,6 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(debug_ttl_read_filter_ts),
     MYSQL_SYSVAR(debug_ttl_ignore_pk),
     MYSQL_SYSVAR(reset_stats),
-#ifndef __APPLE__
-    MYSQL_SYSVAR(io_write_timeout),
-#endif
     MYSQL_SYSVAR(seconds_between_stat_computes),
 
     MYSQL_SYSVAR(compaction_sequential_deletes),
@@ -2652,14 +2432,6 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(trace_block_cache_access),
     MYSQL_SYSVAR(trace_queries),
     MYSQL_SYSVAR(max_compaction_history),
-    MYSQL_SYSVAR(select_bypass_policy),
-    MYSQL_SYSVAR(select_bypass_fail_unsupported),
-    MYSQL_SYSVAR(select_bypass_log_failed),
-    MYSQL_SYSVAR(select_bypass_rejected_query_history_size),
-    MYSQL_SYSVAR(select_bypass_log_rejected),
-    MYSQL_SYSVAR(select_bypass_allow_filters),
-    MYSQL_SYSVAR(select_bypass_debug_row_delay),
-    MYSQL_SYSVAR(select_bypass_multiget_min),
     nullptr};
 
 static int rocksdb_compact_column_family(
@@ -2927,14 +2699,8 @@ class Rdb_transaction {
 
  public:
   rocksdb::ReadOptions m_read_opts;
-  const char *m_mysql_log_file_name;
-  my_off_t m_mysql_log_offset;
-  const char *m_mysql_gtid;
-  const char *m_mysql_max_gtid;
-  String m_detailed_error;
   int64_t m_snapshot_timestamp = 0;
   bool m_ddl_transaction;
-  std::shared_ptr<Rdb_explicit_snapshot> m_explicit_snapshot;
 
   /*
     Tracks the number of tables in use through external_lock.
@@ -2970,7 +2736,8 @@ class Rdb_transaction {
   }
 
   int set_status_error(THD *const thd, const rocksdb::Status &s,
-                       const Rdb_key_def &kd, Rdb_tbl_def *const tbl_def,
+                       const Rdb_key_def &kd MY_ATTRIBUTE((__unused__)),
+                       Rdb_tbl_def *const tbl_def,
                        Rdb_table_handler *const table_handler) {
     assert(!s.ok());
     assert(tbl_def != nullptr);
@@ -2986,8 +2753,6 @@ class Rdb_transaction {
         */
       my_core::thd_mark_transaction_to_rollback(thd,
                                                 rocksdb_rollback_on_timeout);
-      m_detailed_error.copy(timeout_message(
-          "index", tbl_def->full_tablename().c_str(), kd.get_name().c_str()));
       table_handler->m_lock_wait_timeout_counter.inc();
       rocksdb_row_lock_wait_timeouts++;
 
@@ -2996,7 +2761,6 @@ class Rdb_transaction {
 
     if (s.IsDeadlock()) {
       my_core::thd_mark_transaction_to_rollback(thd, 1 /* whole transaction */);
-      m_detailed_error = String();
       table_handler->m_deadlock_counter.inc();
       rocksdb_row_lock_deadlocks++;
       return HA_ERR_LOCK_DEADLOCK;
@@ -3011,7 +2775,6 @@ class Rdb_transaction {
             "Query: %s",
             user_host_buff, thd->query());
       }
-      m_detailed_error = String(" (snapshot conflict)", system_charset_info);
       table_handler->m_deadlock_counter.inc();
       return HA_ERR_ROCKSDB_STATUS_BUSY;
     }
@@ -3130,10 +2893,6 @@ class Rdb_transaction {
       rollback();
       return true;
     } else {
-      my_core::thd_binlog_pos(m_thd, &m_mysql_log_file_name,
-                              &m_mysql_log_offset);
-      binlog_manager.update(m_mysql_log_file_name, m_mysql_log_offset,
-                            m_mysql_max_gtid, get_write_batch());
       return commit_no_binlog();
     }
   }
@@ -3847,17 +3606,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
 
   void acquire_snapshot(bool acquire_now) override {
     if (m_read_opts.snapshot == nullptr) {
-      /* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots
-      const auto thd_ss = std::static_pointer_cast<Rdb_explicit_snapshot>(
-          m_thd->get_explicit_snapshot());
-      if (thd_ss) {
-        m_explicit_snapshot = thd_ss;
-      }
-      */
-      if (m_explicit_snapshot) {
-        auto snapshot = m_explicit_snapshot->get_snapshot()->snapshot();
-        snapshot_created(snapshot);
-      } else if (is_tx_read_only()) {
+      if (is_tx_read_only()) {
         snapshot_created(rdb->GetSnapshot());
       } else if (acquire_now) {
         m_rocksdb_tx->SetSnapshot();
@@ -3874,10 +3623,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
 
     if (m_read_opts.snapshot != nullptr) {
       m_snapshot_timestamp = 0;
-      if (m_explicit_snapshot) {
-        m_explicit_snapshot.reset();
-        need_clear = false;
-      } else if (is_tx_read_only()) {
+      if (is_tx_read_only()) {
         rdb->ReleaseSnapshot(m_read_opts.snapshot);
         need_clear = false;
       } else {
@@ -4603,10 +4349,6 @@ static bool rocksdb_flush_wal(handlerton *const hton MY_ATTRIBUTE((__unused__)),
   return HA_EXIT_SUCCESS;
 }
 
-/**
-  For a slave, prepare() updates the slave_gtid_info table which tracks the
-  replication progress.
-*/
 static int rocksdb_prepare(handlerton *const hton MY_ATTRIBUTE((__unused__)),
                            THD *const thd,
                            bool prepare_tx) {
@@ -4739,46 +4481,8 @@ static void rdb_xid_from_string(const std::string &src, XID *const dst) {
                 (dst->get_gtrid_length()) + (dst->get_bqual_length()));
 }
 
-static void rocksdb_recover_binlog_pos(
-    /*!< in: rocksdb handler */
-    handlerton *const hton MY_ATTRIBUTE((__unused__)),
-    /*!< out: Max valid binlog gtid*/
-    Gtid *binlog_max_gtid,
-    /*!< out: Last valid binlog file */
-    char *binlog_file,
-    /*!< out: Last valid binlog pos */
-    my_off_t *binlog_pos) {
-  assert(binlog_file && binlog_pos);
-
-  char file_buf[FN_REFLEN + 1] = {0};
-  my_off_t pos = ULLONG_MAX;
-  char gtid_buf[FN_REFLEN + 1] = {0};
-
-  if (!binlog_manager.read(file_buf, &pos, gtid_buf)) {
-    return;
-  }
-
-  memcpy(binlog_file, file_buf, FN_REFLEN + 1);
-  *binlog_pos = pos;
-
-  // NO_LINT_DEBUG
-  fprintf(stderr,
-          "RocksDB: Last binlog file position %llu,"
-          " file name %s\n",
-          pos, file_buf);
-
-  if (binlog_max_gtid && *gtid_buf) {
-    global_sid_lock->rdlock();
-    binlog_max_gtid->parse(global_sid_map, gtid_buf);
-    global_sid_lock->unlock();
-    // NO_LINT_DEBUG
-    fprintf(stderr, "RocksDB: Last MySQL Gtid %s\n", gtid_buf);
-  }
-}
-
 /**
-  Reading last committed binary log info from RocksDB system row.
-  The info is needed for crash safe slave/master to work.
+  Returns the list of prepared transactions for XA recovery.
 */
 static int rocksdb_recover(handlerton *const hton MY_ATTRIBUTE((__unused__)),
                            XA_recover_txn *const xid_list, uint len,
@@ -5210,19 +4914,6 @@ std::vector<Rdb_deadlock_info> rdb_get_deadlock_info() {
   return showStatus.get_deadlock_info();
 }
 
-/* Generate the snapshot status table */
-static bool rocksdb_show_snapshot_status(
-    handlerton *const hton MY_ATTRIBUTE((__unused__)), THD *const thd,
-    stat_print_fn *const stat_print) {
-  Rdb_snapshot_status showStatus;
-
-  Rdb_transaction::walk_tx_list(&showStatus);
-  showStatus.populate_deadlock_buffer();
-
-  /* Send the result data back to MySQL */
-  return print_stats(thd, "rocksdb", "", showStatus.getResult(), stat_print);
-}
-
 /*
   This is called for SHOW ENGINE ROCKSDB STATUS | LOGS | etc.
 
@@ -5404,15 +5095,6 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
                            stat_print);
       }
     }
-
-    /* Explicit snapshot information */
-    str = Rdb_explicit_snapshot::dump_snapshots();
-    if (!str.empty()) {
-      res |= print_stats(thd, "EXPLICIT_SNAPSHOTS", "rocksdb", str, stat_print);
-    }
-  } else if (stat_type == HA_ENGINE_TRX) {
-    /* Handle the SHOW ENGINE ROCKSDB TRANSACTION STATUS command */
-    res |= rocksdb_show_snapshot_status(hton, thd, stat_print);
   }
 
   if (res) {
@@ -5517,69 +5199,14 @@ static inline void rocksdb_register_tx(
   }
 }
 
-/* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots */
-// static bool rocksdb_explicit_snapshot(
-//     handlerton *const /* hton */, /*!< in: RocksDB handlerton */
-//     THD *const thd,               /*!< in: MySQL thread handle */
-//     snapshot_info_st *ss_info)    /*!< out: Snapshot information */
-// {
-//   switch (ss_info->op) {
-//     case snapshot_operation::SNAPSHOT_CREATE: {
-//       if (mysql_bin_log_is_open()) {
-//         mysql_bin_log_lock_commits(ss_info);
-//       }
-//       auto s = Rdb_explicit_snapshot::create(ss_info, rdb,
-//       rdb->GetSnapshot());
-//         mysql_bin_log_unlock_commits(ss_info);
-//       }
-//
-//       thd->set_explicit_snapshot(s);
-//       return s == nullptr;
-//     }
-//     case snapshot_operation::SNAPSHOT_ATTACH: {
-//       auto s = Rdb_explicit_snapshot::get(ss_info->snapshot_id);
-//       if (!s) {
-//         return true;
-//       }
-//       *ss_info = s->ss_info;
-//       thd->set_explicit_snapshot(s);
-//       return false;
-//     }
-//     case snapshot_operation::SNAPSHOT_RELEASE: {
-//       if (!thd->get_explicit_snapshot()) {
-//         return true;
-//       }
-//       *ss_info = thd->get_explicit_snapshot()->ss_info;
-//       thd->set_explicit_snapshot(nullptr);
-//       return false;
-//     }
-//     default:
-//       assert(false);
-//       return true;
-//   }
-//   return true;
-// }
-
 /*
-    Supporting START TRANSACTION WITH CONSISTENT [ROCKSDB] SNAPSHOT
+    Supporting START TRANSACTION WITH CONSISTENT SNAPSHOT
 
-    Features:
-    1. Supporting START TRANSACTION WITH CONSISTENT SNAPSHOT
-    2. Getting current binlog position in addition to #1.
-
-    The second feature is done by START TRANSACTION WITH
-    CONSISTENT ROCKSDB SNAPSHOT. This is Facebook's extension, and
-    it works like existing START TRANSACTION WITH CONSISTENT INNODB SNAPSHOT.
-
-    - When not setting engine, START TRANSACTION WITH CONSISTENT SNAPSHOT
+    - START TRANSACTION WITH CONSISTENT SNAPSHOT
     takes both InnoDB and RocksDB snapshots, and both InnoDB and RocksDB
     participate in transaction. When executing COMMIT, both InnoDB and
     RocksDB modifications are committed. Remember that XA is not supported yet,
     so mixing engines is not recommended anyway.
-
-    - When setting engine, START TRANSACTION WITH CONSISTENT.. takes
-    snapshot for the specified engine only. But it starts both
-    InnoDB and RocksDB transactions.
 */
 static int rocksdb_start_tx_and_assign_read_view(
     handlerton *const hton, /*!< in: RocksDB handlerton */
@@ -5604,94 +5231,6 @@ static int rocksdb_start_tx_and_assign_read_view(
 
   return HA_EXIT_SUCCESS;
 }
-
-/* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots */
-// static int rocksdb_start_tx_with_shared_read_view(
-//     handlerton *const hton,    /*!< in: RocksDB handlerton */
-//     THD *const thd,            /*!< in: MySQL thread handle of the
-//                                user for whom the transaction should
-//                                be committed */
-//     snapshot_info_st *ss_info) /*!< out: Snapshot info like binlog file, pos,
-//                                gtid executed and snapshot ID */
-// {
-//   assert(thd != nullptr);
-//   assert(ss_info != nullptr);
-//
-//   int error = HA_EXIT_SUCCESS;
-//
-//   ulong const tx_isolation = my_core::thd_tx_isolation(thd);
-//   if (tx_isolation != ISO_REPEATABLE_READ) {
-//     my_error(ER_ISOLATION_LEVEL_WITH_CONSISTENT_SNAPSHOT, MYF(0));
-//     return HA_EXIT_FAILURE;
-//   }
-//
-//   std::shared_ptr<Rdb_explicit_snapshot> explicit_snapshot;
-//   const auto op = ss_info->op;
-//   Rdb_transaction *tx = nullptr;
-//
-//   assert(op == snapshot_operation::SNAPSHOT_CREATE ||
-//               op == snapshot_operation::SNAPSHOT_ATTACH);
-//
-//   // case: if binlogs are available get binlog file/pos and gtid info
-//   if (op == snapshot_operation::SNAPSHOT_CREATE && mysql_bin_log_is_open()) {
-//     /* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots
-//     mysql_bin_log_lock_commits(ss_info);
-//     */
-//   }
-//
-//   if (op == snapshot_operation::SNAPSHOT_ATTACH) {
-//     explicit_snapshot = Rdb_explicit_snapshot::get(ss_info->snapshot_id);
-//     if (!explicit_snapshot) {
-//       my_printf_error(ER_UNKNOWN_ERROR, "Snapshot %llu does not exist",
-//       MYF(0),
-//                       ss_info->snapshot_id);
-//       error = HA_EXIT_FAILURE;
-//     }
-//   }
-//
-//   // case: all good till now
-//   if (error == HA_EXIT_SUCCESS) {
-//     tx = get_or_create_tx(thd);
-//     Rdb_perf_context_guard guard(tx, rocksdb_perf_context_level(thd));
-//
-//     if (explicit_snapshot) {
-//       tx->m_explicit_snapshot = explicit_snapshot;
-//     }
-//
-//     assert(!tx->has_snapshot());
-//     tx->set_tx_read_only(true);
-//     rocksdb_register_tx(hton, thd, tx);
-//     tx->acquire_snapshot(true);
-//
-//     // case: an explicit snapshot was not assigned to this transaction
-//     if (!tx->m_explicit_snapshot) {
-//       tx->m_explicit_snapshot =
-//           Rdb_explicit_snapshot::create(ss_info, rdb,
-//           tx->m_read_opts.snapshot);
-//       if (!tx->m_explicit_snapshot) {
-//         my_printf_error(ER_UNKNOWN_ERROR, "Could not create snapshot",
-//         MYF(0)); error = HA_EXIT_FAILURE;
-//       }
-//     }
-//   }
-//
-//   // case: unlock the binlog
-//   if (op == snapshot_operation::SNAPSHOT_CREATE && mysql_bin_log_is_open()) {
-//     /* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots
-//     mysql_bin_log_unlock_commits(ss_info);
-//     */
-//   }
-//
-//   assert(error == HA_EXIT_FAILURE || tx->m_explicit_snapshot);
-//
-//   // copy over the snapshot details to pass to the upper layers
-//   if (tx->m_explicit_snapshot) {
-//     *ss_info = tx->m_explicit_snapshot->ss_info;
-//     ss_info->op = op;
-//   }
-//
-//   return error;
-// }
 
 /* Dummy SAVEPOINT support. This is needed for long running transactions
  * like mysqldump (https://bugs.mysql.com/bug.php?id=71017).
@@ -5999,7 +5538,6 @@ static int rocksdb_init_internal(void *const p) {
   rocksdb_hton->prepare = rocksdb_prepare;
   rocksdb_hton->commit_by_xid = rocksdb_commit_by_xid;
   rocksdb_hton->rollback_by_xid = rocksdb_rollback_by_xid;
-  rocksdb_hton->recover_binlog_pos = rocksdb_recover_binlog_pos;
   rocksdb_hton->recover = rocksdb_recover;
   rocksdb_hton->commit = rocksdb_commit;
   rocksdb_hton->rollback = rocksdb_rollback;
@@ -6008,14 +5546,8 @@ static int rocksdb_init_internal(void *const p) {
   rocksdb_hton->lock_hton_log = rocksdb_lock_hton_log;
   rocksdb_hton->unlock_hton_log = rocksdb_unlock_hton_log;
   rocksdb_hton->collect_hton_log_info = rocksdb_collect_hton_log_info;
-  /* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots
-  rocksdb_hton->explicit_snapshot = rocksdb_explicit_snapshot;
-  */
   rocksdb_hton->start_consistent_snapshot =
       rocksdb_start_tx_and_assign_read_view;
-  /* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots
-  rocksdb_hton->start_shared_snapshot = rocksdb_start_tx_with_shared_read_view;
-  */
   rocksdb_hton->savepoint_set = rocksdb_savepoint;
   rocksdb_hton->savepoint_rollback = rocksdb_rollback_to_savepoint;
   rocksdb_hton->savepoint_rollback_can_release_mdl =
@@ -6023,7 +5555,6 @@ static int rocksdb_init_internal(void *const p) {
   /* TODO(yzha) - table_stats is gone in 8.0
   rocksdb_hton->update_table_stats = rocksdb_update_table_stats; */
   rocksdb_hton->flush_logs = rocksdb_flush_wal;
-  rocksdb_hton->handle_single_table_select = rocksdb_handle_single_table_select;
 
   rocksdb_hton->flags = HTON_TEMPORARY_NOT_SUPPORTED |
                         HTON_SUPPORTS_EXTENDED_KEYS | HTON_CAN_RECREATE;
@@ -6403,17 +5934,6 @@ static int rocksdb_init_internal(void *const p) {
   }
 
   // NO_LINT_DEBUG
-  sql_print_information("RocksDB: Initializing binlog manager...");
-
-  if (st_rdb_exec_time.exec("Rdb_binlog_manager::init", [&]() {
-        return binlog_manager.init(&dict_manager);
-      })) {
-    // NO_LINT_DEBUG
-    sql_print_error("RocksDB: Failed to initialize binlog manager.");
-    DBUG_RETURN(HA_EXIT_FAILURE);
-  }
-
-  // NO_LINT_DEBUG
   sql_print_information("RocksDB: Initializing DDL Manager...");
 
   if (st_rdb_exec_time.exec("Rdb_ddl_manager::init", [&]() {
@@ -6534,23 +6054,6 @@ static int rocksdb_init_internal(void *const p) {
   // Creating an instance of HistogramImpl should only happen after RocksDB
   // has been successfully initialized.
   commit_latency_stats = new rocksdb::HistogramImpl();
-
-  // Construct a list of directories which will be monitored by I/O watchdog
-  // to make sure that we won't lose write access to them.
-  std::vector<std::string> directories;
-
-  // 1. Data directory.
-  directories.push_back(mysql_real_data_home);
-
-  // 2. Transaction logs.
-  if (myrocks::rocksdb_wal_dir && *myrocks::rocksdb_wal_dir) {
-    directories.push_back(myrocks::rocksdb_wal_dir);
-  }
-
-#ifndef __APPLE__
-  io_watchdog = new Rdb_io_watchdog(std::move(directories));
-  io_watchdog->reset_timeout(rocksdb_io_write_timeout_secs);
-#endif
 
   compaction_stats.resize_history(rocksdb_max_compaction_history);
 
@@ -6700,7 +6203,6 @@ static int rocksdb_shutdown(bool minimalShutdown) {
     }
 
     ddl_manager.cleanup();
-    binlog_manager.cleanup();
     dict_manager.cleanup();
     cf_manager.cleanup();
 
@@ -6709,11 +6211,6 @@ static int rocksdb_shutdown(bool minimalShutdown) {
 
     delete commit_latency_stats;
     commit_latency_stats = nullptr;
-
-#ifndef __APPLE__
-    delete io_watchdog;
-    io_watchdog = nullptr;
-#endif
 
     // Disown the cache data since we're shutting down.
     // This results in memory leaks but it improved the shutdown time.
@@ -7627,14 +7124,6 @@ bool ha_rocksdb::get_error_message(const int error, String *const buf) {
                 "HA_ERR_ROCKSDB_LAST > HA_ERR_FIRST");
   static_assert(HA_ERR_ROCKSDB_LAST > HA_ERR_LAST,
                 "HA_ERR_ROCKSDB_LAST > HA_ERR_LAST");
-
-  if (error == HA_ERR_LOCK_WAIT_TIMEOUT || error == HA_ERR_LOCK_DEADLOCK ||
-      error == HA_ERR_ROCKSDB_STATUS_BUSY) {
-    Rdb_transaction *const tx = get_tx_from_thd(ha_thd());
-    assert(tx != nullptr);
-    buf->append(tx->m_detailed_error);
-    DBUG_RETURN(true);
-  }
 
   if (error >= HA_ERR_ROCKSDB_FIRST && error <= HA_ERR_ROCKSDB_LAST) {
     buf->append(rdb_error_messages[error - HA_ERR_ROCKSDB_FIRST]);
@@ -12120,13 +11609,6 @@ int ha_rocksdb::external_lock(THD *const thd, int lock_type) {
         DBUG_RETURN(HA_ERR_UNSUPPORTED);
       }
 
-      /* TODO(yzha) - 0b671a35cc7 SQL to create and manage explicit snapshots
-      if (thd->get_explicit_snapshot()) {
-        my_error(ER_UPDATES_WITH_EXPLICIT_SNAPSHOT, MYF(0));
-        DBUG_RETURN(HA_ERR_UNSUPPORTED);
-      }
-      */
-
       /*
         SQL layer signals us to take a write lock. It does so when starting DML
         statement. We should put locks on the rows we're reading.
@@ -13952,7 +13434,7 @@ int ha_rocksdb::inplace_populate_sk(
 
           print_keydup_error(new_table_arg,
                              &new_table_arg->key_info[index->get_keyno()],
-                             MYF(0), ha_thd());
+                             MYF(0));
           DBUG_RETURN(ER_DUP_ENTRY);
         }
       }
@@ -14717,12 +14199,6 @@ static SHOW_VAR rocksdb_status_vars[] = {
     DEF_STATUS_VAR_PTR("num_get_for_update_calls",
                        &rocksdb_num_get_for_update_calls, SHOW_LONGLONG),
 #endif
-    DEF_STATUS_VAR_PTR("select_bypass_executed",
-                       &rocksdb_select_bypass_executed, SHOW_LONGLONG),
-    DEF_STATUS_VAR_PTR("select_bypass_rejected",
-                       &rocksdb_select_bypass_rejected, SHOW_LONGLONG),
-    DEF_STATUS_VAR_PTR("select_bypass_failed", &rocksdb_select_bypass_failed,
-                       SHOW_LONGLONG),
     // the variables generated by SHOW_FUNC are sorted only by prefix (first
     // arg in the tuple below), so make sure it is unique to make sorting
     // deterministic as quick sort is not stable
@@ -15564,8 +15040,6 @@ Rdb_dict_manager *rdb_get_dict_manager(void) { return &dict_manager; }
 
 Rdb_ddl_manager *rdb_get_ddl_manager(void) { return &ddl_manager; }
 
-Rdb_binlog_manager *rdb_get_binlog_manager(void) { return &binlog_manager; }
-
 void rocksdb_set_compaction_options(
     my_core::THD *const thd MY_ATTRIBUTE((__unused__)),
     my_core::SYS_VAR *const var MY_ATTRIBUTE((__unused__)), void *const var_ptr,
@@ -16273,20 +15747,6 @@ std::string rdb_corruption_marker_file_name() {
   return ret;
 }
 
-static void rocksdb_select_bypass_rejected_query_history_size_update(
-    my_core::THD *const /* unused */, my_core::SYS_VAR *const /* unused */,
-    void *const var_ptr, const void *const save) {
-  assert(rdb != nullptr);
-
-  uint32_t val = *static_cast<uint32_t *>(var_ptr) =
-      *static_cast<const uint32_t *>(save);
-
-  const std::lock_guard<std::mutex> lock(myrocks::rejected_bypass_query_lock);
-  if (myrocks::rejected_bypass_queries.size() > val) {
-    myrocks::rejected_bypass_queries.resize(val);
-  }
-}
-
 static void rocksdb_max_compaction_history_update(
     my_core::THD *const /* unused */, my_core::SYS_VAR *const /* unused */,
     void *const var_ptr, const void *const save) {
@@ -16439,40 +15899,6 @@ static bool parse_fault_injection_params(
   return false;
 }
 
-select_bypass_policy_type get_select_bypass_policy() {
-  return static_cast<select_bypass_policy_type>(rocksdb_select_bypass_policy);
-}
-
-
-bool should_fail_unsupported_select_bypass() {
-  return rocksdb_select_bypass_fail_unsupported;
-}
-
-bool should_log_rejected_select_bypass() {
-  return rocksdb_select_bypass_log_rejected;
-}
-
-bool should_log_failed_select_bypass() {
-  return rocksdb_select_bypass_log_failed;
-}
-
-bool should_allow_filters_select_bypass() {
-  return rocksdb_select_bypass_allow_filters;
-}
-
-uint32_t get_select_bypass_rejected_query_history_size() {
-  return rocksdb_select_bypass_rejected_query_history_size;
-}
-
-uint32_t get_select_bypass_debug_row_delay() {
-  return rocksdb_select_bypass_debug_row_delay;
-}
-
-unsigned long long  // NOLINT(runtime/int)
-get_select_bypass_multiget_min() {
-  return rocksdb_select_bypass_multiget_min;
-}
-
 const rocksdb::ReadOptions &rdb_tx_acquire_snapshot(Rdb_transaction *tx) {
   tx->acquire_snapshot(true);
   return tx->m_read_opts;
@@ -16535,5 +15961,4 @@ mysql_declare_plugin(rocksdb_se){
     myrocks::rdb_i_s_global_info, myrocks::rdb_i_s_ddl,
     myrocks::rdb_i_s_sst_props, myrocks::rdb_i_s_index_file_map,
     myrocks::rdb_i_s_lock_info, myrocks::rdb_i_s_trx_info,
-    myrocks::rdb_i_s_deadlock_info,
-    myrocks::rdb_i_s_bypass_rejected_query_history mysql_declare_plugin_end;
+    myrocks::rdb_i_s_deadlock_info mysql_declare_plugin_end;
