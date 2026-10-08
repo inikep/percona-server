@@ -666,18 +666,18 @@ utext_setup(UText *ut, int32_t extraSpace, UErrorCode *status) {
 
 U_CAPI UText * U_EXPORT2
 utext_close(UText *ut) {
-    if (ut==nullptr ||
-        ut->magic != UTEXT_MAGIC ||
-        (ut->flags & UTEXT_OPEN) == 0)
+    if (ut==nullptr || ut->magic != UTEXT_MAGIC)
     {
-        // The supplied ut is not an open UText.
+        // The supplied ut is not a valid UText.
         // Do nothing.
         return ut;
     }
 
     // If the provider gave us a close function, call it now.
     // This will clean up anything allocated specifically by the provider.
-    if (ut->pFuncs->close != nullptr) {
+    // A failed utext_setup() can leave an allocated UText closed. Its provider
+    // has already been closed, but framework-owned storage still needs freeing.
+    if ((ut->flags & UTEXT_OPEN) && ut->pFuncs->close != nullptr) {
         ut->pFuncs->close(ut);
     }
     ut->flags &= ~UTEXT_OPEN;

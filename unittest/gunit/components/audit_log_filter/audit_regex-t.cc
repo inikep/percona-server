@@ -15,11 +15,13 @@
 
 #include <gtest/gtest.h>
 #include <unicode/putil.h>
+#include <unicode/uclean.h>
 #include <unicode/utypes.h>
 
 #include "components/audit_log_filter/audit_regex.h"
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstdlib>
 #include <mutex>
@@ -28,8 +30,7 @@
 #include <vector>
 
 // Scope allocation failures to this thread and only the explicitly armed
-// wrapper call. ICU's own allocator is not replaced by this C++ allocation
-// harness; real engine-limit tests exercise its separate resource failures.
+// wrapper call. ICU allocations are exercised separately through its hooks.
 namespace {
 thread_local int fail_allocation_after = -1;
 }
@@ -66,6 +67,39 @@ void operator delete[](void *p, const std::nothrow_t &) noexcept {
 
 namespace audit_log_filter {
 namespace {
+namespace icu_fault {
+thread_local int countdown = -1;
+thread_local bool fired = false;
+std::atomic<long> outstanding{0};
+bool fail() {
+  if (countdown < 0 || countdown-- != 0) return false;
+  fired = true;
+  return true;
+}
+void *U_CALLCONV allocate(const void *, size_t size) {
+  if (fail()) return nullptr;
+  void *p = std::malloc(size);
+  if (p != nullptr) ++outstanding;
+  return p;
+}
+void *U_CALLCONV reallocate(const void *, void *p, size_t size) {
+  if (fail()) return nullptr;
+  const bool was_null = p == nullptr;
+  void *result = std::realloc(p, size);
+  if (was_null && result != nullptr) ++outstanding;
+  return result;
+}
+void U_CALLCONV release(const void *, void *p) {
+  if (p != nullptr) --outstanding;
+  std::free(p);
+}
+const bool installed = [] {
+  UErrorCode status = U_ZERO_ERROR;
+  u_setMemoryFunctions(nullptr, allocate, reallocate, release, &status);
+  return U_SUCCESS(status);
+}();
+}  // namespace icu_fault
+
 #ifdef AUDIT_REGEX_TEST_ICU_DATA_DIR
 // Keep direct invocation independent of the caller's ICU_DATA environment.
 [[maybe_unused]] const bool icu_data_ready = [] {
@@ -89,6 +123,62 @@ TEST(AuditRegex, GuardedCppAllocations) {
     regex = AuditRegex::compile("orders[0-9]+", error);
     ASSERT_NE(nullptr, regex);
     EXPECT_EQ(Result::Match, regex->match("orders1", error));
+  }
+}
+
+TEST(AuditRegex, IcuAllocationFailures) {
+  ASSERT_TRUE(icu_fault::installed);
+  constexpr auto pattern = "^(new_orders|orders|history)[0-9]+$";
+  AuditRegex::Error error;
+  auto warm = AuditRegex::compile(pattern, error);
+  ASSERT_NE(nullptr, warm);
+  ASSERT_EQ(Result::Match, warm->match("orders1", error));
+  for (const bool matching : {false, true}) {
+    SCOPED_TRACE(matching ? "match" : "compile");
+    const long baseline = icu_fault::outstanding.load();
+    bool complete = false;
+    int injected = 0;
+    for (int n = 0; n < 256; ++n) {
+      SCOPED_TRACE(n);
+      icu_fault::fired = false;
+      icu_fault::countdown = n;
+      if (matching) {
+        const auto result = warm->match("orders1", error);
+        icu_fault::countdown = -1;
+        EXPECT_NE(Result::NoMatch, result);
+        if (result == Result::Error) {
+          EXPECT_TRUE(icu_fault::fired);
+          EXPECT_TRUE(error.category == Category::Allocation ||
+                      error.category == Category::Stack);
+        }
+      } else {
+        auto compiled = AuditRegex::compile(pattern, error);
+        icu_fault::countdown = -1;
+        if (compiled) {
+          // Optional allocations may recover; compilation must stay correct.
+          EXPECT_EQ(Result::Match, compiled->match("orders1", error));
+          EXPECT_EQ(Result::NoMatch, compiled->match("customer1", error));
+          EXPECT_EQ(Result::NoMatch, compiled->match("orders1x", error));
+        } else {
+          EXPECT_TRUE(icu_fault::fired);
+          EXPECT_EQ(Category::Allocation, error.category);
+          EXPECT_STREQ("U_MEMORY_ALLOCATION_ERROR", error.status_name());
+        }
+      }
+      EXPECT_EQ(baseline, icu_fault::outstanding.load());
+      if (!icu_fault::fired) {
+        complete = true;
+        break;
+      }
+      ++injected;
+      // Failed allocations must not poison shared state.
+      auto recovery = AuditRegex::compile(pattern, error);
+      ASSERT_NE(nullptr, recovery);
+      EXPECT_EQ(Result::Match, recovery->match("orders1", error));
+    }
+    EXPECT_TRUE(complete);
+    EXPECT_GT(injected, 3);
+    EXPECT_EQ(baseline, icu_fault::outstanding.load());
   }
 }
 

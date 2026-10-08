@@ -16,6 +16,10 @@
 OPTION(WITH_COMPONENT_AUDIT_LOG_FILTER "Build with Percona Audit Log Filter component" ON)
 
 IF(WITH_COMPONENT_AUDIT_LOG_FILTER)
+  IF(NOT WITH_ICU STREQUAL "bundled")
+    INCLUDE(${CMAKE_SOURCE_DIR}/cmake/icu_regex_check.cmake)
+    MYSQL_CHECK_ICU_REGEX_ALLOCATIONS()
+  ENDIF()
   ADD_DEFINITIONS(-DLOG_COMPONENT_TAG="audit_log_filter")
 
   INCLUDE_DIRECTORIES(SYSTEM ${BOOST_PATCHES_DIR} ${BOOST_INCLUDE_DIR} ${ZLIB_INCLUDE_DIRS})
@@ -85,8 +89,17 @@ IF(WITH_COMPONENT_AUDIT_LOG_FILTER)
   )
 
   MYSQL_ADD_COMPONENT(audit_log_filter ${AUDIT_LOG_FILTER_SOURCES}
-                      LINK_LIBRARIES OpenSSL::SSL OpenSSL::Crypto library_mysys extra::rapidjson ext::zlib ext::icu
+                      LINK_LIBRARIES OpenSSL::SSL OpenSSL::Crypto library_mysys extra::rapidjson ext::zlib
                       MODULE_ONLY)
+
+  IF(UNIX)
+    # Use mysqld's ICU instance. Linking static ICU here can register a cleanup
+    # callback from this unloadable module in the server's ICU cleanup table.
+    TARGET_INCLUDE_DIRECTORIES(component_audit_log_filter SYSTEM PRIVATE
+      $<TARGET_PROPERTY:ext::icu,INTERFACE_INCLUDE_DIRECTORIES>)
+  ELSE()
+    TARGET_LINK_LIBRARIES(component_audit_log_filter ext::icu)
+  ENDIF()
 
   IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.1)
     TARGET_LINK_LIBRARIES(component_audit_log_filter stdc++fs)

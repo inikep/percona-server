@@ -15,8 +15,6 @@
 
 #include "components/audit_log_filter/event_field_condition/or.h"
 
-#include <algorithm>
-
 namespace audit_log_filter::event_field_condition {
 
 EventFieldConditionOr::EventFieldConditionOr(
@@ -25,9 +23,18 @@ EventFieldConditionOr::EventFieldConditionOr(
 
 bool EventFieldConditionOr::check_applies(
     const AuditRecordFieldsList &fields) const noexcept {
-  return std::any_of(
-      m_conditions.cbegin(), m_conditions.cend(),
-      [&fields](const auto &cond) { return cond->check_applies(fields); });
+  return check_result(fields) == ConditionResult::Match;
+}
+
+ConditionResult EventFieldConditionOr::check_result(
+    const AuditRecordFieldsList &fields) const noexcept {
+  for (const auto &condition : m_conditions) {
+    const auto result = condition->check_result(fields);
+    if (result == ConditionResult::Error || result == ConditionResult::Match) {
+      return result;
+    }
+  }
+  return ConditionResult::NoMatch;
 }
 
 }  // namespace audit_log_filter::event_field_condition

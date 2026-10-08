@@ -26,16 +26,36 @@ regex_errors
 0
 events_lost
 0
+abort_error negate=0
 regex_errors
 1
 events_lost
 0
 allowed_after_regex_error
-1
+0
+abort_error negate=1
 regex_errors
 1
 events_lost
 0
+allowed_after_regex_error
+0
+print_error negate=0
+regex_errors
+1
+events_lost
+0
+print_error negate=1
+regex_errors
+1
+events_lost
+0
+activate_error negate=0
+regex_errors
+1
+events_lost
+0
+activate_error negate=1
 regex_errors
 1
 events_lost

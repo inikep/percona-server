@@ -113,6 +113,10 @@ void    RegexCompile::compile(
                          UErrorCode &e)              // Error Code
 {
     fRXPat->fPatternString = new UnicodeString(pat);
+    if (fRXPat->fPatternString == nullptr || fRXPat->fPatternString->isBogus()) {
+        e = U_MEMORY_ALLOCATION_ERROR;
+        return;
+    }
     UText patternText = UTEXT_INITIALIZER;
     utext_openConstUnicodeString(&patternText, fRXPat->fPatternString, &e);
 
@@ -2398,6 +2402,11 @@ void        RegexCompile::compileSet(UnicodeSet *theSet)
     //     (Case Closure can add them; if we had a simple case closure available that
     //      ignored strings, that would be better.)
     theSet->removeAllStrings();
+    if (theSet->isBogus()) {
+        error(U_MEMORY_ALLOCATION_ERROR);
+        delete theSet;
+        return;
+    }
     int32_t  setSize = theSet->size();
 
     switch (setSize) {
@@ -2424,6 +2433,11 @@ void        RegexCompile::compileSet(UnicodeSet *theSet)
             //  The set contains two or more chars.  (the normal case)
             //  Put it into the compiled pattern as a set.
             theSet->freeze();
+            if (theSet->isBogus()) {
+                error(U_MEMORY_ALLOCATION_ERROR);
+                delete theSet;
+                return;
+            }
             int32_t setNumber = fRXPat->fSets->size();
             fRXPat->fSets->addElement(theSet, *fStatus);
             if (U_SUCCESS(*fStatus)) {

@@ -23,7 +23,15 @@ EventFieldConditionNot::EventFieldConditionNot(
 
 bool EventFieldConditionNot::check_applies(
     const AuditRecordFieldsList &fields) const noexcept {
-  return !m_condition->check_applies(fields);
+  return check_result(fields) == ConditionResult::Match;
+}
+
+ConditionResult EventFieldConditionNot::check_result(
+    const AuditRecordFieldsList &fields) const noexcept {
+  const auto result = m_condition->check_result(fields);
+  if (result == ConditionResult::Error) return result;
+  return result == ConditionResult::Match ? ConditionResult::NoMatch
+                                          : ConditionResult::Match;
 }
 
 }  // namespace audit_log_filter::event_field_condition

@@ -1,0 +1,90 @@
+# Ordinary regexes can exhaust the ICU work budget on legal large statements.
+# Both positive and negated abort/log predicates must fail closed.
+--source regex_setup.inc
+CALL mtr.add_suppression("regex .* failed ");
+CREATE TABLE rx_limits (id INT PRIMARY KEY, payload LONGTEXT);
+SET @pattern = '[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}';
+--let rx_input = $MYSQLTEST_VARDIR/tmp/rx_limits.sql
+--let rx_output = $MYSQLTEST_VARDIR/tmp/rx_limits.out
+--let rx_case = 0
+while ($rx_case < 4) {
+  --let rx_action = abort
+  if ($rx_case >= 2) {
+    --let rx_action = log
+  }
+  SET @condition = JSON_OBJECT('field', JSON_OBJECT('name', 'query.str', 'regex', @pattern));
+  if ($rx_case == 1) {
+    SET @condition = JSON_OBJECT('not', CAST(@condition AS JSON));
+  }
+  if ($rx_case == 3) {
+    SET @condition = JSON_OBJECT('not', CAST(@condition AS JSON));
+  }
+  --echo # Case $rx_case: $rx_action (odd cases negate the regex)
+  eval SET @definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'table_access', 'event', JSON_OBJECT('name', 'insert', '$rx_action', CAST(@condition AS JSON)))));
+  --source regex_assign.inc
+  --let rx_size = 1024
+  --let rx_large = 0
+  while ($rx_large < 2) {
+    --echo # Subject padding: $rx_size bytes
+    --source regex_error_baseline.inc
+    SET @rows = (SELECT COUNT(*) FROM rx_limits);
+    --let rx_id = `SELECT $rx_case * 10 + $rx_large`
+    perl;
+      use strict;
+      use warnings;
+      open my $f, '>:raw', $ENV{rx_input} or die $!;
+      my $id = $ENV{rx_id};
+      print $f "INSERT INTO rx_limits VALUES ($id,'", '1' x $ENV{rx_size},
+               " 4111-1111-1111-1111');\n";
+      close $f or die $!;
+EOF
+    --let rx_blocked = 0
+    if ($rx_case == 0) {
+      --let rx_blocked = 1
+    }
+    if ($rx_case == 1) {
+      --let rx_blocked = $rx_large
+    }
+    if ($rx_blocked) {
+      --error 1
+      --exec $MYSQL --max-allowed-packet=64M -u rx test < $rx_input > $rx_output 2>&1
+      perl;
+        open my $f, '<', $ENV{rx_output} or die $!;
+        my $text = do { local $/; <$f> };
+        die "Expected audit abort, got: $text" unless $text =~ /ERROR 3164 /;
+EOF
+    }
+    if ($rx_blocked == 0) {
+      --exec $MYSQL --max-allowed-packet=64M -u rx test < $rx_input > $rx_output 2>&1
+    }
+    --enable_result_log
+    SELECT COUNT(*) - @rows AS inserted_rows FROM rx_limits;
+    --disable_result_log
+    --let rx_count = 0
+    if ($rx_case == 2) {
+      --let rx_count = 1
+    }
+    if ($rx_case == 3) {
+      --let rx_count = $rx_large
+    }
+    --source regex_check_count.inc
+    perl;
+      require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+      for my $r (@{regex_records()}) {
+        die 'Wrong event selected' unless $r->{table} eq 'rx_limits' && $r->{event} eq 'insert';
+      }
+EOF
+    --source regex_error_delta.inc
+    --let rx_size = 4194304
+    --inc $rx_large
+  }
+  --inc $rx_case
+}
+--remove_file $rx_input
+--remove_file $rx_output
+DROP USER rx@localhost;
+DROP TABLE rx_limits;
+--enable_result_log
+--enable_query_log
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

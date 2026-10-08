@@ -1,0 +1,60 @@
+# Case 0: abort (odd cases negate the regex)
+# Subject padding: 1024 bytes
+inserted_rows
+0
+regex_errors
+0
+events_lost
+0
+# Subject padding: 4194304 bytes
+inserted_rows
+0
+regex_errors
+1
+events_lost
+0
+# Case 1: abort (odd cases negate the regex)
+# Subject padding: 1024 bytes
+inserted_rows
+1
+regex_errors
+0
+events_lost
+0
+# Subject padding: 4194304 bytes
+inserted_rows
+0
+regex_errors
+1
+events_lost
+0
+# Case 2: log (odd cases negate the regex)
+# Subject padding: 1024 bytes
+inserted_rows
+1
+regex_errors
+0
+events_lost
+0
+# Subject padding: 4194304 bytes
+inserted_rows
+1
+regex_errors
+1
+events_lost
+0
+# Case 3: log (odd cases negate the regex)
+# Subject padding: 1024 bytes
+inserted_rows
+1
+regex_errors
+0
+events_lost
+0
+# Subject padding: 4194304 bytes
+inserted_rows
+1
+regex_errors
+1
+events_lost
+0

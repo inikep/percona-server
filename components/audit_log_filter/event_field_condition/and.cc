@@ -15,8 +15,6 @@
 
 #include "components/audit_log_filter/event_field_condition/and.h"
 
-#include <algorithm>
-
 namespace audit_log_filter::event_field_condition {
 
 EventFieldConditionAnd::EventFieldConditionAnd(
@@ -25,9 +23,19 @@ EventFieldConditionAnd::EventFieldConditionAnd(
 
 bool EventFieldConditionAnd::check_applies(
     const AuditRecordFieldsList &fields) const noexcept {
-  return std::all_of(
-      m_conditions.cbegin(), m_conditions.cend(),
-      [&fields](const auto &cond) { return cond->check_applies(fields); });
+  return check_result(fields) == ConditionResult::Match;
+}
+
+ConditionResult EventFieldConditionAnd::check_result(
+    const AuditRecordFieldsList &fields) const noexcept {
+  for (const auto &condition : m_conditions) {
+    const auto result = condition->check_result(fields);
+    if (result == ConditionResult::Error ||
+        result == ConditionResult::NoMatch) {
+      return result;
+    }
+  }
+  return ConditionResult::Match;
 }
 
 }  // namespace audit_log_filter::event_field_condition

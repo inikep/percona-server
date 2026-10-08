@@ -115,10 +115,15 @@ EventFieldConditionRegex::EventFieldConditionRegex(
 
 bool EventFieldConditionRegex::check_applies(
     const AuditRecordFieldsList &fields) const noexcept {
+  return check_result(fields) == ConditionResult::Match;
+}
+
+ConditionResult EventFieldConditionRegex::check_result(
+    const AuditRecordFieldsList &fields) const noexcept {
   const auto field = fields.find(m_name);
-  if (field == fields.end()) return false;
+  if (field == fields.end()) return ConditionResult::NoMatch;
   const auto *subject = std::get_if<std::string>(&field->second);
-  if (subject == nullptr) return false;
+  if (subject == nullptr) return ConditionResult::NoMatch;
 
   AuditRegex::Error error;
   AuditRegex::Result result;
@@ -132,7 +137,8 @@ bool EventFieldConditionRegex::check_applies(
     result = m_pattern->match(*subject, error);
   }
   if (result != AuditRegex::Result::Error)
-    return result == AuditRegex::Result::Match;
+    return result == AuditRegex::Result::Match ? ConditionResult::Match
+                                               : ConditionResult::NoMatch;
 
   SysVars::inc_regex_match_errors();
   if (m_warning_limiter.try_acquire(
@@ -144,6 +150,6 @@ bool EventFieldConditionRegex::check_applies(
                     m_field_preview.c_str(), error.category_name(),
                     error.status_name());
   }
-  return false;
+  return ConditionResult::Error;
 }
 }  // namespace audit_log_filter::event_field_condition

@@ -70,7 +70,8 @@ bool EventFieldActionReplaceField::apply(const AuditRecordFieldsList &fields,
                                          AuditRecordVariant &audit_record,
                                          AuditRule *audit_rule
                                          [[maybe_unused]]) const noexcept {
-  if (m_print_cond->check_applies(fields)) {
+  if (m_print_cond->check_result(fields) ==
+      event_field_condition::ConditionResult::Match) {
     // print unchanged
     return false;
   }

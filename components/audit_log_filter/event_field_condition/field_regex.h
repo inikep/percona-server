@@ -52,6 +52,8 @@ class EventFieldConditionRegex : public EventFieldConditionBase {
                            std::string pattern_preview) noexcept;
   bool check_applies(
       const AuditRecordFieldsList &fields) const noexcept override;
+  ConditionResult check_result(
+      const AuditRecordFieldsList &fields) const noexcept override;
 
  private:
   std::string m_name;

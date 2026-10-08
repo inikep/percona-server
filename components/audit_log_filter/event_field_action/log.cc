@@ -34,7 +34,8 @@ bool EventFieldActionLog::apply(const AuditRecordFieldsList &fields,
                                 [[maybe_unused]],
                                 AuditRule *audit_rule
                                 [[maybe_unused]]) const noexcept {
-  return m_condition->check_applies(fields);
+  return m_condition->check_result(fields) !=
+         event_field_condition::ConditionResult::NoMatch;
 }
 
 }  // namespace audit_log_filter::event_field_action

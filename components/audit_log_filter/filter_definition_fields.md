@@ -331,6 +331,10 @@ backtracking stack, independent of session SQL regex variables. The existing
 patterns to 16 KiB. Compilation errors include ICU's reported line and
 character position when available, not a UTF-8 byte or UTF-16 code-unit offset.
 
+Ordinary patterns can exhaust the ICU work budget on large legal statements.
+For example, padding an INSERT containing a card-number-shaped string can make
+`[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}` time out.
+
 These limits are not a wall-clock deadline or total-memory ceiling. Long
 linear scans, compilation, multiple regex leaves and concurrent matcher
 allocations still have costs. Anchoring can reduce search work without making
@@ -340,23 +344,25 @@ regex matching; it finishes normally or reaches an engine limit. An already
 killed or timed-out session does not by itself make a regex condition fail, so
 terminal audit events can still match.
 
-A runtime engine/resource error evaluates to **false at the leaf** and
-increments `Audit_log_filter_regex_match_errors` exactly once. Normal misses,
-missing fields and non-string values do not increment it. The Boolean/action
-semantics then apply:
+A runtime engine/resource error propagates through `and`, `or` and `not`
+as an error, without negating it or evaluating further operands. Every reached
+regex error increments `Audit_log_filter_regex_match_errors` exactly once.
+Normal misses, missing fields and non-string values do not increment it.
+Normal Boolean short-circuiting still skips unnecessary leaves. The enclosing
+action resolves the error as follows:
 
-| Context | Effect of a failed regex leaf |
+| Context | Effect of a failed regex condition |
 |---|---|
-| Positive `log` | Does not select the event |
-| Negated `log` | `not(false)` can select the event |
-| Positive `abort` | Does not block the statement |
-| `print.field.print` | Uses the replacement instead of the original value |
-| Replacement `activate` | Does not activate the replacement rule |
+| `log`, including under `not` | Selects the event |
+| `abort`, including under `not` | Blocks the statement; `AUDIT_ABORT_EXEMPT` still applies |
+| `print.field.print`, including under `not` | Uses the replacement instead of the original value |
+| Replacement `activate`, including under `not` | Does not activate the replacement rule |
 
-Failures can therefore cause audit gaps or bypass a positive abort predicate.
-Short-circuited leaves are not evaluated and do not count as errors. A handled
-regex error alone does not increment `Audit_log_filter_events_lost`. Separate
-capture/output failures retain their existing accounting; an event can have
+Padding a statement to exhaust regex resources therefore cannot bypass a
+reached abort or log predicate. An error may conservatively block or log an
+event that would otherwise not match. Short-circuited leaves are not evaluated
+and do not count as errors. A handled regex error alone does not increment
+`Audit_log_filter_events_lost`. Separate capture/output failures retain their existing accounting; an event can have
 both counters increase only when both failures are reached.
 
 The first failure of each compiled condition is eligible for a warning;
@@ -371,6 +377,17 @@ whole characters and escape sequences. Different conditions have independent
 limiters. Reloads construct new conditions and reset those limiters, while
 sessions retaining an old condition retain its limiter. Many conditions or
 repeated reloads can therefore produce many warnings.
+
+### ICU dependency
+
+Bundled ICU includes fixes for allocation failures during regex compilation and
+UText cleanup. Builds with external ICU must pass the configure-time allocation
+checks; unpatched ICU 74.2 and 77.1 fail these checks. Use `WITH_ICU=bundled` or a
+patched external ICU package. Cross builds using external ICU require
+`CMAKE_CROSSCOMPILING_EMULATOR` to run the checks.
+
+On Unix the component uses the server's ICU symbols, data and cleanup lifetime;
+it does not link another static ICU copy into the unloadable component.
 
 ### Upgrade, reload and downgrade
 

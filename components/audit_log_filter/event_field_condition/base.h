@@ -42,6 +42,10 @@ enum class EventFieldConditionType {
   Unknown
 };
 
+// Errors survive Boolean composition and are resolved by the action: log and
+// abort select the event, print redacts it, and activation keeps the old rule.
+enum class ConditionResult { NoMatch, Match, Error };
+
 class EventFieldConditionBase {
  public:
   virtual ~EventFieldConditionBase() = default;
@@ -54,6 +58,12 @@ class EventFieldConditionBase {
    */
   [[nodiscard]] virtual bool check_applies(
       const AuditRecordFieldsList &fields) const noexcept = 0;
+
+  [[nodiscard]] virtual ConditionResult check_result(
+      const AuditRecordFieldsList &fields) const noexcept {
+    return check_applies(fields) ? ConditionResult::Match
+                                 : ConditionResult::NoMatch;
+  }
 };
 
 }  // namespace audit_log_filter::event_field_condition

@@ -34,7 +34,7 @@ SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
 SELECT 11118 AS rx_error;
 SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
 connection default;
---let rx_count = 0
+--let rx_count = 1
 --source regex_check_count.inc
 --source regex_error_delta.inc
 --echo negative
@@ -76,12 +76,19 @@ connection default;
 --let rx_count = 1
 --source regex_check_count.inc
 --source regex_error_delta.inc
-# Positive abort failure must allow insertion.
+# Positive and negated abort failures both block insertion.
+--let rx_negate = 0
+while ($rx_negate < 2) {
+--echo abort_error negate=$rx_negate
 SET @definition='{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":"rx_errors"}}}}}}';
+if ($rx_negate) {
+  SET @definition=JSON_SET(@definition, '$.filter.class.event.abort', JSON_OBJECT('not', JSON_EXTRACT(@definition, '$.filter.class.event.abort')));
+}
 --source regex_assign.inc
 --source regex_error_baseline.inc
 connection rx;
 SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+--error ER_AUDIT_API_ABORT
 INSERT INTO rx_errors VALUES(1);
 SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
 connection default;
@@ -89,8 +96,16 @@ connection default;
 --enable_result_log
 SELECT COUNT(*) AS allowed_after_regex_error FROM rx_errors;
 --disable_result_log
-# False print selects the digest, never the original sensitive text.
+--inc $rx_negate
+}
+# Failed print selects the digest, including under negation.
+--let rx_negate = 0
+while ($rx_negate < 2) {
+--echo print_error negate=$rx_negate
 SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@guard AS JSON),'print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','print',JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),CAST(@regex AS JSON))),'replace',JSON_OBJECT('function',JSON_OBJECT('name','query_digest'))))))));
+if ($rx_negate) {
+  SET @definition=JSON_SET(@definition, '$.filter.class.event.print.field.print', JSON_OBJECT('not', JSON_EXTRACT(@definition, '$.filter.class.event.print.field.print')));
+}
 --source regex_assign.inc
 --source regex_error_baseline.inc
 connection rx;
@@ -106,8 +121,16 @@ perl;
   my $r=regex_records();
   die 'Print failure did not redact' unless @$r==1 && $r->[0]->{query} eq 'SELECT ? AS `rx_error`';
 EOF
-# Failed activation cannot select the subsequent sentinel.
+--inc $rx_negate
+}
+# Failed activation cannot select the subsequent sentinel, even under not.
+--let rx_negate = 0
+while ($rx_negate < 2) {
+--echo activate_error negate=$rx_negate
 SET @definition='{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"activate":{"field":{"name":"table_name.str","regex":"rx_errors"}},"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","value":"SELECT 11118 AS rx_error"}}}}}}}}}';
+if ($rx_negate) {
+  SET @definition=JSON_SET(@definition, '$.filter.class.event.filter.activate', JSON_OBJECT('not', JSON_EXTRACT(@definition, '$.filter.class.event.filter.activate')));
+}
 --source regex_assign.inc
 --source regex_error_baseline.inc
 connection rx;
@@ -119,23 +142,27 @@ connection default;
 --let rx_count = 0
 --source regex_check_count.inc
 --source regex_error_delta.inc
+--inc $rx_negate
+}
 # Two separate conditions warn independently, repeated failures are suppressed.
-SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('or',JSON_ARRAY(JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','^warn_one')),JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','^warn_two'))))))))));
+SET @definition='{"filter":{"class":{"name":"general","event":{"name":"status","log":{"or":[{"and":[{"field":{"name":"general_query.str","value":"SELECT 11118 AS rx_error"}},{"field":{"name":"general_query.str","regex":"^warn_one"}}]},{"and":[{"field":{"name":"general_query.str","value":"SELECT 11119 AS rx_error"}},{"field":{"name":"general_query.str","regex":"^warn_two"}}]}]}}}}}';
 --source regex_assign.inc
 --source regex_error_baseline.inc
 --source regex_warning_mark.inc
 connection rx;
 SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
 SELECT 11118 AS rx_error;
+SELECT 11119 AS rx_error;
 SELECT 11118 AS rx_error;
+SELECT 11119 AS rx_error;
 SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
 connection default;
 --source regex_error_delta.inc
---let rx_warning_text = Audit log filter 'rx': regex '^warn_one' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_text = Audit log filter 'rx': regex '^warn_one' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition evaluation failed; log and abort actions fail closed. Further failures of this condition are reported at most once per 60 seconds.
 --let rx_warning_min = 1
 --let rx_warning_max = 2
 --source regex_warning_check.inc
---let rx_warning_text = Audit log filter 'rx': regex '^warn_two' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_text = Audit log filter 'rx': regex '^warn_two' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition evaluation failed; log and abort actions fail closed. Further failures of this condition are reported at most once per 60 seconds.
 --let rx_warning_min = 1
 --let rx_warning_max = 2
 --source regex_warning_check.inc

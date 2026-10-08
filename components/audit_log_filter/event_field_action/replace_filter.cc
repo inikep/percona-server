@@ -51,7 +51,8 @@ bool EventFieldActionReplaceFilter::apply(
     return true;
   }
 
-  if (m_activation_cond->check_applies(fields)) {
+  if (m_activation_cond->check_result(fields) ==
+      event_field_condition::ConditionResult::Match) {
     audit_rule->set_replacement_rule(m_replacement_rule.get());
   }
 

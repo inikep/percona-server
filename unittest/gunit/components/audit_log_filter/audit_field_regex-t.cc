@@ -160,8 +160,24 @@ TEST(AuditFieldRegex, FieldsAndReportingPolicy) {
   EXPECT_FALSE(conjunction.check_applies(pathological));
   EXPECT_TRUE(disjunction.check_applies(pathological));
   EXPECT_EQ(5U, errors);
-  EXPECT_TRUE(EventFieldConditionNot(regex).check_applies(pathological));
+  EXPECT_EQ(ConditionResult::Error,
+            EventFieldConditionNot(regex).check_result(pathological));
   EXPECT_EQ(6U, errors);
+  EXPECT_EQ(2U, warnings);
+  EventFieldConditionAnd reached_and(
+      {std::make_shared<EventFieldConditionBool>(true), regex});
+  EventFieldConditionOr reached_or(
+      {std::make_shared<EventFieldConditionBool>(false), regex});
+  EventFieldConditionAnd error_before_false(
+      {regex, std::make_shared<EventFieldConditionBool>(false)});
+  EventFieldConditionNot double_negated(
+      std::make_shared<EventFieldConditionNot>(regex));
+  EXPECT_EQ(ConditionResult::Error, reached_and.check_result(pathological));
+  EXPECT_EQ(ConditionResult::Error, reached_or.check_result(pathological));
+  EXPECT_EQ(ConditionResult::Error,
+            error_before_false.check_result(pathological));
+  EXPECT_EQ(ConditionResult::Error, double_negated.check_result(pathological));
+  EXPECT_EQ(10U, errors);
   EXPECT_EQ(2U, warnings);
 }
 

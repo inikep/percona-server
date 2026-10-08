@@ -37,6 +37,9 @@ class EventFieldConditionAnd : public EventFieldConditionBase {
   [[nodiscard]] bool check_applies(
       const AuditRecordFieldsList &fields) const noexcept override;
 
+  [[nodiscard]] ConditionResult check_result(
+      const AuditRecordFieldsList &fields) const noexcept override;
+
  private:
   std::vector<std::shared_ptr<EventFieldConditionBase>> m_conditions;
 };
