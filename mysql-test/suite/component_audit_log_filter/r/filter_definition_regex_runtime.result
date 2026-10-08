@@ -8,7 +8,7 @@ SET NAMES utf8mb4;
 jira 18 records OK
 # Nonmatching controls
 controls OK
-# New shard without editing the filter
+# New shard created after the filter is active
 shard OK
 # Account predicate
 accounts OK
@@ -55,5 +55,7 @@ short-circuit OK
 charset selection OK
 # Embedded NUL query subject
 nul subject OK
-# Malformed subject is not copied raw into the log
+# Malformed UTF-8 matches U+FFFD and is logged as '?'
 malformed subject OK
+# Latin-1 digest keeps the UTF-8 identifier when the print regex misses
+digest charset OK

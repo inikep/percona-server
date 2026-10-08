@@ -1,0 +1,7 @@
+[new]
+loose-audit_log_filter.format=NEW
+loose-audit_log_filter.file=regex.xml
+
+[json]
+loose-audit_log_filter.format=JSON
+loose-audit_log_filter.file=regex.json

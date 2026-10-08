@@ -65,6 +65,7 @@ IF(WITH_COMPONENT_AUDIT_LOG_FILTER)
       json_reader/file_reader_decrypting.cc
       event_field_condition/field.cc
       event_field_condition/field_regex.cc
+      event_field_condition/field_regex_log.cc
       event_field_condition/and.cc
       event_field_condition/or.cc
       event_field_condition/not.cc

@@ -25,10 +25,6 @@
 #include <utility>
 #include <vector>
 
-#if defined(LOG_COMPONENT_TAG)
-#include "components/audit_log_filter/audit_error_log.h"
-#endif
-
 namespace audit_log_filter::event_field_condition {
 namespace {
 
@@ -96,6 +92,12 @@ void append_hex_escape(std::string *out, unsigned char byte) {
   out->append(buffer);
 }
 
+void append_invalid_byte(std::string *out, unsigned char byte) {
+  char buffer[8];
+  std::snprintf(buffer, sizeof(buffer), "\\x%02X", byte);
+  out->append(buffer);
+}
+
 }  // namespace
 
 std::string escape_diagnostic_text(std::string_view input) {
@@ -119,7 +121,7 @@ std::string escape_diagnostic_text(std::string_view input) {
     } else {
       const auto unit = utf8_unit_length(input, i);
       if (unit == 0) {
-        append_hex_escape(&escaped, byte);
+        append_invalid_byte(&escaped, byte);
         i += 1;
       } else {
         escaped.append(input.data() + i, unit);
@@ -194,18 +196,6 @@ bool RegexWarningLimiter::try_acquire(
       return true;
     }
   }
-}
-
-void default_regex_warning_emitter(const RegexRuntimeDiagnostic &diagnostic,
-                                   void *) noexcept {
-#if defined(LOG_COMPONENT_TAG)
-  LogComponentErr(WARNING_LEVEL, ER_AUDIT_FILTER_REGEX_MATCH_FAILURE,
-                  diagnostic.filter_name, diagnostic.pattern_preview,
-                  diagnostic.field_name, diagnostic.category,
-                  diagnostic.status_name);
-#else
-  (void)diagnostic;
-#endif
 }
 
 void note_regex_match_error(const RegexWarningLimiter &limiter,

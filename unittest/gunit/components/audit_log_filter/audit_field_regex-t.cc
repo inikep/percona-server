@@ -25,6 +25,11 @@
 #include <mysql/components/services/defs/event_tracking_general_defs.h>
 #include <mysql/components/services/defs/event_tracking_table_access_defs.h>
 
+namespace audit_log_filter::event_field_condition {
+void default_regex_warning_emitter(const RegexRuntimeDiagnostic &,
+                                   void *) noexcept {}
+}  // namespace audit_log_filter::event_field_condition
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -80,6 +85,22 @@ TEST(AuditFieldRegex, DiagnosticTextEscapesAndTruncates) {
   EXPECT_EQ("\\u001F", cond::escape_diagnostic_text(std::string(1, '\x1F')));
   EXPECT_EQ("\\u007F", cond::escape_diagnostic_text(std::string(1, '\x7F')));
   EXPECT_EQ("😀", cond::escape_diagnostic_text("😀"));
+  EXPECT_EQ("\\xE9", cond::escape_diagnostic_text(std::string(1, '\xE9')));
+  EXPECT_EQ("\\xC3\\u0027",
+            cond::escape_diagnostic_text(std::string("\xC3'", 2)));
+  EXPECT_EQ("\\xC3\\u0000",
+            cond::escape_diagnostic_text(std::string("\xC3\0", 2)));
+  EXPECT_EQ("\\xC0\\x80",
+            cond::escape_diagnostic_text(std::string("\xC0\x80", 2)));
+
+  std::string invalid_tail(89, 'a');
+  invalid_tail.push_back('\xE9');
+  EXPECT_EQ(std::string(89, 'a') + "\\xE9",
+            cond::escape_diagnostic_text(invalid_tail));
+  std::string invalid_cut(93, 'a');
+  invalid_cut.push_back('\xE9');
+  EXPECT_EQ(std::string(93, 'a') + "...",
+            cond::escape_diagnostic_text(invalid_cut));
 
   const std::string exact(cond::kDiagnosticTextMaxBytes, 'a');
   EXPECT_EQ(exact, cond::escape_diagnostic_text(exact));

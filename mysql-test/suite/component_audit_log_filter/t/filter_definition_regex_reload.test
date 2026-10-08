@@ -21,10 +21,18 @@ CREATE TABLE rx_life (id INT PRIMARY KEY);
 CREATE TABLE rx_batch (id INT PRIMARY KEY);
 
 --echo # Change user picks up the new account filter
-SELECT audit_log_filter_set_filter('rx_on', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_switch$"}}}}}}');
-SELECT audit_log_filter_set_filter('rx_off', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":false}}}}');
-SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_on');
-SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_off');
+SELECT audit_log_filter_set_filter('rx_on', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_switch$"}}}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_filter('rx_off', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":false}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_on') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_off') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 SELECT audit_log_rotate();
 connect(c, localhost, rx_a, rx, test);
 --connection c
@@ -32,6 +40,7 @@ INSERT INTO rx_switch VALUES (1);
 change_user rx_b, rx, test;
 INSERT INTO rx_switch VALUES (2);
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --write_file $rx_spec_file
 table|test|rx_switch|insert|1
@@ -40,16 +49,21 @@ EOF
 disconnect c;
 
 --echo # Named character and numeric-looking FULL-mode field
-SELECT audit_log_filter_set_filter('rx_named', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^\\\\N{LATIN SMALL LETTER A}$"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_named', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^\\\\N{LATIN SMALL LETTER A}$"}}}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 CREATE TABLE a (id INT PRIMARY KEY);
 CREATE TABLE b (id INT PRIMARY KEY);
-SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_named');
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_named') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 SELECT audit_log_rotate();
 connect(c, localhost, rx_a, rx, test);
 --connection c
 INSERT INTO a VALUES (1);
 INSERT INTO b VALUES (1);
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --remove_file $rx_spec_file
 --write_file $rx_spec_file
@@ -60,13 +74,18 @@ EOF
 disconnect c;
 
 SET GLOBAL audit_log_filter.event_mode = FULL;
-SELECT audit_log_filter_set_filter('rx_num', '{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"connection_id","regex":"^[0-9]+$"}}}}}}');
-SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_num');
+SELECT audit_log_filter_set_filter('rx_num', '{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"connection_id","regex":"^[0-9]+$"}}}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_num') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 SELECT audit_log_rotate();
 connect(c, localhost, rx_a, rx, test);
 --connection c
 SELECT 1 /*rx_num*/;
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --remove_file $rx_spec_file
 --write_file $rx_spec_file
@@ -76,16 +95,21 @@ EOF
 disconnect c;
 
 --echo # REDUCED load skips a disabled class and keeps the table predicate
-SELECT audit_log_filter_set_filter('rx_mixed', '{"filter":{"class":[{"name":"query","event":{"name":"start","log":{"field":{"name":"query.str","regex":"rx_num"}}}},{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_life$"}}}}]}}');
+SELECT audit_log_filter_set_filter('rx_mixed', '{"filter":{"class":[{"name":"query","event":{"name":"start","log":{"field":{"name":"query.str","regex":"rx_num"}}}},{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_life$"}}}}]}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 SET GLOBAL audit_log_filter.event_mode = REDUCED;
 SELECT audit_log_filter_flush();
-SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_mixed');
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_mixed') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 SELECT audit_log_rotate();
 connect(c, localhost, rx_a, rx, test);
 --connection c
 SELECT 1 /*rx_num*/;
 INSERT INTO rx_life VALUES (1);
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --remove_file $rx_spec_file
 --write_file $rx_spec_file
@@ -105,6 +129,7 @@ connect(c, localhost, rx_a, rx, test);
 --connection c
 INSERT INTO rx_life VALUES (2);
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --remove_file $rx_spec_file
 --write_file $rx_spec_file
@@ -127,14 +152,44 @@ connect(c, localhost, rx_a, rx, test);
 --connection c
 INSERT INTO rx_life VALUES (4);
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --source filter_definition_regex_check_log.inc
 disconnect c;
 
+--echo # Named character still matches after the component is reinstalled
+SELECT audit_log_filter_set_filter('rx_named_again', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^\\\\N{LATIN SMALL LETTER A}$"}}}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_named_again') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+INSERT INTO a VALUES (2);
+INSERT INTO b VALUES (2);
+--connection default
+--source filter_definition_regex_sync.inc
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|a|insert|1
+table|test|b|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
 --echo # Two clients, ten inserts each
-SELECT audit_log_filter_set_filter('rx_batch_f', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_batch$"}}}}}}');
-SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_batch_f');
-SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_batch_f');
+SELECT audit_log_filter_set_filter('rx_batch_f', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_batch$"}}}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_batch_f') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_batch_f') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
 SELECT audit_log_rotate();
 connect(c1, localhost, rx_a, rx, test);
 connect(c2, localhost, rx_b, rx, test);
@@ -161,10 +216,79 @@ INSERT INTO rx_batch VALUES (18);
 INSERT INTO rx_batch VALUES (19);
 INSERT INTO rx_batch VALUES (20);
 --connection default
+--source filter_definition_regex_sync.inc
 --let rx_log = `SELECT audit_log_rotate()`
 --remove_file $rx_spec_file
 --write_file $rx_spec_file
 table|test|rx_batch|insert|20
+EOF
+--source filter_definition_regex_check_log.inc
+
+--echo # Open sessions keep the previous filter across a reload
+SELECT audit_log_filter_set_filter('rx_batch_off', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":false}}}}') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_batch_off') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_batch_off') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_rotate();
+--connection c1
+INSERT INTO rx_batch VALUES (21);
+--connection c2
+INSERT INTO rx_batch VALUES (22);
+--connection default
+--source filter_definition_regex_sync.inc
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|rx_batch|insert|2
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c1;
+--connection default
+connect(c1, localhost, rx_a, rx, test);
+--connection default
+SELECT audit_log_rotate();
+--connection c1
+INSERT INTO rx_batch VALUES (23);
+--connection c2
+INSERT INTO rx_batch VALUES (24);
+--connection default
+--source filter_definition_regex_sync.inc
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|rx_batch|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+
+--echo # Removing one account applies on that account's next connection
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_batch_f') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+SELECT audit_log_filter_remove_user('rx_b@localhost') INTO @rx_result;
+--let $rx_result = `SELECT @rx_result`
+--source filter_definition_regex_expect_ok.inc
+disconnect c1;
+disconnect c2;
+--connection default
+connect(c1, localhost, rx_a, rx, test);
+connect(c2, localhost, rx_b, rx, test);
+--connection default
+SELECT audit_log_rotate();
+--connection c1
+INSERT INTO rx_batch VALUES (25);
+--connection c2
+INSERT INTO rx_batch VALUES (26);
+--connection default
+--source filter_definition_regex_sync.inc
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|rx_batch|insert|1
 EOF
 --source filter_definition_regex_check_log.inc
 disconnect c1;

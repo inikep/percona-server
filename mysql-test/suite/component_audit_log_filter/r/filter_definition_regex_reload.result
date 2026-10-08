@@ -6,5 +6,8 @@ call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter
 # REDUCED load skips a disabled class and keeps the table predicate
 # Restart keeps the stored filter
 # Unload stops filtering and reinstall restores it
+# Named character still matches after the component is reinstalled
 # Two clients, ten inserts each
+# Open sessions keep the previous filter across a reload
+# Removing one account applies on that account's next connection
 regex reload OK

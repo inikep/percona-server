@@ -315,11 +315,9 @@ AuditRegex::MatchOutcome AuditRegex::find(std::string_view subject) const {
       outcome.failure = map_runtime_status(status);
       return outcome;
     }
-    // setStackLimit() clears the current input. Restore the subject so the
-    // following find() observes the caller's text and any deferred reset error.
-    matcher->reset(text.get());
-
-    status = U_ZERO_ERROR;
+    // setStackLimit() calls the no-argument reset(), which keeps the subject
+    // bound above and clears only match state. find() reports a deferred
+    // status from that reset.
     const UBool found = matcher->find(status);
     if (U_FAILURE(status)) {
       outcome.result = RegexMatchResult::Error;
