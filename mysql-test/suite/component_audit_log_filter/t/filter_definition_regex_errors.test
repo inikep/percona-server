@@ -144,6 +144,7 @@ connection default;
 --source regex_error_delta.inc
 --inc $rx_negate
 }
+--source regex_boolean_errors.inc
 # Two separate conditions warn independently, repeated failures are suppressed.
 SET @definition='{"filter":{"class":{"name":"general","event":{"name":"status","log":{"or":[{"and":[{"field":{"name":"general_query.str","value":"SELECT 11118 AS rx_error"}},{"field":{"name":"general_query.str","regex":"^warn_one"}}]},{"and":[{"field":{"name":"general_query.str","value":"SELECT 11119 AS rx_error"}},{"field":{"name":"general_query.str","regex":"^warn_two"}}]}]}}}}}';
 --source regex_assign.inc
@@ -158,11 +159,11 @@ SELECT 11119 AS rx_error;
 SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
 connection default;
 --source regex_error_delta.inc
---let rx_warning_text = Audit log filter 'rx': regex '^warn_one' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition evaluation failed; log and abort actions fail closed. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_text = Audit log filter 'rx': regex '^warn_one' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR). Further failures of this condition are reported at most once per 60 seconds.
 --let rx_warning_min = 1
 --let rx_warning_max = 2
 --source regex_warning_check.inc
---let rx_warning_text = Audit log filter 'rx': regex '^warn_two' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition evaluation failed; log and abort actions fail closed. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_text = Audit log filter 'rx': regex '^warn_two' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR). Further failures of this condition are reported at most once per 60 seconds.
 --let rx_warning_min = 1
 --let rx_warning_max = 2
 --source regex_warning_check.inc

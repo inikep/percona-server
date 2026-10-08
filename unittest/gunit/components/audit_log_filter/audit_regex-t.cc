@@ -127,6 +127,9 @@ TEST(AuditRegex, GuardedCppAllocations) {
 }
 
 TEST(AuditRegex, IcuAllocationFailures) {
+#ifndef AUDIT_REGEX_TEST_BUNDLED_ICU
+  GTEST_SKIP() << "Allocation-failure fixes are supplied with bundled ICU";
+#endif
   ASSERT_TRUE(icu_fault::installed);
   constexpr auto pattern = "^(new_orders|orders|history)[0-9]+$";
   AuditRegex::Error error;

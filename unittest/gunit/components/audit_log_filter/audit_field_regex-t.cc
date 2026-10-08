@@ -174,11 +174,57 @@ TEST(AuditFieldRegex, FieldsAndReportingPolicy) {
       std::make_shared<EventFieldConditionNot>(regex));
   EXPECT_EQ(ConditionResult::Error, reached_and.check_result(pathological));
   EXPECT_EQ(ConditionResult::Error, reached_or.check_result(pathological));
-  EXPECT_EQ(ConditionResult::Error,
+  EXPECT_EQ(ConditionResult::NoMatch,
             error_before_false.check_result(pathological));
   EXPECT_EQ(ConditionResult::Error, double_negated.check_result(pathological));
   EXPECT_EQ(10U, errors);
   EXPECT_EQ(2U, warnings);
+}
+
+TEST(AuditFieldRegex, ThreeValuedBooleanComposition) {
+  using R = ConditionResult;
+  const auto false_condition = std::make_shared<EventFieldConditionBool>(false);
+  const auto true_condition = std::make_shared<EventFieldConditionBool>(true);
+  const std::shared_ptr<EventFieldConditionBase> operands[] = {
+      false_condition, true_condition, condition("(a+)+$")};
+  const AuditRecordFieldsList fields{
+      {"query", "SELECT '" + std::string(40, 'a') + "'"}};
+  // Rows and columns: NoMatch, Match, Error. Decisive Boolean values win in
+  // either operand order; only otherwise unresolved expressions stay Error.
+  const R conjunction[][3] = {{R::NoMatch, R::NoMatch, R::NoMatch},
+                              {R::NoMatch, R::Match, R::Error},
+                              {R::NoMatch, R::Error, R::Error}};
+  const R disjunction[][3] = {{R::NoMatch, R::Match, R::Error},
+                              {R::Match, R::Match, R::Match},
+                              {R::Error, R::Match, R::Error}};
+  const auto negate = [](R value) {
+    if (value == R::Error) return R::Error;
+    return value == R::Match ? R::NoMatch : R::Match;
+  };
+  for (int left = 0; left < 3; ++left) {
+    for (int right = 0; right < 3; ++right) {
+      SCOPED_TRACE(std::to_string(left) + "," + std::to_string(right));
+      const std::vector<std::shared_ptr<EventFieldConditionBase>> pair{
+          operands[left], operands[right]};
+      const auto both = std::make_shared<EventFieldConditionAnd>(pair);
+      const auto either = std::make_shared<EventFieldConditionOr>(pair);
+      EXPECT_EQ(conjunction[left][right], both->check_result(fields));
+      EXPECT_EQ(disjunction[left][right], either->check_result(fields));
+      EXPECT_EQ(negate(conjunction[left][right]),
+                EventFieldConditionNot(both).check_result(fields));
+      EXPECT_EQ(negate(disjunction[left][right]),
+                EventFieldConditionNot(either).check_result(fields));
+      // Nesting preserves decisive results across the other operator.
+      EXPECT_EQ(
+          conjunction[left][right],
+          EventFieldConditionOr({both, false_condition}).check_result(fields));
+      EXPECT_EQ(disjunction[left][right],
+                EventFieldConditionAnd({either, true_condition})
+                    .check_result(fields));
+    }
+  }
+  EXPECT_EQ(R::Match, EventFieldConditionAnd({}).check_result(fields));
+  EXPECT_EQ(R::NoMatch, EventFieldConditionOr({}).check_result(fields));
 }
 
 TEST(AuditFieldRegex, RetainedConditionAcrossPublicationChange) {

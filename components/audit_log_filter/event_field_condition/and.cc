@@ -28,14 +28,13 @@ bool EventFieldConditionAnd::check_applies(
 
 ConditionResult EventFieldConditionAnd::check_result(
     const AuditRecordFieldsList &fields) const noexcept {
+  bool saw_error = false;
   for (const auto &condition : m_conditions) {
     const auto result = condition->check_result(fields);
-    if (result == ConditionResult::Error ||
-        result == ConditionResult::NoMatch) {
-      return result;
-    }
+    if (result == ConditionResult::NoMatch) return result;
+    saw_error |= result == ConditionResult::Error;
   }
-  return ConditionResult::Match;
+  return saw_error ? ConditionResult::Error : ConditionResult::Match;
 }
 
 }  // namespace audit_log_filter::event_field_condition

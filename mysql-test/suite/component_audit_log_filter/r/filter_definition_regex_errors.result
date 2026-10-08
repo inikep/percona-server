@@ -60,6 +60,40 @@ regex_errors
 1
 events_lost
 0
+abort_and_false error_last=0
+allowed_rows
+1
+regex_errors
+1
+events_lost
+0
+print_or_true error_last=0
+regex_errors
+1
+events_lost
+0
+activate_or_true error_last=0
+regex_errors
+1
+events_lost
+0
+abort_and_false error_last=1
+allowed_rows
+1
+regex_errors
+0
+events_lost
+0
+print_or_true error_last=1
+regex_errors
+0
+events_lost
+0
+activate_or_true error_last=1
+regex_errors
+0
+events_lost
+0
 regex_errors
 4
 events_lost

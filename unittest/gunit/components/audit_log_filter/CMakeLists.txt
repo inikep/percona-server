@@ -18,5 +18,6 @@ TARGET_COMPILE_DEFINITIONS(audit_field_regex-t PRIVATE LOG_COMPONENT_TAG="audit_
 IF(WITH_ICU STREQUAL "bundled")
   # The standalone binary must also find ICU data when run without ctest.
   TARGET_COMPILE_DEFINITIONS(audit_regex-t PRIVATE
+    AUDIT_REGEX_TEST_BUNDLED_ICU
     AUDIT_REGEX_TEST_ICU_DATA_DIR="${CMAKE_SOURCE_DIR}/extra/icu")
 ENDIF()

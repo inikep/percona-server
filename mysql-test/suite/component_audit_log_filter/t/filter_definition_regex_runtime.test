@@ -210,7 +210,7 @@ perl;
   open my $f,'<',"$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
   my $log=do {local $/; <$f>};
   $log =~ s/.*CURRENT_TEST: component_audit_log_filter.filter_definition_regex_runtime//s;
-  my $message="Audit log filter 'rx': regex '(a+)+\$' on field 'general_query.str' failed (timeout: U_REGEX_TIME_OUT); condition evaluation failed; log and abort actions fail closed. Further failures of this condition are reported at most once per 60 seconds.";
+  my $message="Audit log filter 'rx': regex '(a+)+\$' on field 'general_query.str' failed (timeout: U_REGEX_TIME_OUT). Further failures of this condition are reported at most once per 60 seconds.";
   my $count=(()=$log=~/\Q$message\E/g);
   die 'Timeout warning count/text' unless $count>=1 && $count<=3 && ($elapsed>=60 || $count==1);
 EOF

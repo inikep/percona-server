@@ -42,7 +42,7 @@ enum class EventFieldConditionType {
   Unknown
 };
 
-// Errors survive Boolean composition and are resolved by the action: log and
+// Unresolved Boolean errors are handled by the action: log and
 // abort select the event, print redacts it, and activation keeps the old rule.
 enum class ConditionResult { NoMatch, Match, Error };
 

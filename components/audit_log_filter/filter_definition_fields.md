@@ -344,12 +344,22 @@ regex matching; it finishes normally or reaches an engine limit. An already
 killed or timed-out session does not by itself make a regex condition fail, so
 terminal audit events can still match.
 
-A runtime engine/resource error propagates through `and`, `or` and `not`
-as an error, without negating it or evaluating further operands. Every reached
-regex error increments `Audit_log_filter_regex_match_errors` exactly once.
-Normal misses, missing fields and non-string values do not increment it.
-Normal Boolean short-circuiting still skips unnecessary leaves. The enclosing
-action resolves the error as follows:
+A runtime engine/resource error remains distinct from a normal miss. Boolean
+composition uses three-valued logic:
+
+- `and` returns false if any operand is false, even after an error. Otherwise
+  it returns an error if any operand failed, or true if every operand matched.
+- `or` returns true if any operand is true, even after an error. Otherwise it
+  returns an error if any operand failed, or false if every operand missed.
+- `not` negates true and false and preserves an error.
+
+Evaluation continues after errors until a decisive Boolean result is found or
+all operands are evaluated. The result is independent of operand order;
+short-circuiting can still change which regex leaves are evaluated and counted.
+Every reached regex error increments `Audit_log_filter_regex_match_errors`
+exactly once. Normal misses, missing fields and non-string values do not
+increment it. The enclosing action resolves an error that remains after
+Boolean evaluation as follows:
 
 | Context | Effect of a failed regex condition |
 |---|---|
@@ -358,12 +368,15 @@ action resolves the error as follows:
 | `print.field.print`, including under `not` | Uses the replacement instead of the original value |
 | Replacement `activate`, including under `not` | Does not activate the replacement rule |
 
-Padding a statement to exhaust regex resources therefore cannot bypass a
-reached abort or log predicate. An error may conservatively block or log an
-event that would otherwise not match. Short-circuited leaves are not evaluated
+An unresolved regex error conservatively selects an abort or log action.
+This can block or log a legitimate large statement that would otherwise not
+match; administrators should account for this availability tradeoff when
+using query-text regexes. Decisive Boolean operands still determine the action
+when a regex fails. Short-circuited leaves are not evaluated
 and do not count as errors. A handled regex error alone does not increment
-`Audit_log_filter_events_lost`. Separate capture/output failures retain their existing accounting; an event can have
-both counters increase only when both failures are reached.
+`Audit_log_filter_events_lost`. Separate capture/output failures retain their
+existing accounting; an event can have both counters increase only when both
+failures are reached.
 
 The first failure of each compiled condition is eligible for a warning;
 subsequent warnings from that instance are suppressed for 60 seconds using a
@@ -381,13 +394,16 @@ repeated reloads can therefore produce many warnings.
 ### ICU dependency
 
 Bundled ICU includes fixes for allocation failures during regex compilation and
-UText cleanup. Builds with external ICU must pass the configure-time allocation
-checks; unpatched ICU 74.2 and 77.1 fail these checks. Use `WITH_ICU=bundled` or a
-patched external ICU package. Cross builds using external ICU require
-`CMAKE_CROSSCOMPILING_EMULATOR` to run the checks.
+UText cleanup. External ICU remains supported without executing fault-injection
+probes during configuration. Unpatched ICU 74.2 and 77.1 have known allocation-
+failure crashes and cleanup defects; the wrapper cannot recover from a crash
+inside ICU. Use bundled ICU or a patched external package for these fixes.
+The ICU allocation-failure unit test exercises the bundled patches only.
 
 On Unix the component uses the server's ICU symbols, data and cleanup lifetime;
-it does not link another static ICU copy into the unloadable component.
+it does not link another static ICU copy into the unloadable component. This
+requires the server to export the ICU symbols used by the component. The
+component installation and lifecycle tests exercise this load-time dependency.
 
 ### Upgrade, reload and downgrade
 
