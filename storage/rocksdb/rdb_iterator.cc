@@ -429,7 +429,6 @@ int Rdb_iterator_base::convert_iterator_status() const {
 int Rdb_iterator_base::get(const rocksdb::Slice *key,
                            rocksdb::PinnableSlice *value, Rdb_lock_type type,
                            bool skip_ttl_check, bool skip_wait) {
-  int rc = HA_EXIT_SUCCESS;
   m_valid = false;
   Rdb_transaction *const tx = get_tx_from_thd(m_thd);
   rocksdb::Status s;
@@ -447,33 +446,6 @@ int Rdb_iterator_base::get(const rocksdb::Slice *key,
       });
 
   return convert_get_status(*tx, s, value, skip_ttl_check);
-}
-
-void Rdb_iterator_base::multi_get(
-    const std::vector<rocksdb::Slice> &key_slices,
-    std::vector<rocksdb::PinnableSlice> &value_slices,
-    std::vector<int> &rtn_codes, bool sorted_input) {
-  auto tx = get_tx_from_thd(m_thd);
-  const auto size = key_slices.size();
-  std::vector<rocksdb::Status> statuses(size);
-  rdb_tx_multi_get(tx, m_kd.get_cf(), size, key_slices.data(),
-                   value_slices.data(), m_table_type, statuses.data(),
-                   sorted_input);
-  for (std::size_t i = 0; i < size; i++) {
-    rtn_codes[i] = convert_get_status(*tx, statuses[i], &value_slices[i],
-                                      /*skip_ttl_check*/ false);
-  }
-
-  if (s.IsNotFound()) {
-    return HA_ERR_KEY_NOT_FOUND;
-  }
-
-  if (!skip_ttl_check && m_kd->has_ttl() &&
-      rdb_should_hide_ttl_rec(*m_kd, *value, tx)) {
-    return HA_ERR_KEY_NOT_FOUND;
-  }
-
-  return rc;
 }
 
 Rdb_iterator_partial::Rdb_iterator_partial(THD *thd, const Rdb_key_def &kd,

@@ -700,7 +700,7 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
 
     /** ADD COLUMN which can be done instantly, including
     adding stored column only (or along with adding virtual columns) */
-    INSTANT_ADD_COLUMN
+    INSTANT_ADD_COLUMN,
 
     /** Only reference to an index is being removed. */
     INSTANT_DROP_INDEX,

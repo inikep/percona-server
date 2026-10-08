@@ -55,7 +55,9 @@
 #include "sql/dd/dd.h"                       //  dd::get_dictionary
 #include "sql/dd/dictionary.h"               // dd::Dictionary
 #include "sql/debug_sync.h"
+#include "sql/mysqld.h"
 #include "sql-common/json_dom.h"
+#include "sql/rpl_rli.h"
 #include "sql/sql_audit.h"
 #include "sql/sql_class.h"
 #include "sql/sql_lex.h"
@@ -116,6 +118,8 @@ static SERVICE_TYPE(registry) *reg_srv = nullptr;
 SERVICE_TYPE(log_builtins) *log_bi = nullptr;
 SERVICE_TYPE(log_builtins_string) *log_bs = nullptr;
 #endif
+
+using namespace std::string_view_literals;
 
 namespace myrocks {
 
@@ -3141,33 +3145,6 @@ class Rdb_snapshot_notifier : public rocksdb::TransactionNotifier {
 
 [[nodiscard]] static bool is_autocommit(const THD &thd) {
   return !my_core::thd_test_options(&thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN);
-}
-
-/**
-   Check if the current thread query may generate row events for MyRocks data
-   outside of DD. It wraps thd_sqlcom_can_generate_row_events but is more exact
-   for the CREATE TABLE case.
-   @param       thd     thread handle
-   @returns whether the query may generate row events.
- */
-[[nodiscard]] static bool command_generates_myrocks_row_events(const THD &thd) {
-  // This could be written as a single return statement but let's spell out the
-  // cases for clarity
-  if (!thd_sqlcom_can_generate_row_events(&thd)) return false;
-
-  if (thd.lex->sql_command == SQLCOM_CREATE_TABLE) {
-    if (thd.lex->query_block->field_list_is_empty()) {
-      // This is not a CREATE TABLE ... SELECT statement
-      return false;
-    }
-
-    if (thd.lex->create_info->db_type != rocksdb_hton) {
-      // This is a CREATE TABLE ... ENGINE != ROCKSDB ... SELECT statement
-      return false;
-    }
-  }
-
-  return true;
 }
 
 /* This is the base class for transactions when interacting with rocksdb.
@@ -8026,17 +8003,12 @@ static int rdb_dbug_set_ttl_read_filter_ts();
   snapshots when filtering keys.
 */
 bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
-                             const rocksdb::Slice &ttl_rec_val,
+                             const rocksdb::Slice *const ttl_rec_val,
                              Rdb_transaction &tx) {
   assert(kd.has_ttl());
   assert(kd.m_ttl_rec_offset != UINT_MAX);
   auto *const thd = tx.get_thd();
-  auto read_filtering_ts = tx.get_or_create_ttl_read_filtering_ts();
-#ifndef NDEBUG
-  assert(static_cast<int64_t>(read_filtering_ts) >=
-         rdb_dbug_set_ttl_read_filter_ts());
-  read_filtering_ts -= rdb_dbug_set_ttl_read_filter_ts();
-#endif
+  const int64_t curr_ts = tx.m_snapshot_timestamp;
 
   /*
     Curr_ts can only be 0 if there are no snapshots open.
@@ -8059,7 +8031,13 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
     return false;
   }
 
-  Rdb_string_reader reader(&ttl_rec_val);
+  // Case: No value supplied, this happens when the key is not found, so we'll
+  // just return that it should be filtered
+  if (!ttl_rec_val) {
+    return true;
+  }
+
+  Rdb_string_reader reader(ttl_rec_val);
 
   /*
     Find where the 8-byte ttl is for each record in this index.
@@ -8071,7 +8049,7 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
       8 byte ttl field in front. Don't filter the record out, and log an error.
     */
     std::string buf;
-    buf = rdb_hexdump(ttl_rec_val.data(), ttl_rec_val.size(),
+    buf = rdb_hexdump(ttl_rec_val->data(), ttl_rec_val->size(),
                       RDB_MAX_HEXDUMP_LEN);
     const GL_INDEX_ID gl_index_id = kd.get_gl_index_id();
     // NO_LINT_DEBUG
@@ -13695,9 +13673,7 @@ int ha_rocksdb::extra(enum ha_extra_function operation) {
       // that indicates the end of REPLACE / INSERT ON DUPLICATE KEY
       m_insert_with_update = false;
       break;
-    case HA_EXTRA_NO_READ_LOCKING:
-      m_no_read_locking = true;
-      break;
+
     default:
       break;
   }

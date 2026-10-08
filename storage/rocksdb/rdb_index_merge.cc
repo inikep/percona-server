@@ -17,10 +17,13 @@
 /* This C++ file's header file */
 #include "./rdb_index_merge.h"
 
+#include <cinttypes>
+
 #include "rdb_utils.h"  // LOG_COMPONENT_TAG for includes below
 
 /* MySQL header files */
 #include "mysql/components/services/log_builtins.h"
+#include "my_systime.h"
 #include "mysql/plugin.h"
 #include "mysql/psi/mysql_file.h"
 #include "mysqld_error.h"
