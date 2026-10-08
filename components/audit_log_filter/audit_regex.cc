@@ -17,7 +17,6 @@
 
 #include <unicode/parseerr.h>
 #include <unicode/regex.h>
-#include <unicode/unistr.h>
 #include <unicode/ustring.h>
 #include <unicode/utext.h>
 #include <unicode/utypes.h>
@@ -85,6 +84,9 @@ class UTextGuard {
 }  // namespace
 
 struct CompiledRegex::Impl {
+  // UTF-16 pattern text, the compiled pattern keeps a shallow reference to
+  // it. Declared first, so that it is destroyed after the pattern.
+  std::unique_ptr<UChar[]> pattern16;
   std::unique_ptr<icu::RegexPattern> pattern;
 };
 
@@ -167,15 +169,21 @@ std::unique_ptr<CompiledRegex> CompiledRegex::compile(
     return nullptr;
   }
 
+  std::unique_ptr<Impl> impl{new (std::nothrow) Impl{}};
+
+  if (impl == nullptr) {
+    set_error(error, RegexErrorCategory::Allocation, U_MEMORY_ALLOCATION_ERROR);
+    return nullptr;
+  }
+
   // The bound above keeps all lengths well within int32_t range.
   const auto length8 = static_cast<int32_t>(pattern.size());
-  icu::UnicodeString pattern16;
+  int32_t length16 = 0;
 
   if (length8 > 0) {
     // Preflight to get the UTF-16 length, strict conversion rejects
     // malformed UTF-8 instead of substituting it.
     UErrorCode status = U_ZERO_ERROR;
-    int32_t length16 = 0;
     u_strFromUTF8(nullptr, 0, &length16, pattern.data(), length8, &status);
 
     if (status == U_BUFFER_OVERFLOW_ERROR ||
@@ -197,17 +205,17 @@ std::unique_ptr<CompiledRegex> CompiledRegex::compile(
     }
 
     const int32_t capacity = length16 + 1;
-    std::unique_ptr<UChar[]> buffer{new (std::nothrow) UChar[capacity]};
+    impl->pattern16.reset(new (std::nothrow) UChar[capacity]);
 
-    if (buffer == nullptr) {
+    if (impl->pattern16 == nullptr) {
       set_error(error, RegexErrorCategory::Allocation,
                 U_MEMORY_ALLOCATION_ERROR);
       return nullptr;
     }
 
     int32_t converted16 = 0;
-    u_strFromUTF8(buffer.get(), capacity, &converted16, pattern.data(), length8,
-                  &status);
+    u_strFromUTF8(impl->pattern16.get(), capacity, &converted16, pattern.data(),
+                  length8, &status);
 
     if (U_FAILURE(status) || converted16 != length16) {
       set_error(error,
@@ -216,50 +224,46 @@ std::unique_ptr<CompiledRegex> CompiledRegex::compile(
                 U_FAILURE(status) ? status : U_INTERNAL_PROGRAM_ERROR);
       return nullptr;
     }
-
-    // Make an owning copy, the temporary buffer expires afterwards.
-    pattern16 = icu::UnicodeString{buffer.get(), length16};
-
-    if (pattern16.isBogus()) {
-      set_error(error, RegexErrorCategory::Allocation,
-                U_MEMORY_ALLOCATION_ERROR);
-      return nullptr;
-    }
   }
 
+  static const UChar empty_pattern[] = {0};
+  UErrorCode status = U_ZERO_ERROR;
+  UText text_storage = UTEXT_INITIALIZER;
+  UText *text = utext_openUChars(
+      &text_storage,
+      impl->pattern16 != nullptr ? impl->pattern16.get() : empty_pattern,
+      length16, &status);
+
+  if (U_FAILURE(status) || text == nullptr) {
+    error = detail::compile_failure(status, 0, -1);
+    return nullptr;
+  }
+
+  UTextGuard text_guard{text};
   UParseError parse_error{};
   parse_error.line = 0;
   parse_error.offset = -1;
-  UErrorCode status = U_ZERO_ERROR;
 
-  // The UnicodeString overload copies the pattern into ICU owned storage,
-  // unlike the UText one which keeps a shallow reference.
-  std::unique_ptr<icu::RegexPattern> compiled{
-      icu::RegexPattern::compile(pattern16, 0, parse_error, status)};
+  // The UText overload is used, because the UnicodeString one does not check
+  // the allocation of its own pattern copy and crashes when it fails. ICU
+  // keeps a shallow clone of the text, referencing impl->pattern16.
+  impl->pattern.reset(icu::RegexPattern::compile(text, 0, parse_error, status));
 
-  if (U_FAILURE(status) || compiled == nullptr) {
+  if (U_FAILURE(status) || impl->pattern == nullptr) {
     error =
         detail::compile_failure(status, parse_error.line, parse_error.offset);
     return nullptr;
   }
 
-  auto *impl = new (std::nothrow) Impl{};
-
-  if (impl == nullptr) {
-    set_error(error, RegexErrorCategory::Allocation, U_MEMORY_ALLOCATION_ERROR);
-    return nullptr;
-  }
-
-  impl->pattern = std::move(compiled);
-
-  std::unique_ptr<CompiledRegex> result{new (std::nothrow) CompiledRegex{impl}};
+  std::unique_ptr<CompiledRegex> result{new (std::nothrow)
+                                            CompiledRegex{impl.get()}};
 
   if (result == nullptr) {
-    delete impl;
     set_error(error, RegexErrorCategory::Allocation, U_MEMORY_ALLOCATION_ERROR);
     return nullptr;
   }
 
+  impl.release();
   return result;
 }
 

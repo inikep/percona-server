@@ -16,6 +16,19 @@
 #include <gtest/gtest.h>
 
 #include "components/audit_log_filter/audit_regex.h"
+#include "my_config.h"
+
+#if !defined(_MSC_VER) && (defined(HAVE_LSAN) || defined(__SANITIZE_ADDRESS__))
+#define AUDIT_REGEX_TEST_LSAN 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(leak_sanitizer)
+#define AUDIT_REGEX_TEST_LSAN 1
+#endif
+#endif
+
+#ifdef AUDIT_REGEX_TEST_LSAN
+#include <sanitizer/lsan_interface.h>
+#endif
 
 #include <unicode/putil.h>
 #include <unicode/uclean.h>
@@ -451,10 +464,7 @@ class AllocationFailure {
 constexpr auto kAllocationPattern = "^(new_orders|orders|history)[0-9]+$"sv;
 
 /*
- * Failures of the wrapper's own allocations during compilation. Failures
- * inside ICU's RegexPattern::compile() are not injected: ICU 77.1 crashes
- * when RegexPattern::init() fails to allocate its set vector (zap()
- * dereferences the null fSets), which is beyond what the wrapper can handle.
+ * Failures of the wrapper's own allocations during compilation.
  */
 TEST(AuditRegex, CompileAllocationFailures) {
   ASSERT_TRUE(alloc_fault::icu_memory_functions_set);
@@ -493,10 +503,89 @@ TEST(AuditRegex, CompileAllocationFailures) {
         << "allocation " << n;
   }
 
-  // Conversion buffer, implementation and wrapper object
+  // Implementation, conversion buffer and wrapper object
   EXPECT_EQ(injected, 3);
   EXPECT_EQ(alloc_fault::icu_outstanding.load(), baseline);
 }
+
+#ifdef AUDIT_REGEX_TEST_PATCHED_ICU
+/*
+ * Failures of ICU allocations during compilation. Unpatched ICU (seen with
+ * 74.2 and 77.1) crashes when RegexPattern::init() fails to allocate its set
+ * vector, and silently compiles a pattern matching something else when a
+ * UnicodeSet fails to allocate. The bundled ICU is patched for both, so
+ * every injected failure must either fail the compilation or be absorbed
+ * without changing what the pattern matches.
+ */
+TEST(AuditRegex, CompileIcuAllocationFailures) {
+  ASSERT_TRUE(alloc_fault::icu_memory_functions_set);
+
+  // Character sets, set operations, case closure and initial characters
+  const std::string_view patterns[] = {kAllocationPattern, "(?i)\\p{Lu}+\\d"sv,
+                                       "[a-z&&[^q]]+[0-9]"sv, "(?i)\\u00DF"sv,
+                                       "[\\s\\d\\w]+@\\W"sv};
+  const std::string_view subjects[] = {
+      "orders1"sv, "new_orders22"sv, "xorders1"sv, "history"sv,
+      "ab1"sv,     "AB1"sv,          "q1"sv,       "SS"sv,
+      "ss"sv,      "a1 b@!"sv,       ""sv};
+
+  const auto results = [&subjects](const CompiledRegex &re) {
+    std::string out;
+    for (const auto subject : subjects) {
+      RegexError error;
+      const auto result = re.find(subject, error);
+      out += result == RegexMatchResult::Match     ? 'M'
+             : result == RegexMatchResult::NoMatch ? '-'
+                                                   : 'E';
+    }
+    return out;
+  };
+
+  for (const auto pattern : patterns) {
+    // Also warms up ICU one-time initialization and caches
+    auto reference = compile_ok(pattern);
+    ASSERT_NE(reference, nullptr);
+    const auto expected = results(*reference);
+    reference.reset();
+
+    const long baseline = alloc_fault::icu_outstanding.load();
+    int injected = 0;
+
+    for (long n = 0; n < 100000; ++n) {
+      RegexError error;
+      std::unique_ptr<CompiledRegex> compiled;
+      bool fired = false;
+      {
+        AllocationFailure failure{alloc_fault::Source::Icu, n};
+        compiled = CompiledRegex::compile(pattern, error);
+        fired = failure.fired();
+      }
+
+      if (!fired) {
+        ASSERT_NE(compiled, nullptr) << pattern;
+        EXPECT_EQ(results(*compiled), expected) << pattern;
+        break;
+      }
+
+      ++injected;
+      if (compiled == nullptr) {
+        EXPECT_EQ(error.category, RegexErrorCategory::Allocation)
+            << pattern << ", allocation " << n << ": "
+            << status_name(error.status);
+        EXPECT_FALSE(error.has_position());
+      } else {
+        EXPECT_EQ(results(*compiled), expected)
+            << pattern << ", allocation " << n;
+        compiled.reset();
+      }
+      EXPECT_EQ(alloc_fault::icu_outstanding.load(), baseline)
+          << pattern << ", allocation " << n;
+    }
+
+    EXPECT_GT(injected, 0) << pattern;
+  }
+}
+#endif
 
 /*
  * Failures of ICU allocations made by each evaluation (matcher and its
@@ -508,6 +597,8 @@ TEST(AuditRegex, CompileAllocationFailures) {
  * UTEXT_OPEN of the matcher's heap allocated UText, so utext_close() in the
  * matcher destructor does not free it. This is tolerated for a single
  * injected allocation only, anything else would be leaked by the wrapper.
+ * The test's own accounting checks this, so LeakSanitizer ignores the
+ * allocations of evaluations with an injected failure.
  *
  * Which allocations ICU makes, and how it reports their failures, depends
  * on the ICU version, so only properties holding for any of them are
@@ -532,6 +623,9 @@ TEST(AuditRegex, MatchAllocationFailures) {
       RegexMatchResult result;
       bool fired = false;
       {
+#ifdef AUDIT_REGEX_TEST_LSAN
+        __lsan::ScopedDisabler lsan_disabler;
+#endif
         AllocationFailure failure{alloc_fault::Source::Icu, n};
         result = re->find("orders1", error);
         fired = failure.fired();

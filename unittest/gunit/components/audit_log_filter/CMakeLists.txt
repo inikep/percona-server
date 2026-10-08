@@ -25,9 +25,12 @@ MYSQL_ADD_EXECUTABLE(audit_regex-t
 
 # Bundled ICU loads data (e.g. character names) from files, mysqld finds them
 # using icudtXXl.lnk in the build directory. System ICU has built-in data.
+# Only the bundled ICU is patched to survive allocation failures during
+# pattern compilation.
 IF(WITH_ICU STREQUAL "bundled")
   TARGET_COMPILE_DEFINITIONS(audit_regex-t PRIVATE
-    AUDIT_REGEX_TEST_ICU_DATA_DIR="${CMAKE_SOURCE_DIR}/extra/icu")
+    AUDIT_REGEX_TEST_ICU_DATA_DIR="${CMAKE_SOURCE_DIR}/extra/icu"
+    AUDIT_REGEX_TEST_PATCHED_ICU)
 ENDIF()
 
 # Regex condition with the production reporting policy, the unit test
