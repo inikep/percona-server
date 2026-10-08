@@ -82,6 +82,7 @@
 #include "util/stop_watch.h"
 
 /* MyRocks includes */
+#include "my_rapidjson_size_t.h"
 #include <rapidjson/document.h>
 #include "./event_listener.h"
 #include "./ha_rocksdb_proto.h"
@@ -98,7 +99,6 @@
 #include "./rdb_psi.h"
 #include "./rdb_threads.h"
 #include "./sql_dd.h"
-#include "my_rapidjson_size_t.h"
 
 #ifdef FB_HAVE_WSENV
 #include "./ObjectFactory.h"
@@ -761,6 +761,8 @@ static unsigned long long  // NOLINT(runtime/int)
 static bool rocksdb_skip_locks_if_skip_unique_check = false;
 static bool rocksdb_alter_column_default_inplace = false;
 static bool rocksdb_alter_table_comment_inplace = false;
+static bool rocksdb_pause_ttl_compaction_filter = false;
+static uint32_t rocksdb_max_intrinsic_tmp_table_write_count = 0;
 static bool rocksdb_partial_index_blind_delete = true;
 bool rocksdb_disable_instant_ddl = false;
 bool rocksdb_enable_tmp_table = false;
@@ -14588,8 +14590,7 @@ int ha_rocksdb::inplace_populate_sk(
     if (res == ER_DUP_ENTRY) {
       assert(new_table_arg->key_info[index->get_keyno()].flags & HA_NOSAME);
       print_keydup_error(new_table_arg,
-                         &new_table_arg->key_info[index->get_keyno()], MYF(0),
-                         ha_thd());
+                         &new_table_arg->key_info[index->get_keyno()], MYF(0));
     }
 
     if (res && is_critical_error) {
