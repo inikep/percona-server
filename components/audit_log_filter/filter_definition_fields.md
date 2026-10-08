@@ -236,3 +236,174 @@ Supported events: `preparse`, `postparse`
 | `query.length` | string | Original SQL query text length. |
 | `rewritten_query.str` | string | Rewritten SQL query text. |
 | `rewritten_query.length` | string | Rewritten SQL query text length. |
+
+## Regular expressions on string fields
+
+A field condition may use `regex` instead of `value`:
+
+```json
+{
+  "filter": {
+    "class": {
+      "name": "table_access",
+      "event": {
+        "name": ["insert", "update", "delete"],
+        "log": {
+          "and": [
+            {"field": {"name": "table_database.str", "value": "tpcc"}},
+            {"field": {"name": "table_name.str", "regex": "^(new_orders|orders|history)[0-9]+$"}}
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+This selects writes to the numbered tables in `tpcc`, including newly created
+shards, without adding each table to the definition. Put cheap equality checks
+before regex checks in an `and`. An equality `value` such as `"orders.*"` remains
+literal; the existing `string_find` function remains a literal substring search.
+
+A regex-bearing field object must contain exactly one `name` and one `regex`.
+`value`, duplicate members and unknown members are rejected. The named field
+must exist for the event class and have declared string type. Integer fields,
+including `connection_type`, are rejected; FULL-mode fields already represented
+as strings remain eligible. Legacy value-only objects retain their existing
+validation and extra-member behavior.
+
+The pattern must be a nonempty, valid UTF-8 JSON string. An empty pattern is a
+configuration error in every action context, including `abort` and stored
+rules loaded by `audit_log_filter_flush()`. To match a present empty value use
+`"value":""`, `"regex":"^$"`, or `"regex":"\\A\\z"`. Explicit match-all
+expressions such as `.*` are allowed. Missing fields and non-string runtime
+values do not match. When general/table-access query capture is unavailable,
+the existing field maps expose a present empty string and a zero length.
+
+Matching uses ICU Unicode regular expressions and searches anywhere in the
+available field value. It is case-sensitive by default; `(?i)` enables ICU
+case-insensitive matching. SQL collation and `lower_case_table_names` do not
+supply regex flags: the predicate matches the event's reported value. ICU is
+neither an exact POSIX ERE nor a PCRE compatibility contract. `^…$` supplies
+conventional anchors, but `$` can match before a final line terminator. Use
+`\A…\z` for absolute anchoring.
+
+JSON requires backslashes to be escaped. Ordinary SQL string literals add a
+second escaping layer (unless `NO_BACKSLASH_ESCAPES` is enabled). SQL JSON
+constructors can keep the layers separate, for example:
+
+```sql
+SET @pattern = CONCAT(CHAR(92 USING utf8mb4), 'Aorders[0-9]+', CHAR(92 USING utf8mb4), 'z');
+SET @field = JSON_OBJECT('field', JSON_OBJECT(
+  'name', 'table_name.str', 'regex', @pattern));
+```
+
+Embedded NULs are preserved in decoded patterns and in the available field
+string. The pre-existing `mysql_cstring_to_string()` helper uses `strlen`, so
+some event fields have already lost bytes after a NUL before filtering. Regex
+does not repair that extraction limitation. General and table-access raw query
+maps preserve captured byte lengths and can include embedded NULs.
+
+### Raw subjects and output encoding
+
+Regex interprets the complete available field string as UTF-8, replacing
+malformed sequences with U+FFFD. It does not transcode the subject from the
+client's MySQL charset or use the converted log-output string. Thus UTF-8
+`café` does not match raw Latin-1 `caf\xE9`, although an ASCII marker elsewhere
+in either subject remains searchable. Different malformed sequences can map
+to the same replacement character. This differs from byte equality and is not
+charset-aware matching.
+
+Selected query text is converted to UTF-8 later, for output. Latin-1 text
+selected by an ASCII predicate can therefore appear correctly as `café` in
+the log. Output conversion replaces malformed bytes with `?`, independently
+of ICU's U+FFFD subject decoding. Raw `.length` predicates, UTF-8 digests,
+password obfuscation, and the prepared-statement charset limitation described
+above remain unchanged. Regex evaluation does not fetch SQL text for parse
+events or use `query_output` as its subject.
+
+### Resource limits and failures
+
+Each constructed condition owns a compiled pattern. Each evaluation creates
+its own matcher with limits of 32 ICU engine-work units and 8,000,000 bytes of
+backtracking stack, independent of session SQL regex variables. The existing
+16 KiB UDF definition limit remains; the engine wrapper also bounds decoded
+patterns to 16 KiB. Compilation errors include ICU's reported line and
+character position when available, not a UTF-8 byte or UTF-16 code-unit offset.
+
+These limits are not a wall-clock deadline or total-memory ceiling. Long
+linear scans, compilation, multiple regex leaves and concurrent matcher
+allocations still have costs. Anchoring can reduce search work without making
+arbitrary patterns constant-time. Identifier predicates generally scan less
+text than query predicates. KILL received during evaluation does not interrupt
+regex matching; it finishes normally or reaches an engine limit. An already
+killed or timed-out session does not by itself make a regex condition fail, so
+terminal audit events can still match.
+
+A runtime engine/resource error evaluates to **false at the leaf** and
+increments `Audit_log_filter_regex_match_errors` exactly once. Normal misses,
+missing fields and non-string values do not increment it. The Boolean/action
+semantics then apply:
+
+| Context | Effect of a failed regex leaf |
+|---|---|
+| Positive `log` | Does not select the event |
+| Negated `log` | `not(false)` can select the event |
+| Positive `abort` | Does not block the statement |
+| `print.field.print` | Uses the replacement instead of the original value |
+| Replacement `activate` | Does not activate the replacement rule |
+
+Failures can therefore cause audit gaps or bypass a positive abort predicate.
+Short-circuited leaves are not evaluated and do not count as errors. A handled
+regex error alone does not increment `Audit_log_filter_events_lost`. Separate
+capture/output failures retain their existing accounting; an event can have
+both counters increase only when both failures are reached.
+
+The first failure of each compiled condition is eligible for a warning;
+subsequent warnings from that instance are suppressed for 60 seconds using a
+monotonic clock. Every error is counted even while warnings are suppressed.
+Warnings identify the filter, field, escaped pattern preview, category and ICU
+status, never the subject. Previews expose pattern text and are bounded to 96
+bytes, with `...` for truncation; they are not unique identifiers. Different
+conditions have independent limiters. Reloads construct new conditions and
+reset those limiters, while sessions retaining an old condition retain its
+limiter. Many conditions or repeated reloads can therefore produce many warnings.
+
+### Upgrade, reload and downgrade
+
+An older value-only field could contain an ignored `regex` member. Such a
+field now specifies mutually exclusive operators and is rejected. Inventory
+actual keys anywhere in stored definitions, including nested replacements,
+before upgrading:
+
+```sql
+SELECT name
+FROM mysql.audit_log_filter
+WHERE JSON_CONTAINS_PATH(filter, 'one', '$**.regex');
+```
+
+This is a conservative inventory, not a validator. Inspect the returned rows
+before modifying them. An ordinary string value equal to `"regex"` without a
+member of that name is not returned. JSON constructors may normalize duplicate
+members; raw input validation also rejects duplicates.
+
+`set_filter()` validates and stores a definition but does not reload the
+registry. `set_user()` changes the mapping before attempting reload. A failed
+reload/explicit flush preserves the last published snapshot; a successful
+explicit flush detaches ordinary sessions on their next event. Reconnect or
+change user when verifying a new mapping. An invalid enabled definition can
+prevent publication of the entire registry. On a fresh start without a valid
+snapshot, ordinary filtered events can go unaudited even though internal
+start/stop records still appear. REDUCED mode can skip disabled classes before
+validating their nested conditions.
+
+Upgrade every server that may load these definitions before distributing them.
+Do not assume that UDF or direct table writes cannot propagate through
+replication; check the deployment's binlog settings and replica loading behavior.
+
+Before downgrading, remove or rewrite **all** regex definitions, including
+nested replacements, while still running the newer binary. Successfully flush
+compatible rules, reconnect and verify ordinary filtered coverage before
+starting an older binary. Incompatible enabled definitions may block the whole
+registry on the older server. Recovery can require repairing/removing stored
+rows and flushing; a valid `set_filter()` alone does not publish a new registry.

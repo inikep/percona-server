@@ -1,0 +1,21 @@
+ordinary_regex_errors
+0
+timeout_errors
+3
+errors_after_recovery
+3
+errors_after_short_circuit
+3
+blocked_rows
+0
+allowed_rows
+1
+exempt_rows
+1
+stored_pattern_exact
+1
+killed_updates_committed
+0
+killed_event_regex_errors
+0
+Regex runtime and action checks passed

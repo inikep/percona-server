@@ -51,6 +51,7 @@ class AuditRule {
    * @return Filtering rule name
    */
   [[nodiscard]] std::string get_rule_name() const noexcept;
+  [[nodiscard]] std::string_view get_rule_name_view() const noexcept;
 
   /**
    * @brief Set temporary replacement filtering rule.
@@ -119,6 +120,7 @@ class AuditRule {
    * @param error Human-readable parse error description
    */
   void set_parse_error(const std::string &error) noexcept;
+  void set_parse_error(std::string &&error) noexcept;
 
   /**
    * @brief Get parse error description, empty if no error.

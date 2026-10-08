@@ -287,6 +287,7 @@ class SysVars {
    * @brief Increment counter of events lost in performance logging mode.
    */
   static void inc_events_lost() noexcept;
+  static void inc_regex_match_errors() noexcept;
 
   /**
    * @brief Increment counter of events handled by the audit log plugin

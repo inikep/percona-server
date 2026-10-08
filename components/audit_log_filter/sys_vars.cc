@@ -100,6 +100,7 @@ comp_registry_srv_container_t comp_registry_srv;
  */
 std::atomic<uint64_t> events_total{0};
 std::atomic<uint64_t> events_lost{0};
+std::atomic<uint64_t> regex_match_errors{0};
 std::atomic<uint64_t> events_filtered{0};
 std::atomic<uint64_t> events_written{0};
 std::atomic<uint64_t> write_waits{0};
@@ -113,6 +114,14 @@ int show_events_total(THD *, SHOW_VAR *var, char *buff) {
   var->value = buff;
   auto *value = reinterpret_cast<uint64_t *>(buff);
   *value = events_total.load(std::memory_order_relaxed);
+  return 0;
+}
+
+int show_regex_match_errors(THD *, SHOW_VAR *var, char *buff) {
+  var->type = SHOW_LONG;
+  var->value = buff;
+  *reinterpret_cast<uint64_t *>(buff) =
+      regex_match_errors.load(std::memory_order_relaxed);
   return 0;
 }
 
@@ -181,6 +190,9 @@ int show_direct_writes(THD *, SHOW_VAR *var, char *buff) {
 }
 
 SHOW_VAR status_vars[] = {
+    {"Audit_log_filter_regex_match_errors",
+     reinterpret_cast<char *>(&show_regex_match_errors), SHOW_FUNC,
+     SHOW_SCOPE_GLOBAL},
     {"Audit_log_filter_events", reinterpret_cast<char *>(&show_events_total),
      SHOW_FUNC, SHOW_SCOPE_GLOBAL},
     {"Audit_log_filter_events_lost",
@@ -1154,6 +1166,10 @@ bool SysVars::is_removed_filter_id(uint64_t filter_id,
 
 void SysVars::inc_events_total() noexcept {
   events_total.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SysVars::inc_regex_match_errors() noexcept {
+  regex_match_errors.fetch_add(1, std::memory_order_relaxed);
 }
 
 void SysVars::inc_events_lost() noexcept {

@@ -1,0 +1,20 @@
+failed_flush
+ERROR: Filter 'rx' has wrong format: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8
+insert_despite_bad_row
+OK
+repaired_flush
+OK
+empty_stored_pattern
+ERROR: Filter 'rx' has wrong format: event field definition 'field' 'regex' must be a non-empty string
+@pattern	named_pattern_matches
+^\N{LATIN SMALL LETTER O}rders1$	1
+filter
+{"filter": {"class": {"name": "table_access", "event": {"log": {"field": {"name": "table_name.str", "regex": "^\\N{LATIN SMALL LETTER O}rders1$"}}, "name": "insert"}}}}
+sql_regex_before_unload
+1
+sql_regex_after_unload
+1
+disabled_class_skipped
+OK
+enabled_class_rejected
+ERROR: Filter 'rx_disabled' has wrong format: invalid regular expression for field 'query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 1

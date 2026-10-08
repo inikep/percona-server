@@ -30,6 +30,9 @@
 #include "components/audit_log_filter/event_field_condition/or.h"
 #include "components/audit_log_filter/event_field_condition/variable.h"
 
+#include "components/audit_log_filter/event_field_condition/field_regex.h"
+#include "my_dbug.h"
+
 #include <limits>
 #include <memory>
 #include <set>
@@ -734,6 +737,112 @@ EventFieldConditionType AuditRuleParser::get_condition_type(
   return EventFieldConditionType::Unknown;
 }
 
+std::shared_ptr<EventFieldConditionBase>
+AuditRuleParser::parse_field_regex_json(const rapidjson::Value &field,
+                                        const std::string &class_name,
+                                        AuditRule *audit_rule) noexcept {
+  using regex_detail::diagnostic_text;
+  // This lambda may allocate. It is called only inside a local exception guard.
+  const auto reject = [&](std::string reason) {
+    const auto filter = diagnostic_text(audit_rule->get_rule_name_view());
+    // Every variable part is bounded separately; the complete reason fits the
+    // UDF's 512-byte response including its prefix and terminator.
+    audit_rule->set_parse_error(std::move(reason));
+    LogComponentErr(ERROR_LEVEL, ER_AUDIT_PARSE_CONDITION_BAD_FIELD_REGEX,
+                    filter.c_str(), audit_rule->get_parse_error().c_str());
+    return std::shared_ptr<EventFieldConditionBase>{};
+  };
+  try {
+    // 'value' has precedence over other member errors, wherever it occurs.
+    for (auto it = field.MemberBegin(); it != field.MemberEnd(); ++it) {
+      if (std::string_view(it->name.GetString(), it->name.GetStringLength()) ==
+          "value") {
+        return reject(
+            "event field definition 'field' must have either 'value' "
+            "or 'regex', not both");
+      }
+    }
+    const rapidjson::Value *name = nullptr;
+    const rapidjson::Value *pattern = nullptr;
+    for (auto it = field.MemberBegin(); it != field.MemberEnd(); ++it) {
+      const std::string_view key(it->name.GetString(),
+                                 it->name.GetStringLength());
+      const rapidjson::Value **destination = nullptr;
+      if (key == "name")
+        destination = &name;
+      else if (key == "regex")
+        destination = &pattern;
+      else
+        return reject("unexpected key '" + diagnostic_text(key) +
+                      "' in 'field' definition");
+      if (*destination != nullptr)
+        return reject("duplicate key '" + diagnostic_text(key) +
+                      "' in 'field' definition");
+      *destination = &it->value;
+    }
+    if (name == nullptr || !name->IsString())
+      return reject(
+          "event field definition 'field' must have field 'name' "
+          "provided as a string");
+    if (pattern == nullptr || !pattern->IsString() ||
+        pattern->GetStringLength() == 0)
+      return reject(
+          "event field definition 'field' 'regex' must be a non-empty string");
+    if (class_name.empty())
+      return reject("regex condition requires an event class");
+    const std::string_view field_name(name->GetString(),
+                                      name->GetStringLength());
+    const auto field_preview = diagnostic_text(field_name);
+    if (!is_valid_event_field_name(class_name, field_name))
+      return reject("field name '" + field_preview +
+                    "' is not valid for event class '" +
+                    diagnostic_text(class_name) + "'");
+    if (get_event_field_value_type(class_name, field_name) !=
+        EventFieldValueType::String)
+      return reject(
+          "field '" + field_preview +
+          "' is not a string field; 'regex' applies only to string fields");
+    DBUG_EXECUTE_IF("audit_log_filter_regex_compile_bad_alloc",
+                    { throw std::bad_alloc(); });
+    const std::string_view pattern_text(pattern->GetString(),
+                                        pattern->GetStringLength());
+    AuditRegex::Error error;
+    auto compiled = AuditRegex::compile(pattern_text, error);
+    if (!compiled) {
+      switch (error.category) {
+        case AuditRegex::Category::Size:
+          return reject("regular expression exceeds 16384 UTF-8 bytes");
+        case AuditRegex::Category::Encoding:
+          return reject("pattern is not valid UTF-8");
+        case AuditRegex::Category::Allocation:
+          return reject("out of memory while constructing regex condition");
+        default:
+          break;
+      }
+      auto reason = "invalid regular expression for field '" + field_preview +
+                    "': " + error.status_name();
+      if (error.offset >= 0)
+        reason += " at line " + std::to_string(error.line) + ", offset " +
+                  std::to_string(error.offset);
+      return reject(std::move(reason));
+    }
+    return std::make_shared<EventFieldConditionRegex>(
+        std::string(field_name), std::move(compiled),
+        diagnostic_text(audit_rule->get_rule_name_view()), field_preview,
+        diagnostic_text(pattern_text));
+  } catch (const std::bad_alloc &) {
+    try {
+      return reject("out of memory while constructing regex condition");
+    } catch (...) {
+      // Do not allocate again if even the reason cannot be constructed.
+    }
+  } catch (...) {
+    // Keep the new noexcept boundary closed even if diagnostic construction
+    // itself fails. The caller supplies its existing fallback error.
+  }
+  return nullptr;
+}
+
 std::shared_ptr<EventFieldConditionBase> AuditRuleParser::parse_condition_json(
     const rapidjson::Value &condition_json,
     const EventFieldConditionType cond_type, const std::string &class_name,
@@ -762,6 +871,11 @@ std::shared_ptr<EventFieldConditionBase> AuditRuleParser::parse_condition_json(
         audit_rule->set_parse_error(
             "condition definition 'field' must be of object type");
         return nullptr;
+      }
+
+      if (condition_json["field"].HasMember("regex")) {
+        return parse_field_regex_json(condition_json["field"], class_name,
+                                      audit_rule);
       }
 
       if (!condition_json["field"].HasMember("name") ||

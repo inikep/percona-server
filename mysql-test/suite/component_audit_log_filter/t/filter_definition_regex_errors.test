@@ -1,0 +1,267 @@
+--source include/have_debug.inc
+--source regex_setup.inc
+CALL mtr.add_suppression("bad 'regex' field condition");
+CALL mtr.add_suppression("Wrong argument: incorrect rule definition");
+CALL mtr.add_suppression("regex .* failed ");
+CALL mtr.add_suppression("std::bad_alloc");
+CALL mtr.add_suppression("Invalid audit query charset or buffer");
+CALL mtr.add_suppression("Audit query output was not prepared");
+SET SESSION debug='+d,audit_log_filter_regex_compile_bad_alloc';
+--enable_result_log
+SELECT audit_log_filter_set_filter('rx_oom','{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_error"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_oom';
+--disable_result_log
+SET SESSION debug='-d,audit_log_filter_regex_compile_bad_alloc';
+--enable_result_log
+SELECT audit_log_filter_set_filter('rx_oom','{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_error"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_oom';
+--disable_result_log
+SELECT audit_log_filter_remove_filter('rx_oom');
+GRANT SESSION_VARIABLES_ADMIN ON *.* TO rx@localhost;
+CREATE TABLE rx_errors(id INT);
+connect(rx,localhost,rx,,test);
+--let rx_connected = 1
+connection default;
+SET @guard=JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','value','SELECT 11118 AS rx_error'));
+SET @regex=JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','rx_error'));
+--echo positive
+SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),CAST(@regex AS JSON)));
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+--source regex_error_delta.inc
+--echo negative
+SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('not',CAST(@regex AS JSON))));
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+--source regex_error_delta.inc
+--echo and_short
+SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('and',JSON_ARRAY(JSON_OBJECT('field',JSON_OBJECT('name','general_command.str','value','NoSuchCommand')),CAST(@regex AS JSON)))));
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+--source regex_error_delta.inc
+--echo or_short
+SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('or',JSON_ARRAY(JSON_OBJECT('field',JSON_OBJECT('name','general_command.str','value','Query')),CAST(@regex AS JSON)))));
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+--source regex_error_delta.inc
+# Positive abort failure must allow insertion.
+SET @definition='{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":"rx_errors"}}}}}}';
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_errors VALUES(1);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--source regex_error_delta.inc
+--enable_result_log
+SELECT COUNT(*) AS allowed_after_regex_error FROM rx_errors;
+--disable_result_log
+# False print selects the digest, never the original sensitive text.
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@guard AS JSON),'print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','print',JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),CAST(@regex AS JSON))),'replace',JSON_OBJECT('function',JSON_OBJECT('name','query_digest'))))))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--source regex_error_delta.inc
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  die 'Print failure did not redact' unless @$r==1 && $r->[0]->{query} eq 'SELECT ? AS `rx_error`';
+EOF
+# Failed activation cannot select the subsequent sentinel.
+SET @definition='{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"activate":{"field":{"name":"table_name.str","regex":"rx_errors"}},"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","value":"SELECT 11118 AS rx_error"}}}}}}}}}';
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_errors VALUES(2);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+--source regex_error_delta.inc
+# Two separate conditions warn independently, repeated failures are suppressed.
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('or',JSON_ARRAY(JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','^warn_one')),JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','^warn_two'))))))))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 11118 AS rx_error;
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+--source regex_error_delta.inc
+perl;
+  open my $f,'<',"$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $log=do { local $/; <$f> };
+  $log =~ s/.*CURRENT_TEST: component_audit_log_filter.filter_definition_regex_errors//s;
+  for my $pattern(qw(^warn_one ^warn_two)) {
+    my $message="Audit log filter 'rx': regex '$pattern' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.";
+    die "Wrong warning count/text: $pattern" unless 1==(()=$log=~/\Q$message\E/g);
+  }
+EOF
+# Reached output failures are independent of regex failures.
+SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),CAST(@regex AS JSON)));
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
+--source regex_assign.inc
+--echo unknown_query_charset
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_unknown_query_charset';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_unknown_query_charset';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 0
+--source regex_check_count.inc
+--echo query_output_bad_alloc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_query_output_bad_alloc';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_query_output_bad_alloc';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 0
+--source regex_check_count.inc
+--echo query_output_not_ready
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_query_output_not_ready';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_query_output_not_ready';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 0
+--source regex_check_count.inc
+--echo escape_bad_alloc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_escape_bad_alloc';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_escape_bad_alloc';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 0
+--source regex_check_count.inc
+--echo write_payload_bad_alloc
+--source regex_error_baseline.inc
+connection rx;
+# Seed the file: payload allocation is only reached after the first record.
+SELECT 11118 AS rx_error;
+DO 0;
+connection default;
+if ($rx_format == JSON) {
+  SET @bookmark=audit_log_read_bookmark();
+}
+SET @written=(SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_events_written');
+connection rx;
+SET SESSION debug='+d,audit_log_filter_write_payload_bad_alloc';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_write_payload_bad_alloc';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--enable_result_log
+if ($rx_format == JSON) {
+  --let bookmark_unchanged = `SELECT audit_log_read_bookmark()=@bookmark`
+  if (!$bookmark_unchanged) {
+    --die Failed payload advanced the bookmark
+  }
+}
+SELECT VARIABLE_VALUE-@written AS failed_payload_written FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_events_written';
+--disable_result_log
+--let rx_count = 1
+--source regex_check_count.inc
+--echo query_capture_bad_alloc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_query_capture_bad_alloc';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_query_capture_bad_alloc';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 0
+--source regex_check_count.inc
+--echo query_charset_bad_alloc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_query_charset_bad_alloc';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_query_charset_bad_alloc';
+DO 0;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 0
+--source regex_check_count.inc
+# A negated failed regex can reach an independently failing output stage.
+SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('not',CAST(@regex AS JSON))));
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error,audit_log_filter_query_output_bad_alloc';
+SELECT 11118 AS rx_error;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error,audit_log_filter_query_output_bad_alloc';
+connection default;
+--source regex_error_delta.inc
+# Clearing both hooks restores the real positive match and writing.
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),CAST(@regex AS JSON)))))));
+--source regex_assign.inc
+--source regex_error_baseline.inc
+connection rx;
+SELECT 11118 AS rx_error;
+connection default;
+--source regex_error_delta.inc
+--let rx_count = 1
+--source regex_check_count.inc
+disconnect rx;
+DROP TABLE rx_errors;
+DROP USER rx@localhost;
+--enable_result_log
+--enable_query_log
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

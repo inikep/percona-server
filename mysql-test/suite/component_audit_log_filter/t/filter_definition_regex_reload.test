@@ -1,0 +1,170 @@
+--source regex_setup.inc
+CALL mtr.add_suppression("Wrong JSON filter");
+CALL mtr.add_suppression("audit_log_filter name: rx.*filter: .* has wrong format:");
+CALL mtr.add_suppression("Skipping disabled event class 'query' in filter 'rx_disabled'");
+CALL mtr.add_suppression("Failed to load filtering rules: Filter 'rx_disabled' has wrong format:");
+CREATE TABLE orders1(id INT PRIMARY KEY);
+SET @definition='{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^orders[0-9]+$"}}}}}}';
+--source regex_assign.inc
+connect(rx1,localhost,rx,,test);
+DO 0;
+connection default;
+UPDATE mysql.audit_log_filter SET filter=JSON_SET(filter,'$.filter.class.event.log.field.regex','^(orders') WHERE name='rx';
+--enable_result_log
+SELECT audit_log_filter_flush() AS failed_flush;
+SELECT audit_log_filter_set_filter('another','{"filter":{"log":false}}') AS insert_despite_bad_row;
+--disable_result_log
+SELECT audit_log_rotate();
+connection rx1;
+INSERT INTO orders1 VALUES(1);
+connect(rx2,localhost,rx,,test);
+INSERT INTO orders1 VALUES(2);
+connection default;
+--let rx_count = 2
+--source regex_check_count.inc
+UPDATE mysql.audit_log_filter SET filter=JSON_SET(filter,'$.filter.class.event.log.field.regex','^other$') WHERE name='rx';
+--enable_result_log
+SELECT audit_log_filter_flush() AS repaired_flush;
+--disable_result_log
+connection rx1;
+INSERT INTO orders1 VALUES(3);
+connection rx2;
+INSERT INTO orders1 VALUES(4);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+# Empty public patterns also fail when read from an enabled stored row.
+UPDATE mysql.audit_log_filter SET filter=JSON_SET(filter,'$.filter.class.event.log.field.regex','') WHERE name='rx';
+--enable_result_log
+SELECT audit_log_filter_flush() AS empty_stored_pattern;
+--disable_result_log
+UPDATE mysql.audit_log_filter SET filter=JSON_SET(filter,'$.filter.class.event.log.field.regex','^orders[0-9]+$') WHERE name='rx';
+SELECT audit_log_filter_flush();
+# Real overlap: clients insert while observer repeatedly republishes/removes.
+connection rx1;
+--send INSERT INTO orders1 VALUES(10)
+connection rx2;
+--send INSERT INTO orders1 VALUES(11)
+connection default;
+SELECT audit_log_filter_flush();
+SELECT audit_log_filter_remove_user('rx@localhost');
+SELECT audit_log_filter_set_user('rx@localhost','rx');
+connection rx1;
+--reap
+connection rx2;
+--reap
+connection default;
+# Reconnect establishes the post-publication state for exact counts.
+disconnect rx1;
+disconnect rx2;
+connect(rx1,localhost,rx,,test);
+connect(rx2,localhost,rx,,test);
+connection default;
+SELECT audit_log_rotate();
+--let n = 20
+while ($n > 0) {
+  connection rx1;
+  --eval INSERT INTO orders1 VALUES(100+$n)
+  --dec $n
+  connection rx2;
+  --eval INSERT INTO orders1 VALUES(100+$n)
+  --dec $n
+}
+connection default;
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  die 'Post-reconnect count' unless @$r==20;
+  my %queries;
+  for my $event(@$r) { die 'Duplicate query' if $queries{$event->{query}}++; }
+  my %connections;
+  ++$connections{$_->{connection}} for @$r;
+  die 'Missing client operations' unless keys(%connections)==2 && 2==grep {$_==10} values(%connections);
+EOF
+# Unmapping and change-user re-resolution.
+SELECT audit_log_filter_remove_user('rx@localhost');
+connection rx1;
+change_user rx,,test;
+INSERT INTO orders1 VALUES(200);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+SELECT audit_log_filter_set_user('rx@localhost','rx');
+connection rx1;
+change_user rx,,test;
+INSERT INTO orders1 VALUES(201);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+disconnect rx1;
+disconnect rx2;
+# Persisted rules survive server restart.
+--source include/restart_mysqld.inc
+--disable_query_log
+--disable_result_log
+connect(rx1,localhost,rx,,test);
+INSERT INTO orders1 VALUES(202);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+disconnect rx1;
+# Named-character syntax requires actual ICU data in the loaded component.
+SET @pattern=CONCAT('^',CHAR(92 USING utf8mb4),'N{LATIN SMALL LETTER O}rders1$');
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','table_access','event',JSON_OBJECT('name','insert','log',JSON_OBJECT('field',JSON_OBJECT('name','table_name.str','regex',@pattern))))));
+--source regex_assign.inc
+--enable_result_log
+SELECT @pattern,REGEXP_LIKE('orders1',CONVERT(@pattern USING utf8mb4)) AS named_pattern_matches;
+SELECT filter FROM mysql.audit_log_filter WHERE name='rx';
+--disable_result_log
+connect(rx1,localhost,rx,,test);
+INSERT INTO orders1 VALUES(203);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+disconnect rx1;
+--enable_result_log
+SELECT REGEXP_LIKE('orders1',@pattern) AS sql_regex_before_unload;
+--disable_result_log
+SELECT audit_log_filter_remove_filter('rx');
+SELECT audit_log_filter_remove_filter('another');
+UNINSTALL COMPONENT 'file://component_audit_log_filter';
+--enable_result_log
+SELECT REGEXP_LIKE('orders1',@pattern) AS sql_regex_after_unload;
+--disable_result_log
+INSTALL COMPONENT 'file://component_audit_log_filter';
+--source regex_assign.inc
+connect(rx1,localhost,rx,,test);
+INSERT INTO orders1 VALUES(204);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+disconnect rx1;
+# Disabled FULL-only classes retain the loader's existing skip order.
+SET GLOBAL audit_log_filter.event_mode=REDUCED;
+INSERT INTO mysql.audit_log_filter(filter_id,name,filter) VALUES(5001,'rx_disabled','{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"query.str","regex":"("}}}}}}');
+--enable_result_log
+SELECT audit_log_filter_flush() AS disabled_class_skipped;
+--disable_result_log
+SET GLOBAL audit_log_filter.event_mode=FULL;
+--enable_result_log
+SELECT audit_log_filter_flush() AS enabled_class_rejected;
+--disable_result_log
+DELETE FROM mysql.audit_log_filter WHERE name='rx_disabled';
+SELECT audit_log_filter_flush();
+# FULL-mode connection_id is already a string in query events.
+SET @definition='{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"and":[{"field":{"name":"query.str","value":"SELECT 1 AS rx_numeric_string"}},{"field":{"name":"connection_id","regex":"^[0-9]+$"}}]}}}}}';
+--source regex_assign.inc
+connect(rx1,localhost,rx,,test);
+SELECT 1 AS rx_numeric_string;
+DO 0;
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+disconnect rx1;
+DROP TABLE orders1;
+DROP USER rx@localhost;
+--enable_result_log
+--enable_query_log
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

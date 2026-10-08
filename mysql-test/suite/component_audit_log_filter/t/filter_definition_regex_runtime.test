@@ -1,0 +1,276 @@
+--source regex_setup.inc
+CALL mtr.add_suppression("regex .* failed ");
+SET @ordinary_errors=(SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors');
+CREATE DATABASE tpcc;
+CREATE TABLE tpcc.`new_orders1` (id INT);
+CREATE TABLE tpcc.`orders1` (id INT);
+CREATE TABLE tpcc.`history1` (id INT);
+CREATE TABLE tpcc.`new_orders2` (id INT);
+CREATE TABLE tpcc.`orders2` (id INT);
+CREATE TABLE tpcc.`history2` (id INT);
+CREATE TABLE tpcc.`customer1` (id INT);
+CREATE TABLE tpcc.`orders_archive` (id INT);
+CREATE TABLE tpcc.`orders` (id INT);
+CREATE TABLE tpcc.`zamówienia1` (id INT);
+CREATE TABLE tpcc.`secret_1` (id INT);
+CREATE TABLE tpcc.`secret_x` (id INT);
+CREATE TABLE tpcc.`temp_1` (id INT);
+CREATE TABLE tpcc.`keep_1` (id INT);
+CREATE TABLE test.orders1(id INT);
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":["insert", "update", "delete"],"log":{"and":[{"field":{"name":"table_database.str","value":"tpcc"}},{"field":{"name":"table_name.str","regex":"^(new_orders|orders|history)[0-9]+$"}}]}}}}}';
+--source regex_assign.inc
+connect(rx,localhost,rx,,test);
+--let rx_connected = 1
+connection default;
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.new_orders1 VALUES (1);
+UPDATE tpcc.new_orders1 SET id=2;
+DELETE FROM tpcc.new_orders1;
+INSERT INTO tpcc.orders1 VALUES (1);
+UPDATE tpcc.orders1 SET id=2;
+DELETE FROM tpcc.orders1;
+INSERT INTO tpcc.history1 VALUES (1);
+UPDATE tpcc.history1 SET id=2;
+DELETE FROM tpcc.history1;
+INSERT INTO tpcc.new_orders2 VALUES (1);
+UPDATE tpcc.new_orders2 SET id=2;
+DELETE FROM tpcc.new_orders2;
+INSERT INTO tpcc.orders2 VALUES (1);
+UPDATE tpcc.orders2 SET id=2;
+DELETE FROM tpcc.orders2;
+INSERT INTO tpcc.history2 VALUES (1);
+UPDATE tpcc.history2 SET id=2;
+DELETE FROM tpcc.history2;
+connection default;
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $records=regex_records();
+  die 'Expected 18 records' unless @$records == 18;
+  my %tuples;
+  for my $r (@$records) { ++$tuples{"$r->{db}/$r->{table}/$r->{event}"}; }
+  for my $t (qw(new_orders1 orders1 history1 new_orders2 orders2 history2)) {
+    for my $op (qw(insert update delete)) {
+      die "Missing/duplicate $t/$op" unless ($tuples{"tpcc/$t/$op"} || 0) == 1;
+    }
+  }
+EOF
+connection rx;
+INSERT INTO tpcc.customer1 VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+connection rx;
+INSERT INTO tpcc.orders_archive VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+connection rx;
+INSERT INTO tpcc.orders VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+connection rx;
+INSERT INTO test.orders1 VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+connection rx;
+SELECT * FROM tpcc.orders1;
+connection default;
+--source regex_check_count.inc
+CREATE TABLE tpcc.history3(id INT);
+connection rx;
+INSERT INTO tpcc.history3 VALUES (1);
+UPDATE tpcc.history3 SET id=2;
+DELETE FROM tpcc.history3;
+connection default;
+--let rx_count = 3
+--source regex_check_count.inc
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  for my $op(qw(insert update delete)) {
+    die "New shard $op missing or duplicated" unless 1==grep {$_->{table} eq 'history3' && $_->{event} eq $op} @$r;
+  }
+EOF
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "^$"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`orders1` VALUES (1);
+INSERT INTO tpcc.`customer1` VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "\\\\A\\\\z"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`orders1` VALUES (1);
+INSERT INTO tpcc.`customer1` VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "value": "orders.*"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`orders1` VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "orders"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`new_orders1` VALUES (1);
+INSERT INTO tpcc.`orders_archive` VALUES (1);
+connection default;
+--let rx_count = 2
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "\\\\Aorders[0-9]+\\\\z"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`orders1` VALUES (1);
+INSERT INTO tpcc.`orders_archive` VALUES (1);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "^ORDERS[0-9]+$"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`orders1` VALUES (1);
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "(?i)^ORDERS[0-9]+$"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`orders1` VALUES (1);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "^zam.wienia[0-9]+$"}}}}}}';
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+INSERT INTO tpcc.`zamówienia1` VALUES (1);
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+--enable_result_log
+SELECT VARIABLE_VALUE-@ordinary_errors AS ordinary_regex_errors FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors';
+--disable_result_log
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  die 'Unicode identifier corrupted' unless @$r==1 && $r->[0]->{table} eq "zam\x{f3}wienia1";
+EOF
+# Real ICU timeout: only one general/status event per transmitted statement.
+SET @definition = '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"(a+)+$"}}}}}}';
+--source regex_assign.inc
+SET @before=(SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors');
+SELECT audit_log_rotate();
+perl;
+  use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+  open my $f,'>',"$ENV{MYSQLTEST_VARDIR}/tmp/regex-clock" or die $!;
+  print $f clock_gettime(CLOCK_MONOTONIC);
+EOF
+connection rx;
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+DO 0;
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+--enable_result_log
+SELECT VARIABLE_VALUE-@before AS timeout_errors FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors';
+--disable_result_log
+perl;
+  use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+  open my $clock,'<',"$ENV{MYSQLTEST_VARDIR}/tmp/regex-clock" or die $!;
+  my $elapsed=clock_gettime(CLOCK_MONOTONIC)-<$clock>;
+  open my $f,'<',"$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $log=do {local $/; <$f>};
+  $log =~ s/.*CURRENT_TEST: component_audit_log_filter.filter_definition_regex_runtime//s;
+  my $message="Audit log filter 'rx': regex '(a+)+\$' on field 'general_query.str' failed (timeout: U_REGEX_TIME_OUT); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.";
+  my $count=(()=$log=~/\Q$message\E/g);
+  die 'Timeout warning count/text' unless $count>=1 && $count<=3 && ($elapsed>=60 || $count==1);
+EOF
+--remove_file $MYSQLTEST_VARDIR/tmp/regex-clock
+connection rx;
+SELECT 1 AS aaaa;
+DO 0;
+connection default;
+--let rx_count = 1
+--source regex_check_count.inc
+--enable_result_log
+SELECT VARIABLE_VALUE-@before AS errors_after_recovery FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors';
+--disable_result_log
+SET @definition = '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"and":[{"field":{"name":"general_command.str","value":"NoSuchCommand"}},{"field":{"name":"general_query.str","regex":"(a+)+$"}}]}}}}}';
+--source regex_assign.inc
+connection rx;
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+DO 0;
+connection default;
+--let rx_count = 0
+--source regex_check_count.inc
+--enable_result_log
+SELECT VARIABLE_VALUE-@before AS errors_after_short_circuit FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors';
+--disable_result_log
+# Print conditions retain original text only on a match.
+SET @definition = JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST('true' AS JSON),'print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex',"^SELECT 'keep")),'replace',JSON_OBJECT('function',JSON_OBJECT('name','query_digest'))))))));
+--source regex_assign.inc
+SELECT audit_log_rotate();
+connection rx;
+SELECT 'keep_me';
+SELECT 'mask_me';
+connection default;
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  die 'Print record count' unless @$r == 2;
+  die 'Original not kept' unless 1 == grep {$_->{query} eq "SELECT 'keep_me'"} @$r;
+  die 'Digest not used' unless 1 == grep {$_->{query} eq 'SELECT ?'} @$r;
+EOF
+# Abort applies to matching identifiers; an exempt account still succeeds.
+SET @definition='{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":"^secret_[0-9]+$"}}}}}}';
+--source regex_assign.inc
+connection rx;
+--error ER_AUDIT_API_ABORT
+INSERT INTO tpcc.secret_1 VALUES (1);
+INSERT INTO tpcc.secret_x VALUES (1);
+connection default;
+--enable_result_log
+SELECT COUNT(*) AS blocked_rows FROM tpcc.secret_1;
+SELECT COUNT(*) AS allowed_rows FROM tpcc.secret_x;
+--disable_result_log
+GRANT SYSTEM_USER, AUDIT_ABORT_EXEMPT ON *.* TO rx@localhost;
+disconnect rx;
+connect(rx,localhost,rx,,test);
+INSERT INTO tpcc.secret_1 VALUES (1);
+connection default;
+--enable_result_log
+SELECT COUNT(*) AS exempt_rows FROM tpcc.secret_1;
+--disable_result_log
+REVOKE SYSTEM_USER, AUDIT_ABORT_EXEMPT ON *.* FROM rx@localhost;
+--source regex_runtime_extra.inc
+connection default;
+disconnect rx;
+DROP TABLE test.orders1;
+DROP DATABASE tpcc;
+DROP USER rx@localhost;
+--enable_result_log
+--enable_query_log
+--echo Regex runtime and action checks passed
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

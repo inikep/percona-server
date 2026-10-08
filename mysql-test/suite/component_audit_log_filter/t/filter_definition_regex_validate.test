@@ -1,0 +1,95 @@
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+--disable_query_log
+CALL mtr.add_suppression("Wrong JSON filter");
+CALL mtr.add_suppression("Wrong argument: incorrect rule definition");
+SET NAMES utf8mb4;
+SET SESSION sql_mode='NO_BACKSLASH_ESCAPES';
+--enable_query_log
+SELECT audit_log_filter_set_filter('rx00', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":""}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx00';
+SELECT audit_log_filter_set_filter('rx01', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx01';
+SELECT audit_log_filter_set_filter('rx02', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders1","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx02';
+SELECT audit_log_filter_set_filter('rx03', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx03';
+SELECT audit_log_filter_set_filter('rx04', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","":1}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx04';
+SELECT audit_log_filter_set_filter('rx05', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex\u0000":1}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx05';
+SELECT audit_log_filter_set_filter('rx06', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex":"y"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx06';
+SELECT audit_log_filter_set_filter('rx07', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","name":"table_name.str","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx07';
+SELECT audit_log_filter_set_filter('rx08', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx08';
+SELECT audit_log_filter_set_filter('rx09', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":5,"regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx09';
+SELECT audit_log_filter_set_filter('rx10', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":5}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx10';
+SELECT audit_log_filter_set_filter('rx11', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"no_such.str","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx11';
+SELECT audit_log_filter_set_filter('rx12', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str\u0000","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx12';
+SELECT audit_log_filter_set_filter('rx13', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"connection_id","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx13';
+SELECT audit_log_filter_set_filter('rx14', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx14';
+SELECT audit_log_filter_set_filter('rx15', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a{2,1}"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx15';
+SELECT audit_log_filter_set_filter('rx16', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"[z-a]"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx16';
+SELECT audit_log_filter_set_filter('rx17', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"😀("}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx17';
+SELECT audit_log_filter_set_filter('rx18', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx18';
+SELECT audit_log_filter_set_filter('rx19', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","re":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx19';
+SELECT audit_log_filter_set_filter('rx20', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regexp":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx20';
+SELECT audit_log_filter_set_filter('rx21', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders.*","foo":1}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx21';
+SELECT audit_log_filter_set_filter('rx22', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\ud800"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx22';
+SELECT audit_log_filter_set_filter('rx23', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\udc00"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx23';
+SELECT audit_log_filter_set_filter('rx24', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\u0000"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx24';
+SELECT audit_log_filter_set_filter('rx25', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"café😀"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx25';
+SELECT audit_log_filter_set_filter('rx26', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","foo":1,"value":"x","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx26';
+SELECT audit_log_filter_set_filter('rx27', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1,"name":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx27';
+SELECT audit_log_filter_set_filter('rx28', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","name":"x","foo":1}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx28';
+SELECT audit_log_filter_set_filter('rx29', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","a\u0027\\\n":1}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx29';
+SELECT audit_log_filter_set_filter('rx30', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_type","regex":"x"}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx30';
+SELECT audit_log_filter_set_filter('rx31', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":""}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx31';
+SELECT audit_log_filter_set_filter('rx32', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"and":[{"field":{"name":"table_name.str","regex":""}}]}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx32';
+SELECT audit_log_filter_set_filter('rx33', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_name.str","regex":""}}]}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx33';
+SELECT audit_log_filter_set_filter('rx34', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"not":{"field":{"name":"table_name.str","regex":""}}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx34';
+SELECT audit_log_filter_set_filter('rx35', '{"filter":{"class":{"name":"general","event":{"name":"status","print":{"field":{"name":"general_query.str","print":{"field":{"name":"general_query.str","regex":""}},"replace":{"function":{"name":"query_digest"}}}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx35';
+SELECT audit_log_filter_set_filter('rx36', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","filter":{"activate":{"field":{"name":"table_name.str","regex":""}},"class":{"name":"general","event":{"name":"status","log":true}}}}}}}') AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx36';
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_filter('rx_large', REPEAT('x', 16385));
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_large';
+# Conservative upgrade inventory checks actual keys at every nesting level.
+INSERT INTO mysql.audit_log_filter(filter_id,name,filter) VALUES
+ (1001,'inventory_literal', '{"field":{"name":"x","value":"regex"}}'),
+ (1002,'inventory_both', '{"field":{"name":"x","value":"x","regex":"x"}}'),
+ (1003,'inventory_nested', '{"filter":{"class":[{"event":{"filter":{"activate":{"field":{"value":"x","regex":"x"}}}}}]}}');
+SELECT name FROM mysql.audit_log_filter WHERE name LIKE 'inventory_%' AND JSON_CONTAINS_PATH(filter,'one','$**.regex') ORDER BY name;
+SET SESSION sql_mode=DEFAULT;
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

@@ -1,0 +1,236 @@
+SELECT audit_log_filter_set_filter('rx00', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":""}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx00';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx01', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}') AS result;
+result
+OK
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx01';
+persisted
+1
+SELECT audit_log_filter_set_filter('rx02', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders1","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have either 'value' or 'regex', not both
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx02';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx03', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: unexpected key 'foo' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx03';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx04', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","":1}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: unexpected key '' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx04';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx05', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex\u0000":1}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: unexpected key 'regex\u0000' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx05';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx06', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex":"y"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: duplicate key 'regex' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx06';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx07', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","name":"table_name.str","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: duplicate key 'name' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx07';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx08', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx08';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx09', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":5,"regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx09';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx10', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":5}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx10';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx11', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"no_such.str","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: field name 'no_such.str' is not valid for event class 'table_access'
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx11';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx12', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str\u0000","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: field name 'table_name.str\u0000' is not valid for event class 'table_access'
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx12';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx13', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"connection_id","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: field 'connection_id' is not a string field; 'regex' applies only to string fields
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx13';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx14', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx14';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx15', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a{2,1}"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_MAX_LT_MIN at line 1, offset 6
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx15';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx16', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"[z-a]"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_INVALID_RANGE at line 1, offset 4
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx16';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx17', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"😀("}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 2
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx17';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx18', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string and 'value' as a string or integer
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx18';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx19', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","re":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string and 'value' as a string or integer
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx19';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx20', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regexp":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string and 'value' as a string or integer
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx20';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx21', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders.*","foo":1}}}}}}') AS result;
+result
+OK
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx21';
+persisted
+1
+SELECT audit_log_filter_set_filter('rx22', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\ud800"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: JSON parse error
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx22';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx23', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\udc00"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: JSON parse error
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx23';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx24', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\u0000"}}}}}}') AS result;
+result
+OK
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx24';
+persisted
+1
+SELECT audit_log_filter_set_filter('rx25', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"café😀"}}}}}}') AS result;
+result
+OK
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx25';
+persisted
+1
+SELECT audit_log_filter_set_filter('rx26', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","foo":1,"value":"x","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' must have either 'value' or 'regex', not both
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx26';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx27', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1,"name":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: unexpected key 'foo' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx27';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx28', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","name":"x","foo":1}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: duplicate key 'name' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx28';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx29', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","a\u0027\\\n":1}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: unexpected key 'a\u0027\\\u000A' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx29';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx30', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_type","regex":"x"}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: field 'connection_type' is not a string field; 'regex' applies only to string fields
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx30';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx31', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":""}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx31';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx32', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"and":[{"field":{"name":"table_name.str","regex":""}}]}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx32';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx33', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_name.str","regex":""}}]}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx33';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx34', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"not":{"field":{"name":"table_name.str","regex":""}}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx34';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx35', '{"filter":{"class":{"name":"general","event":{"name":"status","print":{"field":{"name":"general_query.str","print":{"field":{"name":"general_query.str","regex":""}},"replace":{"function":{"name":"query_digest"}}}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx35';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx36', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","filter":{"activate":{"field":{"name":"table_name.str","regex":""}},"class":{"name":"general","event":{"name":"status","log":true}}}}}}}') AS result;
+result
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx36';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx_large', REPEAT('x', 16385));
+ERROR HY000: Can't initialize function 'audit_log_filter_set_filter'; Wrong argument: definition is too long, max length is 16384
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_large';
+persisted
+0
+INSERT INTO mysql.audit_log_filter(filter_id,name,filter) VALUES
+(1001,'inventory_literal', '{"field":{"name":"x","value":"regex"}}'),
+(1002,'inventory_both', '{"field":{"name":"x","value":"x","regex":"x"}}'),
+(1003,'inventory_nested', '{"filter":{"class":[{"event":{"filter":{"activate":{"field":{"value":"x","regex":"x"}}}}}]}}');
+SELECT name FROM mysql.audit_log_filter WHERE name LIKE 'inventory_%' AND JSON_CONTAINS_PATH(filter,'one','$**.regex') ORDER BY name;
+name
+inventory_both
+inventory_nested
+SET SESSION sql_mode=DEFAULT;

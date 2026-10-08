@@ -154,6 +154,11 @@ class AuditRuleParser {
       const rapidjson::Value &condition_json, EventFieldConditionType cond_type,
       const std::string &class_name, AuditRule *audit_rule) noexcept;
 
+  // Strict, guarded parser for field objects containing an exact regex key.
+  static std::shared_ptr<EventFieldConditionBase> parse_field_regex_json(
+      const rapidjson::Value &field, const std::string &class_name,
+      AuditRule *audit_rule) noexcept;
+
   /**
    * @brief Parse function definition in a filtering rule represented by
    *        a JSON string.
