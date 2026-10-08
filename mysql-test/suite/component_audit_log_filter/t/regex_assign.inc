@@ -15,7 +15,15 @@ if (!$rx_ok) {
   --die Regex flush failed
 }
 if ($rx_connected) {
+  connection rx;
+  --let rx_old_id = `SELECT CONNECTION_ID()`
   disconnect rx;
+  connection default;
+  --let wait_condition = SELECT COUNT(*)=0 FROM performance_schema.threads WHERE PROCESSLIST_ID=$rx_old_id
+  --source include/wait_condition.inc
+  if (!$success) {
+    --die Previous audited session did not finish disconnecting
+  }
   connect(rx,localhost,rx,,test);
   --let victim_id = `SELECT CONNECTION_ID()`
   connection default;

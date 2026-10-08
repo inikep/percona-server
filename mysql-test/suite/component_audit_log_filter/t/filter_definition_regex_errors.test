@@ -123,6 +123,7 @@ connection default;
 SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('or',JSON_ARRAY(JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','^warn_one')),JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','^warn_two'))))))))));
 --source regex_assign.inc
 --source regex_error_baseline.inc
+--source regex_warning_mark.inc
 connection rx;
 SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
 SELECT 11118 AS rx_error;
@@ -130,15 +131,15 @@ SELECT 11118 AS rx_error;
 SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
 connection default;
 --source regex_error_delta.inc
-perl;
-  open my $f,'<',"$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
-  my $log=do { local $/; <$f> };
-  $log =~ s/.*CURRENT_TEST: component_audit_log_filter.filter_definition_regex_errors//s;
-  for my $pattern(qw(^warn_one ^warn_two)) {
-    my $message="Audit log filter 'rx': regex '$pattern' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.";
-    die "Wrong warning count/text: $pattern" unless 1==(()=$log=~/\Q$message\E/g);
-  }
-EOF
+--let rx_warning_text = Audit log filter 'rx': regex '^warn_one' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_min = 1
+--let rx_warning_max = 2
+--source regex_warning_check.inc
+--let rx_warning_text = Audit log filter 'rx': regex '^warn_two' on field 'general_query.str' failed (allocation: U_MEMORY_ALLOCATION_ERROR); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_min = 1
+--let rx_warning_max = 2
+--source regex_warning_check.inc
+--remove_file $MYSQLTEST_VARDIR/tmp/regex-warning-mark
 # Reached output failures are independent of regex failures.
 SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),CAST(@regex AS JSON)));
 SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));
@@ -214,7 +215,22 @@ if ($rx_format == JSON) {
 }
 SELECT VARIABLE_VALUE-@written AS failed_payload_written FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_events_written';
 --disable_result_log
---let rx_count = 1
+# A successful write in the same file must publish a new bookmark again.
+connection rx;
+SELECT 11118 AS rx_error;
+connection default;
+--source regex_sync.inc
+if ($rx_format == JSON) {
+  --let bookmark_advanced = `SELECT audit_log_read_bookmark()<>@bookmark`
+  if (!$bookmark_advanced) {
+    --die Payload recovery did not advance the bookmark
+  }
+}
+--let recovery_written = `SELECT VARIABLE_VALUE-@written FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_events_written'`
+if ($recovery_written != 1) {
+  --die Payload recovery did not write exactly one event
+}
+--let rx_count = 2
 --source regex_check_count.inc
 # Compare capture failures against the same workload without a regex condition.
 # FULL mode emits several notifications per command; their exact number is not

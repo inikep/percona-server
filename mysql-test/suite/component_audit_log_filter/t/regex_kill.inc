@@ -62,8 +62,15 @@ connection killer;
 connection default;
 --let wait_condition = SELECT COUNT(*)=0 FROM performance_schema.threads WHERE PROCESSLIST_ID=$victim_id
 --source include/wait_condition.inc
---let rx_count = 1
---source regex_check_count.inc
+--source regex_sync.inc
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  die 'Wrong disconnect event or connection ID' unless @$r==1 &&
+    ($r->[0]->{event} eq 'disconnect' || $r->[0]->{event} eq 'quit') &&
+    $r->[0]->{connection} == $ENV{victim_id};
+EOF
 disconnect rx;
 connect(rx,localhost,rx,,test);
 --let normal_disconnect_id = `SELECT CONNECTION_ID()`
@@ -75,8 +82,15 @@ connection default;
 if (!$success) {
   --die Normal disconnect did not finish
 }
---let rx_count = 1
---source regex_check_count.inc
+--source regex_sync.inc
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  die 'Wrong disconnect event or connection ID' unless @$r==1 &&
+    ($r->[0]->{event} eq 'disconnect' || $r->[0]->{event} eq 'quit') &&
+    $r->[0]->{connection} == $ENV{normal_disconnect_id};
+EOF
 connect(rx,localhost,rx,,test);
 --let victim_id = `SELECT CONNECTION_ID()`
 connection default;
@@ -107,7 +121,7 @@ perl;
   my $r=regex_records();
   die 'Active kill count' unless @$r==2;
   die 'Active kill terminal record' unless 1==grep {($_->{query} || '')=~/rx_active_kill/} @$r;
-  die 'Active kill disconnect' unless 1==grep {$_->{event} eq 'disconnect' || $_->{event} eq 'quit'} @$r;
+  die 'Active kill disconnect' unless 1==grep {($_->{event} eq 'disconnect' || $_->{event} eq 'quit') && $_->{connection} == $ENV{victim_id}} @$r;
 EOF
 disconnect rx;
 connect(rx,localhost,rx,,test);
@@ -123,8 +137,28 @@ if ($have_timeout) {
   SELECT /*+ MAX_EXECUTION_TIME(10) */ SLEEP(10) FROM rx_kill_data /*rx_statement_timeout*/;
   DO 0;
   connection default;
-  --let rx_count = 2
-  --source regex_check_count.inc
+  --source regex_sync.inc
+  --let rx_closed = `SELECT audit_log_rotate()`
+  perl;
+    require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+    my $r=regex_records();
+    die 'Statement timeout record count' unless @$r==2;
+    for my $event (@$r) {
+      die 'Wrong timeout query or session' unless $event->{query}=~/rx_statement_timeout/ &&
+        $event->{connection} == $ENV{victim_id};
+    }
+    # NEW XML names a general/status record after its command (Query).
+    die 'Missing general/status timeout' unless 1==grep {
+      $ENV{rx_format} eq 'JSON' ?
+        ($_->{class} eq 'general' && $_->{event} eq 'status') :
+        $_->{event} eq 'query'
+    } @$r;
+    die 'Missing query/status_end timeout' unless 1==grep {
+      $ENV{rx_format} eq 'JSON' ?
+        ($_->{class} eq 'query' && $_->{event} eq 'query_status_end') :
+        $_->{event} eq 'query status end'
+    } @$r;
+EOF
 }
 --enable_result_log
 SELECT v AS killed_updates_committed FROM rx_kill_data;

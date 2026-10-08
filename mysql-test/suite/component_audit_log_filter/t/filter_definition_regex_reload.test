@@ -42,6 +42,8 @@ SELECT audit_log_filter_flush() AS empty_stored_pattern;
 UPDATE mysql.audit_log_filter SET filter=JSON_SET(filter,'$.filter.class.event.log.field.regex','^orders[0-9]+$') WHERE name='rx';
 SELECT audit_log_filter_flush();
 # Real overlap: clients insert while observer repeatedly republishes/removes.
+--source regex_sync.inc
+SELECT audit_log_rotate();
 connection rx1;
 --send INSERT INTO orders1 VALUES(10)
 connection rx2;
@@ -55,6 +57,21 @@ connection rx1;
 connection rx2;
 --reap
 connection default;
+# Publication may drop an overlapping event; any emitted records must still
+# have a valid identity and must not be duplicated or refer to other queries.
+--source regex_sync.inc
+--let rx_closed = `SELECT audit_log_rotate()`
+perl;
+  require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
+  my $r=regex_records();
+  my %seen;
+  for my $event (@$r) {
+    die 'Wrong overlapping event' unless $event->{event} eq 'insert' &&
+      $event->{db} eq 'test' && $event->{table} eq 'orders1' &&
+      $event->{query}=~/^INSERT INTO orders1 VALUES\((10|11)\)$/;
+    die 'Duplicate overlapping event' if $seen{$event->{query}}++;
+  }
+EOF
 # Reconnect establishes the post-publication state for exact counts.
 disconnect rx1;
 disconnect rx2;
@@ -154,6 +171,21 @@ SET GLOBAL audit_log_filter.event_mode=FULL;
 SELECT audit_log_filter_flush() AS enabled_class_rejected;
 --disable_result_log
 DELETE FROM mysql.audit_log_filter WHERE name='rx_disabled';
+SELECT audit_log_filter_flush();
+# Unlike a wholly disabled class, a disabled subclass still has its condition
+# validated by the existing loader. Preserve that distinction.
+SET GLOBAL audit_log_filter.event_mode=REDUCED;
+CALL mtr.add_suppression("Skipping disabled event 'general/log' in filter 'rx_disabled_subclass'");
+CALL mtr.add_suppression("Failed to load filtering rules: Filter 'rx_disabled_subclass' has wrong format:");
+INSERT INTO mysql.audit_log_filter(filter_id,name,filter) VALUES(5002,'rx_disabled_subclass','{"filter":{"class":{"name":"general","event":{"name":"log","log":{"field":{"name":"general_query.str","regex":"("}}}}}}');
+--enable_result_log
+SELECT audit_log_filter_flush() AS disabled_subclass_rejected;
+--disable_result_log
+SET GLOBAL audit_log_filter.event_mode=FULL;
+--enable_result_log
+SELECT audit_log_filter_flush() AS enabled_subclass_rejected;
+--disable_result_log
+DELETE FROM mysql.audit_log_filter WHERE name='rx_disabled_subclass';
 SELECT audit_log_filter_flush();
 # FULL-mode connection_id is already a string in query events.
 SET @definition='{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"and":[{"field":{"name":"query.str","value":"SELECT 1 AS rx_numeric_string"}},{"field":{"name":"connection_id","regex":"^[0-9]+$"}}]}}}}}';

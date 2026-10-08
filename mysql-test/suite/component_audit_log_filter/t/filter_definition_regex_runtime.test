@@ -226,6 +226,7 @@ SELECT VARIABLE_VALUE-@before AS errors_after_recovery FROM performance_schema.g
 --disable_result_log
 SET @definition = '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"and":[{"field":{"name":"general_command.str","value":"NoSuchCommand"}},{"field":{"name":"general_query.str","regex":"(a+)+$"}}]}}}}}';
 --source regex_assign.inc
+--source regex_warning_mark.inc
 connection rx;
 SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -237,6 +238,11 @@ connection default;
 --enable_result_log
 SELECT VARIABLE_VALUE-@before AS errors_after_short_circuit FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors';
 --disable_result_log
+--let rx_warning_text = Audit log filter 'rx': regex '(a+)+$'
+--let rx_warning_min = 0
+--let rx_warning_max = 0
+--source regex_warning_check.inc
+--remove_file $MYSQLTEST_VARDIR/tmp/regex-warning-mark
 # Print conditions retain original text only on a match.
 SET @definition = JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST('true' AS JSON),'print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex',"^SELECT 'keep")),'replace',JSON_OBJECT('function',JSON_OBJECT('name','query_digest'))))))));
 --source regex_assign.inc

@@ -18,3 +18,7 @@ disabled_class_skipped
 OK
 enabled_class_rejected
 ERROR: Filter 'rx_disabled' has wrong format: invalid regular expression for field 'query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 1
+disabled_subclass_rejected
+ERROR: Filter 'rx_disabled_subclass' has wrong format: invalid regular expression for field 'general_query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 1
+enabled_subclass_rejected
+ERROR: Filter 'rx_disabled_subclass' has wrong format: invalid regular expression for field 'general_query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 1

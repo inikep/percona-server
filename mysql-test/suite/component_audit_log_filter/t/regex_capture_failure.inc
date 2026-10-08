@@ -16,7 +16,8 @@ if (!$control_valid) {
 }
 --let rx_count = 0
 --source regex_check_count.inc
-SET @definition=@saved_definition;
+# A regex-only predicate must be reached even for an empty fallback capture.
+SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@regex AS JSON)))));
 --source regex_assign.inc
 --source regex_error_baseline.inc
 connection rx;
@@ -34,3 +35,22 @@ SELECT VARIABLE_VALUE-@lost=@control_lost AS events_lost_matches_control FROM pe
 --disable_result_log
 --let rx_count = 0
 --source regex_check_count.inc
+# Positive control: with capture healthy, the hook must fire even on DO 0,
+# which does not satisfy the equality guard used by the other error tests.
+connection rx;
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+connection default;
+--source regex_error_baseline.inc
+connection rx;
+DO 0;
+connection default;
+--source regex_sync.inc
+--let capture_control_errors = `SELECT VARIABLE_VALUE-@errors FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors'`
+if ($capture_control_errors != 1) {
+  --die Regex-only capture control did not reach the matcher
+}
+connection rx;
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+connection default;
+SET @definition=@saved_definition;
+--source regex_assign.inc
