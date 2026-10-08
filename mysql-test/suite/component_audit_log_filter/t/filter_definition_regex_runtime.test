@@ -1,0 +1,934 @@
+# PS-11118: regex field conditions at runtime.
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Audit log filter '.*': regex");
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong argument: incorrect rule definition");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+
+--let rx_spec_file = $MYSQLTEST_VARDIR/tmp/rx_spec.txt
+SET NAMES utf8mb4;
+--disable_query_log
+--disable_result_log
+
+CREATE DATABASE IF NOT EXISTS tpcc;
+CREATE USER rx_dml@localhost IDENTIFIED BY 'rx';
+CREATE USER rx_exempt@localhost IDENTIFIED BY 'rx';
+CREATE USER app_svc_1@localhost IDENTIFIED BY 'rx';
+CREATE USER app_svc_2@localhost IDENTIFIED BY 'rx';
+CREATE USER other_user@localhost IDENTIFIED BY 'rx';
+CREATE USER rx_kill_user@localhost IDENTIFIED BY 'rx';
+CREATE USER rx_cs@localhost;
+GRANT ALL ON tpcc.* TO rx_dml@localhost;
+GRANT ALL ON test.* TO rx_dml@localhost;
+GRANT ALL ON tpcc.* TO rx_exempt@localhost;
+GRANT ALL ON test.* TO rx_exempt@localhost;
+GRANT SYSTEM_USER, AUDIT_ABORT_EXEMPT ON *.* TO rx_exempt@localhost;
+GRANT ALL ON test.* TO rx_kill_user@localhost;
+GRANT ALL ON test.* TO rx_cs@localhost;
+
+CREATE TABLE tpcc.new_orders1 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.orders1 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.history1 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.new_orders2 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.orders2 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.history2 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.customer1 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.orders_archive (id INT PRIMARY KEY);
+CREATE TABLE tpcc.orders (id INT PRIMARY KEY);
+CREATE TABLE tpcc.history3 (id INT PRIMARY KEY);
+CREATE TABLE tpcc.zamówienia1 (id INT PRIMARY KEY);
+CREATE TABLE test.orders1 (id INT PRIMARY KEY);
+CREATE TABLE test.secret_1 (id INT PRIMARY KEY);
+CREATE TABLE test.secret_x (id INT PRIMARY KEY);
+CREATE TABLE test.temp_1 (id INT PRIMARY KEY);
+CREATE TABLE test.keep_1 (id INT PRIMARY KEY);
+CREATE TABLE test.keep_reload (id INT PRIMARY KEY);
+CREATE TABLE test.rx_kill_data (id INT PRIMARY KEY, v INT);
+CREATE TABLE test.rx_timeout_data (id INT PRIMARY KEY);
+CREATE TABLE test.charset_filter_data (id INT PRIMARY KEY);
+INSERT INTO tpcc.new_orders1 VALUES (1);
+INSERT INTO tpcc.orders1 VALUES (1);
+INSERT INTO tpcc.history1 VALUES (1);
+INSERT INTO tpcc.new_orders2 VALUES (1);
+INSERT INTO tpcc.orders2 VALUES (1);
+INSERT INTO tpcc.history2 VALUES (1);
+INSERT INTO tpcc.history3 VALUES (1);
+INSERT INTO tpcc.customer1 VALUES (1);
+INSERT INTO tpcc.orders_archive VALUES (1);
+INSERT INTO tpcc.orders VALUES (1);
+INSERT INTO test.orders1 VALUES (1);
+INSERT INTO test.rx_kill_data VALUES (1, 0);
+INSERT INTO test.rx_timeout_data VALUES (1);
+INSERT INTO test.charset_filter_data VALUES (1);
+
+--echo # Jira six-table case
+--let jira_def = `SELECT audit_log_filter_set_filter('rx_jira', '{"filter":{"class":{"name":"table_access","event":{"name":["insert","update","delete"],"log":{"and":[{"field":{"name":"table_database.str","value":"tpcc"}},{"field":{"name":"table_name.str","regex":"^(new_orders|orders|history)[0-9]+$"}}]}}}}}')`
+if ($jira_def != OK)
+{
+  --echo $jira_def
+  --die jira filter was rejected
+}
+--let jira_user = `SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_jira')`
+if ($jira_user != OK)
+{
+  --echo $jira_user
+  --die jira user assignment failed
+}
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO new_orders1 VALUES (2);
+UPDATE new_orders1 SET id = 1 WHERE id = 1;
+DELETE FROM new_orders1 WHERE id = 1;
+INSERT INTO orders1 VALUES (2);
+UPDATE orders1 SET id = 1 WHERE id = 1;
+DELETE FROM orders1 WHERE id = 1;
+INSERT INTO history1 VALUES (2);
+UPDATE history1 SET id = 1 WHERE id = 1;
+DELETE FROM history1 WHERE id = 1;
+INSERT INTO new_orders2 VALUES (2);
+UPDATE new_orders2 SET id = 1 WHERE id = 1;
+DELETE FROM new_orders2 WHERE id = 1;
+INSERT INTO orders2 VALUES (2);
+UPDATE orders2 SET id = 1 WHERE id = 1;
+DELETE FROM orders2 WHERE id = 1;
+INSERT INTO history2 VALUES (2);
+UPDATE history2 SET id = 1 WHERE id = 1;
+DELETE FROM history2 WHERE id = 1;
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--write_file $rx_spec_file
+table|tpcc|new_orders1|insert|1
+table|tpcc|new_orders1|update|1
+table|tpcc|new_orders1|delete|1
+table|tpcc|orders1|insert|1
+table|tpcc|orders1|update|1
+table|tpcc|orders1|delete|1
+table|tpcc|history1|insert|1
+table|tpcc|history1|update|1
+table|tpcc|history1|delete|1
+table|tpcc|new_orders2|insert|1
+table|tpcc|new_orders2|update|1
+table|tpcc|new_orders2|delete|1
+table|tpcc|orders2|insert|1
+table|tpcc|orders2|update|1
+table|tpcc|orders2|delete|1
+table|tpcc|history2|insert|1
+table|tpcc|history2|update|1
+table|tpcc|history2|delete|1
+EOF
+--source filter_definition_regex_check_log.inc
+--enable_result_log
+--echo jira 18 records OK
+--disable_result_log
+
+--echo # Nonmatching controls
+--connection default
+SELECT audit_log_rotate();
+--connection rx
+INSERT INTO customer1 VALUES (2);
+INSERT INTO orders_archive VALUES (2);
+INSERT INTO orders VALUES (2);
+INSERT INTO test.orders1 VALUES (2);
+SELECT * FROM orders1;
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|customer1|insert|0
+table|tpcc|orders_archive|insert|0
+table|tpcc|orders|insert|0
+table|test|orders1|insert|0
+table|tpcc|orders1|read|0
+EOF
+--source filter_definition_regex_check_log.inc
+--enable_result_log
+--echo controls OK
+--disable_result_log
+
+--echo # New shard without editing the filter
+SELECT audit_log_rotate();
+--connection rx
+INSERT INTO history3 VALUES (2);
+UPDATE history3 SET id = 1 WHERE id = 1;
+DELETE FROM history3 WHERE id = 1;
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|history3|insert|1
+table|tpcc|history3|update|1
+table|tpcc|history3|delete|1
+EOF
+--source filter_definition_regex_check_log.inc
+--enable_result_log
+--echo shard OK
+--disable_result_log
+disconnect rx;
+
+--echo # Account predicate
+SELECT audit_log_filter_set_filter('rx_acct', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"user.str","regex":"^app_svc_"}}}}}}');
+SELECT audit_log_filter_set_user('app_svc_1@localhost', 'rx_acct');
+SELECT audit_log_filter_set_user('app_svc_2@localhost', 'rx_acct');
+SELECT audit_log_filter_set_user('other_user@localhost', 'rx_acct');
+SELECT audit_log_rotate();
+connect(a1, localhost, app_svc_1, rx, test);
+connect(a2, localhost, app_svc_2, rx, test);
+connect(a3, localhost, other_user, rx, test);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+connect|app_svc_1|1
+connect|app_svc_2|1
+connect|other_user|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect a1;
+disconnect a2;
+disconnect a3;
+--enable_result_log
+--echo accounts OK
+--disable_result_log
+
+--echo # Empty-field predicates do not match present names
+SELECT audit_log_filter_set_filter('rx_empty_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_empty_field');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO orders1 VALUES (3);
+INSERT INTO customer1 VALUES (3);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|orders1|insert|0
+table|tpcc|customer1|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_empty_az', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\\\A\\\\z"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_empty_az');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO orders1 VALUES (4);
+INSERT INTO customer1 VALUES (4);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo empty field OK
+--disable_result_log
+
+--echo # Literal equality ignores regex metacharacters
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_literal', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders.*"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_literal');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO orders1 VALUES (5);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|orders1|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo literal OK
+--disable_result_log
+
+--echo # Search versus anchors
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_search', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_search');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO new_orders1 VALUES (6);
+INSERT INTO orders_archive VALUES (6);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|new_orders1|insert|1
+table|tpcc|orders_archive|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_anchor', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\\\Aorders[0-9]+\\\\z"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_anchor');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO orders1 VALUES (6);
+INSERT INTO orders_archive VALUES (7);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|orders1|insert|1
+table|tpcc|orders_archive|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo anchors OK
+--disable_result_log
+
+--echo # Case
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_case_no', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^ORDERS[0-9]+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_case_no');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO orders1 VALUES (8);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|orders1|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_case_yes', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"(?i)^ORDERS[0-9]+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_case_yes');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO orders1 VALUES (9);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|orders1|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo case OK
+--disable_result_log
+
+--echo # Unicode identifier
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_unicode', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^zam.wienia[0-9]+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_unicode');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, tpcc);
+--connection rx
+INSERT INTO zamówienia1 VALUES (1);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|tpcc|zamówienia1|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo unicode OK
+--disable_result_log
+
+--echo # Print condition
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SET @print = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', '^SELECT \'keep'));
+SET @action = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'print', CAST(@print AS JSON), 'replace', JSON_OBJECT('function', JSON_OBJECT('name', 'query_digest'))));
+SET @definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', CAST('true' AS JSON), 'print', CAST(@action AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_print', @definition);
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_print');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+--connection rx
+SELECT 'keep_me';
+SELECT 'mask_me';
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql_exact|1|SELECT 'keep_me'
+sql|0|mask_me
+sql|1|SELECT ?
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo print OK
+--disable_result_log
+
+--echo # Abort
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_abort', '{"filter":{"class":{"name":"table_access","event":{"name":["insert","update","delete"],"abort":{"field":{"name":"table_name.str","regex":"^secret_[0-9]+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_abort');
+SELECT audit_log_filter_set_user('rx_exempt@localhost', 'rx_abort');
+connect(plain, localhost, rx_dml, rx, test);
+--connection plain
+--error ER_AUDIT_API_ABORT
+INSERT INTO secret_1 VALUES (1);
+INSERT INTO secret_x VALUES (1);
+--connection default
+connect(exempt, localhost, rx_exempt, rx, test);
+--connection exempt
+INSERT INTO secret_1 VALUES (2);
+--connection default
+--enable_result_log
+SELECT COUNT(*) AS secret_1_rows FROM test.secret_1;
+SELECT COUNT(*) AS secret_x_rows FROM test.secret_x;
+--disable_result_log
+disconnect plain;
+disconnect exempt;
+--enable_result_log
+--echo abort OK
+--disable_result_log
+
+--echo # Replacement activation
+SELECT audit_log_filter_set_filter('rx_replace', '{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_sentinel"}},"filter":{"ref":"main"}}},"activate":{"field":{"name":"table_name.str","regex":"^temp_"}}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_replace');
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+--connection rx
+INSERT INTO temp_1 VALUES (1) /* rx_sentinel */;
+SELECT 'rx_sentinel_after_restore';
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|rx_sentinel
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+--connection rx
+INSERT INTO keep_1 VALUES (1);
+SELECT 'rx_sentinel';
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|0|rx_sentinel
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+--enable_result_log
+--echo replacement OK
+--disable_result_log
+
+--echo # Failed reload keeps the last good snapshot
+SELECT audit_log_filter_set_filter('rx_reload', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^keep_reload$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_reload');
+UPDATE mysql.audit_log_filter SET filter = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}' WHERE name = 'rx_reload';
+--let $flush_msg = `SELECT audit_log_filter_flush()`
+if ($flush_msg != "ERROR: Filter 'rx_reload' has wrong format: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8")
+{
+  --echo $flush_msg
+  --die unexpected failed-flush diagnostic
+}
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+connect(rx2, localhost, rx_dml, rx, test);
+--connection rx
+INSERT INTO keep_reload VALUES (1);
+--connection rx2
+INSERT INTO keep_reload VALUES (2);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|keep_reload|insert|2
+EOF
+--source filter_definition_regex_check_log.inc
+UPDATE mysql.audit_log_filter SET filter = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^no_match$"}}}}}}' WHERE name = 'rx_reload';
+SELECT audit_log_filter_flush();
+disconnect rx;
+disconnect rx2;
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+connect(rx2, localhost, rx_dml, rx, test);
+--connection rx
+INSERT INTO keep_reload VALUES (3);
+--connection rx2
+INSERT INTO keep_reload VALUES (4);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|keep_reload|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect rx;
+disconnect rx2;
+--enable_result_log
+--echo failed reload OK
+--disable_result_log
+
+--echo # KILL QUERY retains the terminal status and the recovery statement
+SELECT audit_log_filter_set_filter('rx_kill', '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_kill_(stmt|recovery)"}}}}}}');
+SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill');
+--let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+--connection default
+START TRANSACTION;
+SELECT * FROM test.rx_kill_data WHERE id = 1 FOR UPDATE;
+connect(victim, localhost, rx_kill_user, rx, test);
+--connection victim
+--let $victim_id = `SELECT CONNECTION_ID()`
+--send UPDATE test.rx_kill_data SET v = v + 1 WHERE id = 1 /*rx_kill_stmt*/
+--connection default
+--let $wait_condition = SELECT COUNT(*) > 0 FROM performance_schema.data_lock_waits w JOIN performance_schema.threads t ON w.REQUESTING_THREAD_ID = t.THREAD_ID WHERE t.PROCESSLIST_ID = $victim_id
+--source include/wait_condition.inc
+--eval KILL QUERY $victim_id
+--connection victim
+--error ER_QUERY_INTERRUPTED
+--reap
+SELECT 1 /*rx_kill_recovery*/;
+--connection default
+COMMIT;
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|rx_kill_stmt
+sql|1|rx_kill_recovery
+EOF
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT VARIABLE_VALUE - $regex_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--let $v = `SELECT v FROM test.rx_kill_data WHERE id = 1`
+if ($v != 0)
+{
+  --die killed query was committed
+}
+if ($regex_delta != 0)
+{
+  --die kill query incremented regex errors
+}
+disconnect victim;
+--enable_result_log
+--echo kill query delta $regex_delta
+--echo kill query OK
+--disable_result_log
+
+--echo # Pre-reset query event
+SET GLOBAL audit_log_filter.event_mode = FULL;
+SELECT audit_log_filter_remove_user('rx_kill_user@localhost');
+SELECT audit_log_filter_set_filter('rx_kill_query', '{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"query.str","regex":"rx_kill_stmt"}}}}}}');
+SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill_query');
+--let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+START TRANSACTION;
+SELECT * FROM test.rx_kill_data WHERE id = 1 FOR UPDATE;
+connect(victim, localhost, rx_kill_user, rx, test);
+--connection victim
+--let $victim_id = `SELECT CONNECTION_ID()`
+--send UPDATE test.rx_kill_data SET v = v + 1 WHERE id = 1 /*rx_kill_stmt*/
+--connection default
+--let $wait_condition = SELECT COUNT(*) > 0 FROM performance_schema.data_lock_waits w JOIN performance_schema.threads t ON w.REQUESTING_THREAD_ID = t.THREAD_ID WHERE t.PROCESSLIST_ID = $victim_id
+--source include/wait_condition.inc
+--eval KILL QUERY $victim_id
+--connection victim
+--error ER_QUERY_INTERRUPTED
+--reap
+--connection default
+COMMIT;
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|rx_kill_stmt
+EOF
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT VARIABLE_VALUE - $regex_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+if ($regex_delta != 0)
+{
+  --die kill query-event incremented regex errors
+}
+disconnect victim;
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+--enable_result_log
+--echo kill query-event delta $regex_delta
+--echo kill query-event OK
+--disable_result_log
+
+--echo # KILL CONNECTION idle and active, including same-account kill
+SELECT audit_log_filter_remove_user('rx_kill_user@localhost');
+SELECT audit_log_filter_set_filter('rx_kill_disc', '{"filter":{"class":{"name":"connection","event":{"name":"disconnect","log":{"field":{"name":"user.str","regex":"^rx_kill_user$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill_disc');
+--let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+connect(victim, localhost, rx_kill_user, rx, test);
+connect(normal, localhost, rx_kill_user, rx, test);
+--connection victim
+--let killed_id = `SELECT CONNECTION_ID()`
+--connection normal
+--let normal_id = `SELECT CONNECTION_ID()`
+--connection default
+--eval KILL CONNECTION $killed_id
+--let $wait_condition = SELECT COUNT(*) = 0 FROM performance_schema.threads WHERE PROCESSLIST_ID = $killed_id
+--source include/wait_condition.inc
+disconnect normal;
+--connection victim
+--error 2013
+SELECT 1;
+--disconnect victim
+--connection default
+perl;
+  open my $f, '>', $ENV{rx_spec_file} or die $!;
+  print $f "disconnect|rx_kill_user|$ENV{killed_id}|1\n";
+  print $f "disconnect|rx_kill_user|$ENV{normal_id}|1\n";
+  close $f;
+EOF
+--let rx_log = `SELECT audit_log_rotate()`
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT VARIABLE_VALUE - $regex_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--enable_result_log
+--echo kill connection delta $regex_delta
+--echo kill connection OK
+--disable_result_log
+
+SELECT audit_log_filter_remove_user('rx_kill_user@localhost');
+SELECT audit_log_filter_set_filter('rx_kill_both', '{"filter":{"class":[{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_kill_active"}}}},{"name":"connection","event":{"name":"disconnect","log":{"field":{"name":"user.str","regex":"^rx_kill_user$"}}}}]}}');
+SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill_both');
+--let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+START TRANSACTION;
+SELECT * FROM test.rx_kill_data WHERE id = 1 FOR UPDATE;
+connect(victim, localhost, rx_kill_user, rx, test);
+connect(killer, localhost, rx_kill_user, rx, test);
+--connection victim
+--let killed_id = `SELECT CONNECTION_ID()`
+--send UPDATE test.rx_kill_data SET v = v + 1 WHERE id = 1 /*rx_kill_active*/
+--connection default
+--let $wait_condition = SELECT COUNT(*) > 0 FROM performance_schema.data_lock_waits w JOIN performance_schema.threads t ON w.REQUESTING_THREAD_ID = t.THREAD_ID WHERE t.PROCESSLIST_ID = $killed_id
+--source include/wait_condition.inc
+--connection killer
+--eval KILL CONNECTION $killed_id
+--connection default
+--let $wait_condition = SELECT COUNT(*) = 0 FROM performance_schema.threads WHERE PROCESSLIST_ID = $killed_id
+--source include/wait_condition.inc
+COMMIT;
+--connection victim
+--error 1317,2013
+--reap
+--disconnect victim
+--connection default
+perl;
+  open my $f, '>', $ENV{rx_spec_file} or die $!;
+  print $f "sql|1|rx_kill_active\n";
+  print $f "disconnect|rx_kill_user|$ENV{killed_id}|1\n";
+  close $f;
+EOF
+--let rx_log = `SELECT audit_log_rotate()`
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT VARIABLE_VALUE - $regex_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--let $v = `SELECT v FROM test.rx_kill_data WHERE id = 1`
+if ($v != 0)
+{
+  --die killed connection committed the update
+}
+if ($regex_delta != 0)
+{
+  --die kill connection incremented regex errors
+}
+disconnect killer;
+--enable_result_log
+--echo kill active delta $regex_delta
+--echo kill active OK
+--disable_result_log
+
+--echo # Statement timeout is not a regex timeout
+if (`SELECT @@have_statement_timeout = 'YES'`)
+{
+  SET GLOBAL audit_log_filter.event_mode = FULL;
+  SELECT audit_log_filter_remove_user('rx_dml@localhost');
+  SELECT audit_log_filter_set_filter('rx_stmt_timeout', '{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"query.str","regex":"rx_timeout_marker"}}}}}}');
+  SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_stmt_timeout');
+  --let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+  SELECT audit_log_rotate();
+  connect(rx, localhost, rx_dml, rx, test);
+  --connection rx
+  --error ER_QUERY_TIMEOUT
+  SELECT /*+ MAX_EXECUTION_TIME(1) */ SLEEP(1000), 'rx_timeout_marker' FROM rx_timeout_data;
+  --connection default
+  --let rx_log = `SELECT audit_log_rotate()`
+  --remove_file $rx_spec_file
+  --write_file $rx_spec_file
+sql|1|rx_timeout_marker
+EOF
+  --source filter_definition_regex_check_log.inc
+  disconnect rx;
+  SELECT audit_log_filter_remove_user('rx_dml@localhost');
+  SELECT audit_log_filter_set_filter('rx_stmt_timeout_general', '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_timeout_marker"}}}}}}');
+  SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_stmt_timeout_general');
+  SELECT audit_log_rotate();
+  connect(rx, localhost, rx_dml, rx, test);
+  --connection rx
+  --error ER_QUERY_TIMEOUT
+  SELECT /*+ MAX_EXECUTION_TIME(1) */ SLEEP(1000), 'rx_timeout_marker' FROM rx_timeout_data;
+  --connection default
+  --let rx_log = `SELECT audit_log_rotate()`
+  --source filter_definition_regex_check_log.inc
+  disconnect rx;
+  --let $regex_delta = `SELECT VARIABLE_VALUE - $regex_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+  SET GLOBAL audit_log_filter.event_mode = REDUCED;
+  if ($regex_delta != 0)
+  {
+    --echo statement timeout incremented regex errors
+    --die statement timeout must not increment regex errors
+  }
+}
+--enable_result_log
+--echo statement timeout OK
+--disable_result_log
+
+--echo # Real ICU timeout and recovery
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_icu', '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"(a+)+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_icu');
+--let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+perl;
+  open my $f, '<', "$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $n = 0;
+  while (<$f>) { $n++ if /U_REGEX_TIME_OUT/ }
+  close $f;
+  open my $o, '>', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_warns.txt" or die $!;
+  print $o $n;
+  close $o;
+EOF
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+--connection rx
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+--let $regex_after = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|0|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT $regex_after - $regex_before`
+if ($regex_delta != 3)
+{
+  --echo icu timeout delta $regex_delta
+  --die expected 3 regex match errors
+}
+SELECT audit_log_rotate();
+--connection rx
+SELECT 1 AS aaaa;
+--let $regex_mid = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|SELECT 1 AS aaaa
+EOF
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT $regex_mid - $regex_after`
+if ($regex_delta != 0)
+{
+  --die recovery must not increment regex errors
+}
+disconnect rx;
+perl;
+  open my $f, '<', "$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $n = 0;
+  while (<$f>) { $n++ if /U_REGEX_TIME_OUT/ }
+  close $f;
+  open my $o, '<', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_warns.txt" or die $!;
+  my $before = 0 + <$o>;
+  close $o;
+  my $delta = $n - $before;
+  die "expected 1..3 timeout warnings, got $delta\n" if $delta < 1 || $delta > 3;
+EOF
+--enable_result_log
+--echo icu timeout OK
+--disable_result_log
+
+--echo # AND short-circuit does not evaluate the regex
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SELECT audit_log_filter_set_filter('rx_short', '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"and":[{"field":{"name":"general_command.str","value":"NoSuchCommand"}},{"field":{"name":"general_query.str","regex":"(a+)+$"}}]}}}}}');
+SELECT audit_log_filter_set_user('rx_dml@localhost', 'rx_short');
+--let $regex_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+perl;
+  open my $f, '<', "$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $n = 0;
+  while (<$f>) { $n++ if /U_REGEX_TIME_OUT/ }
+  close $f;
+  open my $o, '>', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_warns.txt" or die $!;
+  print $o $n;
+  close $o;
+EOF
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_dml, rx, test);
+--connection rx
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+SELECT 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|0|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+--source filter_definition_regex_check_log.inc
+--let $regex_delta = `SELECT VARIABLE_VALUE - $regex_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+if ($regex_delta != 0)
+{
+  --die short-circuit must not increment regex errors
+}
+perl;
+  open my $f, '<', "$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $n = 0;
+  while (<$f>) { $n++ if /U_REGEX_TIME_OUT/ }
+  close $f;
+  open my $o, '<', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_warns.txt" or die $!;
+  my $before = 0 + <$o>;
+  close $o;
+  die "short-circuit logged a timeout\n" if $n != $before;
+EOF
+disconnect rx;
+--enable_result_log
+--echo short-circuit OK
+--disable_result_log
+
+--echo # Query charset: ASCII marker matches both, UTF-8 literal matches one
+SELECT audit_log_filter_remove_user('rx_dml@localhost');
+SET @definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'rx_cs_marker'))))));
+SELECT audit_log_filter_set_filter('rx_cs_marker', @definition);
+SELECT audit_log_filter_set_user('rx_cs@localhost', 'rx_cs_marker');
+perl;
+  use strict;
+  use warnings;
+  use Encode qw(decode encode);
+  my $q = decode('iso-8859-1', "SELECT 'caf\xE9' AS c /* rx_cs_marker */;\n");
+  open my $latin1, '>:raw', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_cs.latin1" or die $!;
+  print $latin1 encode('iso-8859-1', $q);
+  close $latin1;
+  open my $utf8, '>:raw', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_cs.utf8mb4" or die $!;
+  print $utf8 encode('UTF-8', $q);
+  close $utf8;
+EOF
+SELECT audit_log_rotate();
+--exec $MYSQL --default-character-set=latin1 -u rx_cs test < $MYSQLTEST_VARDIR/tmp/rx_cs.latin1
+--exec $MYSQL --default-character-set=utf8mb4 -u rx_cs test < $MYSQLTEST_VARDIR/tmp/rx_cs.utf8mb4
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|2|rx_cs_marker
+EOF
+--source filter_definition_regex_check_log.inc
+SELECT audit_log_filter_remove_user('rx_cs@localhost');
+SET @definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'café'))))));
+SELECT audit_log_filter_set_filter('rx_cs_literal', @definition);
+SELECT audit_log_filter_set_user('rx_cs@localhost', 'rx_cs_literal');
+SELECT audit_log_rotate();
+--exec $MYSQL --default-character-set=latin1 -u rx_cs test < $MYSQLTEST_VARDIR/tmp/rx_cs.latin1
+--exec $MYSQL --default-character-set=utf8mb4 -u rx_cs test < $MYSQLTEST_VARDIR/tmp/rx_cs.utf8mb4
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|rx_cs_marker
+EOF
+--source filter_definition_regex_check_log.inc
+--enable_result_log
+--echo charset selection OK
+--disable_result_log
+
+--echo # Embedded NUL query subject
+SELECT audit_log_filter_remove_user('rx_cs@localhost');
+SET @pat = CONCAT('nul_probe_a', CHAR(0 USING utf8mb4), 'b');
+SET @definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', @pat))))));
+--let $pat_hex = `SELECT HEX(@pat)`
+--let $nul_def = `SELECT audit_log_filter_set_filter('rx_nul', @definition)`
+if ($nul_def != OK)
+{
+  --echo $nul_def
+  --die nul filter was rejected
+}
+--let $stored_hex = `SELECT HEX(JSON_UNQUOTE(JSON_EXTRACT(filter, '$.filter.class.event.log.field.regex'))) FROM mysql.audit_log_filter WHERE name = 'rx_nul'`
+if ($stored_hex != $pat_hex)
+{
+  --enable_result_log
+  --echo stored $stored_hex
+  --echo pat $pat_hex
+  --die nul pattern was not stored
+}
+--let $nul_user = `SELECT audit_log_filter_set_user('rx_cs@localhost', 'rx_nul')`
+if ($nul_user != OK)
+{
+  --echo $nul_user
+  --die nul user assignment failed
+}
+perl;
+  open my $f, '>:raw', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_nul.sql" or die $!;
+  print $f "SELECT 'nul_probe_a\x00b' AS p;\n";
+  print $f "SELECT 'nul_probe_ab' AS p;\n";
+  close $f;
+EOF
+SELECT audit_log_rotate();
+--exec $MYSQL --binary-mode --default-character-set=utf8mb4 -u rx_cs test < $MYSQLTEST_VARDIR/tmp/rx_nul.sql
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql_nul|1|nul_probe_a|b
+sql|0|nul_probe_ab
+EOF
+--source filter_definition_regex_check_log.inc
+--enable_result_log
+--echo nul subject OK
+--disable_result_log
+
+--echo # Malformed subject is not copied raw into the log
+perl;
+  open my $f, '>:raw', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_ff.sql" or die $!;
+  print $f "SELECT 'rx_ff_marker' /* \xFF */;\n";
+  close $f;
+EOF
+SELECT audit_log_filter_remove_user('rx_cs@localhost');
+SELECT audit_log_filter_set_filter('rx_ff', '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_ff_marker"}}}}}}');
+SELECT audit_log_filter_set_user('rx_cs@localhost', 'rx_ff');
+SELECT audit_log_rotate();
+--exec $MYSQL --binary-mode --default-character-set=latin1 -u rx_cs test < $MYSQLTEST_VARDIR/tmp/rx_ff.sql
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|rx_ff_marker
+EOF
+--source filter_definition_regex_check_log.inc
+perl;
+  open my $f, '<:raw', $ENV{rx_datadir} . '/' . $ENV{rx_log} or die $!;
+  my $bytes = do { local $/; <$f> };
+  close $f;
+  die "raw 0xFF leaked into the audit log\n" if index($bytes, "\xFF") >= 0;
+EOF
+--enable_result_log
+--echo malformed subject OK
+--disable_result_log
+
+--remove_file $rx_spec_file
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_cs.latin1
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_cs.utf8mb4
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_nul.sql
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_ff.sql
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_warns.txt
+
+DROP DATABASE tpcc;
+DROP TABLE test.orders1, test.secret_1, test.secret_x, test.temp_1, test.keep_1, test.keep_reload, test.rx_kill_data, test.rx_timeout_data, test.charset_filter_data;
+DROP USER rx_dml@localhost, rx_exempt@localhost, app_svc_1@localhost, app_svc_2@localhost, other_user@localhost, rx_kill_user@localhost, rx_cs@localhost;
+
+--enable_result_log
+--enable_query_log
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

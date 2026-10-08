@@ -150,6 +150,10 @@ class AuditRuleParser {
    * @param audit_rule Audit filtering rule instance to be initialized
    * @return Logical condition instance
    */
+  static std::shared_ptr<EventFieldConditionBase> parse_field_regex_json(
+      const rapidjson::Value &field_json, const std::string &class_name,
+      AuditRule *audit_rule) noexcept;
+
   static std::shared_ptr<EventFieldConditionBase> parse_condition_json(
       const rapidjson::Value &condition_json, EventFieldConditionType cond_type,
       const std::string &class_name, AuditRule *audit_rule) noexcept;

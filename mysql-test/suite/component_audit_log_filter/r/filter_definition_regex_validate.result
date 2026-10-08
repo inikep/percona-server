@@ -1,0 +1,193 @@
+SET NAMES utf8mb4;
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong argument: incorrect rule definition");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+#
+# Empty patterns are rejected, including nested contexts.
+#
+SELECT audit_log_filter_set_filter('rx_empty', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":""}}}}}}');
+audit_log_filter_set_filter('rx_empty', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":""}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS rx_empty_rows FROM mysql.audit_log_filter WHERE name = 'rx_empty';
+rx_empty_rows
+0
+SELECT audit_log_filter_set_filter('rx_empty_abort', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":""}}}}}}');
+audit_log_filter_set_filter('rx_empty_abort', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":""}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT COUNT(*) AS rx_empty_abort_rows FROM mysql.audit_log_filter WHERE name = 'rx_empty_abort';
+rx_empty_abort_rows
+0
+SELECT audit_log_filter_set_filter('rx_empty_not', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"not":{"field":{"name":"table_name.str","regex":""}}}}}}}');
+audit_log_filter_set_filter('rx_empty_not', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"not":{"field":{"name":"table_name.str","regex":""}}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT audit_log_filter_set_filter('rx_empty_and', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"and":[{"field":{"name":"table_database.str","value":"tpcc"}},{"field":{"name":"table_name.str","regex":""}}]}}}}}');
+audit_log_filter_set_filter('rx_empty_and', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"and":[{"field":{"name":"table_database.str","value":"tpcc"}},{"field":{"name":"table_name.str","regex":""}}]}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT audit_log_filter_set_filter('rx_empty_or', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_name.str","regex":""}},{"field":{"name":"table_name.str","value":"x"}}]}}}}}');
+audit_log_filter_set_filter('rx_empty_or', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_name.str","regex":""}},{"field":{"name":"table_name.str","value":"x"}}]}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT audit_log_filter_set_filter('rx_empty_print', '{"filter":{"class":{"name":"general","event":{"name":"status","log":true,"print":{"field":{"name":"general_query.str","print":{"field":{"name":"general_query.str","regex":""}},"replace":{"function":{"name":"query_digest"}}}}}}}}');
+audit_log_filter_set_filter('rx_empty_print', '{"filter":{"class":{"name":"general","event":{"name":"status","log":true,"print":{"field":{"name":"general_query.str","print":{"field":{"name":"general_query.str","regex":""}},"replace":{"function":{"name":"q
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT audit_log_filter_set_filter('rx_empty_activate', '{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":true,"filter":{"ref":"main"}}},"activate":{"field":{"name":"table_name.str","regex":""}}}}}}}');
+audit_log_filter_set_filter('rx_empty_activate', '{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":true,"filter":{"ref":"main"}}},"activate":{"fie
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+#
+# Accepted pattern, mutual exclusion, unknown and duplicate members.
+#
+SELECT audit_log_filter_set_filter('rx_ok', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}');
+audit_log_filter_set_filter('rx_ok', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}')
+OK
+SELECT COUNT(*) AS rx_ok_rows FROM mysql.audit_log_filter WHERE name = 'rx_ok';
+rx_ok_rows
+1
+SELECT audit_log_filter_set_filter('rx_both', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders1","regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_both', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders1","regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' must have either 'value' or 'regex', not both
+SELECT COUNT(*) AS rx_both_rows FROM mysql.audit_log_filter WHERE name = 'rx_both';
+rx_both_rows
+0
+SELECT audit_log_filter_set_filter('rx_foo', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1}}}}}}');
+audit_log_filter_set_filter('rx_foo', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1}}}}}}')
+ERROR: Incorrect rule definition: unexpected key 'foo' in 'field' definition
+SELECT audit_log_filter_set_filter('rx_empty_key', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","":1}}}}}}');
+audit_log_filter_set_filter('rx_empty_key', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","":1}}}}}}')
+ERROR: Incorrect rule definition: unexpected key '' in 'field' definition
+SELECT audit_log_filter_set_filter('rx_nul_key', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex\\u0000":1}}}}}}');
+audit_log_filter_set_filter('rx_nul_key', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex\\u0000":1}}}}}}')
+ERROR: Incorrect rule definition: unexpected key 'regex\u0000' in 'field' definition
+SELECT audit_log_filter_set_filter('rx_dup_regex', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a","regex":"b"}}}}}}');
+audit_log_filter_set_filter('rx_dup_regex', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a","regex":"b"}}}}}}')
+ERROR: Incorrect rule definition: duplicate key 'regex' in 'field' definition
+SELECT audit_log_filter_set_filter('rx_dup_name', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","name":"table_name.str","regex":"a"}}}}}}');
+audit_log_filter_set_filter('rx_dup_name', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","name":"table_name.str","regex":"a"}}}}}}')
+ERROR: Incorrect rule definition: duplicate key 'name' in 'field' definition
+#
+# Name, type, field identity, and integer fields.
+#
+SELECT audit_log_filter_set_filter('rx_noname', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_noname', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string
+SELECT audit_log_filter_set_filter('rx_name_type', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":5,"regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_name_type', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":5,"regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string
+SELECT audit_log_filter_set_filter('rx_regex_type', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":5}}}}}}');
+audit_log_filter_set_filter('rx_regex_type', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":5}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be a non-empty string
+SELECT audit_log_filter_set_filter('rx_unknown_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"no_such.str","regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_unknown_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"no_such.str","regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: field name 'no_such.str' is not valid for event class 'table_access'
+SELECT audit_log_filter_set_filter('rx_nul_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str\\u0000","regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_nul_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str\\u0000","regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: field name 'table_name.str\u0000' is not valid for event class 'table_access'
+SELECT audit_log_filter_set_filter('rx_int_field', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_id","regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_int_field', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_id","regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: field 'connection_id' is not a string field; 'regex' applies only to string fields
+SELECT audit_log_filter_set_filter('rx_conn_type', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_type","regex":"x"}}}}}}');
+audit_log_filter_set_filter('rx_conn_type', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_type","regex":"x"}}}}}}')
+ERROR: Incorrect rule definition: field 'connection_type' is not a string field; 'regex' applies only to string fields
+#
+# ICU diagnostics, aliases, legacy equality, NUL and Unicode patterns.
+#
+SELECT audit_log_filter_set_filter('rx_paren', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}');
+audit_log_filter_set_filter('rx_paren', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}')
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8
+SELECT audit_log_filter_set_filter('rx_maxmin', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a{2,1}"}}}}}}');
+audit_log_filter_set_filter('rx_maxmin', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a{2,1}"}}}}}}')
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_MAX_LT_MIN at line 1, offset 6
+SELECT audit_log_filter_set_filter('rx_range', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"[z-a]"}}}}}}');
+audit_log_filter_set_filter('rx_range', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"[z-a]"}}}}}}')
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_INVALID_RANGE at line 1, offset 4
+SELECT audit_log_filter_set_filter('rx_emoji', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"😀("}}}}}}');
+audit_log_filter_set_filter('rx_emoji', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"?("}}}}}}')
+ERROR: Incorrect rule definition: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 2
+SELECT audit_log_filter_set_filter('rx_legacy_miss', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str"}}}}}}');
+audit_log_filter_set_filter('rx_legacy_miss', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str"}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string and 'value' as a string or integer
+SELECT audit_log_filter_set_filter('rx_re_alias', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","re":"x"}}}}}}');
+audit_log_filter_set_filter('rx_re_alias', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","re":"x"}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string and 'value' as a string or integer
+SELECT audit_log_filter_set_filter('rx_regexp_alias', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regexp":"x"}}}}}}');
+audit_log_filter_set_filter('rx_regexp_alias', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regexp":"x"}}}}}}')
+ERROR: Incorrect rule definition: event field definition 'field' must have field 'name' provided as a string and 'value' as a string or integer
+SELECT audit_log_filter_set_filter('rx_legacy_extra', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders.*","foo":1}}}}}}');
+audit_log_filter_set_filter('rx_legacy_extra', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders.*","foo":1}}}}}}')
+OK
+SELECT COUNT(*) AS rx_legacy_extra_rows FROM mysql.audit_log_filter WHERE name = 'rx_legacy_extra';
+rx_legacy_extra_rows
+1
+SELECT audit_log_filter_set_filter('rx_nul_pat', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\u0000"}}}}}}');
+audit_log_filter_set_filter('rx_nul_pat', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\u0000"}}}}}}')
+OK
+SELECT COUNT(*) AS rx_nul_pat_rows FROM mysql.audit_log_filter WHERE name = 'rx_nul_pat';
+rx_nul_pat_rows
+1
+SELECT audit_log_filter_set_filter('rx_unicode', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^zamówienia[0-9]+$"}}}}}}');
+audit_log_filter_set_filter('rx_unicode', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^zamówienia[0-9]+$"}}}}}}')
+OK
+SELECT COUNT(*) AS rx_unicode_rows FROM mysql.audit_log_filter WHERE name = 'rx_unicode';
+rx_unicode_rows
+1
+SELECT audit_log_filter_set_filter('rx_surrogate', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\ud800"}}}}}}');
+audit_log_filter_set_filter('rx_surrogate', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\ud800"}}}}}}')
+ERROR: Incorrect rule definition: JSON parse error
+#
+# Whole-definition size gate stays a UDF initialization error.
+#
+SELECT audit_log_filter_set_filter('rx_too_long', CONCAT('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"', REPEAT('a', 17000), '"}}}}}}'));
+ERROR HY000: Can't initialize function 'audit_log_filter_set_filter'; Wrong argument: definition is too long, max length is 16384
+SELECT COUNT(*) AS rx_too_long_rows FROM mysql.audit_log_filter WHERE name = 'rx_too_long';
+rx_too_long_rows
+0
+#
+# Stored bad syntax, repair, and upgrade inventory.
+#
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'rx_bad', CAST('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT audit_log_filter_flush();
+audit_log_filter_flush()
+ERROR: Filter 'rx_bad' has wrong format: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8
+SELECT audit_log_filter_set_filter('rx_other', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}');
+audit_log_filter_set_filter('rx_other', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}')
+OK
+UPDATE mysql.audit_log_filter SET filter = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}' WHERE name = 'rx_bad';
+SELECT audit_log_filter_flush();
+audit_log_filter_flush()
+OK
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'inv_plain', CAST('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"regex"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'inv_both', CAST('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"x","regex":"y"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'inv_nested', CAST('{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":true,"filter":{"ref":"main"}}},"activate":{"field":{"name":"table_name.str","value":"a","regex":"b"}}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT name FROM mysql.audit_log_filter WHERE JSON_CONTAINS_PATH(filter, 'one', '$**.regex') AND name LIKE 'inv_%' ORDER BY name;
+name
+inv_both
+inv_nested
+DELETE FROM mysql.audit_log_filter WHERE name LIKE 'inv_%';
+#
+# REDUCED mode skips a disabled class but still validates a disabled subclass.
+#
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'rx_skip_class', CAST('{"filter":{"class":{"name":"query","event":{"name":"start","log":{"field":{"name":"query.str","regex":"^(orders"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT audit_log_filter_flush();
+audit_log_filter_flush()
+OK
+DELETE FROM mysql.audit_log_filter WHERE name = 'rx_skip_class';
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'rx_skip_sub', CAST('{"filter":{"class":{"name":"general","event":{"name":"log","log":{"field":{"name":"general_query.str","regex":"^(orders"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT audit_log_filter_flush();
+audit_log_filter_flush()
+ERROR: Filter 'rx_skip_sub' has wrong format: invalid regular expression for field 'general_query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8
+DELETE FROM mysql.audit_log_filter WHERE name = 'rx_skip_sub';
+SELECT audit_log_filter_flush();
+audit_log_filter_flush()
+OK

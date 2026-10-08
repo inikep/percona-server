@@ -1,0 +1,113 @@
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+SET NAMES utf8mb4;
+
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong argument: incorrect rule definition");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+
+--echo #
+--echo # Empty patterns are rejected, including nested contexts.
+--echo #
+SELECT audit_log_filter_set_filter('rx_empty', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":""}}}}}}');
+SELECT COUNT(*) AS rx_empty_rows FROM mysql.audit_log_filter WHERE name = 'rx_empty';
+SELECT audit_log_filter_set_filter('rx_empty_abort', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":""}}}}}}');
+SELECT COUNT(*) AS rx_empty_abort_rows FROM mysql.audit_log_filter WHERE name = 'rx_empty_abort';
+SELECT audit_log_filter_set_filter('rx_empty_not', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"not":{"field":{"name":"table_name.str","regex":""}}}}}}}');
+SELECT audit_log_filter_set_filter('rx_empty_and', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"and":[{"field":{"name":"table_database.str","value":"tpcc"}},{"field":{"name":"table_name.str","regex":""}}]}}}}}');
+SELECT audit_log_filter_set_filter('rx_empty_or', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_name.str","regex":""}},{"field":{"name":"table_name.str","value":"x"}}]}}}}}');
+SELECT audit_log_filter_set_filter('rx_empty_print', '{"filter":{"class":{"name":"general","event":{"name":"status","log":true,"print":{"field":{"name":"general_query.str","print":{"field":{"name":"general_query.str","regex":""}},"replace":{"function":{"name":"query_digest"}}}}}}}}');
+SELECT audit_log_filter_set_filter('rx_empty_activate', '{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":true,"filter":{"ref":"main"}}},"activate":{"field":{"name":"table_name.str","regex":""}}}}}}}');
+
+--echo #
+--echo # Accepted pattern, mutual exclusion, unknown and duplicate members.
+--echo #
+SELECT audit_log_filter_set_filter('rx_ok', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}');
+SELECT COUNT(*) AS rx_ok_rows FROM mysql.audit_log_filter WHERE name = 'rx_ok';
+SELECT audit_log_filter_set_filter('rx_both', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders1","regex":"x"}}}}}}');
+SELECT COUNT(*) AS rx_both_rows FROM mysql.audit_log_filter WHERE name = 'rx_both';
+SELECT audit_log_filter_set_filter('rx_foo', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","foo":1}}}}}}');
+SELECT audit_log_filter_set_filter('rx_empty_key', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","":1}}}}}}');
+SELECT audit_log_filter_set_filter('rx_nul_key', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","regex\\u0000":1}}}}}}');
+SELECT audit_log_filter_set_filter('rx_dup_regex', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a","regex":"b"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_dup_name', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","name":"table_name.str","regex":"a"}}}}}}');
+
+--echo #
+--echo # Name, type, field identity, and integer fields.
+--echo #
+SELECT audit_log_filter_set_filter('rx_noname', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"regex":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_name_type', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":5,"regex":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_regex_type', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":5}}}}}}');
+SELECT audit_log_filter_set_filter('rx_unknown_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"no_such.str","regex":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_nul_field', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str\\u0000","regex":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_int_field', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_id","regex":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_conn_type', '{"filter":{"class":{"name":"connection","event":{"name":"connect","log":{"field":{"name":"connection_type","regex":"x"}}}}}}');
+
+--echo #
+--echo # ICU diagnostics, aliases, legacy equality, NUL and Unicode patterns.
+--echo #
+SELECT audit_log_filter_set_filter('rx_paren', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_maxmin', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"a{2,1}"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_range', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"[z-a]"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_emoji', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"😀("}}}}}}');
+SELECT audit_log_filter_set_filter('rx_legacy_miss', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_re_alias', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","re":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_regexp_alias', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regexp":"x"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_legacy_extra', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"orders.*","foo":1}}}}}}');
+SELECT COUNT(*) AS rx_legacy_extra_rows FROM mysql.audit_log_filter WHERE name = 'rx_legacy_extra';
+SELECT audit_log_filter_set_filter('rx_nul_pat', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\u0000"}}}}}}');
+SELECT COUNT(*) AS rx_nul_pat_rows FROM mysql.audit_log_filter WHERE name = 'rx_nul_pat';
+SELECT audit_log_filter_set_filter('rx_unicode', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^zamówienia[0-9]+$"}}}}}}');
+SELECT COUNT(*) AS rx_unicode_rows FROM mysql.audit_log_filter WHERE name = 'rx_unicode';
+SELECT audit_log_filter_set_filter('rx_surrogate', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"\\ud800"}}}}}}');
+
+--echo #
+--echo # Whole-definition size gate stays a UDF initialization error.
+--echo #
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_filter('rx_too_long', CONCAT('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"', REPEAT('a', 17000), '"}}}}}}'));
+SELECT COUNT(*) AS rx_too_long_rows FROM mysql.audit_log_filter WHERE name = 'rx_too_long';
+
+--echo #
+--echo # Stored bad syntax, repair, and upgrade inventory.
+--echo #
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'rx_bad', CAST('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^(orders"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT audit_log_filter_flush();
+SELECT audit_log_filter_set_filter('rx_other', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}');
+UPDATE mysql.audit_log_filter SET filter = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"orders[0-9]+"}}}}}}' WHERE name = 'rx_bad';
+SELECT audit_log_filter_flush();
+
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'inv_plain', CAST('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"regex"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'inv_both', CAST('{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","value":"x","regex":"y"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'inv_nested', CAST('{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":true,"filter":{"ref":"main"}}},"activate":{"field":{"name":"table_name.str","value":"a","regex":"b"}}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT name FROM mysql.audit_log_filter WHERE JSON_CONTAINS_PATH(filter, 'one', '$**.regex') AND name LIKE 'inv_%' ORDER BY name;
+DELETE FROM mysql.audit_log_filter WHERE name LIKE 'inv_%';
+
+--echo #
+--echo # REDUCED mode skips a disabled class but still validates a disabled subclass.
+--echo #
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'rx_skip_class', CAST('{"filter":{"class":{"name":"query","event":{"name":"start","log":{"field":{"name":"query.str","regex":"^(orders"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT audit_log_filter_flush();
+DELETE FROM mysql.audit_log_filter WHERE name = 'rx_skip_class';
+INSERT INTO mysql.audit_log_filter (filter_id, name, filter)
+SELECT IFNULL(MAX(filter_id), 0) + 1, 'rx_skip_sub', CAST('{"filter":{"class":{"name":"general","event":{"name":"log","log":{"field":{"name":"general_query.str","regex":"^(orders"}}}}}}' AS JSON)
+FROM mysql.audit_log_filter;
+SELECT audit_log_filter_flush();
+DELETE FROM mysql.audit_log_filter WHERE name = 'rx_skip_sub';
+SELECT audit_log_filter_flush();
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

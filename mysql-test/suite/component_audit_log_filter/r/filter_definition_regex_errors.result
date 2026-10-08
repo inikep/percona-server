@@ -1,0 +1,16 @@
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong argument: incorrect rule definition");
+call mtr.add_suppression("Component audit_log_filter reported: 'Audit log filter '.*': regex");
+call mtr.add_suppression("std::bad_alloc");
+call mtr.add_suppression("Invalid audit query charset or buffer");
+call mtr.add_suppression("Audit query output was not prepared");
+# Compile allocation failure
+# Positive log treats the injected failure as a non-match
+# Negated log keeps the record
+# Positive abort allows the statement
+# Print replaces the original text
+# Activation does not arm the replacement
+# Short-circuit controls do not evaluate the regex
+# Two failing conditions warn once each
+# Output failures after a successful regex do not increment the regex counter
+regex error seams OK

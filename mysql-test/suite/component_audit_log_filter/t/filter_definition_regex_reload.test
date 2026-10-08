@@ -1,0 +1,180 @@
+# PS-11118: reload, account change, restart, and lifecycle.
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+
+--let rx_spec_file = $MYSQLTEST_VARDIR/tmp/rx_reload_spec.txt
+--disable_query_log
+--disable_result_log
+SET NAMES utf8mb4;
+
+CREATE USER rx_a@localhost IDENTIFIED BY 'rx';
+CREATE USER rx_b@localhost IDENTIFIED BY 'rx';
+GRANT ALL ON test.* TO rx_a@localhost;
+GRANT ALL ON test.* TO rx_b@localhost;
+CREATE TABLE rx_switch (id INT PRIMARY KEY);
+CREATE TABLE rx_life (id INT PRIMARY KEY);
+CREATE TABLE rx_batch (id INT PRIMARY KEY);
+
+--echo # Change user picks up the new account filter
+SELECT audit_log_filter_set_filter('rx_on', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_switch$"}}}}}}');
+SELECT audit_log_filter_set_filter('rx_off', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":false}}}}');
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_on');
+SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_off');
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+INSERT INTO rx_switch VALUES (1);
+change_user rx_b, rx, test;
+INSERT INTO rx_switch VALUES (2);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--write_file $rx_spec_file
+table|test|rx_switch|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
+--echo # Named character and numeric-looking FULL-mode field
+SELECT audit_log_filter_set_filter('rx_named', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^\\\\N{LATIN SMALL LETTER A}$"}}}}}}');
+CREATE TABLE a (id INT PRIMARY KEY);
+CREATE TABLE b (id INT PRIMARY KEY);
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_named');
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+INSERT INTO a VALUES (1);
+INSERT INTO b VALUES (1);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|a|insert|1
+table|test|b|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
+SET GLOBAL audit_log_filter.event_mode = FULL;
+SELECT audit_log_filter_set_filter('rx_num', '{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"connection_id","regex":"^[0-9]+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_num');
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+SELECT 1 /*rx_num*/;
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|1|rx_num
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
+--echo # REDUCED load skips a disabled class and keeps the table predicate
+SELECT audit_log_filter_set_filter('rx_mixed', '{"filter":{"class":[{"name":"query","event":{"name":"start","log":{"field":{"name":"query.str","regex":"rx_num"}}}},{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_life$"}}}}]}}');
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+SELECT audit_log_filter_flush();
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_mixed');
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+SELECT 1 /*rx_num*/;
+INSERT INTO rx_life VALUES (1);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|0|rx_num
+table|test|rx_life|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
+--echo # Restart keeps the stored filter
+--let $restart_parameters = 
+--source include/restart_mysqld.inc
+--disable_query_log
+--disable_result_log
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+INSERT INTO rx_life VALUES (2);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|rx_life|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
+--echo # Unload stops filtering and reinstall restores it
+--source ../inc/audit_comp_uninstall.inc
+--disable_query_log
+--disable_result_log
+INSERT INTO rx_life VALUES (3);
+--source ../inc/audit_comp_install.inc
+--disable_query_log
+--disable_result_log
+SELECT audit_log_filter_flush();
+SELECT audit_log_rotate();
+connect(c, localhost, rx_a, rx, test);
+--connection c
+INSERT INTO rx_life VALUES (4);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--source filter_definition_regex_check_log.inc
+disconnect c;
+
+--echo # Two clients, ten inserts each
+SELECT audit_log_filter_set_filter('rx_batch_f', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"^rx_batch$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_a@localhost', 'rx_batch_f');
+SELECT audit_log_filter_set_user('rx_b@localhost', 'rx_batch_f');
+SELECT audit_log_rotate();
+connect(c1, localhost, rx_a, rx, test);
+connect(c2, localhost, rx_b, rx, test);
+--connection c1
+INSERT INTO rx_batch VALUES (1);
+INSERT INTO rx_batch VALUES (2);
+INSERT INTO rx_batch VALUES (3);
+INSERT INTO rx_batch VALUES (4);
+INSERT INTO rx_batch VALUES (5);
+INSERT INTO rx_batch VALUES (6);
+INSERT INTO rx_batch VALUES (7);
+INSERT INTO rx_batch VALUES (8);
+INSERT INTO rx_batch VALUES (9);
+INSERT INTO rx_batch VALUES (10);
+--connection c2
+INSERT INTO rx_batch VALUES (11);
+INSERT INTO rx_batch VALUES (12);
+INSERT INTO rx_batch VALUES (13);
+INSERT INTO rx_batch VALUES (14);
+INSERT INTO rx_batch VALUES (15);
+INSERT INTO rx_batch VALUES (16);
+INSERT INTO rx_batch VALUES (17);
+INSERT INTO rx_batch VALUES (18);
+INSERT INTO rx_batch VALUES (19);
+INSERT INTO rx_batch VALUES (20);
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|rx_batch|insert|20
+EOF
+--source filter_definition_regex_check_log.inc
+disconnect c1;
+disconnect c2;
+
+--remove_file $rx_spec_file
+DROP TABLE rx_switch, rx_life, rx_batch, a, b;
+DROP USER rx_a@localhost, rx_b@localhost;
+--enable_result_log
+--enable_query_log
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
+--echo regex reload OK

@@ -1,0 +1,59 @@
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Audit log filter '.*': regex");
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong argument: incorrect rule definition");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+SET NAMES utf8mb4;
+# Jira six-table case
+jira 18 records OK
+# Nonmatching controls
+controls OK
+# New shard without editing the filter
+shard OK
+# Account predicate
+accounts OK
+# Empty-field predicates do not match present names
+empty field OK
+# Literal equality ignores regex metacharacters
+literal OK
+# Search versus anchors
+anchors OK
+# Case
+case OK
+# Unicode identifier
+unicode OK
+# Print condition
+print OK
+# Abort
+secret_1_rows
+1
+secret_x_rows
+1
+abort OK
+# Replacement activation
+replacement OK
+# Failed reload keeps the last good snapshot
+failed reload OK
+# KILL QUERY retains the terminal status and the recovery statement
+kill query delta 0
+kill query OK
+# Pre-reset query event
+kill query-event delta 0
+kill query-event OK
+# KILL CONNECTION idle and active, including same-account kill
+kill connection delta 0
+kill connection OK
+kill active delta 0
+kill active OK
+# Statement timeout is not a regex timeout
+statement timeout OK
+# Real ICU timeout and recovery
+icu timeout OK
+# AND short-circuit does not evaluate the regex
+short-circuit OK
+# Query charset: ASCII marker matches both, UTF-8 literal matches one
+charset selection OK
+# Embedded NUL query subject
+nul subject OK
+# Malformed subject is not copied raw into the log
+malformed subject OK

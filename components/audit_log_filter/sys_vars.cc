@@ -14,9 +14,11 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA */
 
 #include "components/audit_log_filter/sys_vars.h"
+
 #include "components/audit_log_filter/audit_error_log.h"
 #include "components/audit_log_filter/audit_log_filter.h"
 #include "components/audit_log_filter/audit_log_reader.h"
+#include "components/audit_log_filter/event_field_condition/field_regex.h"
 
 #include "sql/mysqld.h"
 #include "sql/sql_class.h"
@@ -180,6 +182,14 @@ int show_direct_writes(THD *, SHOW_VAR *var, char *buff) {
   return 0;
 }
 
+int show_regex_match_errors(THD *, SHOW_VAR *var, char *buff) {
+  var->type = SHOW_LONG;
+  var->value = buff;
+  auto *value = reinterpret_cast<uint64_t *>(buff);
+  *value = event_field_condition::regex_match_error_count();
+  return 0;
+}
+
 SHOW_VAR status_vars[] = {
     {"Audit_log_filter_events", reinterpret_cast<char *>(&show_events_total),
      SHOW_FUNC, SHOW_SCOPE_GLOBAL},
@@ -204,6 +214,9 @@ SHOW_VAR status_vars[] = {
      SHOW_SCOPE_GLOBAL},
     {"Audit_log_filter_direct_writes",
      reinterpret_cast<char *>(&show_direct_writes), SHOW_FUNC,
+     SHOW_SCOPE_GLOBAL},
+    {"Audit_log_filter_regex_match_errors",
+     reinterpret_cast<char *>(&show_regex_match_errors), SHOW_FUNC,
      SHOW_SCOPE_GLOBAL},
     {nullptr, nullptr, SHOW_UNDEF, SHOW_SCOPE_UNDEF}};
 
@@ -1158,6 +1171,10 @@ void SysVars::inc_events_total() noexcept {
 
 void SysVars::inc_events_lost() noexcept {
   events_lost.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SysVars::inc_regex_match_errors() noexcept {
+  event_field_condition::inc_regex_match_errors();
 }
 
 void SysVars::inc_events_filtered() noexcept {

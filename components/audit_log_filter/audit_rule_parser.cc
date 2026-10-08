@@ -15,6 +15,7 @@
 
 #include "components/audit_log_filter/audit_rule_parser.h"
 #include "components/audit_log_filter/audit_error_log.h"
+#include "components/audit_log_filter/audit_regex.h"
 #include "components/audit_log_filter/sys_vars.h"
 
 #include "components/audit_log_filter/event_field_action/block.h"
@@ -25,14 +26,19 @@
 #include "components/audit_log_filter/event_field_condition/and.h"
 #include "components/audit_log_filter/event_field_condition/bool.h"
 #include "components/audit_log_filter/event_field_condition/field.h"
+#include "components/audit_log_filter/event_field_condition/field_regex.h"
+
 #include "components/audit_log_filter/event_field_condition/function.h"
 #include "components/audit_log_filter/event_field_condition/not.h"
 #include "components/audit_log_filter/event_field_condition/or.h"
 #include "components/audit_log_filter/event_field_condition/variable.h"
+#include "my_dbug.h"
 
 #include <limits>
 #include <memory>
+#include <new>
 #include <set>
+#include <string>
 #include <string_view>
 
 namespace audit_log_filter {
@@ -49,6 +55,44 @@ std::string find_unknown_key(const rapidjson::Value &json_obj,
     }
   }
   return {};
+}
+
+bool field_has_exact_member(const rapidjson::Value &field,
+                            std::string_view name) {
+  for (auto it = field.MemberBegin(); it != field.MemberEnd(); ++it) {
+    if (!it->name.IsString()) {
+      continue;
+    }
+    const std::string_view key{it->name.GetString(),
+                               it->name.GetStringLength()};
+    if (key == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void report_bad_field_regex(AuditRule *audit_rule, std::string reason) {
+  const auto escaped_name = event_field_condition::escape_diagnostic_text(
+      audit_rule->get_rule_name_view());
+  LogComponentErr(ERROR_LEVEL, ER_AUDIT_PARSE_CONDITION_BAD_FIELD_REGEX,
+                  escaped_name.c_str(), reason.c_str());
+  audit_rule->set_parse_error(std::move(reason));
+}
+
+std::string invalid_regex_reason(const std::string &escaped_field,
+                                 const RegexFailure &failure) {
+  std::string reason = "invalid regular expression for field '";
+  reason += escaped_field;
+  reason += "': ";
+  reason += icu_error_name(failure.status);
+  if (failure.has_position) {
+    reason += " at line ";
+    reason += std::to_string(failure.line);
+    reason += ", offset ";
+    reason += std::to_string(failure.offset);
+  }
+  return reason;
 }
 
 }  // namespace
@@ -734,6 +778,163 @@ EventFieldConditionType AuditRuleParser::get_condition_type(
   return EventFieldConditionType::Unknown;
 }
 
+std::shared_ptr<EventFieldConditionBase>
+AuditRuleParser::parse_field_regex_json(const rapidjson::Value &field_json,
+                                        const std::string &class_name,
+                                        AuditRule *audit_rule) noexcept {
+  using event_field_condition::escape_diagnostic_text;
+  try {
+    enum class MemberIssueKind { None, Unexpected, Duplicate };
+    MemberIssueKind issue_kind = MemberIssueKind::None;
+    std::string issue_key;
+    bool saw_value = false;
+    int name_count = 0;
+    int regex_count = 0;
+    const rapidjson::Value *name_value = nullptr;
+    const rapidjson::Value *regex_value = nullptr;
+
+    for (auto it = field_json.MemberBegin(); it != field_json.MemberEnd();
+         ++it) {
+      std::string key;
+      if (it->name.IsString()) {
+        key.assign(it->name.GetString(), it->name.GetStringLength());
+      }
+      const std::string_view key_view{key};
+      if (key_view == "value") {
+        saw_value = true;
+        continue;
+      }
+      if (key_view == "name") {
+        if (name_count == 1 && issue_kind == MemberIssueKind::None) {
+          issue_kind = MemberIssueKind::Duplicate;
+          issue_key = key;
+        }
+        if (name_count == 0) {
+          name_value = &it->value;
+        }
+        ++name_count;
+        continue;
+      }
+      if (key_view == "regex") {
+        if (regex_count == 1 && issue_kind == MemberIssueKind::None) {
+          issue_kind = MemberIssueKind::Duplicate;
+          issue_key = key;
+        }
+        if (regex_count == 0) {
+          regex_value = &it->value;
+        }
+        ++regex_count;
+        continue;
+      }
+      if (issue_kind == MemberIssueKind::None) {
+        issue_kind = MemberIssueKind::Unexpected;
+        issue_key = std::move(key);
+      }
+    }
+
+    if (saw_value) {
+      report_bad_field_regex(
+          audit_rule,
+          "event field definition 'field' must have either 'value' or "
+          "'regex', not both");
+      return nullptr;
+    }
+    if (issue_kind == MemberIssueKind::Unexpected) {
+      report_bad_field_regex(audit_rule, "unexpected key '" +
+                                             escape_diagnostic_text(issue_key) +
+                                             "' in 'field' definition");
+      return nullptr;
+    }
+    if (issue_kind == MemberIssueKind::Duplicate) {
+      report_bad_field_regex(audit_rule, "duplicate key '" +
+                                             escape_diagnostic_text(issue_key) +
+                                             "' in 'field' definition");
+      return nullptr;
+    }
+
+    if (name_value == nullptr || !name_value->IsString()) {
+      report_bad_field_regex(
+          audit_rule,
+          "event field definition 'field' must have field 'name' provided as "
+          "a string");
+      return nullptr;
+    }
+    std::string field_name{name_value->GetString(),
+                           name_value->GetStringLength()};
+
+    if (regex_value == nullptr || !regex_value->IsString() ||
+        regex_value->GetStringLength() == 0) {
+      report_bad_field_regex(
+          audit_rule,
+          "event field definition 'field' 'regex' must be a non-empty string");
+      return nullptr;
+    }
+    std::string pattern{regex_value->GetString(),
+                        regex_value->GetStringLength()};
+
+    if (class_name.empty()) {
+      report_bad_field_regex(audit_rule,
+                             "regex condition requires an event class");
+      return nullptr;
+    }
+    if (!is_valid_event_field_name(class_name, field_name)) {
+      report_bad_field_regex(
+          audit_rule, "field name '" + escape_diagnostic_text(field_name) +
+                          "' is not valid for event class '" +
+                          escape_diagnostic_text(class_name) + "'");
+      return nullptr;
+    }
+    if (get_event_field_value_type(class_name, field_name) !=
+        EventFieldValueType::String) {
+      report_bad_field_regex(
+          audit_rule, "field '" + escape_diagnostic_text(field_name) +
+                          "' is not a string field; 'regex' applies only to "
+                          "string fields");
+      return nullptr;
+    }
+
+    AuditRegex compiled{pattern};
+    if (!compiled.valid()) {
+      const auto &failure = compiled.failure();
+      if (failure.category == RegexFailureCategory::Size) {
+        report_bad_field_regex(audit_rule,
+                               "regular expression exceeds 16384 UTF-8 bytes");
+      } else if (failure.category == RegexFailureCategory::Encoding) {
+        report_bad_field_regex(audit_rule, "pattern is not valid UTF-8");
+      } else if (failure.category == RegexFailureCategory::Allocation) {
+        report_bad_field_regex(
+            audit_rule, "out of memory while constructing regex condition");
+      } else {
+        report_bad_field_regex(
+            audit_rule,
+            invalid_regex_reason(escape_diagnostic_text(field_name), failure));
+      }
+      return nullptr;
+    }
+
+    DBUG_EXECUTE_IF("audit_log_filter_regex_compile_bad_alloc",
+                    throw std::bad_alloc(););
+    auto escaped_filter =
+        escape_diagnostic_text(audit_rule->get_rule_name_view());
+    auto escaped_field = escape_diagnostic_text(field_name);
+    auto preview = escape_diagnostic_text(pattern);
+    return std::make_shared<event_field_condition::EventFieldConditionRegex>(
+        std::move(field_name), std::move(compiled), std::move(escaped_filter),
+        std::move(escaped_field), std::move(preview));
+  } catch (const std::bad_alloc &) {
+    if (audit_rule->get_parse_error().empty()) {
+      try {
+        report_bad_field_regex(
+            audit_rule, "out of memory while constructing regex condition");
+      } catch (...) {
+      }
+    }
+    return nullptr;
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 std::shared_ptr<EventFieldConditionBase> AuditRuleParser::parse_condition_json(
     const rapidjson::Value &condition_json,
     const EventFieldConditionType cond_type, const std::string &class_name,
@@ -762,6 +963,11 @@ std::shared_ptr<EventFieldConditionBase> AuditRuleParser::parse_condition_json(
         audit_rule->set_parse_error(
             "condition definition 'field' must be of object type");
         return nullptr;
+      }
+
+      if (field_has_exact_member(condition_json["field"], "regex")) {
+        return parse_field_regex_json(condition_json["field"], class_name,
+                                      audit_rule);
       }
 
       if (!condition_json["field"].HasMember("name") ||

@@ -289,6 +289,11 @@ class SysVars {
   static void inc_events_lost() noexcept;
 
   /**
+   * @brief Increment counter of regex evaluations that returned an error.
+   */
+  static void inc_regex_match_errors() noexcept;
+
+  /**
    * @brief Increment counter of events handled by the audit log plugin
    *        that were filtered.
    */

@@ -35,6 +35,61 @@ filter-definition validation through `audit_log_filter_set_filter()`.
   escaped for the log: the event is counted as lost, nothing is written, and
   `audit_log_read_bookmark()` is not advanced.
 
+- A `field` object may use `regex` instead of `value`. The object then contains
+  exactly one `name` and one `regex`. `value` and `regex` together, repeated
+  members, and unknown members are rejected. An empty pattern is rejected;
+  use `^$` or `\A\z` to match an empty string. A one-byte NUL pattern is not
+  empty. Legacy `value` objects keep their existing parsing, including ignored
+  extra members and literal comparison (`orders.*` does not mean "orders"
+  followed by anything).
+- `regex` is an ICU Unicode regular expression, searched with `find()` anywhere
+  in the field. It is case-sensitive unless the pattern uses an inline flag
+  such as `(?i)`. It is not POSIX ERE or PCRE. ICU `$` can match before a final
+  line terminator; `\A` and `\z` anchor the whole value. Prefer `[0-9]` in
+  examples. In JSON a backslash is escaped (`"\\A\\z"`); a SQL string literal
+  needs another level of escaping.
+- `regex` applies only to fields whose declared type is string, and only to a
+  field name that exists for that event class. The subject is the string
+  already stored in the event field map, interpreted as UTF-8. Malformed
+  sequences are replaced with U+FFFD for matching only. The predicate does not
+  transcode from the statement charset, so a UTF-8 literal such as `café` does
+  not match raw Latin-1 `caf\xE9`, while an ASCII marker still can. That is
+  separate from log output, which is converted to UTF-8 after filtering and
+  replaces malformed bytes with `?`.
+- `general_query.str` and table-access `query.str` come from the captured
+  statement. If capture is unavailable the map contains a present empty string
+  of length zero, not a missing field, so `^$` matches it. Some other string
+  fields are still extracted with a helper that stops at the first NUL; `regex`
+  matches the bytes that helper stored and does not recover the rest.
+- Each regex leaf is limited to 32 ICU engine-work units and 8,000,000
+  backtracking-stack bytes, independent of the SQL `regexp_time_limit` and
+  `regexp_stack_limit` variables. A timeout, stack exhaustion, or other engine
+  failure makes that leaf false, increments `Audit_log_filter_regex_match_errors`
+  once, and writes a warning at most once per 60 seconds for that compiled
+  condition. A missing field or a normal miss does not. The warning names the
+  filter, a bounded pattern preview, the field, and the failure category. It
+  does not include the subject text. A killed statement, a killed session, or
+  `MAX_EXECUTION_TIME` does not by itself cancel regex evaluation or count as a
+  regex error. A regex failure is not an `Audit_log_filter_events_lost` event.
+  Because the leaf is only true or false, a failure can drop a record that a
+  positive `log` rule would have kept, or let a statement through a positive
+  `abort` rule.
+- Patterns are compiled when the definition is validated. Before upgrade, list
+  stored definitions that already contain a `regex` member, including nested
+  replacement rules, and rewrite them if they were only legal because unknown
+  members used to be ignored:
+
+  ```sql
+  SELECT name
+  FROM mysql.audit_log_filter
+  WHERE JSON_CONTAINS_PATH(filter, 'one', '$**.regex');
+  ```
+
+  A string value equal to `regex` is not a member and is not returned. To
+  downgrade, remove or rewrite every regex definition, flush, reconnect, and
+  confirm ordinary filtering before starting the older binary. Copy regex
+  definitions only to servers that understand them.
+
 - The names below are filter-definition names, not necessarily the names used by
   the JSON log formatter.
 - `Field Type` reflects the type accepted by the current validator in

@@ -1,0 +1,10 @@
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+# Change user picks up the new account filter
+# Named character and numeric-looking FULL-mode field
+# REDUCED load skips a disabled class and keeps the table predicate
+# Restart keeps the stored filter
+# Unload stops filtering and reinstall restores it
+# Two clients, ten inserts each
+regex reload OK

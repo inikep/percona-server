@@ -1,0 +1,300 @@
+# PS-11118: regex construction and runtime failure seams.
+--source include/have_component_audit_log.inc
+--source include/have_debug.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong argument: incorrect rule definition");
+call mtr.add_suppression("Component audit_log_filter reported: 'Audit log filter '.*': regex");
+call mtr.add_suppression("std::bad_alloc");
+call mtr.add_suppression("Invalid audit query charset or buffer");
+call mtr.add_suppression("Audit query output was not prepared");
+
+--let rx_spec_file = $MYSQLTEST_VARDIR/tmp/rx_err_spec.txt
+--disable_query_log
+--disable_result_log
+SET NAMES utf8mb4;
+
+CREATE USER rx_err@localhost IDENTIFIED BY 'rx';
+GRANT ALL ON test.* TO rx_err@localhost;
+GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO rx_err@localhost;
+CREATE TABLE rx_err_data (id INT PRIMARY KEY);
+CREATE TABLE secret_err (id INT PRIMARY KEY);
+
+--echo # Compile allocation failure
+SET SESSION debug='+d,audit_log_filter_regex_compile_bad_alloc';
+--let $oom = `SELECT audit_log_filter_set_filter('rx_oom', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"rx_err_data"}}}}}}')`
+if ($oom != "ERROR: Incorrect rule definition: out of memory while constructing regex condition")
+{
+  --echo $oom
+  --die unexpected compile allocation diagnostic
+}
+--let $rows = `SELECT COUNT(*) FROM mysql.audit_log_filter WHERE name = 'rx_oom'`
+if ($rows != 0)
+{
+  --die compile allocation failure persisted a row
+}
+SET SESSION debug='-d,audit_log_filter_regex_compile_bad_alloc';
+--let $ok = `SELECT audit_log_filter_set_filter('rx_oom', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"rx_err_data"}}}}}}')`
+if ($ok != OK)
+{
+  --echo $ok
+  --die compile path did not recover
+}
+
+--echo # Positive log treats the injected failure as a non-match
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_oom');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--let $lost_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_lost'`
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_err_data VALUES (1);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--let $lost = `SELECT VARIABLE_VALUE - $lost_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_lost'`
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--write_file $rx_spec_file
+table|test|rx_err_data|insert|0
+EOF
+--source filter_definition_regex_check_log.inc
+if ($delta != 1)
+{
+  --die positive log expected +1 regex error
+}
+if ($lost != 0)
+{
+  --die regex failure must not increment events_lost
+}
+disconnect rx;
+
+--echo # Negated log keeps the record
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_not', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"not":{"field":{"name":"table_name.str","regex":"rx_err_data"}}}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_not');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_err_data VALUES (2);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+table|test|rx_err_data|insert|1
+EOF
+--source filter_definition_regex_check_log.inc
+if ($delta != 1)
+{
+  --die negated log expected +1 regex error
+}
+disconnect rx;
+
+--echo # Positive abort allows the statement
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_abort_err', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","abort":{"field":{"name":"table_name.str","regex":"^secret_err$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_abort_err');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO secret_err VALUES (1);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+--let $rows = `SELECT COUNT(*) FROM secret_err`
+if ($rows != 1)
+{
+  --die abort failure should allow the insert
+}
+if ($delta != 1)
+{
+  --die abort failure expected +1 regex error
+}
+disconnect rx;
+
+--echo # Print replaces the original text
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SET @print = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'rx_print_secret'));
+SET @action = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'print', CAST(@print AS JSON), 'replace', JSON_OBJECT('function', JSON_OBJECT('name', 'query_digest'))));
+SET @definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', CAST('true' AS JSON), 'print', CAST(@action AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_print_err', @definition);
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_print_err');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+SELECT 'rx_print_secret';
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|0|rx_print_secret
+sql|1|SELECT ?
+EOF
+--source filter_definition_regex_check_log.inc
+# The SET that enables the hook is itself a general/status event, so the
+# injected failure is counted for that statement and for the SELECT.
+if ($delta != 2)
+{
+  --die print failure expected +2 regex errors
+}
+disconnect rx;
+
+--echo # Activation does not arm the replacement
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_act_err', '{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_act_sentinel"}},"filter":{"ref":"main"}}},"activate":{"field":{"name":"table_name.str","regex":"rx_err_data"}}}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_act_err');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+SELECT audit_log_rotate();
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_err_data VALUES (3);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+SELECT 'rx_act_sentinel';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+--let rx_log = `SELECT audit_log_rotate()`
+--remove_file $rx_spec_file
+--write_file $rx_spec_file
+sql|0|rx_act_sentinel
+EOF
+--source filter_definition_regex_check_log.inc
+if ($delta != 1)
+{
+  --die activation failure expected +1 regex error, got $delta
+}
+disconnect rx;
+
+--echo # Short-circuit controls do not evaluate the regex
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_and_short', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"and":[{"field":{"name":"table_database.str","value":"no_such_db"}},{"field":{"name":"table_name.str","regex":"rx_err_data"}}]}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_and_short');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_err_data VALUES (4);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+if ($delta != 0)
+{
+  --die AND short-circuit expected +0 regex errors
+}
+disconnect rx;
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_or_short', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_database.str","value":"test"}},{"field":{"name":"table_name.str","regex":"rx_err_data"}}]}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_or_short');
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_err_data VALUES (5);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+if ($delta != 0)
+{
+  --die OR short-circuit expected +0 regex errors
+}
+disconnect rx;
+
+--echo # Two failing conditions warn once each
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_two', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"or":[{"field":{"name":"table_name.str","regex":"^rx_err_data$"}},{"field":{"name":"table_database.str","regex":"^test$"}}]}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_two');
+perl;
+  open my $f, '<', "$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $n = 0;
+  while (<$f>) { $n++ if /U_MEMORY_ALLOCATION_ERROR/ }
+  close $f;
+  open my $o, '>', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_alloc_warns.txt" or die $!;
+  print $o $n;
+  close $o;
+EOF
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SET SESSION debug='+d,audit_log_filter_regex_runtime_error';
+INSERT INTO rx_err_data VALUES (6);
+INSERT INTO rx_err_data VALUES (7);
+SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+if ($delta != 4)
+{
+  --die two conditions twice expected +4 regex errors
+}
+perl;
+  open my $f, '<', "$ENV{MYSQLTEST_VARDIR}/log/mysqld.1.err" or die $!;
+  my $n = 0;
+  while (<$f>) { $n++ if /U_MEMORY_ALLOCATION_ERROR/ }
+  close $f;
+  open my $o, '<', "$ENV{MYSQLTEST_VARDIR}/tmp/rx_alloc_warns.txt" or die $!;
+  my $before = 0 + <$o>;
+  close $o;
+  my $delta = $n - $before;
+  die "expected 2 allocation warnings, got $delta\n" if $delta != 2;
+EOF
+disconnect rx;
+
+--echo # Output failures after a successful regex do not increment the regex counter
+SELECT audit_log_filter_remove_user('rx_err@localhost');
+SELECT audit_log_filter_set_filter('rx_out', '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"secret_query_marker"}}}}}}');
+SELECT audit_log_filter_set_user('rx_err@localhost', 'rx_out');
+connect(rx, localhost, rx_err, rx, test);
+--connection rx
+SELECT 1 AS seed_query_marker;
+--connection default
+--let $before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--let $lost_before = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_lost'`
+--connection rx
+SET SESSION debug='+d,audit_log_filter_unknown_query_charset';
+SELECT 1 AS secret_query_marker;
+SET SESSION debug='-d,audit_log_filter_unknown_query_charset';
+SET SESSION debug='+d,audit_log_filter_query_output_bad_alloc';
+SELECT 1 AS secret_query_marker;
+SET SESSION debug='-d,audit_log_filter_query_output_bad_alloc';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--let $lost = `SELECT VARIABLE_VALUE - $lost_before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_lost'`
+--connection default
+if ($delta != 0)
+{
+  --die output failure incremented regex errors
+}
+if ($lost != 2)
+{
+  --die output failure expected 2 lost events
+}
+--connection rx
+SET SESSION debug='+d,audit_log_filter_query_capture_bad_alloc';
+SELECT 1 AS secret_query_marker;
+SET SESSION debug='-d,audit_log_filter_query_capture_bad_alloc';
+--let $delta = `SELECT VARIABLE_VALUE - $before FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_regex_match_errors'`
+--connection default
+if ($delta != 0)
+{
+  --die capture failure incremented regex errors
+}
+disconnect rx;
+
+--remove_file $rx_spec_file
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_alloc_warns.txt
+DROP TABLE rx_err_data, secret_err;
+DROP USER rx_err@localhost;
+--enable_result_log
+--enable_query_log
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
+--echo regex error seams OK
