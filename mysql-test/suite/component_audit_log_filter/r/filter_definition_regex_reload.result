@@ -1,0 +1,192 @@
+call mtr.add_suppression("Component audit_log_filter reported: 'Wrong JSON filter '.*' format");
+call mtr.add_suppression("Component audit_log_filter reported: 'audit_log_filter name: .*, filter: .* has wrong format");
+call mtr.add_suppression("Component audit_log_filter reported: 'Skipping disabled event");
+call mtr.add_suppression("Component audit_log_filter reported: 'Failed to load filtering rules");
+CREATE DATABASE tpcc;
+CREATE TABLE tpcc.orders1 (id INT PRIMARY KEY AUTO_INCREMENT, v INT);
+CREATE TABLE tpcc.history1 LIKE tpcc.orders1;
+CREATE USER rx_app@localhost;
+GRANT ALL ON tpcc.* TO rx_app@localhost;
+# Regex match errors: +0
+SELECT audit_log_filter_set_filter('rx_reload', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^orders[0-9]+$"}}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload') AS result;
+result
+OK
+#
+# A failed reload keeps the last published rules for old and new sessions
+#
+INSERT INTO orders1 (v) VALUES (0);
+UPDATE mysql.audit_log_filter SET filter = '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^(orders"}}}}}}' WHERE name = 'rx_reload';
+SELECT audit_log_filter_flush() AS result;
+result
+ERROR: Filter 'rx_reload' has wrong format: invalid regular expression for field 'table_name.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 8
+INSERT INTO orders1 (v) VALUES (1);
+INSERT INTO orders1 (v) VALUES (2);
+# Records: 2
+#   2 x table_access insert tpcc.orders1
+#
+# A successful reload is used after reconnecting
+#
+UPDATE mysql.audit_log_filter SET filter = '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^history[0-9]+$"}}}}}}' WHERE name = 'rx_reload';
+SELECT audit_log_filter_flush() AS result;
+result
+OK
+INSERT INTO orders1 (v) VALUES (3);
+INSERT INTO history1 (v) VALUES (3);
+INSERT INTO orders1 (v) VALUES (4);
+INSERT INTO history1 (v) VALUES (4);
+# Records: 2
+#   2 x table_access insert tpcc.history1
+#
+# Removal and reassignment
+#
+SELECT audit_log_filter_remove_filter('rx_reload') AS result;
+result
+OK
+INSERT INTO history1 (v) VALUES (5);
+# Records: 0
+SELECT audit_log_filter_set_filter('rx_reload', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^orders[0-9]+$"}}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload') AS result;
+result
+OK
+INSERT INTO orders1 (v) VALUES (6);
+INSERT INTO history1 (v) VALUES (6);
+# Change user keeps resolving the rule
+INSERT INTO orders1 (v) VALUES (7);
+# Records: 2
+#   2 x table_access insert tpcc.orders1
+#
+# Concurrent clients while rules are reloaded
+#
+CREATE PROCEDURE tpcc.rx_insert_rows(base INT)
+BEGIN
+DECLARE i INT DEFAULT 0;
+WHILE i < 10 DO
+INSERT INTO tpcc.orders1 (v) VALUES (base + i);
+SET i = i + 1;
+END WHILE;
+END|
+CALL rx_insert_rows(1000);
+CALL rx_insert_rows(2000);
+SELECT audit_log_filter_flush();
+SELECT audit_log_filter_flush();
+# Sessions detach after the successful flush, overlapping evaluations
+# may use either rule set and are not counted
+# After reconnecting, 2 x 10 inserts are logged
+CALL rx_insert_rows(3000);
+CALL rx_insert_rows(4000);
+# Records: 20
+#   20 x table_access insert tpcc.orders1
+# Regex match errors: +0
+#
+# REDUCED event mode skips whole disabled classes before parsing their
+# conditions, conditions of disabled subclasses are still validated
+#
+SELECT @@global.audit_log_filter.event_mode;
+@@global.audit_log_filter.event_mode
+REDUCED
+SELECT audit_log_filter_set_filter('rx_reduced_class', '{"filter": {"class": {"name": "table_access"}}}') AS result;
+result
+OK
+UPDATE mysql.audit_log_filter SET filter = '{"filter": {"class": [{"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "regex": "^(bad"}}}}, {"name": "table_access"}]}}' WHERE name = 'rx_reduced_class';
+SELECT audit_log_filter_flush() AS result;
+result
+OK
+SET GLOBAL audit_log_filter.event_mode = FULL;
+SELECT audit_log_filter_flush() AS result;
+result
+ERROR: Filter 'rx_reduced_class' has wrong format: invalid regular expression for field 'query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 5
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+SELECT audit_log_filter_flush() AS result;
+result
+OK
+SELECT audit_log_filter_remove_filter('rx_reduced_class') AS result;
+result
+OK
+SELECT audit_log_filter_set_filter('rx_reduced_subclass', '{"filter": {"class": {"name": "table_access"}}}') AS result;
+result
+OK
+UPDATE mysql.audit_log_filter SET filter = '{"filter": {"class": {"name": "general", "event": {"name": "log", "log": {"field": {"name": "general_query.str", "regex": "^(bad"}}}}}}' WHERE name = 'rx_reduced_subclass';
+SELECT audit_log_filter_flush() AS result;
+result
+ERROR: Filter 'rx_reduced_subclass' has wrong format: invalid regular expression for field 'general_query.str': U_REGEX_MISMATCHED_PAREN at line 1, offset 5
+SELECT audit_log_filter_remove_filter('rx_reduced_subclass') AS result;
+result
+OK
+SELECT audit_log_filter_flush() AS result;
+result
+OK
+#
+# Numeric-looking string fields are eligible in FULL mode
+#
+SET GLOBAL audit_log_filter.event_mode = FULL;
+SELECT audit_log_filter_set_filter('rx_numeric_string', '{"filter": {"class": {"name": "global_variable", "event": {"name": "get", "log": {"field": {"name": "connection_id", "regex": "^[0-9]+$"}}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_filter('rx_query_sql_command', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "^SELECT"}}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_remove_filter('rx_numeric_string') AS result;
+result
+OK
+SELECT audit_log_filter_remove_filter('rx_query_sql_command') AS result;
+result
+OK
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+#
+# Restart keeps using stored regex filters
+#
+# restart
+SELECT audit_log_filter_flush() AS result;
+result
+OK
+INSERT INTO orders1 (v) VALUES (8);
+INSERT INTO history1 (v) VALUES (8);
+# Records: 1
+#   1 x table_access insert tpcc.orders1
+#
+# ICU data dependent patterns before and after component reinstallation,
+# server REGEXP is not affected
+#
+SELECT 'aaa' REGEXP '^\\N{LATIN SMALL LETTER A}+$' AS server_regexp;
+server_regexp
+1
+SELECT audit_log_filter_set_filter('rx_named', REPLACE('{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "~~N{LATIN SMALL LETTER A}{3}_named"}}}}}}', '~', CHAR(92))) AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_named') AS result;
+result
+OK
+SELECT 'aaa_named';
+aaa_named
+aaa_named
+SELECT 'bbb_named';
+bbb_named
+bbb_named
+# Records: 1
+#   1 x general SELECT 'aaa_named'
+# Regex match errors: +0
+SELECT 'aaa' REGEXP '^\\N{LATIN SMALL LETTER A}+$' AS server_regexp;
+server_regexp
+1
+SELECT 'aaa' REGEXP '^\\N{LATIN SMALL LETTER A}+$' AS server_regexp;
+server_regexp
+1
+SELECT 'aaa_named';
+aaa_named
+aaa_named
+SELECT 'bbb_named';
+bbb_named
+bbb_named
+# Records: 1
+#   1 x general SELECT 'aaa_named'
+# Regex match errors: +0
+#
+# Cleanup
+#
+DROP USER rx_app@localhost;
+DROP DATABASE tpcc;
