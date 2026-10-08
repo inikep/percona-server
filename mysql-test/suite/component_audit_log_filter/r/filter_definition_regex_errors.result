@@ -355,8 +355,9 @@ rx_marker_3
 #   1 x general SELECT 100 AS rx_marker_100
 #   1 x general SELECT 3 AS rx_marker_3
 # Regex match errors: +0
-# Case: separated record allocation failure, the bookmark of the lost
-# record is not published
+# Case: separated record allocation failure; with the JSON format,
+# the only one supported by audit_log_read_bookmark(), the bookmark
+# of the lost record is not published
 # A record precedes the failing one in the log file
 SELECT 100 AS rx_marker_100;
 rx_marker_100
@@ -374,13 +375,13 @@ SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_statu
 written
 0
 # Regex match errors: +0
-# Bookmark unchanged
+# JSON format: bookmark unchanged
 SET SESSION debug = '-d,audit_log_filter_write_payload_bad_alloc';
 # Healthy session afterwards
 SELECT 4 AS rx_marker_4;
 rx_marker_4
 4
-# Bookmark advanced
+# JSON format: bookmark advanced
 # Records: 2
 #   1 x general SELECT 100 AS rx_marker_100
 #   1 x general SELECT 4 AS rx_marker_4

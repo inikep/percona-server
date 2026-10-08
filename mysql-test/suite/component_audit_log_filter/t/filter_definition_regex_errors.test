@@ -210,8 +210,9 @@ while ($rx_case_i < 8) {
     --let $rx_hooks = audit_log_filter_query_output_not_ready
   }
   if ($rx_case_i == 4) {
-    --echo # Case: separated record allocation failure, the bookmark of the lost
-    --echo # record is not published
+    --echo # Case: separated record allocation failure; with the JSON format,
+    --echo # the only one supported by audit_log_read_bookmark(), the bookmark
+    --echo # of the lost record is not published
     --let $rx_hooks = audit_log_filter_write_payload_bad_alloc
   }
   if ($rx_case_i == 5) {
@@ -256,14 +257,15 @@ while ($rx_case_i < 8) {
   SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
   --source filter_definition_regex_errors.inc
   if ($rx_case_i == 4) {
-    # audit_log_read_bookmark() is available for the JSON format only
+    # The bookmark lines are printed for both combinations, which share the
+    # result file, but are checked by the JSON combination only
     if ($rx_format == JSON) {
       --let $rx_bookmark_unchanged = `SELECT audit_log_read_bookmark() = @bookmark`
       if ($rx_bookmark_unchanged != 1) {
         --die The bookmark of the lost record was published
       }
     }
-    --echo # Bookmark unchanged
+    --echo # JSON format: bookmark unchanged
   }
   connection rx_hooked;
   eval SET SESSION debug = '-d,$rx_hooks';
@@ -281,7 +283,7 @@ while ($rx_case_i < 8) {
         --die The bookmark of the next record was not published
       }
     }
-    --echo # Bookmark advanced
+    --echo # JSON format: bookmark advanced
   }
   --source filter_definition_regex_summary.inc
   --source filter_definition_regex_errors.inc

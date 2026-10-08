@@ -450,13 +450,23 @@ rx_next_sentinel
 rx_next_sentinel
 # Records: 1
 #   1 x general SELECT 'rx_next_sentinel'
-# The activated replacement stays in effect for the published rule, even
-# for new sessions, until the rules are reloaded. Starting from reloaded
-# rules and a fresh session, a nonmatching insert does not activate it
+# Known issue, independent of regex conditions: the replace_filter action
+# stores the activated replacement in the rule object shared by all
+# sessions using the filter, so a new session starts with the replacement
+# still active. A nonmatching insert followed by the sentinel statement
+# records the current behaviour; a fix changes this result
+INSERT INTO keep_1 VALUES (2, 2);
+SELECT 'rx_next_sentinel';
+rx_next_sentinel
+rx_next_sentinel
+# Records: 1
+#   1 x general SELECT 'rx_next_sentinel'
+# Starting from reloaded rules and a fresh session, a nonmatching insert
+# does not activate the replacement
 SELECT audit_log_filter_flush() AS result;
 result
 OK
-INSERT INTO keep_1 VALUES (2, 2);
+INSERT INTO keep_1 VALUES (3, 3);
 SELECT 'rx_next_sentinel';
 rx_next_sentinel
 rx_next_sentinel
@@ -616,10 +626,11 @@ OK
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_stmt_timeout') AS result;
 result
 OK
-# One query/status_end and one general/status record of the statement
+# One query/status_end and one general/status record of the statement,
+# the hint and sleep arguments depend on have_statement_timeout
 # Records: 2
-#   1 x general <masked>
-#   1 x query <masked>
+#   1 x general SELECT /*+ MAX_EXECUTION_TIME(<masked>) */ *, SLEEP(<masked>) FROM rx_kill_data /* rx_timeout_marker */
+#   1 x query SELECT /*+ MAX_EXECUTION_TIME(<masked>) */ *, SLEEP(<masked>) FROM rx_kill_data /* rx_timeout_marker */
 # Regex match errors: +0
 SELECT audit_log_filter_remove_filter('rx_stmt_timeout') AS result;
 result

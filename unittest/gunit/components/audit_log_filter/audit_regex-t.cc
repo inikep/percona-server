@@ -503,10 +503,17 @@ TEST(AuditRegex, CompileAllocationFailures) {
  * state), the UText is stack allocated. ICU reports a failure to grow the
  * backtracking stack as U_REGEX_STACK_OVERFLOW.
  *
- * ICU 77.1 itself leaks one allocation when cloning the subject fails in
- * RegexMatcher::reset(): utext_setup() clears UTEXT_OPEN of the matcher's
- * heap allocated UText, so utext_close() in the matcher destructor does not
- * free it. Anything beyond that would be leaked by the wrapper.
+ * ICU itself (seen with 74.2 and 77.1) leaks one allocation when cloning
+ * the subject fails in RegexMatcher::reset(): utext_setup() clears
+ * UTEXT_OPEN of the matcher's heap allocated UText, so utext_close() in the
+ * matcher destructor does not free it. This is tolerated for a single
+ * injected allocation only, anything else would be leaked by the wrapper.
+ *
+ * Which allocations ICU makes, and how it reports their failures, depends
+ * on the ICU version, so only properties holding for any of them are
+ * checked: every injected failure is an error of an expected category, it
+ * does not affect the shared pattern, and nothing outlives an evaluation
+ * apart from the known leak.
  */
 TEST(AuditRegex, MatchAllocationFailures) {
   auto re = compile_ok(kAllocationPattern);
@@ -518,6 +525,7 @@ TEST(AuditRegex, MatchAllocationFailures) {
   for (int sweep = 0; sweep < 2; ++sweep) {
     long outstanding = alloc_fault::icu_outstanding.load();
     int injected = 0;
+    int leaking = 0;
 
     for (long n = 0; n < 100000; ++n) {
       RegexError error;
@@ -543,13 +551,16 @@ TEST(AuditRegex, MatchAllocationFailures) {
       EXPECT_EQ(find(*re, "orders1"), RegexMatchResult::Match);
 
       if (sweep > 0) {
-        EXPECT_LE(alloc_fault::icu_outstanding.load() - outstanding, 1)
-            << "allocation " << n;
+        const long leaked = alloc_fault::icu_outstanding.load() - outstanding;
+        EXPECT_GE(leaked, 0) << "allocation " << n;
+        EXPECT_LE(leaked, 1) << "allocation " << n;
+        if (leaked != 0) ++leaking;
       }
       outstanding = alloc_fault::icu_outstanding.load();
     }
 
     EXPECT_GT(injected, 0);
+    EXPECT_LE(leaking, 1);
   }
 }
 

@@ -454,15 +454,28 @@ SELECT 'rx_next_sentinel';
 connection default;
 --source filter_definition_regex_summary.inc
 disconnect rx;
---echo # The activated replacement stays in effect for the published rule, even
---echo # for new sessions, until the rules are reloaded. Starting from reloaded
---echo # rules and a fresh session, a nonmatching insert does not activate it
-SELECT audit_log_filter_flush() AS result;
+--echo # Known issue, independent of regex conditions: the replace_filter action
+--echo # stores the activated replacement in the rule object shared by all
+--echo # sessions using the filter, so a new session starts with the replacement
+--echo # still active. A nonmatching insert followed by the sentinel statement
+--echo # records the current behaviour; a fix changes this result
 connect (rx, localhost, rx_app,, tpcc);
 connection default;
 --source filter_definition_regex_begin.inc
 connection rx;
 INSERT INTO keep_1 VALUES (2, 2);
+SELECT 'rx_next_sentinel';
+connection default;
+--source filter_definition_regex_summary.inc
+disconnect rx;
+--echo # Starting from reloaded rules and a fresh session, a nonmatching insert
+--echo # does not activate the replacement
+SELECT audit_log_filter_flush() AS result;
+connect (rx, localhost, rx_app,, tpcc);
+connection default;
+--source filter_definition_regex_begin.inc
+connection rx;
+INSERT INTO keep_1 VALUES (3, 3);
 SELECT 'rx_next_sentinel';
 connection default;
 --source filter_definition_regex_summary.inc
@@ -718,13 +731,14 @@ if ($rx_have_timeout == YES) {
 }
 if ($rx_have_timeout != YES) {
   connection rx;
-  SELECT /* rx_timeout_marker */ 1 FROM rx_kill_data;
+  SELECT /*+ MAX_EXECUTION_TIME(0) */ *, SLEEP(0) FROM rx_kill_data /* rx_timeout_marker */;
 }
 --enable_result_log
 --enable_query_log
 connection default;
---echo # One query/status_end and one general/status record of the statement
---let rx_query_mask = rx_timeout_marker
+--echo # One query/status_end and one general/status record of the statement,
+--echo # the hint and sleep arguments depend on have_statement_timeout
+--let rx_query_mask = (?<=MAX_EXECUTION_TIME[(])[0-9]+|(?<=SLEEP[(])[0-9]+
 --source filter_definition_regex_summary.inc
 --let rx_query_mask =
 --source filter_definition_regex_errors.inc

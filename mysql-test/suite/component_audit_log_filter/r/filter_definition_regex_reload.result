@@ -66,20 +66,33 @@ CREATE PROCEDURE tpcc.rx_insert_rows(base INT)
 BEGIN
 DECLARE i INT DEFAULT 0;
 WHILE i < 50 DO
+IF i = 25 THEN
+DO GET_LOCK('rx_overlap', 60);
+DO RELEASE_LOCK('rx_overlap');
+END IF;
 INSERT INTO tpcc.orders1 (v) VALUES (base + i);
 INSERT INTO tpcc.history1 (v) VALUES (base + i);
 SET i = i + 1;
 END WHILE;
 END|
+# Both clients insert 25 row pairs under the published rule, then wait
+# for the changes to start and insert the remaining 25 pairs
+SELECT GET_LOCK('rx_overlap', 0) AS locked;
+locked
+1
 CALL rx_insert_rows(1000);
 CALL rx_insert_rows(2000);
+SELECT RELEASE_LOCK('rx_overlap') AS released;
+released
+1
 UPDATE mysql.audit_log_filter SET filter = '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^history[0-9]+$"}}}}}}' WHERE name = 'rx_reload';
 SELECT audit_log_filter_flush();
 SELECT audit_log_filter_remove_filter('rx_reload');
 SELECT audit_log_filter_set_filter('rx_reload', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^history[0-9]+$"}}}}}}');
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload');
-# Evaluations overlapping the changes may use any of the rule sets
-# All records are expected ones
+# Evaluations overlapping the changes may use any of the rule sets, the
+# 2 x 25 orders1 inserts before the changes are logged
+# At least 50 records, all are expected ones
 # After reconnecting, each of 2 x 10 concurrent inserts is logged once
 # according to the new rule
 # Records: 20

@@ -18,15 +18,17 @@
 #
 # [--let rx_expect_query = query text which must be present in a JSON record,
 #                          given as a Perl string with escapes]
-# [--let rx_query_mask = Perl regex, query texts matching it are shown as
-#                        <masked>]
+# [--let rx_query_mask = Perl regex, every part of a query text matching it
+#                        is shown as <masked>]
 # [--let rx_table_access_query = 1, append the statement text to table_access
 #                                records]
 # [--let rx_connection_names = space separated name=connection_id pairs,
 #                              connection records get the name of their
 #                              connection ID appended, 'other' if not listed]
 # [--let rx_allowed_records = Perl regex every record identity must match;
-#                             only their number is printed, not the records]
+#                             the records are not printed]
+# [--let rx_min_records = minimum number of records required together with
+#                         rx_allowed_records, printed instead of the number]
 # --source filter_definition_regex_summary.inc
 
 --source filter_definition_regex_sync.inc
@@ -70,7 +72,7 @@ perl;
     my ($q) = @_;
     $q //= '';
     my $mask = $ENV{rx_query_mask} // '';
-    return '<masked>' if $mask ne '' && $q =~ /$mask/;
+    $q =~ s/$mask/<masked>/g if $mask ne '';
     return $q;
   }
 
@@ -168,7 +170,11 @@ perl;
     for my $r (keys %count) {
       die "Unexpected record: $r" unless $r =~ /$allowed/;
     }
-    print "# All records are expected ones\n";
+    my $min = $ENV{rx_min_records} // '';
+    $min = 1 if $min eq '';
+    die "Expected at least $min records, found " . scalar(@records)
+      if @records < $min;
+    print "# At least $min records, all are expected ones\n";
   } else {
     print "# Records: " . scalar(@records) . "\n";
     print "#   $count{$_} x $_\n" for sort keys %count;
