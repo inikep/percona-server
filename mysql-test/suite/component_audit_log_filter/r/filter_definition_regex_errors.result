@@ -74,13 +74,13 @@ failed_payload_written
 query_capture_bad_alloc
 regex_errors
 0
-events_lost
-6
+events_lost_matches_control
+1
 query_charset_bad_alloc
 regex_errors
 0
-events_lost
-10
+events_lost_matches_control
+1
 regex_errors
 1
 events_lost

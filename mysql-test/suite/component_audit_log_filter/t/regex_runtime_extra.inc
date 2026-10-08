@@ -2,6 +2,7 @@
 connection default;
 SET @definition='{"filter":{"id":"main","class":{"name":"table_access","event":{"name":"insert","log":false,"filter":{"activate":{"field":{"name":"table_name.str","regex":"^temp_[0-9]+$"}},"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_sentinel"}}}}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.temp_1 VALUES (1);
@@ -37,6 +38,7 @@ perl;
 EOF
 SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex','café'))))));
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 --exec $MYSQL --default-character-set=latin1 -u rx test < $rx_sql.latin1 > $MYSQLTEST_VARDIR/tmp/regex.out
 --exec $MYSQL --default-character-set=utf8mb4 -u rx test < $rx_sql.utf8mb4 > $MYSQLTEST_VARDIR/tmp/regex.out
@@ -46,6 +48,7 @@ SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','gen
 --source regex_assign.inc
 --exec $MYSQL --default-character-set=latin1 -u rx test < $rx_sql.latin1 > $MYSQLTEST_VARDIR/tmp/regex.out
 --exec $MYSQL --default-character-set=utf8mb4 -u rx test < $rx_sql.utf8mb4 > $MYSQLTEST_VARDIR/tmp/regex.out
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
@@ -70,6 +73,7 @@ SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','gen
 --source regex_assign.inc
 --exec $MYSQL --default-character-set=latin1 -u rx test < $rx_sql.latin1 > $MYSQLTEST_VARDIR/tmp/regex.out
 --exec $MYSQL --default-character-set=utf8mb4 -u rx test < $rx_sql.utf8mb4 > $MYSQLTEST_VARDIR/tmp/regex.out
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
@@ -90,6 +94,7 @@ SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','gen
 --source regex_assign.inc
 --source regex_error_baseline.inc
 --exec $MYSQL --binary-mode --default-character-set=utf8mb4 -u rx test < $rx_sql.malformed > $MYSQLTEST_VARDIR/tmp/regex.out
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
@@ -111,19 +116,21 @@ EOF
 SET @definition='{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"nul_probe"}}}}}}';
 --source regex_assign.inc
 --exec $MYSQL --binary-mode -u rx test < $rx_sql.nul > $MYSQLTEST_VARDIR/tmp/regex.out
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   open my $f,'<:raw',"$ENV{rx_dir}/$ENV{rx_closed}" or die $!;
   my $log=do { local $/; <$f> };
   die 'Binary control not executed' unless 2==(()=$log=~/nul_probe_a/g);
 EOF
-SET @pattern=CONCAT('nul_probe_a',CHAR(92 USING utf8mb4),'x{00}b');
+SET @pattern=CONCAT('nul_probe_a',CHAR(0 USING utf8mb4),'b');
 SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex',@pattern))))));
 --source regex_assign.inc
 --enable_result_log
-SELECT JSON_UNQUOTE(JSON_EXTRACT(filter,'$.filter.class.event.log.field.regex'))=@pattern AS stored_pattern_exact FROM mysql.audit_log_filter WHERE name='rx';
+SELECT HEX(JSON_UNQUOTE(JSON_EXTRACT(filter,'$.filter.class.event.log.field.regex')))='6E756C5F70726F62655F610062' AS stored_pattern_exact FROM mysql.audit_log_filter WHERE name='rx';
 --disable_result_log
 --exec $MYSQL --binary-mode -u rx test < $rx_sql.nul > $MYSQLTEST_VARDIR/tmp/regex.out
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   if ($ENV{rx_format} eq 'JSON') {
@@ -148,11 +155,13 @@ SELECT audit_log_filter_set_filter('rx_users',@definition);
 SELECT audit_log_filter_set_user('app_svc_1@localhost','rx_users');
 SELECT audit_log_filter_set_user('app_svc_2@localhost','rx_users');
 SELECT audit_log_filter_set_user('other_user@localhost','rx_users');
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connect(u1,localhost,app_svc_1,,);
 connect(u2,localhost,app_svc_2,,);
 connect(u3,localhost,other_user,,);
 connection default;
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";

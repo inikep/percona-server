@@ -86,6 +86,21 @@ TEST(AuditFieldRegex, DiagnosticText) {
             diagnostic_text(std::string(90, 'a') + "\nxx"));
 }
 
+TEST(AuditFieldRegex, DiagnosticMalformedUtf8) {
+  using regex_detail::diagnostic_text;
+  EXPECT_EQ("\\xC0\\u0000\\u000A\\u0027",
+            diagnostic_text(std::string_view("\xc0\0\n'", 4)));
+  EXPECT_EQ("\\xE2\\u000A\\x80", diagnostic_text("\xe2\n\x80"));
+  EXPECT_EQ("\\xE0\\x80\\x80", diagnostic_text("\xe0\x80\x80"));
+  EXPECT_EQ("\\xED\\xA0\\x80", diagnostic_text("\xed\xa0\x80"));
+  EXPECT_EQ("\\xF4\\x90\\x80\\x80", diagnostic_text("\xf4\x90\x80\x80"));
+  EXPECT_EQ("\\xF0\\x9F\\x98", diagnostic_text("\xf0\x9f\x98"));
+  EXPECT_EQ("\\xFF\\\\", diagnostic_text("\xff\\"));
+  EXPECT_EQ("é😀", diagnostic_text("é😀"));
+  EXPECT_EQ(std::string(89, 'a') + "\\xC0...",
+            diagnostic_text(std::string(89, 'a') + "\xc0\n"));
+}
+
 TEST(AuditFieldRegex, LimiterPrecisionAndIndependence) {
   using Limiter = regex_detail::WarningLimiter;
   using namespace std::chrono;

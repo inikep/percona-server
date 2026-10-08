@@ -81,6 +81,17 @@ SELECT audit_log_filter_set_filter('rx35', '{"filter":{"class":{"name":"general"
 SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx35';
 SELECT audit_log_filter_set_filter('rx36', '{"filter":{"class":{"name":"table_access","event":{"name":"insert","filter":{"activate":{"field":{"name":"table_name.str","regex":""}},"class":{"name":"general","event":{"name":"status","log":true}}}}}}}') AS result;
 SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx36';
+# Binary keys must not hide control bytes inside malformed UTF-8 diagnostics.
+--disable_query_log
+SET @key_prefix='{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field":{"name":"table_name.str","regex":"x","';
+SET @key_suffix='":1}}}}}}';
+--enable_query_log
+SELECT audit_log_filter_set_filter('rx_bad_nul', CONCAT(CAST(@key_prefix AS BINARY),0xC05C7530303030,@key_suffix)) AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_bad_nul';
+SELECT audit_log_filter_set_filter('rx_bad_lf', CONCAT(CAST(@key_prefix AS BINARY),0xE25C6E,@key_suffix)) AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_bad_lf';
+SELECT audit_log_filter_set_filter('rx_bad_quote', CONCAT(CAST(@key_prefix AS BINARY),0xF027,@key_suffix)) AS result;
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_bad_quote';
 --error ER_CANT_INITIALIZE_UDF
 SELECT audit_log_filter_set_filter('rx_large', REPEAT('x', 16385));
 SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_large';

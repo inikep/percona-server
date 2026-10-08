@@ -744,12 +744,16 @@ AuditRuleParser::parse_field_regex_json(const rapidjson::Value &field,
   using regex_detail::diagnostic_text;
   // This lambda may allocate. It is called only inside a local exception guard.
   const auto reject = [&](std::string reason) {
-    const auto filter = diagnostic_text(audit_rule->get_rule_name_view());
     // Every variable part is bounded separately; the complete reason fits the
     // UDF's 512-byte response including its prefix and terminator.
+    const bool first_error = audit_rule->get_parse_error().empty();
     audit_rule->set_parse_error(std::move(reason));
+    // Retain the reason even if allocating the logging preview fails. A later
+    // rejection still logs its own reason without replacing the first one.
+    const auto &message = first_error ? audit_rule->get_parse_error() : reason;
+    const auto filter = diagnostic_text(audit_rule->get_rule_name_view());
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_PARSE_CONDITION_BAD_FIELD_REGEX,
-                    filter.c_str(), audit_rule->get_parse_error().c_str());
+                    filter.c_str(), message.c_str());
     return std::shared_ptr<EventFieldConditionBase>{};
   };
   try {

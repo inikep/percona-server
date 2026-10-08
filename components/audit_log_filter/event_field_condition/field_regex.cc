@@ -23,6 +23,28 @@
 
 namespace audit_log_filter::event_field_condition {
 namespace regex_detail {
+namespace {
+size_t utf8_sequence_length(std::string_view text, size_t pos) noexcept {
+  const auto lead = static_cast<unsigned char>(text[pos]);
+  if (lead < 0x80) return 1;
+  const size_t length = lead >= 0xc2 && lead <= 0xdf   ? 2
+                        : lead >= 0xe0 && lead <= 0xef ? 3
+                        : lead >= 0xf0 && lead <= 0xf4 ? 4
+                                                       : 0;
+  if (length == 0 || length > text.size() - pos) return 0;
+  for (size_t i = 1; i < length; ++i) {
+    const auto byte = static_cast<unsigned char>(text[pos + i]);
+    if (byte < 0x80 || byte > 0xbf) return 0;
+  }
+  const auto second = static_cast<unsigned char>(text[pos + 1]);
+  // Reject overlong encodings, surrogates and values above U+10FFFF.
+  if ((lead == 0xe0 && second < 0xa0) || (lead == 0xed && second >= 0xa0) ||
+      (lead == 0xf0 && second < 0x90) || (lead == 0xf4 && second > 0x8f))
+    return 0;
+  return length;
+}
+}  // namespace
+
 std::string diagnostic_text(std::string_view text) {
   constexpr size_t bound = 96;
   constexpr char hex[] = "0123456789ABCDEF";
@@ -32,6 +54,7 @@ std::string diagnostic_text(std::string_view text) {
   for (size_t pos = 0; pos < text.size();) {
     const auto ch = static_cast<unsigned char>(text[pos]);
     char escaped[6] = {'\\', 'u', '0', '0', hex[ch >> 4], hex[ch & 15]};
+    char invalid[4] = {'\\', 'x', hex[ch >> 4], hex[ch & 15]};
     std::string_view part;
     size_t consumed = 1;
     if (ch < 0x20 || ch == 0x7f || ch == '\'') {
@@ -39,15 +62,15 @@ std::string diagnostic_text(std::string_view text) {
     } else if (ch == '\\') {
       part = "\\\\";
     } else {
-      // Inputs are validated JSON/UTF-8. Keep complete code points together.
-      if (ch >= 0xf0)
-        consumed = 4;
-      else if (ch >= 0xe0)
-        consumed = 3;
-      else if (ch >= 0xc0)
-        consumed = 2;
-      if (consumed > text.size() - pos) consumed = 1;
-      part = text.substr(pos, consumed);
+      // JSON keys and filter names can contain malformed UTF-8. Never let an
+      // invalid lead byte hide a following NUL, control byte or apostrophe.
+      consumed = utf8_sequence_length(text, pos);
+      if (consumed == 0) {
+        consumed = 1;
+        part = {invalid, sizeof(invalid)};
+      } else {
+        part = text.substr(pos, consumed);
+      }
     }
     if (result.size() + part.size() > bound) {
       result.resize(truncation_boundary);

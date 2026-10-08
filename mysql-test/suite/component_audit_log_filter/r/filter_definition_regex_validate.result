@@ -220,6 +220,24 @@ ERROR: Incorrect rule definition: event field definition 'field' 'regex' must be
 SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx36';
 persisted
 0
+SELECT audit_log_filter_set_filter('rx_bad_nul', CONCAT(CAST(@key_prefix AS BINARY),0xC05C7530303030,@key_suffix)) AS result;
+result
+ERROR: Incorrect rule definition: unexpected key '\xC0\u0000' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_bad_nul';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx_bad_lf', CONCAT(CAST(@key_prefix AS BINARY),0xE25C6E,@key_suffix)) AS result;
+result
+ERROR: Incorrect rule definition: unexpected key '\xE2\u000A' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_bad_lf';
+persisted
+0
+SELECT audit_log_filter_set_filter('rx_bad_quote', CONCAT(CAST(@key_prefix AS BINARY),0xF027,@key_suffix)) AS result;
+result
+ERROR: Incorrect rule definition: unexpected key '\xF0\u0027' in 'field' definition
+SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_bad_quote';
+persisted
+0
 SELECT audit_log_filter_set_filter('rx_large', REPEAT('x', 16385));
 ERROR HY000: Can't initialize function 'audit_log_filter_set_filter'; Wrong argument: definition is too long, max length is 16384
 SELECT COUNT(*) AS persisted FROM mysql.audit_log_filter WHERE name='rx_large';

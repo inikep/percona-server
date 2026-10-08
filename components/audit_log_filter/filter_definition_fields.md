@@ -364,10 +364,13 @@ subsequent warnings from that instance are suppressed for 60 seconds using a
 monotonic clock. Every error is counted even while warnings are suppressed.
 Warnings identify the filter, field, escaped pattern preview, category and ICU
 status, never the subject. Previews expose pattern text and are bounded to 96
-bytes, with `...` for truncation; they are not unique identifiers. Different
-conditions have independent limiters. Reloads construct new conditions and
-reset those limiters, while sessions retaining an old condition retain its
-limiter. Many conditions or repeated reloads can therefore produce many warnings.
+bytes, with `...` for truncation; they are not unique identifiers. Diagnostic
+previews preserve valid UTF-8, escape malformed bytes as `\xXX`, escape control
+bytes and apostrophes as `\u00XX`, and double backslashes. Truncation preserves
+whole characters and escape sequences. Different conditions have independent
+limiters. Reloads construct new conditions and reset those limiters, while
+sessions retaining an old condition retain its limiter. Many conditions or
+repeated reloads can therefore produce many warnings.
 
 ### Upgrade, reload and downgrade
 

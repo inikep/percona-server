@@ -99,6 +99,7 @@ SELECT 11118 AS rx_error;
 SET SESSION debug='-d,audit_log_filter_regex_runtime_error';
 connection default;
 --source regex_error_delta.inc
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
@@ -215,28 +216,15 @@ SELECT VARIABLE_VALUE-@written AS failed_payload_written FROM performance_schema
 --disable_result_log
 --let rx_count = 1
 --source regex_check_count.inc
+# Compare capture failures against the same workload without a regex condition.
+# FULL mode emits several notifications per command; their exact number is not
+# part of the regex contract. Both runs must lose the same nonzero number.
 --echo query_capture_bad_alloc
---source regex_error_baseline.inc
-connection rx;
-SET SESSION debug='+d,audit_log_filter_query_capture_bad_alloc';
-SELECT 11118 AS rx_error;
-SET SESSION debug='-d,audit_log_filter_query_capture_bad_alloc';
-DO 0;
-connection default;
---source regex_error_delta.inc
---let rx_count = 0
---source regex_check_count.inc
+--let capture_hook = audit_log_filter_query_capture_bad_alloc
+--source regex_capture_failure.inc
 --echo query_charset_bad_alloc
---source regex_error_baseline.inc
-connection rx;
-SET SESSION debug='+d,audit_log_filter_query_charset_bad_alloc';
-SELECT 11118 AS rx_error;
-SET SESSION debug='-d,audit_log_filter_query_charset_bad_alloc';
-DO 0;
-connection default;
---source regex_error_delta.inc
---let rx_count = 0
---source regex_check_count.inc
+--let capture_hook = audit_log_filter_query_charset_bad_alloc
+--source regex_capture_failure.inc
 # A negated failed regex can reach an independently failing output stage.
 SET @condition=JSON_OBJECT('and',JSON_ARRAY(CAST(@guard AS JSON),JSON_OBJECT('not',CAST(@regex AS JSON))));
 SET @definition=JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST(@condition AS JSON)))));

@@ -22,6 +22,7 @@ SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":["i
 connect(rx,localhost,rx,,test);
 --let rx_connected = 1
 connection default;
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.new_orders1 VALUES (1);
@@ -43,6 +44,7 @@ INSERT INTO tpcc.history2 VALUES (1);
 UPDATE tpcc.history2 SET id=2;
 DELETE FROM tpcc.history2;
 connection default;
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
@@ -97,6 +99,7 @@ perl;
 EOF
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "^$"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`orders1` VALUES (1);
@@ -106,6 +109,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "\\\\A\\\\z"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`orders1` VALUES (1);
@@ -115,6 +119,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "value": "orders.*"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`orders1` VALUES (1);
@@ -123,6 +128,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "orders"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`new_orders1` VALUES (1);
@@ -132,6 +138,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "\\\\Aorders[0-9]+\\\\z"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`orders1` VALUES (1);
@@ -141,6 +148,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "^ORDERS[0-9]+$"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`orders1` VALUES (1);
@@ -149,6 +157,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "(?i)^ORDERS[0-9]+$"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`orders1` VALUES (1);
@@ -157,6 +166,7 @@ connection default;
 --source regex_check_count.inc
 SET @definition = '{"filter":{"class":{"name":"table_access","event":{"name":"insert","log":{"field": {"name": "table_name.str", "regex": "^zam.wienia[0-9]+$"}}}}}}';
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 INSERT INTO tpcc.`zamówienia1` VALUES (1);
@@ -175,6 +185,7 @@ EOF
 SET @definition = '{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"(a+)+$"}}}}}}';
 --source regex_assign.inc
 SET @before=(SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Audit_log_filter_regex_match_errors');
+--source regex_sync.inc
 SELECT audit_log_rotate();
 perl;
   use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
@@ -229,11 +240,13 @@ SELECT VARIABLE_VALUE-@before AS errors_after_short_circuit FROM performance_sch
 # Print conditions retain original text only on a match.
 SET @definition = JSON_OBJECT('filter',JSON_OBJECT('class',JSON_OBJECT('name','general','event',JSON_OBJECT('name','status','log',CAST('true' AS JSON),'print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','print',JSON_OBJECT('field',JSON_OBJECT('name','general_query.str','regex',"^SELECT 'keep")),'replace',JSON_OBJECT('function',JSON_OBJECT('name','query_digest'))))))));
 --source regex_assign.inc
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 SELECT 'keep_me';
 SELECT 'mask_me';
 connection default;
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";

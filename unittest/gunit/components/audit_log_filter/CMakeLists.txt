@@ -16,6 +16,7 @@ MYSQL_ADD_EXECUTABLE(audit_field_regex-t audit_field_regex-t.cc
 TARGET_COMPILE_DEFINITIONS(audit_field_regex-t PRIVATE LOG_COMPONENT_TAG="audit_log_filter")
 
 IF(WITH_ICU STREQUAL "bundled")
-  SET_TESTS_PROPERTIES(audit_regex PROPERTIES
-    ENVIRONMENT "ICU_DATA=${CMAKE_SOURCE_DIR}/extra/icu")
+  # The standalone binary must also find ICU data when run without ctest.
+  TARGET_COMPILE_DEFINITIONS(audit_regex-t PRIVATE
+    AUDIT_REGEX_TEST_ICU_DATA_DIR="${CMAKE_SOURCE_DIR}/extra/icu")
 ENDIF()

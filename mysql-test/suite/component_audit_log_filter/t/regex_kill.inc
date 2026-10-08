@@ -9,14 +9,17 @@ SET @before=(SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE V
 --let kill_mode = 0
 while ($kill_mode < 2) {
   if ($kill_mode == 0) {
+    --let kill_recovery_count = 1
     SET GLOBAL audit_log_filter.event_mode=REDUCED;
     SET @definition='{"filter":{"class":{"name":"general","event":{"name":"status","log":{"field":{"name":"general_query.str","regex":"rx_kill_(stmt|recovery)"}}}}}}';
   }
   if ($kill_mode == 1) {
+    --let kill_recovery_count = 0
     SET GLOBAL audit_log_filter.event_mode=FULL;
-    SET @definition='{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"query.str","regex":"rx_kill_(stmt|recovery)"}}}}}}';
+    SET @definition='{"filter":{"class":{"name":"query","event":{"name":"status_end","log":{"field":{"name":"query.str","regex":"rx_kill_stmt"}}}}}}';
   }
   --source regex_assign.inc
+  --source regex_sync.inc
   SELECT audit_log_rotate();
   BEGIN;
   SELECT * FROM rx_kill_data WHERE id=1 FOR UPDATE;
@@ -34,14 +37,15 @@ while ($kill_mode < 2) {
   DO 0;
   connection default;
   ROLLBACK;
+  --source regex_sync.inc
   --let rx_closed = `SELECT audit_log_rotate()`
   perl;
     require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
     my $r=regex_records();
-    die 'Killed statement/recovery count' unless @$r==2;
-    for my $marker(qw(rx_kill_stmt rx_kill_recovery)) {
-      die "Missing $marker" unless 1==grep {$_->{query}=~/\Q$marker\E/} @$r;
-    }
+    my $recovery = $ENV{kill_recovery_count};
+    die 'Killed statement/recovery count' unless @$r==1+$recovery;
+    die 'Missing killed statement' unless 1==grep {$_->{query}=~/rx_kill_stmt/} @$r;
+    die 'Wrong recovery count' unless $recovery==grep {$_->{query}=~/rx_kill_recovery/} @$r;
 EOF
   --inc $kill_mode
 }
@@ -51,6 +55,7 @@ SET @definition='{"filter":{"class":{"name":"connection","event":{"name":"discon
 connection rx;
 DO 0;
 connection default;
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection killer;
 --eval KILL CONNECTION $victim_id
@@ -61,9 +66,15 @@ connection default;
 --source regex_check_count.inc
 disconnect rx;
 connect(rx,localhost,rx,,test);
+--let normal_disconnect_id = `SELECT CONNECTION_ID()`
 DO 0;
 disconnect rx;
 connection default;
+--let wait_condition = SELECT COUNT(*)=0 FROM performance_schema.threads WHERE PROCESSLIST_ID=$normal_disconnect_id
+--source include/wait_condition.inc
+if (!$success) {
+  --die Normal disconnect did not finish
+}
 --let rx_count = 1
 --source regex_check_count.inc
 connect(rx,localhost,rx,,test);
@@ -73,6 +84,7 @@ SET @definition='{"filter":{"class":[{"name":"general","event":{"name":"status",
 --source regex_assign.inc
 BEGIN;
 SELECT * FROM rx_kill_data WHERE id=1 FOR UPDATE;
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx;
 --send UPDATE rx_kill_data SET v=v+1 WHERE id=1 /*rx_active_kill*/
@@ -88,6 +100,7 @@ connection default;
 --let wait_condition = SELECT COUNT(*)=0 FROM performance_schema.threads WHERE PROCESSLIST_ID=$victim_id
 --source include/wait_condition.inc
 ROLLBACK;
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";
@@ -103,6 +116,7 @@ SET @definition='{"filter":{"class":[{"name":"query","event":{"name":"status_end
 --source regex_assign.inc
 --let have_timeout = `SELECT @@have_statement_timeout='YES'`
 if ($have_timeout) {
+  --source regex_sync.inc
   SELECT audit_log_rotate();
   connection rx;
   --error ER_QUERY_TIMEOUT

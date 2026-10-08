@@ -14,6 +14,7 @@ UPDATE mysql.audit_log_filter SET filter=JSON_SET(filter,'$.filter.class.event.l
 SELECT audit_log_filter_flush() AS failed_flush;
 SELECT audit_log_filter_set_filter('another','{"filter":{"log":false}}') AS insert_despite_bad_row;
 --disable_result_log
+--source regex_sync.inc
 SELECT audit_log_rotate();
 connection rx1;
 INSERT INTO orders1 VALUES(1);
@@ -60,6 +61,7 @@ disconnect rx2;
 connect(rx1,localhost,rx,,test);
 connect(rx2,localhost,rx,,test);
 connection default;
+--source regex_sync.inc
 SELECT audit_log_rotate();
 --let n = 20
 while ($n > 0) {
@@ -71,6 +73,7 @@ while ($n > 0) {
   --dec $n
 }
 connection default;
+--source regex_sync.inc
 --let rx_closed = `SELECT audit_log_rotate()`
 perl;
   require "$ENV{MYSQL_TEST_DIR}/suite/component_audit_log_filter/t/regex_records.pl";

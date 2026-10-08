@@ -14,6 +14,7 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA */
 
 #include <gtest/gtest.h>
+#include <unicode/putil.h>
 #include <unicode/utypes.h>
 
 #include "components/audit_log_filter/audit_regex.h"
@@ -65,6 +66,13 @@ void operator delete[](void *p, const std::nothrow_t &) noexcept {
 
 namespace audit_log_filter {
 namespace {
+#ifdef AUDIT_REGEX_TEST_ICU_DATA_DIR
+// Keep direct invocation independent of the caller's ICU_DATA environment.
+[[maybe_unused]] const bool icu_data_ready = [] {
+  u_setDataDirectory(AUDIT_REGEX_TEST_ICU_DATA_DIR);
+  return true;
+}();
+#endif
 using Result = AuditRegex::Result;
 using Category = AuditRegex::Category;
 
