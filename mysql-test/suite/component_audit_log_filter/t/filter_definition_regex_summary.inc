@@ -18,6 +18,15 @@
 #
 # [--let rx_expect_query = query text which must be present in a JSON record,
 #                          given as a Perl string with escapes]
+# [--let rx_query_mask = Perl regex, query texts matching it are shown as
+#                        <masked>]
+# [--let rx_table_access_query = 1, append the statement text to table_access
+#                                records]
+# [--let rx_connection_names = space separated name=connection_id pairs,
+#                              connection records get the name of their
+#                              connection ID appended, 'other' if not listed]
+# [--let rx_allowed_records = Perl regex every record identity must match;
+#                             only their number is printed, not the records]
 # --source filter_definition_regex_summary.inc
 
 --source filter_definition_regex_sync.inc
@@ -54,6 +63,32 @@ perl;
   }
 
   my @json_queries;
+  my %connection_names = map { my ($n, $id) = split /=/; ($id => $n) }
+    split ' ', ($ENV{rx_connection_names} // '');
+
+  sub query_text {
+    my ($q) = @_;
+    $q //= '';
+    my $mask = $ENV{rx_query_mask} // '';
+    return '<masked>' if $mask ne '' && $q =~ /$mask/;
+    return $q;
+  }
+
+  sub table_access_record {
+    my ($event, $db, $table, $query) = @_;
+    my $r = "table_access $event $db.$table";
+    $r .= ' ' . query_text($query) if $ENV{rx_table_access_query};
+    return $r;
+  }
+
+  sub connection_record {
+    my ($event, $user, $id) = @_;
+    my $r = "connection $event $user";
+    if (%connection_names) {
+      $r .= ' ' . ($connection_names{$id // ''} // 'other');
+    }
+    return $r;
+  }
 
   if ($is_json) {
     require JSON;
@@ -69,15 +104,17 @@ perl;
       next if $class eq 'audit';
       if ($class eq 'table_access') {
         my $d = $r->{table_access_data};
-        push @records, "table_access $r->{event} $d->{db}.$d->{table}";
+        push @records, table_access_record($r->{event}, $d->{db}, $d->{table},
+                                           $d->{query});
       } elsif ($class eq 'general') {
         push @json_queries, $r->{general_data}->{query};
-        push @records, "general $r->{general_data}->{query}";
+        push @records, "general " . query_text($r->{general_data}->{query});
       } elsif ($class eq 'query') {
         push @json_queries, $r->{query_data}->{query};
-        push @records, "query $r->{query_data}->{query}";
+        push @records, "query " . query_text($r->{query_data}->{query});
       } elsif ($class eq 'connection') {
-        push @records, "connection $r->{event} $r->{login}->{user}";
+        push @records, connection_record($r->{event}, $r->{login}->{user},
+                                         $r->{connection_id});
       } else {
         push @records, "$class $r->{event}";
       }
@@ -96,22 +133,27 @@ perl;
       my $name = $r{NAME} // '';
       next if $name eq 'Audit' || $name eq 'NoAudit';
       if (exists $table_events{$name}) {
-        push @records, "table_access $table_events{$name} $r{DB}.$r{TABLE}";
+        push @records, table_access_record($table_events{$name}, $r{DB},
+                                           $r{TABLE}, $r{SQLTEXT});
       } elsif (exists $connection_events{$name} &&
                ($r{COMMAND_CLASS} // '') eq 'connect') {
-        push @records, "connection $connection_events{$name} " . ($r{USER} // '');
+        push @records, connection_record($connection_events{$name},
+                                         $r{USER} // '', $r{CONNECTION_ID});
       } elsif ($name =~ /^Query (Start|Status End|Nested)/) {
-        push @records, "query " . ($r{SQLTEXT} // '');
+        push @records, "query " . query_text($r{SQLTEXT});
       } else {
-        push @records, "general " . ($r{SQLTEXT} // '');
+        push @records, "general " . query_text($r{SQLTEXT});
       }
     }
   }
 
   if (defined $ENV{rx_expect_query} && $ENV{rx_expect_query} ne '' && $is_json) {
     my $expected = eval "\"$ENV{rx_expect_query}\"";
-    die "Expected query not found byte-exactly in JSON records"
-      unless grep { $_ eq $expected } @json_queries;
+    unless (grep { $_ eq $expected } @json_queries) {
+      binmode STDERR, ':encoding(UTF-8)';
+      die "Expected query not found byte-exactly in JSON records: '$expected'" .
+          " in: " . join(', ', map { "'$_'" } @json_queries) . "\n";
+    }
   }
 
   my %count;
@@ -120,6 +162,15 @@ perl;
     $count{$r}++;
   }
   binmode STDOUT, ':encoding(UTF-8)';
-  print "# Records: " . scalar(@records) . "\n";
-  print "#   $count{$_} x $_\n" for sort keys %count;
+
+  my $allowed = $ENV{rx_allowed_records} // '';
+  if ($allowed ne '') {
+    for my $r (keys %count) {
+      die "Unexpected record: $r" unless $r =~ /$allowed/;
+    }
+    print "# All records are expected ones\n";
+  } else {
+    print "# Records: " . scalar(@records) . "\n";
+    print "#   $count{$_} x $_\n" for sort keys %count;
+  }
 EOF

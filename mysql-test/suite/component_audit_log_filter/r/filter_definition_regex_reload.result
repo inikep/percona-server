@@ -60,27 +60,49 @@ INSERT INTO orders1 (v) VALUES (7);
 # Records: 2
 #   2 x table_access insert tpcc.orders1
 #
-# Concurrent clients while rules are reloaded
+# Concurrent clients while the rule is changed, removed and reassigned
 #
 CREATE PROCEDURE tpcc.rx_insert_rows(base INT)
 BEGIN
 DECLARE i INT DEFAULT 0;
-WHILE i < 10 DO
+WHILE i < 50 DO
 INSERT INTO tpcc.orders1 (v) VALUES (base + i);
+INSERT INTO tpcc.history1 (v) VALUES (base + i);
 SET i = i + 1;
 END WHILE;
 END|
 CALL rx_insert_rows(1000);
 CALL rx_insert_rows(2000);
+UPDATE mysql.audit_log_filter SET filter = '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^history[0-9]+$"}}}}}}' WHERE name = 'rx_reload';
 SELECT audit_log_filter_flush();
-SELECT audit_log_filter_flush();
-# Sessions detach after the successful flush, overlapping evaluations
-# may use either rule set and are not counted
-# After reconnecting, 2 x 10 inserts are logged
-CALL rx_insert_rows(3000);
-CALL rx_insert_rows(4000);
+SELECT audit_log_filter_remove_filter('rx_reload');
+SELECT audit_log_filter_set_filter('rx_reload', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^history[0-9]+$"}}}}}}');
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload');
+# Evaluations overlapping the changes may use any of the rule sets
+# All records are expected ones
+# After reconnecting, each of 2 x 10 concurrent inserts is logged once
+# according to the new rule
 # Records: 20
-#   20 x table_access insert tpcc.orders1
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 0)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 1)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 2)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 3)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 4)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 5)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 6)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 7)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 8)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (3000 + 9)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 0)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 1)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 2)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 3)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 4)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 5)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 6)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 7)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 8)
+#   1 x table_access insert tpcc.history1 INSERT INTO history1 (v) VALUES (4000 + 9)
 # Regex match errors: +0
 #
 # REDUCED event mode skips whole disabled classes before parsing their
@@ -127,16 +149,43 @@ SET GLOBAL audit_log_filter.event_mode = FULL;
 SELECT audit_log_filter_set_filter('rx_numeric_string', '{"filter": {"class": {"name": "global_variable", "event": {"name": "get", "log": {"field": {"name": "connection_id", "regex": "^[0-9]+$"}}}}}}') AS result;
 result
 OK
-SELECT audit_log_filter_set_filter('rx_query_sql_command', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "^SELECT"}}}}}}') AS result;
-result
-OK
 SELECT audit_log_filter_remove_filter('rx_numeric_string') AS result;
 result
 OK
-SELECT audit_log_filter_remove_filter('rx_query_sql_command') AS result;
+# Decimal connection ID matches
+SELECT audit_log_filter_set_filter('rx_connection_id_0', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"and": [{"field": {"name": "connection_id", "regex": "^[0-9]+(?!.)"}}, {"field": {"name": "query.str", "regex": "rx_numeric"}}]}}}}}') AS result;
 result
 OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_connection_id_0') AS result;
+result
+OK
+SELECT 'rx_numeric';
+rx_numeric
+rx_numeric
+# Records: 1
+#   1 x query SELECT 'rx_numeric'
+SELECT audit_log_filter_remove_filter('rx_connection_id_0') AS result;
+result
+OK
+# Alphabetic pattern does not match
+SELECT audit_log_filter_set_filter('rx_connection_id_1', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"and": [{"field": {"name": "connection_id", "regex": "^[a-z]+(?!.)"}}, {"field": {"name": "query.str", "regex": "rx_numeric"}}]}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_connection_id_1') AS result;
+result
+OK
+SELECT 'rx_numeric';
+rx_numeric
+rx_numeric
+# Records: 0
+SELECT audit_log_filter_remove_filter('rx_connection_id_1') AS result;
+result
+OK
+# Regex match errors: +0
 SET GLOBAL audit_log_filter.event_mode = REDUCED;
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload') AS result;
+result
+OK
 #
 # Restart keeps using stored regex filters
 #
@@ -147,7 +196,7 @@ OK
 INSERT INTO orders1 (v) VALUES (8);
 INSERT INTO history1 (v) VALUES (8);
 # Records: 1
-#   1 x table_access insert tpcc.orders1
+#   1 x table_access insert tpcc.history1
 #
 # ICU data dependent patterns before and after component reinstallation,
 # server REGEXP is not affected

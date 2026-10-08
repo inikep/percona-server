@@ -121,6 +121,39 @@ RegexError make_allocation_error() noexcept {
   return error;
 }
 
+namespace detail {
+
+RegexError compile_failure(int32_t status, int32_t line,
+                           int32_t offset) noexcept {
+  // Normalize before classification, a null result without a failure
+  // status is an allocation failure.
+  const auto effective = U_FAILURE(static_cast<UErrorCode>(status))
+                             ? static_cast<UErrorCode>(status)
+                             : U_MEMORY_ALLOCATION_ERROR;
+  const auto category = classify_compile_status(effective);
+
+  RegexError error;
+  set_error(error, category, effective);
+
+  if (category != RegexErrorCategory::Allocation) {
+    error.line = line;
+    error.offset = offset;
+  }
+
+  return error;
+}
+
+RegexError match_failure(int32_t status) noexcept {
+  const auto effective = U_FAILURE(static_cast<UErrorCode>(status))
+                             ? static_cast<UErrorCode>(status)
+                             : U_MEMORY_ALLOCATION_ERROR;
+  RegexError error;
+  set_error(error, classify_match_status(effective), effective);
+  return error;
+}
+
+}  // namespace detail
+
 CompiledRegex::CompiledRegex(Impl *impl) noexcept : m_impl{impl} {}
 
 CompiledRegex::~CompiledRegex() { delete m_impl; }
@@ -204,20 +237,9 @@ std::unique_ptr<CompiledRegex> CompiledRegex::compile(
   std::unique_ptr<icu::RegexPattern> compiled{
       icu::RegexPattern::compile(pattern16, 0, parse_error, status)};
 
-  if (U_FAILURE(status)) {
-    const auto category = classify_compile_status(status);
-    set_error(error, category, status);
-
-    if (category != RegexErrorCategory::Allocation) {
-      error.line = parse_error.line;
-      error.offset = parse_error.offset;
-    }
-
-    return nullptr;
-  }
-
-  if (compiled == nullptr) {
-    set_error(error, RegexErrorCategory::Allocation, U_MEMORY_ALLOCATION_ERROR);
+  if (U_FAILURE(status) || compiled == nullptr) {
+    error =
+        detail::compile_failure(status, parse_error.line, parse_error.offset);
     return nullptr;
   }
 
@@ -261,8 +283,7 @@ RegexMatchResult CompiledRegex::find(std::string_view subject,
                                static_cast<int64_t>(subject.size()), &status);
 
   if (U_FAILURE(status) || text == nullptr) {
-    set_error(error, classify_match_status(status),
-              U_FAILURE(status) ? status : U_MEMORY_ALLOCATION_ERROR);
+    error = detail::match_failure(status);
     return RegexMatchResult::Error;
   }
 
@@ -273,8 +294,7 @@ RegexMatchResult CompiledRegex::find(std::string_view subject,
   std::unique_ptr<icu::RegexMatcher> matcher{m_impl->pattern->matcher(status)};
 
   if (U_FAILURE(status) || matcher == nullptr) {
-    set_error(error, classify_match_status(status),
-              U_FAILURE(status) ? status : U_MEMORY_ALLOCATION_ERROR);
+    error = detail::match_failure(status);
     return RegexMatchResult::Error;
   }
 
@@ -285,14 +305,14 @@ RegexMatchResult CompiledRegex::find(std::string_view subject,
   matcher->setStackLimit(limits.stack_limit, status);
 
   if (U_FAILURE(status)) {
-    set_error(error, classify_match_status(status), status);
+    error = detail::match_failure(status);
     return RegexMatchResult::Error;
   }
 
   const bool found = matcher->find(status);
 
   if (U_FAILURE(status)) {
-    set_error(error, classify_match_status(status), status);
+    error = detail::match_failure(status);
     return RegexMatchResult::Error;
   }
 

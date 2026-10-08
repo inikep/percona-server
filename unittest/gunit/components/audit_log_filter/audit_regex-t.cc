@@ -18,14 +18,95 @@
 #include "components/audit_log_filter/audit_regex.h"
 
 #include <unicode/putil.h>
+#include <unicode/uclean.h>
+#include <unicode/utypes.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
+
+/*
+ * Allocation failure injection. ICU allocations are routed through
+ * u_setMemoryFunctions() and the wrapper's own C++ allocations through the
+ * replaced nothrow operator new. When armed with n, the n-th following
+ * allocation (counting from 0) of the selected source fails, all others
+ * succeed.
+ */
+namespace alloc_fault {
+
+enum class Source { Cxx, Icu };
+
+std::atomic<long> cxx_countdown{-1};
+std::atomic<long> icu_countdown{-1};
+std::atomic<bool> fired{false};
+// Live ICU allocations, used to detect leaks on failure paths
+std::atomic<long> icu_outstanding{0};
+
+bool should_fail(std::atomic<long> &countdown) noexcept {
+  long current = countdown.load();
+  while (current >= 0) {
+    if (countdown.compare_exchange_weak(current, current - 1)) {
+      if (current == 0) {
+        fired = true;
+        return true;
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
+void *U_CALLCONV icu_alloc(const void *, size_t size) {
+  if (should_fail(icu_countdown)) return nullptr;
+  void *ptr = std::malloc(size);
+  if (ptr != nullptr) icu_outstanding.fetch_add(1);
+  return ptr;
+}
+
+void *U_CALLCONV icu_realloc(const void *, void *ptr, size_t size) {
+  if (should_fail(icu_countdown)) return nullptr;
+  void *result = std::realloc(ptr, size);
+  if (ptr == nullptr && result != nullptr) icu_outstanding.fetch_add(1);
+  return result;
+}
+
+void U_CALLCONV icu_free(const void *, void *ptr) {
+  if (ptr != nullptr) icu_outstanding.fetch_sub(1);
+  std::free(ptr);
+}
+
+// Must be installed before ICU allocates anything
+const bool icu_memory_functions_set = [] {
+  UErrorCode status = U_ZERO_ERROR;
+  u_setMemoryFunctions(nullptr, icu_alloc, icu_realloc, icu_free, &status);
+  return U_SUCCESS(status);
+}();
+
+}  // namespace alloc_fault
+
+void *operator new(std::size_t size, const std::nothrow_t &) noexcept {
+  if (alloc_fault::should_fail(alloc_fault::cxx_countdown)) return nullptr;
+  try {
+    return ::operator new(size);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+void *operator new[](std::size_t size, const std::nothrow_t &) noexcept {
+  if (alloc_fault::should_fail(alloc_fault::cxx_countdown)) return nullptr;
+  try {
+    return ::operator new[](size);
+  } catch (...) {
+    return nullptr;
+  }
+}
 
 namespace audit_log_filter::regex {
 namespace {
@@ -342,6 +423,186 @@ TEST(AuditRegex, SharedPatternConcurrentMatchers) {
 
   for (auto &thread : threads) thread.join();
   EXPECT_EQ(failures.load(), 0);
+}
+
+/*
+ * Fails exactly one allocation, the n-th one made during its lifetime.
+ */
+class AllocationFailure {
+ public:
+  AllocationFailure(alloc_fault::Source source, long n) noexcept
+      : m_countdown{source == alloc_fault::Source::Cxx
+                        ? alloc_fault::cxx_countdown
+                        : alloc_fault::icu_countdown} {
+    alloc_fault::fired = false;
+    m_countdown = n;
+  }
+  ~AllocationFailure() { m_countdown = -1; }
+
+  AllocationFailure(const AllocationFailure &) = delete;
+  AllocationFailure &operator=(const AllocationFailure &) = delete;
+
+  [[nodiscard]] bool fired() const noexcept { return alloc_fault::fired; }
+
+ private:
+  std::atomic<long> &m_countdown;
+};
+
+constexpr auto kAllocationPattern = "^(new_orders|orders|history)[0-9]+$"sv;
+
+/*
+ * Failures of the wrapper's own allocations during compilation. Failures
+ * inside ICU's RegexPattern::compile() are not injected: ICU 77.1 crashes
+ * when RegexPattern::init() fails to allocate its set vector (zap()
+ * dereferences the null fSets), which is beyond what the wrapper can handle.
+ */
+TEST(AuditRegex, CompileAllocationFailures) {
+  ASSERT_TRUE(alloc_fault::icu_memory_functions_set);
+
+  // Warm up ICU one-time initialization, ICU would cache a failure injected
+  // there for the whole process.
+  ASSERT_NE(compile_ok(kAllocationPattern), nullptr);
+  const long baseline = alloc_fault::icu_outstanding.load();
+  int injected = 0;
+
+  for (long n = 0; n < 100000; ++n) {
+    RegexError error;
+    std::unique_ptr<CompiledRegex> compiled;
+    bool fired = false;
+    {
+      AllocationFailure failure{alloc_fault::Source::Cxx, n};
+      compiled = CompiledRegex::compile(kAllocationPattern, error);
+      fired = failure.fired();
+    }
+
+    if (!fired) {
+      // All allocations of a compilation have been exercised
+      ASSERT_NE(compiled, nullptr);
+      EXPECT_EQ(find(*compiled, "orders1"), RegexMatchResult::Match);
+      break;
+    }
+
+    ++injected;
+    EXPECT_EQ(compiled, nullptr) << "allocation " << n;
+    EXPECT_EQ(error.category, RegexErrorCategory::Allocation)
+        << "allocation " << n << ": " << status_name(error.status);
+    EXPECT_STREQ(status_name(error.status), "U_MEMORY_ALLOCATION_ERROR");
+    EXPECT_FALSE(error.has_position());
+    // Nothing allocated before the failure is leaked
+    EXPECT_EQ(alloc_fault::icu_outstanding.load(), baseline)
+        << "allocation " << n;
+  }
+
+  // Conversion buffer, implementation and wrapper object
+  EXPECT_EQ(injected, 3);
+  EXPECT_EQ(alloc_fault::icu_outstanding.load(), baseline);
+}
+
+/*
+ * Failures of ICU allocations made by each evaluation (matcher and its
+ * state), the UText is stack allocated. ICU reports a failure to grow the
+ * backtracking stack as U_REGEX_STACK_OVERFLOW.
+ *
+ * ICU 77.1 itself leaks one allocation when cloning the subject fails in
+ * RegexMatcher::reset(): utext_setup() clears UTEXT_OPEN of the matcher's
+ * heap allocated UText, so utext_close() in the matcher destructor does not
+ * free it. Anything beyond that would be leaked by the wrapper.
+ */
+TEST(AuditRegex, MatchAllocationFailures) {
+  auto re = compile_ok(kAllocationPattern);
+  ASSERT_NE(re, nullptr);
+  EXPECT_EQ(find(*re, "orders1"), RegexMatchResult::Match);
+
+  // The first sweep may populate ICU caches lazily, the second one must not
+  // allocate anything which outlives an evaluation.
+  for (int sweep = 0; sweep < 2; ++sweep) {
+    long outstanding = alloc_fault::icu_outstanding.load();
+    int injected = 0;
+
+    for (long n = 0; n < 100000; ++n) {
+      RegexError error;
+      RegexMatchResult result;
+      bool fired = false;
+      {
+        AllocationFailure failure{alloc_fault::Source::Icu, n};
+        result = re->find("orders1", error);
+        fired = failure.fired();
+      }
+
+      if (!fired) {
+        EXPECT_EQ(result, RegexMatchResult::Match);
+        break;
+      }
+
+      ++injected;
+      EXPECT_EQ(result, RegexMatchResult::Error) << "allocation " << n;
+      EXPECT_TRUE(error.category == RegexErrorCategory::Allocation ||
+                  error.category == RegexErrorCategory::Stack)
+          << "allocation " << n << ": " << status_name(error.status);
+      // The shared pattern is not affected
+      EXPECT_EQ(find(*re, "orders1"), RegexMatchResult::Match);
+
+      if (sweep > 0) {
+        EXPECT_LE(alloc_fault::icu_outstanding.load() - outstanding, 1)
+            << "allocation " << n;
+      }
+      outstanding = alloc_fault::icu_outstanding.load();
+    }
+
+    EXPECT_GT(injected, 0);
+  }
+}
+
+TEST(AuditRegex, FailureClassification) {
+  // ICU returned no pattern without reporting a failure
+  auto error = detail::compile_failure(U_ZERO_ERROR, 0, -1);
+  EXPECT_EQ(error.category, RegexErrorCategory::Allocation);
+  EXPECT_STREQ(status_name(error.status), "U_MEMORY_ALLOCATION_ERROR");
+  EXPECT_FALSE(error.has_position());
+
+  // Allocation failures never get a position
+  error = detail::compile_failure(U_MEMORY_ALLOCATION_ERROR, 1, 4);
+  EXPECT_EQ(error.category, RegexErrorCategory::Allocation);
+  EXPECT_FALSE(error.has_position());
+
+  // Data loading failures are not syntax errors and get a position only if
+  // ICU supplied one
+  error = detail::compile_failure(U_FILE_ACCESS_ERROR, 0, -1);
+  EXPECT_EQ(error.category, RegexErrorCategory::Engine);
+  EXPECT_STREQ(status_name(error.status), "U_FILE_ACCESS_ERROR");
+  EXPECT_FALSE(error.has_position());
+  error = detail::compile_failure(U_MISSING_RESOURCE_ERROR, 1, 3);
+  EXPECT_EQ(error.category, RegexErrorCategory::Engine);
+  EXPECT_TRUE(error.has_position());
+  EXPECT_EQ(error.line, 1);
+  EXPECT_EQ(error.offset, 3);
+
+  // Engine limits within the regex error range are not syntax errors
+  EXPECT_EQ(detail::compile_failure(U_REGEX_INTERNAL_ERROR, 0, -1).category,
+            RegexErrorCategory::Engine);
+  EXPECT_EQ(detail::compile_failure(U_REGEX_PATTERN_TOO_BIG, 0, -1).category,
+            RegexErrorCategory::Engine);
+
+  error = detail::compile_failure(U_REGEX_MISMATCHED_PAREN, 1, 8);
+  EXPECT_EQ(error.category, RegexErrorCategory::Syntax);
+  EXPECT_EQ(error.line, 1);
+  EXPECT_EQ(error.offset, 8);
+
+  // Matcher or UText creation returned no object without reporting a failure
+  error = detail::match_failure(U_ZERO_ERROR);
+  EXPECT_EQ(error.category, RegexErrorCategory::Allocation);
+  EXPECT_STREQ(status_name(error.status), "U_MEMORY_ALLOCATION_ERROR");
+  EXPECT_FALSE(error.has_position());
+
+  EXPECT_EQ(detail::match_failure(U_MEMORY_ALLOCATION_ERROR).category,
+            RegexErrorCategory::Allocation);
+  EXPECT_EQ(detail::match_failure(U_REGEX_TIME_OUT).category,
+            RegexErrorCategory::Timeout);
+  EXPECT_EQ(detail::match_failure(U_REGEX_STACK_OVERFLOW).category,
+            RegexErrorCategory::Stack);
+  error = detail::match_failure(U_INTERNAL_PROGRAM_ERROR);
+  EXPECT_EQ(error.category, RegexErrorCategory::Engine);
+  EXPECT_STREQ(status_name(error.status), "U_INTERNAL_PROGRAM_ERROR");
 }
 
 TEST(AuditRegex, ErrorNames) {

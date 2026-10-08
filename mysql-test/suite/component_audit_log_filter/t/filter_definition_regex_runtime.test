@@ -29,7 +29,9 @@ CREATE TABLE tpcc.secret_x LIKE tpcc.new_orders1;
 CREATE TABLE tpcc.temp_1 LIKE tpcc.new_orders1;
 CREATE TABLE tpcc.keep_1 LIKE tpcc.new_orders1;
 CREATE TABLE tpcc.rx_kill_data LIKE tpcc.new_orders1;
+CREATE TABLE tpcc.charset_filter_data (id INT);
 CREATE TABLE test.orders1 LIKE tpcc.new_orders1;
+INSERT INTO tpcc.charset_filter_data VALUES (1);
 INSERT INTO tpcc.new_orders1 VALUES (1, 1);
 INSERT INTO tpcc.orders1 VALUES (1, 1);
 INSERT INTO tpcc.history1 VALUES (1, 1);
@@ -42,7 +44,9 @@ CREATE USER rx_app@localhost, rx_exempt@localhost, rx_kill_user@localhost,
             app_svc_1@localhost, app_svc_2@localhost, other_user@localhost;
 GRANT ALL ON tpcc.* TO rx_app@localhost, rx_exempt@localhost;
 GRANT ALL ON test.* TO rx_app@localhost;
+GRANT SYSTEM_USER, AUDIT_ABORT_EXEMPT ON *.* TO rx_exempt@localhost;
 GRANT SELECT ON tpcc.* TO rx_kill_user@localhost;
+GRANT UPDATE ON tpcc.rx_kill_data TO rx_kill_user@localhost;
 GRANT SELECT ON test.* TO app_svc_1@localhost, app_svc_2@localhost, other_user@localhost;
 
 --let $rx_errors_base =
@@ -216,17 +220,23 @@ perl;
     close $f;
   }
 EOF
+--eval SET @rx_query = "$rx_query"
 --let $rx_case_i = 0
-while ($rx_case_i < 2) {
+while ($rx_case_i < 3) {
   if ($rx_case_i == 0) {
     --echo # ASCII marker matches both client character sets
-    --let $rx_pattern = rx_cs_marker
+    SET @rx_cond = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'rx_cs_marker'));
   }
   if ($rx_case_i == 1) {
     --echo # UTF-8 literal matches only UTF-8 raw text
-    --let $rx_pattern = café.*rx_cs_marker
+    SET @rx_cond = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'café.*rx_cs_marker'));
   }
-  eval SELECT audit_log_filter_set_filter('rx_charset_$rx_case_i', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "$rx_pattern"}}}}}}') AS result;
+  if ($rx_case_i == 2) {
+    --echo # Raw byte length still selects only the latin1 text
+    SET @rx_cond = JSON_OBJECT('and', JSON_ARRAY(JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'rx_cs_marker')), JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.length', 'value', LENGTH(CONVERT(@rx_query USING latin1))))));
+  }
+  SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', CAST(@rx_cond AS JSON)))));
+  eval SELECT audit_log_filter_set_filter('rx_charset_$rx_case_i', @rx_definition) AS result;
   eval SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_charset_$rx_case_i') AS result;
   --source filter_definition_regex_begin.inc
   --exec $MYSQL --default-character-set=latin1 -u rx_app tpcc < $rx_sql.latin1 > $MYSQLTEST_VARDIR/tmp/rx_charset.out
@@ -236,9 +246,68 @@ while ($rx_case_i < 2) {
   --let rx_expect_query =
   --inc $rx_case_i
 }
+
+--echo # Digest of a statement failing a raw print condition keeps its
+--echo # non-ASCII identifier in UTF-8
+--let rx_query = SELECT 'café' AS café FROM charset_filter_data
+perl;
+  use strict;
+  use warnings;
+  use Encode qw(decode encode);
+  my $q = decode('UTF-8', $ENV{rx_query});
+  for my $cs ('latin1', 'utf8mb4') {
+    open my $f, '>:raw', "$ENV{rx_sql}.$cs" or die $!;
+    print $f encode($cs eq 'latin1' ? 'iso-8859-1' : 'UTF-8', "$q;\n");
+    close $f;
+  }
+EOF
+SET @rx_print = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'café'));
+SET @rx_action = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'print', CAST(@rx_print AS JSON), 'replace', JSON_OBJECT('function', JSON_OBJECT('name', 'query_digest'))));
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'charset_filter_data')), 'print', CAST(@rx_action AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_charset_digest', @rx_definition) AS result;
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_charset_digest') AS result;
+--source filter_definition_regex_begin.inc
+--exec $MYSQL --default-character-set=latin1 -u rx_app tpcc < $rx_sql.latin1 > $MYSQLTEST_VARDIR/tmp/rx_charset.out
+--exec $MYSQL --default-character-set=utf8mb4 -u rx_app tpcc < $rx_sql.utf8mb4 > $MYSQLTEST_VARDIR/tmp/rx_charset.out
+--let rx_expect_query = SELECT ? AS `caf\x{e9}` FROM `charset_filter_data`
+--source filter_definition_regex_summary.inc
+--let rx_expect_query =
 --remove_file $MYSQLTEST_VARDIR/tmp/rx_charset.sql.latin1
 --remove_file $MYSQLTEST_VARDIR/tmp/rx_charset.sql.utf8mb4
+
+--echo # A malformed UTF-8 byte is matched as U+FFFD, while the log output
+--echo # conversion writes it as '?'
+--let rx_sql = $MYSQLTEST_VARDIR/tmp/rx_malformed.sql
+perl;
+  open my $f, '>:raw', $ENV{rx_sql} or die $!;
+  print $f "SELECT 'bad\xFFbyte' AS c /* rx_malformed */;\n";
+  close $f;
+EOF
+--let $rx_case_i = 0
+while ($rx_case_i < 2) {
+  if ($rx_case_i == 0) {
+    --echo # Pattern bad\x{FFFD}byte
+    SET @rx_pattern = CONCAT('bad', CHAR(92 USING utf8mb4), 'x{FFFD}byte');
+  }
+  if ($rx_case_i == 1) {
+    --echo # Pattern bad[?]byte
+    SET @rx_pattern = 'bad[?]byte';
+  }
+  SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', @rx_pattern))))));
+  eval SELECT audit_log_filter_set_filter('rx_malformed_$rx_case_i', @rx_definition) AS result;
+  eval SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_malformed_$rx_case_i') AS result;
+  --source filter_definition_regex_begin.inc
+  --exec $MYSQL --default-character-set=utf8mb4 -u rx_app tpcc < $rx_sql > $MYSQLTEST_VARDIR/tmp/rx_charset.out 2>&1
+  if ($rx_case_i == 0) {
+    --let rx_expect_query = SELECT 'bad?byte' AS c /* rx_malformed */
+  }
+  --source filter_definition_regex_summary.inc
+  --let rx_expect_query =
+  --inc $rx_case_i
+}
+--remove_file $MYSQLTEST_VARDIR/tmp/rx_malformed.sql
 --remove_file $MYSQLTEST_VARDIR/tmp/rx_charset.out
+--source filter_definition_regex_errors.inc
 
 --echo #
 --echo # Embedded NUL in query text and pattern
@@ -291,9 +360,9 @@ disconnect rx;
 --echo #
 let $rx_definition = {"filter": {"class": {"name": "table_access", "event": {"name": "insert", "abort": {"field": {"name": "table_name.str", "regex": "^secret_[0-9]+$"}}}}}};
 eval SELECT audit_log_filter_set_filter('rx_abort', '$rx_definition') AS result;
-SELECT audit_log_filter_set_filter('rx_no_abort', '{"filter": {"log": false}}') AS result;
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_abort') AS result;
-SELECT audit_log_filter_set_user('rx_exempt@localhost', 'rx_no_abort') AS result;
+--echo # The same filter for an account with AUDIT_ABORT_EXEMPT
+SELECT audit_log_filter_set_user('rx_exempt@localhost', 'rx_abort') AS result;
 connect (rx, localhost, rx_app,, tpcc);
 connect (exempt, localhost, rx_exempt,, tpcc);
 connection rx;
@@ -354,6 +423,50 @@ SELECT 'rx_sentinel';
 connection default;
 --source filter_definition_regex_summary.inc
 disconnect rx;
+--echo # A replacement without a reference back to the original filter stays
+--echo # active and selects the following sentinel statement
+let $rx_definition = {
+  "filter": {
+    "class": {
+      "name": "table_access",
+      "event": {
+        "name": "insert",
+        "log": false,
+        "filter": {
+          "class": {
+            "name": "general",
+            "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_next_sentinel"}}}
+          },
+          "activate": {"field": {"name": "table_name.str", "regex": "^temp_[0-9]+$"}}
+        }
+      }
+    }
+  }
+};
+eval SELECT audit_log_filter_set_filter('rx_activate_next', '$rx_definition') AS result;
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_activate_next') AS result;
+connect (rx, localhost, rx_app,, tpcc);
+connection default;
+--source filter_definition_regex_begin.inc
+connection rx;
+INSERT INTO temp_1 VALUES (2, 2);
+SELECT 'rx_next_sentinel';
+connection default;
+--source filter_definition_regex_summary.inc
+disconnect rx;
+--echo # The activated replacement stays in effect for the published rule, even
+--echo # for new sessions, until the rules are reloaded. Starting from reloaded
+--echo # rules and a fresh session, a nonmatching insert does not activate it
+SELECT audit_log_filter_flush() AS result;
+connect (rx, localhost, rx_app,, tpcc);
+connection default;
+--source filter_definition_regex_begin.inc
+connection rx;
+INSERT INTO keep_1 VALUES (2, 2);
+SELECT 'rx_next_sentinel';
+connection default;
+--source filter_definition_regex_summary.inc
+disconnect rx;
 --source filter_definition_regex_errors.inc
 
 --echo #
@@ -366,6 +479,7 @@ SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_timeout') AS result;
 connect (rx, localhost, rx_app,, tpcc);
 connection default;
 --source filter_definition_regex_begin.inc
+--source filter_definition_regex_warnings_mark.inc
 connection rx;
 --echo # Three statements of 49 bytes: SELECT '<40 x a>'
 --disable_query_log
@@ -376,11 +490,11 @@ eval SELECT '$rx_a40';
 connection default;
 --source filter_definition_regex_summary.inc
 --source filter_definition_regex_errors.inc
---let $assert_text = One timeout warning for the condition
---let $assert_file = $MYSQLTEST_VARDIR/log/mysqld.1.err
---let $assert_select = Audit log filter 'rx_timeout': regex '\(a\+\)\+\\$' on field 'general_query.str' failed \(timeout: U_REGEX_TIME_OUT\); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.
---let $assert_count = 1
---source include/assert_grep.inc
+--let rx_warning_label = one timeout warning for the condition
+--let rx_warning_text = Audit log filter 'rx_timeout': regex '(a+)+$' on field 'general_query.str' failed (timeout: U_REGEX_TIME_OUT); condition treated as not matching. Further failures of this condition are reported at most once per 60 seconds.
+--let rx_warning_count = 1
+--let rx_warning_slow_max = 3
+--source filter_definition_regex_warnings.inc
 --echo # Recovery
 --source filter_definition_regex_begin.inc
 connection rx;
@@ -390,6 +504,22 @@ connection default;
 --source filter_definition_regex_errors.inc
 disconnect rx;
 
+--echo # The pathological statement is captured with all its 49 bytes
+SELECT audit_log_filter_set_filter('rx_timeout_length', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.length", "value": 49}}}}}}') AS result;
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_timeout_length') AS result;
+connect (rx, localhost, rx_app,, tpcc);
+connection default;
+--source filter_definition_regex_begin.inc
+connection rx;
+--disable_query_log
+eval SELECT '$rx_a40';
+--enable_query_log
+connection default;
+--let rx_query_mask = ^SELECT 'a{40}'
+--source filter_definition_regex_summary.inc
+--let rx_query_mask =
+disconnect rx;
+
 --echo # A short-circuited regex leaf is not evaluated
 let $rx_definition = {"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"and": [{"field": {"name": "general_command.str", "value": "NoSuchCommand"}}, {"field": {"name": "general_query.str", "regex": "(a+)+$"}}]}}}}};
 eval SELECT audit_log_filter_set_filter('rx_timeout_and', '$rx_definition') AS result;
@@ -397,6 +527,7 @@ SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_timeout_and') AS result
 connect (rx, localhost, rx_app,, tpcc);
 connection default;
 --source filter_definition_regex_begin.inc
+--source filter_definition_regex_warnings_mark.inc
 connection rx;
 --echo # Three statements of 49 bytes: SELECT '<40 x a>'
 --disable_query_log
@@ -407,10 +538,10 @@ eval SELECT '$rx_a40';
 connection default;
 --source filter_definition_regex_summary.inc
 --source filter_definition_regex_errors.inc
---let $assert_text = No warning for the short-circuited condition
---let $assert_select = Audit log filter 'rx_timeout_and'
---let $assert_count = 0
---source include/assert_grep.inc
+--let rx_warning_label = none for the short-circuited condition
+--let rx_warning_text = Audit log filter 'rx_timeout_and'
+--let rx_warning_count = 0
+--source filter_definition_regex_warnings.inc
 disconnect rx;
 
 --echo #
@@ -454,6 +585,46 @@ SELECT * FROM tpcc.rx_kill_data;
 disconnect rx;
 disconnect rx_killer;
 
+--echo # FULL mode: the query/status_end event of the killed statement, notified
+--echo # before the server resets the kill state, is matched
+SET GLOBAL audit_log_filter.event_mode = FULL;
+let $rx_definition = {"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "rx_kill_full"}}}}}};
+eval SELECT audit_log_filter_set_filter('rx_kill_query_full', '$rx_definition') AS result;
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_kill_query_full') AS result;
+connect (locker, localhost, root,, tpcc);
+BEGIN;
+SELECT * FROM rx_kill_data WHERE id = 1 FOR UPDATE;
+connect (rx, localhost, rx_app,, tpcc);
+--let $rx_victim_id = `SELECT CONNECTION_ID()`
+connect (rx_killer, localhost, rx_app,, tpcc);
+connection default;
+--source filter_definition_regex_begin.inc
+connection rx;
+send UPDATE rx_kill_data SET v = v + 1 WHERE id = 1 /* rx_kill_full */;
+connection default;
+let $wait_condition = SELECT COUNT(*) = 1 FROM performance_schema.data_lock_waits w
+  JOIN performance_schema.threads t ON t.thread_id = w.requesting_thread_id
+  WHERE t.processlist_id = $rx_victim_id;
+--source include/wait_condition.inc
+connection rx_killer;
+--disable_query_log
+eval KILL QUERY $rx_victim_id;
+--enable_query_log
+connection rx;
+--error ER_QUERY_INTERRUPTED
+reap;
+connection locker;
+ROLLBACK;
+disconnect locker;
+connection default;
+--source filter_definition_regex_summary.inc
+SELECT * FROM tpcc.rx_kill_data;
+--source filter_definition_regex_errors.inc
+disconnect rx;
+disconnect rx_killer;
+SELECT audit_log_filter_remove_filter('rx_kill_query_full') AS result;
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
+
 --echo #
 --echo # Disconnect of a killed connection is still matched
 --echo #
@@ -477,7 +648,51 @@ let $wait_condition = SELECT COUNT(*) = 0 FROM performance_schema.threads WHERE 
 disconnect control;
 let $wait_condition = SELECT COUNT(*) = 0 FROM performance_schema.threads WHERE processlist_id = $rx_control_id;
 --source include/wait_condition.inc
+--let rx_connection_names = victim=$rx_victim_id control=$rx_control_id
 --source filter_definition_regex_summary.inc
+--let rx_connection_names =
+--source filter_definition_regex_errors.inc
+disconnect victim;
+disconnect killer;
+
+--echo # Active victim killed while its statement waits for a row lock: its
+--echo # statement status and disconnect are matched, nothing is committed
+let $rx_definition = {"filter": {"class": [{"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_active_kill"}}}}, {"name": "connection", "event": {"name": "disconnect", "log": {"field": {"name": "user.str", "regex": "^rx_kill_user$"}}}}]}};
+eval SELECT audit_log_filter_set_filter('rx_kill_active', '$rx_definition') AS result;
+SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill_active') AS result;
+connect (locker, localhost, root,, tpcc);
+BEGIN;
+SELECT * FROM rx_kill_data WHERE id = 1 FOR UPDATE;
+connect (victim, localhost, rx_kill_user,, tpcc);
+--let $rx_victim_id = `SELECT CONNECTION_ID()`
+connect (killer, localhost, rx_kill_user,, tpcc);
+connection default;
+--source filter_definition_regex_begin.inc
+connection victim;
+send UPDATE rx_kill_data SET v = v + 1 WHERE id = 1 /* rx_active_kill */;
+connection default;
+let $wait_condition = SELECT COUNT(*) = 1 FROM performance_schema.data_lock_waits w
+  JOIN performance_schema.threads t ON t.thread_id = w.requesting_thread_id
+  WHERE t.processlist_id = $rx_victim_id;
+--source include/wait_condition.inc
+connection killer;
+--disable_query_log
+eval KILL CONNECTION $rx_victim_id;
+--enable_query_log
+connection victim;
+--error 1317,1053,2006,2013
+reap;
+connection default;
+let $wait_condition = SELECT COUNT(*) = 0 FROM performance_schema.threads WHERE processlist_id = $rx_victim_id;
+--source include/wait_condition.inc
+connection locker;
+ROLLBACK;
+disconnect locker;
+connection default;
+--let rx_connection_names = victim=$rx_victim_id
+--source filter_definition_regex_summary.inc
+--let rx_connection_names =
+SELECT * FROM tpcc.rx_kill_data;
 --source filter_definition_regex_errors.inc
 disconnect victim;
 disconnect killer;
@@ -486,7 +701,8 @@ disconnect killer;
 --echo # A statement stopped by MAX_EXECUTION_TIME is still matched and is not
 --echo # a regex error
 --echo #
-let $rx_definition = {"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_timeout_marker"}}}}}};
+SET GLOBAL audit_log_filter.event_mode = FULL;
+let $rx_definition = {"filter": {"class": [{"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_timeout_marker"}}}}, {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "rx_timeout_marker"}}}}]}};
 eval SELECT audit_log_filter_set_filter('rx_stmt_timeout', '$rx_definition') AS result;
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_stmt_timeout') AS result;
 connect (rx, localhost, rx_app,, tpcc);
@@ -507,22 +723,14 @@ if ($rx_have_timeout != YES) {
 --enable_result_log
 --enable_query_log
 connection default;
---let $rx_timeout_records = 0
---disable_query_log
---disable_result_log
---let rx_log_dir = `SELECT @@global.datadir`
---let rx_log_file = `SELECT audit_log_rotate()`
---enable_result_log
---enable_query_log
-perl;
-  my $path = "$ENV{rx_log_dir}/$ENV{rx_log_file}";
-  open my $f, '<:raw', $path or die "Cannot open $path: $!";
-  my $text = do { local $/; <$f> };
-  my $n = () = $text =~ /rx_timeout_marker/g;
-  print "# Records with the statement timeout marker: $n\n";
-EOF
+--echo # One query/status_end and one general/status record of the statement
+--let rx_query_mask = rx_timeout_marker
+--source filter_definition_regex_summary.inc
+--let rx_query_mask =
 --source filter_definition_regex_errors.inc
 disconnect rx;
+SELECT audit_log_filter_remove_filter('rx_stmt_timeout') AS result;
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
 
 --echo #
 --echo # Cleanup

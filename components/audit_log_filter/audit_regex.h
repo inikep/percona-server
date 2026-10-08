@@ -109,6 +109,38 @@ enum class RegexMatchResult { Match, NoMatch, Error };
  */
 [[nodiscard]] RegexError make_allocation_error() noexcept;
 
+namespace detail {
+
+/**
+ * @brief Make error information for a failed pattern compilation.
+ *
+ * A status not indicating failure, used when ICU returned no pattern without
+ * reporting an error, is normalized to U_MEMORY_ALLOCATION_ERROR before
+ * classification. The position is kept only for non-allocation errors for
+ * which ICU supplied one.
+ *
+ * @param status ICU UErrorCode value
+ * @param line ICU reported pattern line, 0 when not available
+ * @param offset ICU reported position within the line, -1 when not available
+ * @return Error information
+ */
+[[nodiscard]] RegexError compile_failure(int32_t status, int32_t line,
+                                         int32_t offset) noexcept;
+
+/**
+ * @brief Make error information for a failed match operation.
+ *
+ * A status not indicating failure, used when ICU returned no object without
+ * reporting an error, is normalized to U_MEMORY_ALLOCATION_ERROR before
+ * classification.
+ *
+ * @param status ICU UErrorCode value
+ * @return Error information
+ */
+[[nodiscard]] RegexError match_failure(int32_t status) noexcept;
+
+}  // namespace detail
+
 /**
  * @brief Immutable compiled ICU regular expression.
  *

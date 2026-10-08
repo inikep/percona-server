@@ -16,7 +16,9 @@ CREATE TABLE tpcc.secret_x LIKE tpcc.new_orders1;
 CREATE TABLE tpcc.temp_1 LIKE tpcc.new_orders1;
 CREATE TABLE tpcc.keep_1 LIKE tpcc.new_orders1;
 CREATE TABLE tpcc.rx_kill_data LIKE tpcc.new_orders1;
+CREATE TABLE tpcc.charset_filter_data (id INT);
 CREATE TABLE test.orders1 LIKE tpcc.new_orders1;
+INSERT INTO tpcc.charset_filter_data VALUES (1);
 INSERT INTO tpcc.new_orders1 VALUES (1, 1);
 INSERT INTO tpcc.orders1 VALUES (1, 1);
 INSERT INTO tpcc.history1 VALUES (1, 1);
@@ -28,7 +30,9 @@ CREATE USER rx_app@localhost, rx_exempt@localhost, rx_kill_user@localhost,
 app_svc_1@localhost, app_svc_2@localhost, other_user@localhost;
 GRANT ALL ON tpcc.* TO rx_app@localhost, rx_exempt@localhost;
 GRANT ALL ON test.* TO rx_app@localhost;
+GRANT SYSTEM_USER, AUDIT_ABORT_EXEMPT ON *.* TO rx_exempt@localhost;
 GRANT SELECT ON tpcc.* TO rx_kill_user@localhost;
+GRANT UPDATE ON tpcc.rx_kill_data TO rx_kill_user@localhost;
 GRANT SELECT ON test.* TO app_svc_1@localhost, app_svc_2@localhost, other_user@localhost;
 # Regex match errors: +0
 #
@@ -233,8 +237,11 @@ INSERT INTO `orders1` VALUES (100 + 7, 0);
 #
 # Raw query text is matched before conversion to UTF-8 for the log
 #
+SET @rx_query = "SELECT 'café' AS c /* rx_cs_marker */";
 # ASCII marker matches both client character sets
-SELECT audit_log_filter_set_filter('rx_charset_0', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_cs_marker"}}}}}}') AS result;
+SET @rx_cond = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'rx_cs_marker'));
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', CAST(@rx_cond AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_charset_0', @rx_definition) AS result;
 result
 OK
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_charset_0') AS result;
@@ -243,7 +250,9 @@ OK
 # Records: 2
 #   2 x general SELECT 'café' AS c /* rx_cs_marker */
 # UTF-8 literal matches only UTF-8 raw text
-SELECT audit_log_filter_set_filter('rx_charset_1', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "café.*rx_cs_marker"}}}}}}') AS result;
+SET @rx_cond = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'café.*rx_cs_marker'));
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', CAST(@rx_cond AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_charset_1', @rx_definition) AS result;
 result
 OK
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_charset_1') AS result;
@@ -251,6 +260,55 @@ result
 OK
 # Records: 1
 #   1 x general SELECT 'café' AS c /* rx_cs_marker */
+# Raw byte length still selects only the latin1 text
+SET @rx_cond = JSON_OBJECT('and', JSON_ARRAY(JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'rx_cs_marker')), JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.length', 'value', LENGTH(CONVERT(@rx_query USING latin1))))));
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', CAST(@rx_cond AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_charset_2', @rx_definition) AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_charset_2') AS result;
+result
+OK
+# Records: 1
+#   1 x general SELECT 'café' AS c /* rx_cs_marker */
+# Digest of a statement failing a raw print condition keeps its
+# non-ASCII identifier in UTF-8
+SET @rx_print = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'café'));
+SET @rx_action = JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'print', CAST(@rx_print AS JSON), 'replace', JSON_OBJECT('function', JSON_OBJECT('name', 'query_digest'))));
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', 'charset_filter_data')), 'print', CAST(@rx_action AS JSON)))));
+SELECT audit_log_filter_set_filter('rx_charset_digest', @rx_definition) AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_charset_digest') AS result;
+result
+OK
+# Records: 2
+#   1 x general SELECT 'café' AS café FROM charset_filter_data
+#   1 x general SELECT ? AS `café` FROM `charset_filter_data`
+# A malformed UTF-8 byte is matched as U+FFFD, while the log output
+# conversion writes it as '?'
+# Pattern bad\x{FFFD}byte
+SET @rx_pattern = CONCAT('bad', CHAR(92 USING utf8mb4), 'x{FFFD}byte');
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', @rx_pattern))))));
+SELECT audit_log_filter_set_filter('rx_malformed_0', @rx_definition) AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_malformed_0') AS result;
+result
+OK
+# Records: 1
+#   1 x general SELECT 'bad?byte' AS c /* rx_malformed */
+# Pattern bad[?]byte
+SET @rx_pattern = 'bad[?]byte';
+SET @rx_definition = JSON_OBJECT('filter', JSON_OBJECT('class', JSON_OBJECT('name', 'general', 'event', JSON_OBJECT('name', 'status', 'log', JSON_OBJECT('field', JSON_OBJECT('name', 'general_query.str', 'regex', @rx_pattern))))));
+SELECT audit_log_filter_set_filter('rx_malformed_1', @rx_definition) AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_malformed_1') AS result;
+result
+OK
+# Records: 0
+# Regex match errors: +0
 #
 # Embedded NUL in query text and pattern
 #
@@ -302,13 +360,11 @@ mask_me
 SELECT audit_log_filter_set_filter('rx_abort', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "abort": {"field": {"name": "table_name.str", "regex": "^secret_[0-9]+$"}}}}}}') AS result;
 result
 OK
-SELECT audit_log_filter_set_filter('rx_no_abort', '{"filter": {"log": false}}') AS result;
-result
-OK
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_abort') AS result;
 result
 OK
-SELECT audit_log_filter_set_user('rx_exempt@localhost', 'rx_no_abort') AS result;
+# The same filter for an account with AUDIT_ABORT_EXEMPT
+SELECT audit_log_filter_set_user('rx_exempt@localhost', 'rx_abort') AS result;
 result
 OK
 INSERT INTO secret_1 VALUES (1, 1);
@@ -363,6 +419,48 @@ SELECT 'rx_sentinel';
 rx_sentinel
 rx_sentinel
 # Records: 0
+# A replacement without a reference back to the original filter stays
+# active and selects the following sentinel statement
+SELECT audit_log_filter_set_filter('rx_activate_next', '{
+"filter": {
+"class": {
+"name": "table_access",
+"event": {
+"name": "insert",
+"log": false,
+"filter": {
+"class": {
+"name": "general",
+"event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_next_sentinel"}}}
+},
+"activate": {"field": {"name": "table_name.str", "regex": "^temp_[0-9]+$"}}
+}
+}
+}
+}
+}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_activate_next') AS result;
+result
+OK
+INSERT INTO temp_1 VALUES (2, 2);
+SELECT 'rx_next_sentinel';
+rx_next_sentinel
+rx_next_sentinel
+# Records: 1
+#   1 x general SELECT 'rx_next_sentinel'
+# The activated replacement stays in effect for the published rule, even
+# for new sessions, until the rules are reloaded. Starting from reloaded
+# rules and a fresh session, a nonmatching insert does not activate it
+SELECT audit_log_filter_flush() AS result;
+result
+OK
+INSERT INTO keep_1 VALUES (2, 2);
+SELECT 'rx_next_sentinel';
+rx_next_sentinel
+rx_next_sentinel
+# Records: 0
 # Regex match errors: +0
 #
 # ICU time limit: the condition does not match, the error is counted
@@ -383,7 +481,7 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Records: 0
 # Regex match errors: +3
-include/assert_grep.inc [One timeout warning for the condition]
+# Warnings: one timeout warning for the condition
 # Recovery
 SELECT 1 AS aaaa;
 aaaa
@@ -391,6 +489,17 @@ aaaa
 # Records: 1
 #   1 x general SELECT 1 AS aaaa
 # Regex match errors: +0
+# The pathological statement is captured with all its 49 bytes
+SELECT audit_log_filter_set_filter('rx_timeout_length', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.length", "value": 49}}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_timeout_length') AS result;
+result
+OK
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# Records: 1
+#   1 x general <masked>
 # A short-circuited regex leaf is not evaluated
 SELECT audit_log_filter_set_filter('rx_timeout_and', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"and": [{"field": {"name": "general_command.str", "value": "NoSuchCommand"}}, {"field": {"name": "general_query.str", "regex": "(a+)+$"}}]}}}}}') AS result;
 result
@@ -407,7 +516,7 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Records: 0
 # Regex match errors: +0
-include/assert_grep.inc [No warning for the short-circuited condition]
+# Warnings: none for the short-circuited condition
 #
 # A killed statement is still matched: KILL QUERY issued by the same
 # account while the statement waits for a row lock
@@ -435,6 +544,32 @@ SELECT * FROM tpcc.rx_kill_data;
 id	v
 1	1
 # Regex match errors: +0
+# FULL mode: the query/status_end event of the killed statement, notified
+# before the server resets the kill state, is matched
+SET GLOBAL audit_log_filter.event_mode = FULL;
+SELECT audit_log_filter_set_filter('rx_kill_query_full', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "rx_kill_full"}}}}}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_kill_query_full') AS result;
+result
+OK
+BEGIN;
+SELECT * FROM rx_kill_data WHERE id = 1 FOR UPDATE;
+id	v
+1	1
+UPDATE rx_kill_data SET v = v + 1 WHERE id = 1 /* rx_kill_full */;
+ERROR 70100: Query execution was interrupted
+ROLLBACK;
+# Records: 1
+#   1 x query UPDATE rx_kill_data SET v = v + 1 WHERE id = 1 /* rx_kill_full */
+SELECT * FROM tpcc.rx_kill_data;
+id	v
+1	1
+# Regex match errors: +0
+SELECT audit_log_filter_remove_filter('rx_kill_query_full') AS result;
+result
+OK
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
 #
 # Disconnect of a killed connection is still matched
 #
@@ -445,20 +580,51 @@ SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill_conn') AS re
 result
 OK
 # Records: 2
-#   2 x connection disconnect rx_kill_user
+#   1 x connection disconnect rx_kill_user control
+#   1 x connection disconnect rx_kill_user victim
+# Regex match errors: +0
+# Active victim killed while its statement waits for a row lock: its
+# statement status and disconnect are matched, nothing is committed
+SELECT audit_log_filter_set_filter('rx_kill_active', '{"filter": {"class": [{"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_active_kill"}}}}, {"name": "connection", "event": {"name": "disconnect", "log": {"field": {"name": "user.str", "regex": "^rx_kill_user$"}}}}]}}') AS result;
+result
+OK
+SELECT audit_log_filter_set_user('rx_kill_user@localhost', 'rx_kill_active') AS result;
+result
+OK
+BEGIN;
+SELECT * FROM rx_kill_data WHERE id = 1 FOR UPDATE;
+id	v
+1	1
+UPDATE rx_kill_data SET v = v + 1 WHERE id = 1 /* rx_active_kill */;
+Got one of the listed errors
+ROLLBACK;
+# Records: 2
+#   1 x connection disconnect rx_kill_user victim
+#   1 x general UPDATE rx_kill_data SET v = v + 1 WHERE id = 1 /* rx_active_kill */
+SELECT * FROM tpcc.rx_kill_data;
+id	v
+1	1
 # Regex match errors: +0
 #
 # A statement stopped by MAX_EXECUTION_TIME is still matched and is not
 # a regex error
 #
-SELECT audit_log_filter_set_filter('rx_stmt_timeout', '{"filter": {"class": {"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_timeout_marker"}}}}}}') AS result;
+SET GLOBAL audit_log_filter.event_mode = FULL;
+SELECT audit_log_filter_set_filter('rx_stmt_timeout', '{"filter": {"class": [{"name": "general", "event": {"name": "status", "log": {"field": {"name": "general_query.str", "regex": "rx_timeout_marker"}}}}, {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "rx_timeout_marker"}}}}]}}') AS result;
 result
 OK
 SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_stmt_timeout') AS result;
 result
 OK
-# Records with the statement timeout marker: 1
+# One query/status_end and one general/status record of the statement
+# Records: 2
+#   1 x general <masked>
+#   1 x query <masked>
 # Regex match errors: +0
+SELECT audit_log_filter_remove_filter('rx_stmt_timeout') AS result;
+result
+OK
+SET GLOBAL audit_log_filter.event_mode = REDUCED;
 #
 # Cleanup
 #

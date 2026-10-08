@@ -101,8 +101,8 @@ std::shared_ptr<EventFieldConditionBase> make_field_regex_condition(
       if (member == nullptr) {
         member = &it->value;
       } else if (member_error.empty()) {
-        member_error =
-            "duplicate key '" + std::string{key} + "' in 'field' definition";
+        member_error = "duplicate key '" + make_diagnostic_text(key) +
+                       "' in 'field' definition";
       }
     } else if (member_error.empty()) {
       member_error = "unexpected key '" + make_diagnostic_text(key) +
@@ -1307,7 +1307,7 @@ AuditRuleParser::parse_field_regex_json(const rapidjson::Value &field_json,
    * }
    */
   std::string reason;
-  bool out_of_memory = false;
+  const char *construction_failure = nullptr;
 
   try {
     auto condition = make_field_regex_condition(
@@ -1316,23 +1316,31 @@ AuditRuleParser::parse_field_regex_json(const rapidjson::Value &field_json,
     if (condition != nullptr) {
       return condition;
     }
+  } catch (const std::bad_alloc &) {
+    construction_failure = "out of memory while constructing regex condition";
   } catch (...) {
-    out_of_memory = true;
+    construction_failure = "internal error while constructing regex condition";
   }
 
   try {
-    if (out_of_memory) {
-      reason = "out of memory while constructing regex condition";
+    if (construction_failure != nullptr) {
+      reason = construction_failure;
     }
+  } catch (...) {
+    // Reject the condition without another attempt to describe the failure
+    return nullptr;
+  }
 
+  try {
     const auto filter_name =
         make_diagnostic_text(audit_rule->get_rule_name_view());
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_PARSE_CONDITION_BAD_FIELD_REGEX,
                     filter_name.c_str(), reason.c_str());
-    audit_rule->set_parse_error(std::move(reason));
   } catch (...) {
-    // Reject the condition without another attempt to describe the failure
+    // Logging is best effort, the reason is still stored below
   }
+
+  audit_rule->set_parse_error(std::move(reason));
 
   return nullptr;
 }

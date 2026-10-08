@@ -93,14 +93,16 @@ connection default;
 disconnect rx;
 
 --echo #
---echo # Concurrent clients while rules are reloaded
+--echo # Concurrent clients while the rule is changed, removed and reassigned
 --echo #
+let $rx_history_definition = {"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": {"field": {"name": "table_name.str", "regex": "^history[0-9]+$"}}}}}};
 DELIMITER |;
 CREATE PROCEDURE tpcc.rx_insert_rows(base INT)
 BEGIN
   DECLARE i INT DEFAULT 0;
-  WHILE i < 10 DO
+  WHILE i < 50 DO
     INSERT INTO tpcc.orders1 (v) VALUES (base + i);
+    INSERT INTO tpcc.history1 (v) VALUES (base + i);
     SET i = i + 1;
   END WHILE;
 END|
@@ -115,35 +117,49 @@ connection rx2;
 send CALL rx_insert_rows(2000);
 connection default;
 --disable_result_log
+eval UPDATE mysql.audit_log_filter SET filter = '$rx_history_definition' WHERE name = 'rx_reload';
 SELECT audit_log_filter_flush();
-SELECT audit_log_filter_flush();
+SELECT audit_log_filter_remove_filter('rx_reload');
+eval SELECT audit_log_filter_set_filter('rx_reload', '$rx_history_definition');
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload');
 --enable_result_log
 connection rx1;
 reap;
 connection rx2;
 reap;
 connection default;
---echo # Sessions detach after the successful flush, overlapping evaluations
---echo # may use either rule set and are not counted
---source filter_definition_regex_sync.inc
---source filter_definition_regex_begin.inc
+--echo # Evaluations overlapping the changes may use any of the rule sets
+--let rx_allowed_records = ^table_access insert tpcc[.](orders1|history1)(?!.)
+--source filter_definition_regex_summary.inc
+--let rx_allowed_records =
 disconnect rx1;
 disconnect rx2;
---echo # After reconnecting, 2 x 10 inserts are logged
+--echo # After reconnecting, each of 2 x 10 concurrent inserts is logged once
+--echo # according to the new rule
 connect (rx1, localhost, rx_app,, tpcc);
 connect (rx2, localhost, rx_app,, tpcc);
 connection default;
 --source filter_definition_regex_begin.inc
-connection rx1;
-send CALL rx_insert_rows(3000);
-connection rx2;
-send CALL rx_insert_rows(4000);
-connection rx1;
-reap;
-connection rx2;
-reap;
+--disable_query_log
+--let $rx_i = 0
+while ($rx_i < 10) {
+  connection rx1;
+  send_eval INSERT INTO history1 (v) VALUES (3000 + $rx_i);
+  connection rx2;
+  send_eval INSERT INTO history1 (v) VALUES (4000 + $rx_i);
+  connection rx1;
+  reap;
+  connection rx2;
+  reap;
+  connection rx1;
+  eval INSERT INTO orders1 (v) VALUES (3000 + $rx_i);
+  --inc $rx_i
+}
+--enable_query_log
 connection default;
+--let rx_table_access_query = 1
 --source filter_definition_regex_summary.inc
+--let rx_table_access_query =
 disconnect rx1;
 disconnect rx2;
 --source filter_definition_regex_errors.inc
@@ -172,10 +188,33 @@ SELECT audit_log_filter_flush() AS result;
 --echo #
 SET GLOBAL audit_log_filter.event_mode = FULL;
 SELECT audit_log_filter_set_filter('rx_numeric_string', '{"filter": {"class": {"name": "global_variable", "event": {"name": "get", "log": {"field": {"name": "connection_id", "regex": "^[0-9]+$"}}}}}}') AS result;
-SELECT audit_log_filter_set_filter('rx_query_sql_command', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"field": {"name": "query.str", "regex": "^SELECT"}}}}}}') AS result;
 SELECT audit_log_filter_remove_filter('rx_numeric_string') AS result;
-SELECT audit_log_filter_remove_filter('rx_query_sql_command') AS result;
+--let $rx_case_i = 0
+while ($rx_case_i < 2) {
+  if ($rx_case_i == 0) {
+    --echo # Decimal connection ID matches
+    --let $rx_pattern = ^[0-9]+(?!.)
+  }
+  if ($rx_case_i == 1) {
+    --echo # Alphabetic pattern does not match
+    --let $rx_pattern = ^[a-z]+(?!.)
+  }
+  eval SELECT audit_log_filter_set_filter('rx_connection_id_$rx_case_i', '{"filter": {"class": {"name": "query", "event": {"name": "status_end", "log": {"and": [{"field": {"name": "connection_id", "regex": "$rx_pattern"}}, {"field": {"name": "query.str", "regex": "rx_numeric"}}]}}}}}') AS result;
+  eval SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_connection_id_$rx_case_i') AS result;
+  connect (rx, localhost, rx_app,, tpcc);
+  connection default;
+  --source filter_definition_regex_begin.inc
+  connection rx;
+  SELECT 'rx_numeric';
+  connection default;
+  --source filter_definition_regex_summary.inc
+  disconnect rx;
+  eval SELECT audit_log_filter_remove_filter('rx_connection_id_$rx_case_i') AS result;
+  --inc $rx_case_i
+}
+--source filter_definition_regex_errors.inc
 SET GLOBAL audit_log_filter.event_mode = REDUCED;
+SELECT audit_log_filter_set_user('rx_app@localhost', 'rx_reload') AS result;
 
 --echo #
 --echo # Restart keeps using stored regex filters

@@ -109,7 +109,9 @@ condition of a replacement filter, and inside `and`, `or` and `not`.
   member are rejected. There are no `re` or `regexp` aliases; equality with
   `value` remains a literal comparison.
 - **Fields.** Only fields listed with type `string` below are accepted. Integer
-  fields such as `connection_id`, `connection_type` or `*.length` are rejected.
+  fields such as `connection_type`, `*.length`, or `connection_id` of the
+  `general`, `connection` and `table_access` classes are rejected. In the
+  other classes `connection_id` is a string field and can be matched.
 - **Pattern.** A non-empty JSON string using the
   [ICU regular expression syntax](https://unicode-org.github.io/icu/userguide/strings/regexp.html).
   It is neither POSIX ERE nor PCRE. The empty pattern is rejected; use `^$` or
@@ -149,7 +151,7 @@ ERROR: Incorrect rule definition: invalid regular expression for field 'table_na
 ```
 
 Error positions are the line and character position reported by ICU. Keys,
-names and patterns in messages are escaped: `\` as `\\`, `'` as `'`,
+names and patterns in messages are escaped: `\` as `\\`, `'` as `\u0027`,
 control characters as `\u00XX`, invalid UTF-8 bytes as `\xXX`, and are
 truncated to 96 bytes ending with `...`.
 
