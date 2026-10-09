@@ -17104,10 +17104,17 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
                                   &table_def))
       return true;
 
+    /*
+      Only for the secondary engine unload: engines without atomic DDL
+      reopen table_list after an in-place ALTER, and the dropped partitions
+      no longer exist by then.
+    */
+    List<String> *const saved_partition_names = table_list->partition_names;
     table_list->partition_names = &alter_info->partition_names;
-    if (secondary_engine_unload_table(
-            thd, table_list->db, table_list->table_name, *table_def, false))
-      return true;
+    const bool unload_failed = secondary_engine_unload_table(
+        thd, table_list->db, table_list->table_name, *table_def, false);
+    table_list->partition_names = saved_partition_names;
+    if (unload_failed) return true;
   }
 
   /*
