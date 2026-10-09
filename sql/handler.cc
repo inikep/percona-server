@@ -2382,7 +2382,8 @@ int ha_release_savepoint(THD *thd, SAVEPOINT *sv) {
 static bool snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
   handlerton *hton = plugin_data<handlerton *>(plugin);
   if (hton->state == SHOW_OPTION_YES && hton->start_consistent_snapshot) {
-    hton->start_consistent_snapshot(hton, thd);
+    /* An engine may refuse the snapshot (MyRocks: isolation level). */
+    if (hton->start_consistent_snapshot(hton, thd)) return true;
     *((bool *)arg) = false;
   }
   return false;
@@ -2391,7 +2392,12 @@ static bool snapshot_handlerton(THD *thd, plugin_ref plugin, void *arg) {
 int ha_start_consistent_snapshot(THD *thd) {
   bool warn = true;
 
-  plugin_foreach(thd, snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN, &warn);
+  if (plugin_foreach(thd, snapshot_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN,
+                     &warn)) {
+    if (!thd->is_error())
+      my_printf_error(ER_UNKNOWN_ERROR, "Cannot start transaction", MYF(0));
+    return 1;
+  }
 
   /*
     Same idea as when one wants to CREATE TABLE in one engine which does not
