@@ -285,6 +285,8 @@ ENDIF()
 
 ADD_LIBRARY(rocksdb_sources ${ROCKSDB_LIB_SOURCES})
 TARGET_LINK_LIBRARIES(rocksdb_sources ${rocksdb_static_libs})
+# RocksDB uses the std::atomic_*(shared_ptr) free functions deprecated in C++20
+TARGET_COMPILE_OPTIONS(rocksdb_sources PRIVATE -Wno-deprecated-declarations)
 
 IF (ROCKSDB_DYNAMIC_PLUGIN)
   MYSQL_ADD_PLUGIN(rocksdb ${ROCKSDB_SE_SOURCES} STORAGE_ENGINE DEFAULT

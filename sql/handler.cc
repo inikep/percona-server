@@ -8850,9 +8850,9 @@ static bool notify_table_ddl_helper(THD *thd, plugin_ref plugin, void *arg) {
         }
         break;
       case HA_DROP_DDL:
-        if (hton->notify_drop_table) {
-          notify_ret = hton->notify_drop_table(thd, params->key,
-                                               params->notification_type);
+        if (hton->notify_drop_table_ddl) {
+          notify_ret = hton->notify_drop_table_ddl(thd, params->key,
+                                                   params->notification_type);
         }
         break;
       default:

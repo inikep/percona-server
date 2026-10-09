@@ -19,6 +19,7 @@
   This engine need server classes (like THD etc.) which only is defined if
   MYSQL_SERVER define is set!
 */
+#include "strxmov.h"
 #include "my_io.h"
 #include "sql/sql_partition.h"
 #define MYSQL_SERVER 1
@@ -27,6 +28,7 @@
 #include <algorithm>
 #include "mysql/psi/mysql_file.h"
 #include "partition_base.h"
+#include "scope_guard.h"
 #include "pfs_file_provider.h"
 #include "sql/partition_info.h"  // partition_info
 #include "sql/sql_class.h"
@@ -59,7 +61,6 @@
 #include "mysql/psi/mysql_file.h"
 #include "pfs_file_provider.h"
 
-#include <boost/scope_exit.hpp>
 
 using std::max;
 using std::min;
@@ -391,13 +392,13 @@ Partition_base::~Partition_base() {
     m_new_partitions_share_refs.delete_elements();
   if (m_file != nullptr) {
     for (uint i = 0; i < m_tot_parts; i++) {
-      destroy(m_file[i]);
+      if (m_file[i] != nullptr) ::destroy_at(m_file[i]);
       m_file[i] = nullptr;
     }
   }
   if (m_new_file != nullptr) {
     for (uint i = 0; i < m_num_new_partitions; i++) {
-      destroy(m_new_file[i]);
+      if (m_new_file[i] != nullptr) ::destroy_at(m_new_file[i]);
       m_new_file[i] = nullptr;
     }
   }
@@ -660,12 +661,12 @@ int Partition_base::create(const char *name, TABLE *table_arg,
           old_index_file_name = create_info->data_file_name;
           create_info->index_file_name = part_elem->index_file_name;
         }
-        BOOST_SCOPE_EXIT_ALL(&) {
+        auto restore_file_names = create_scope_guard([&]() {
           if (part_elem->data_file_name)
             create_info->data_file_name = old_data_file_name;
           if (part_elem->index_file_name)
             create_info->index_file_name = old_index_file_name;
-        };
+        });
         if ((error = (*file)->ha_create(name_buff, table_arg, create_info,
                                         table_def)))
           return false;
@@ -3916,7 +3917,8 @@ class Partition_base_inplace_ctx : public inplace_alter_handler_ctx {
   ~Partition_base_inplace_ctx() override {
     if (handler_ctx_array) {
       for (uint index = 0; index < m_tot_parts; index++)
-        destroy(handler_ctx_array[index]);
+        if (handler_ctx_array[index] != nullptr)
+          ::destroy_at(handler_ctx_array[index]);
     }
   }
 };
@@ -4143,7 +4145,7 @@ bool Partition_base::commit_inplace_alter_table(
                 error = (*file)->ha_delete_table(name, old_table_def);
                 if (error) goto end;
                 (*file)->ha_close();
-                destroy(*file);
+                ::destroy_at(*file);
                 *file = nullptr;
                 file++;
               }
@@ -4156,7 +4158,7 @@ bool Partition_base::commit_inplace_alter_table(
               error = (*file)->ha_delete_table(name, old_table_def);
               if (error) goto end;
               (*file)->ha_close();
-              destroy(*file);
+              ::destroy_at(*file);
               *file = nullptr;
               file += num_subparts;
             }

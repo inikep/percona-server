@@ -2090,8 +2090,8 @@ typedef bool (*notify_rename_table_t)(THD *thd, const MDL_key *mdl_key,
   @param notification_type  Indicates whether this is pre-DROP TABLE or
                             post-DROP TABLE notification.
 */
-typedef bool (*notify_drop_table_t)(THD *thd, const MDL_key *mdl_key,
-                                    ha_notification_type notification_type);
+typedef bool (*notify_drop_table_ddl_t)(THD *thd, const MDL_key *mdl_key,
+                                        ha_notification_type notification_type);
 
 /**
   Notify/get permission from storage engine before or after execution of
@@ -2892,7 +2892,7 @@ struct handlerton {
   notify_alter_table_t notify_alter_table;
   notify_rename_table_t notify_rename_table;
   notify_truncate_table_t notify_truncate_table;
-  notify_drop_table_t notify_drop_table;
+  notify_drop_table_ddl_t notify_drop_table_ddl;
   rotate_encryption_master_key_t rotate_encryption_master_key;
   redo_log_set_state_t redo_log_set_state;
 

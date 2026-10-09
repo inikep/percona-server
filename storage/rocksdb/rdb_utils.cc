@@ -28,7 +28,7 @@
 #include <ctype.h>
 
 /* MySQL header files */
-#include "m_ctype.h"
+#include "mysql/strings/m_ctype.h"
 #include "my_dir.h"
 #include "sql/mysqld.h"
 

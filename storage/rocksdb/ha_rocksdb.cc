@@ -49,6 +49,7 @@
 #include <mysql/psi/mysql_table.h>
 #include <mysql/thread_pool_priv.h>
 #include <mysys_err.h>
+#include "strxmov.h"
 #include "my_sys.h"
 #include "mysqld_error.h"
 #include "scope_guard.h"
@@ -7392,7 +7393,7 @@ static int rocksdb_init_internal(void *const p) {
   rocksdb_hton->get_table_statistics = rocksdb_get_table_statistics;
   rocksdb_hton->flush_logs = rocksdb_flush_wal;
   rocksdb_hton->notify_alter_table = rocksdb_notify_alter_table;
-  rocksdb_hton->notify_drop_table = rocksdb_notify_drop_table;
+  rocksdb_hton->notify_drop_table_ddl = rocksdb_notify_drop_table;
 
   rocksdb_hton->flags = HTON_SUPPORTS_EXTENDED_KEYS | HTON_CAN_RECREATE;
 
@@ -8457,7 +8458,7 @@ static handler *rocksdb_create_handler(my_core::handlerton *const hton,
   if (partitioned) {
     ha_rockspart *file = new (mem_root) ha_rockspart(hton, table_arg);
     if (file && file->init_partitioning(mem_root)) {
-      destroy(file);
+      ::destroy_at(file);
       return (nullptr);
     }
     return (file);
@@ -10360,7 +10361,7 @@ int ha_rocksdb::index_read_intern(uchar *const buf, const uchar *const key,
 
   DBUG_EXECUTE_IF(
       "myrocks_busy_loop_on_row_read", volatile int debug_i = 0;
-      while (1) { debug_i++; });
+      while (1) { debug_i = debug_i + 1; });
 
   int rc = 0;
   table->m_status = STATUS_NOT_FOUND;
