@@ -1,5 +1,5 @@
 --source include/have_rocksdb.inc
---source include/master-slave.inc
+--source include/rpl/init_source_replica.inc
 --source include/have_debug.inc
 
 connection master;
@@ -130,10 +130,10 @@ select * from t3 use index (slave_unique_key);
 # Or else, it will be a update_rows event or a delete_rows_write_rows event
 --echo Case 6
 connection master;
---source include/show_binlog_events.inc
+--source include/rpl/deprecated/show_binlog_events.inc
 
 connection slave;
---source include/show_binlog_events.inc
+--source include/rpl/deprecated/show_binlog_events.inc
 
 # Cleanup
 connection master;
@@ -146,4 +146,4 @@ SET GLOBAL enable_blind_replace=DEFAULT;
 connection slave;
 SET GLOBAL enable_blind_replace=DEFAULT;
 
---source include/rpl_end.inc
+--source include/rpl/deinit.inc

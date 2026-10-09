@@ -1,6 +1,6 @@
 --source include/have_rocksdb.inc
 
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 
 connection master;
 
@@ -41,7 +41,7 @@ while ($i <= 1000) {
 select variable_value-@c from performance_schema.global_status where variable_name='rocksdb_rows_deleted_blind';
 SELECT count(*) FROM t1;
 
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 eval SET SESSION TRANSACTION ISOLATION LEVEL $trx_isolation;
 SELECT count(*) FROM t1;
@@ -78,7 +78,7 @@ while ($t <= 2) {
 select variable_value-@c from performance_schema.global_status where variable_name='rocksdb_rows_deleted_blind';
 SELECT count(*) FROM t1;
 SELECT count(*) FROM t2;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 SELECT count(*) FROM t1;
 SELECT count(*) FROM t2;
@@ -92,7 +92,7 @@ DELETE FROM t2 WHERE id BETWEEN 3001 AND 4000;
 select variable_value-@c from performance_schema.global_status where variable_name='rocksdb_rows_deleted_blind';
 SELECT count(*) FROM t1;
 SELECT count(*) FROM t2;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 SELECT count(*) FROM t1;
 SELECT count(*) FROM t2;
@@ -107,14 +107,14 @@ call mtr.add_suppression("Slave SQL.*Could not execute Delete_rows event on tabl
 call mtr.add_suppression("Slave: Can't find record in 't1'.*");
 # wait until we have the expected error
 --let $slave_sql_errno= convert_error(ER_KEY_NOT_FOUND)
---source include/wait_for_slave_sql_error.inc
+--source include/rpl/wait_for_applier_error.inc
 
 connection slave;
 set @save_rocksdb_read_free_rpl=@@global.rocksdb_read_free_rpl;
 set global rocksdb_read_free_rpl=PK_SK;
 START SLAVE;
 connection master;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 SELECT count(*) FROM t1;
 connection master;
@@ -128,4 +128,4 @@ SET session rocksdb_blind_delete_primary_key=@save_rocksdb_blind_delete_primary_
 SET session rocksdb_master_skip_tx_api=@save_rocksdb_master_skip_tx_api;
 
 DROP TABLE t1, t2;
---source include/rpl_end.inc
+--source include/rpl/deinit.inc

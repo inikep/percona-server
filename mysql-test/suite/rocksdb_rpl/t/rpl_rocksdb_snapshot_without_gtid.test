@@ -1,5 +1,5 @@
 --source include/have_rocksdb.inc
---source include/master-slave.inc
+--source include/rpl/init_source_replica.inc
 --source include/have_binlog_format_row.inc
 
 --connection master
@@ -15,4 +15,4 @@ FLUSH LOGS;
 START TRANSACTION WITH CONSISTENT ROCKSDB SNAPSHOT;
 
 drop table t1;
--- source include/rpl_end.inc
+-- source include/rpl/deinit.inc

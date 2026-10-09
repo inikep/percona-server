@@ -1,5 +1,5 @@
 source include/have_rocksdb.inc;
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 -- let $uuid = `select @@server_uuid;`
 -- let $use_gtids = `select @@gtid_mode = "ON";`
 
@@ -25,7 +25,7 @@ while ($counter2 <= 5)
 }
 
 connection master;
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 # Flush everything after syncing with master so we don't
 # lose the first binlog position and its max gtid
@@ -55,7 +55,7 @@ commit;
 -- replace_result $uuid uuid
 select @@global.gtid_executed;
 
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 --echo Checksum master innodb_t
 let $master_checksum1=query_get_value(CHECKSUM TABLE innodb_t, Checksum, 1);
@@ -133,7 +133,7 @@ EOF
 --let $rpl_server_parameters= --log-error=$LOG
 --let $rpl_skip_start_slave= 1
 --let $rpl_omit_print_server_parameters= 1
---source include/rpl_start_server.inc
+--source include/rpl/start_server.inc
 --disable_query_log
 select "--- slave state after crash recovery, slave stop, one transaction recovered---" as "";
 --enable_query_log
@@ -143,9 +143,9 @@ connection slave;
 --disable_query_log
 select "--- slave state after restart, slave start ---" as "";
 --enable_query_log
---source include/start_slave.inc
+--source include/rpl/start_replica.inc
 connection master;
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 connection slave;
 --disable_query_log
 
@@ -196,7 +196,7 @@ while ($counter1 <= 48)
 
 -- replace_result $uuid uuid
 select @@global.gtid_executed;
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 
 connection master;
@@ -206,11 +206,11 @@ connection slave;
 
 --let $rpl_server_parameters=
 --let $rpl_skip_start_slave= 1
---source include/rpl_start_server.inc
---source include/start_slave.inc
+--source include/rpl/start_server.inc
+--source include/rpl/start_replica.inc
 
 connection master;
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 --echo Checksum master innodb_t
 let $master_checksum1=query_get_value(CHECKSUM TABLE innodb_t, Checksum, 1);
 --echo Checksum master rocksdb_t
@@ -247,7 +247,7 @@ drop table rocksdb_t;
 
 --remove_file $MYSQL_TMP_DIR/truncate_tail_wal.sh
 --remove_file $LOG
---source include/rpl_end.inc
+--source include/rpl/deinit.inc
 
 --disable_query_log
 connection slave;

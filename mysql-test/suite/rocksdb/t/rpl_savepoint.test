@@ -1,6 +1,6 @@
 --source include/have_rocksdb.inc
 
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 
 connection master;
 --disable_warnings
@@ -23,7 +23,7 @@ commit;
 commit;
 select * from t1;
 
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 
 select * from t1;
@@ -42,7 +42,7 @@ commit;
 commit;
 select * from t1;
 
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 select * from t1;
 
@@ -61,7 +61,7 @@ insert into t1 values (34, 1);
 rollback;
 select * from t1;
 
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 select * from t1;
 
@@ -78,7 +78,7 @@ ROLLBACK TO SAVEPOINT A;
 --error ER_ROLLBACK_ONLY
 START TRANSACTION;
 select * from t1;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 select * from t1;
 
@@ -86,5 +86,5 @@ select * from t1;
 connection master;
 drop table t1;
 
---source include/rpl_end.inc
+--source include/rpl/deinit.inc
 

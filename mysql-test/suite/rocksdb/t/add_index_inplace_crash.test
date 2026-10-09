@@ -23,7 +23,6 @@ SET SESSION debug="+d,crash_during_online_index_creation";
 --error 2013
 ALTER TABLE t1 ADD INDEX kb(b), ALGORITHM=INPLACE;
 
---enable_reconnect
 --source include/wait_until_connected_again.inc
 
 SET SESSION debug="-d,crash_during_online_index_creation";
@@ -56,7 +55,6 @@ SET SESSION debug="+d,crash_during_index_creation_partition";
 --error 2013
 ALTER TABLE t1 ADD INDEX kij(i,j), ALGORITHM=INPLACE;
 
---enable_reconnect
 --source include/wait_until_connected_again.inc
 
 SET SESSION debug="-d,crash_during_index_creation_partition";

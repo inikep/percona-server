@@ -128,25 +128,13 @@ DROP TABLE t1;
 --let $error = ER_DUP_ENTRY
 --source autoinc_vars_maxval.inc
 
---let $errorType = 0;
---let $col_type = FLOAT
---let $col_value = 16777215.0
---let $error = ER_DUP_ENTRY
---source autoinc_vars_maxval.inc
-
---let $errorType = 0;
---let $col_type = DOUBLE
---let $col_value = 9007199254740991.0
---let $error = ER_DUP_ENTRY
---source autoinc_vars_maxval.inc
-
 --echo #----------------------------------
 --echo # Issue #792 Crash in autoincrement
 --echo #----------------------------------
 
+# 8.4: AUTO_INCREMENT is not allowed on FLOAT/DOUBLE columns.
+--error ER_WRONG_FIELD_SPEC
 CREATE TABLE t1(C1 DOUBLE AUTO_INCREMENT KEY,C2 CHAR) ENGINE=ROCKSDB;
-INSERT INTO t1 VALUES(2177,0);
-DROP TABLE t1;
 
 CREATE TABLE t0(c0 BLOB) ENGINE=ROCKSDB;
 INSERT INTO t0 VALUES(0);

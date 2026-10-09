@@ -1,7 +1,7 @@
 -- source include/have_binlog_format_row.inc
 -- source include/have_rbr_triggers.inc
 -- source include/have_rocksdb.inc
--- source include/master-slave.inc
+-- source include/rpl/init_source_replica.inc
 
 -- echo # Test of row replication with triggers on the slave side
 connection master;
@@ -259,4 +259,4 @@ set global slave_run_triggers_for_rbr = @slave_run_triggers_for_rbr.saved;
 drop table t1, tlog, t4;
 sync_slave_with_master;
 
---source include/rpl_end.inc
+--source include/rpl/deinit.inc

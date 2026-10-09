@@ -26,7 +26,7 @@ replace into t5 values (3, 33);
 # Ensure that this was a blind replace
 select case when variable_value-@c = 3 then 'true' else 'false' end as read_free from performance_schema.global_status where variable_name='rocksdb_num_get_for_update_calls';
 select * from t5;
---source include/show_binlog_events.inc
+--source include/rpl/deprecated/show_binlog_events.inc
 
 flush logs;
 
@@ -43,7 +43,7 @@ reset master;
 --echo Replaying binlog events containing blind replace statements should work
 --exec $MYSQL < $MYSQLTEST_VARDIR/tmp/mysqlbinlog-output
 select * from t5;
---source include/show_binlog_events.inc
+--source include/rpl/deprecated/show_binlog_events.inc
 
 drop table t5;
 reset master;
@@ -55,7 +55,7 @@ SET GLOBAL enable_blind_replace=OFF;
 --exec $MYSQL < $MYSQLTEST_VARDIR/tmp/mysqlbinlog-output
 select * from t5;
 
---source include/show_binlog_events.inc
+--source include/rpl/deprecated/show_binlog_events.inc
 
 set GLOBAL binlog_format=DEFAULT;
 SET GLOBAL enable_blind_replace=DEFAULT;

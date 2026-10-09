@@ -352,7 +352,6 @@ set session debug="+d,crash_during_write_row";
 --error 2013
 insert into tmp1 VALUES (1, "aaaa");
 
---enable_reconnect
 --source include/wait_until_connected_again.inc
 set session debug="-d,crash_during_write_row";
 --error 1146

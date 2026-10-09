@@ -1,6 +1,6 @@
 source include/have_debug.inc;
 source include/have_rocksdb.inc;
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 
 connection slave;
 SET @@GLOBAL.rocksdb_alter_table_comment_inplace=ON;
@@ -56,7 +56,7 @@ SELECT * from t0;
 ALTER TABLE t0 comment = 'abadfas;dfikajps;ttl_duration=30;aspipwrqp3948r', ALGORITHM=INPLACE;
 
 DROP TABLE t0;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 
 
 --echo
@@ -110,7 +110,7 @@ SELECT a,b,c from t1;
 ALTER TABLE t1 comment = 'abadfas;dfikajps;ttl_duration=1000;ttl_col=ts;aspipwrqp3948r', ALGORITHM=INPLACE;
 
 DROP TABLE t1;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 
 
 --echo
@@ -179,7 +179,7 @@ SET GLOBAL rocksdb_compact_cf='default';
 --sorted_result
 SELECT * FROM t2;
 DROP TABLE t2;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 
 
 --echo
@@ -260,7 +260,7 @@ SET GLOBAL rocksdb_debug_ttl_snapshot_ts = 0;
 --sorted_result
 SELECT c1 FROM t3;
 DROP TABLE t3;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 
 
 --echo
@@ -272,4 +272,4 @@ SET @@GLOBAL.rocksdb_alter_table_comment_inplace=default;
 connection master;
 SET @@GLOBAL.rocksdb_alter_table_comment_inplace=default;
 
-source include/rpl_end.inc;
+source include/rpl/deinit.inc;

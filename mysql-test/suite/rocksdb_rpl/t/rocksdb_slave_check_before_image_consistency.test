@@ -1,4 +1,4 @@
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 source include/have_binlog_format_row.inc;
 
 call mtr.add_suppression("Slave: Can't find record in '*'");
@@ -11,14 +11,14 @@ source extra/rpl_tests/rpl_slave_check_before_image_consistency.inc;
 
 # check detection with HASH_SCAN enabled
 connection slave;
-source include/stop_slave.inc;
+source include/rpl/stop_replica.inc;
 set @@global.slave_rows_search_algorithms = 'INDEX_SCAN,TABLE_SCAN,HASH_SCAN';
-source include/start_slave.inc;
+source include/rpl/start_replica.inc;
 source extra/rpl_tests/rpl_slave_check_before_image_consistency.inc;
 
 # cleanup
-source include/stop_slave.inc;
+source include/rpl/stop_replica.inc;
 set @@global.slave_rows_search_algorithms = DEFAULT;
-source include/start_slave.inc;
+source include/rpl/start_replica.inc;
 
-source include/rpl_end.inc;
+source include/rpl/deinit.inc;

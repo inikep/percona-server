@@ -1,6 +1,6 @@
 --source include/have_rocksdb.inc
 
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 
 connection master;
 --disable_warnings
@@ -14,7 +14,7 @@ connection master;
 
 create table t1 (id int primary key, value int);
 insert into t1 values (1,1), (2,2), (3,3), (4,4), (5,5);
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 
 connection slave;
 call save_read_stats();
@@ -22,7 +22,7 @@ connection master;
 update t1 set value=value+1 where id=1;
 update t1 set value=value+1 where id=3;
 select * from t1;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 call get_read_stats();
 select * from t1;
@@ -31,7 +31,7 @@ call save_read_stats();
 connection master;
 delete from t1 where id in (4,5);
 select * from t1;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 call get_read_stats();
 select * from t1;
@@ -42,5 +42,5 @@ connection master;
 drop table t1;
 --source drop_stats_procedure.inc
 
---source include/rpl_end.inc
+--source include/rpl/deinit.inc
 

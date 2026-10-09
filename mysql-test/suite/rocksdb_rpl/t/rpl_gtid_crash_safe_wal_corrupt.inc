@@ -1,5 +1,5 @@
 source include/have_rocksdb.inc;
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 -- let $uuid = `select @@server_uuid;`
 -- let $use_gtids = `select @@gtid_mode = "ON";`
 
@@ -22,7 +22,7 @@ insert into x values (5,1,1);
 select @@global.gtid_executed;
 
 --let $use_gtids = 1
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 connection slave;
 --let slave_data_dir= query_get_value(SELECT @@DATADIR, @@DATADIR, 1)
@@ -73,7 +73,7 @@ EOF
 --let $rpl_skip_start_slave= 1
 --let $rpl_server_parameters= --log-error=$LOG
 --let $rpl_omit_print_server_parameters= 1
---source include/rpl_start_server.inc
+--source include/rpl/start_server.inc
 --disable_query_log
 select "--- slave state after crash recovery, slave stop, one transaction recovered---" as "";
 --enable_query_log
@@ -86,10 +86,10 @@ select @@global.gtid_executed;
 --disable_query_log
 select "--- slave state after restart, slave start ---" as "";
 --enable_query_log
---source include/start_slave.inc
+--source include/rpl/start_replica.inc
 connection master;
 --let $use_gtids = 1;
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 connection slave;
 select * from x;
 -- replace_result $uuid uuid
@@ -98,7 +98,7 @@ select @@global.gtid_executed;
 connection master;
 insert into x values (6,1,1);
 --let $use_gtids = 1
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 connection slave;
 select * from x;
 -- replace_result $uuid uuid
@@ -115,7 +115,7 @@ select * from x;
 -- replace_result $uuid uuid
 select @@global.gtid_executed;
 --let $use_gtids = 1
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 connection slave;
 
@@ -153,15 +153,15 @@ EOF
 
 --let $rpl_server_parameters=
 --let $rpl_skip_start_slave= 1
---source include/rpl_start_server.inc
+--source include/rpl/start_server.inc
 --disable_query_log
 select "--- slave state after crash recovery, slave stop, WAL was corrupted, point in time recovery with wal_recovery_mode=2 ---" as "";
 --enable_query_log
 select * from x;
---source include/start_slave.inc
+--source include/rpl/start_replica.inc
 connection master;
 --let $use_gtids = 1
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 connection slave;
 select * from x;
@@ -175,5 +175,5 @@ drop table x;
 --remove_file $MYSQL_TMP_DIR/truncate_tail_wal.sh
 --remove_file $MYSQL_TMP_DIR/corrupt_wal.sh
 --remove_file $LOG
---source include/rpl_end.inc
+--source include/rpl/deinit.inc
 

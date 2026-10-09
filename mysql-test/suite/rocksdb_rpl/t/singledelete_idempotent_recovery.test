@@ -1,7 +1,7 @@
 
 --source include/have_binlog_format_row.inc
 --source include/have_rocksdb.inc
---source include/master-slave.inc
+--source include/rpl/init_source_replica.inc
 --source include/not_valgrind.inc
 
 # This is a test case for issue#655 -- SingleDelete on Primary Key may
@@ -50,8 +50,8 @@ EOF
 # On slave, the last insert is converted to update with the same key.
 # It should be treated as SD and Put (same as singledelete_idempotent_table.test).
 
---source include/rpl_start_server.inc
---source include/start_slave.inc
+--source include/rpl/start_server.inc
+--source include/rpl/start_replica.inc
 
 # Due to the binlogs being truncated, the slave may still think it's processed up to
 # the truncated binlog and select master_pos_wait() can return prematurely. Add
@@ -72,6 +72,6 @@ connection master;
 drop table r1;
 
 --remove_file $MYSQL_TMP_DIR/truncate_tail_binlog.sh
---source include/rpl_end.inc
+--source include/rpl/deinit.inc
 
 

@@ -47,7 +47,7 @@ while ($iter < 10) {
   }
   inc $iter;
 }
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 connection master;
 let $t = 1;
@@ -64,6 +64,6 @@ while ($t <= 8) {
   eval drop table t$t;
   inc $t;
 }
-source include/sync_slave_sql_with_master.inc;
+source include/rpl/sync_to_replica.inc;
 
 enable_query_log;

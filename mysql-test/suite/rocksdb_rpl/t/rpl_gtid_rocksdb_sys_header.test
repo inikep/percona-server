@@ -1,6 +1,6 @@
 # based on rpl/rpl_gtid_innondb_sys_header.test
 source include/have_rocksdb.inc;
-source include/master-slave.inc;
+source include/rpl/init_source_replica.inc;
 source include/have_debug.inc;
 source include/not_valgrind.inc;
 
@@ -16,14 +16,14 @@ insert into t1 values(2);
 
 --source include/wait_until_disconnected.inc
 --let $rpl_server_number = 1
---source include/rpl_reconnect.inc
+--source include/rpl/reconnect.inc
 
 --eval SET GLOBAL debug = `$old_debug`
 
 connection slave;
 disable_warnings;
 --let $rpl_allow_error=1
-source include/start_slave.inc;
+source include/rpl/start_replica.inc;
 enable_warnings;
 connection master;
 sync_slave_with_master;
@@ -34,7 +34,7 @@ connection master;
 --exec grep 'RocksDB: Last MySQL Gtid $master_uuid' $MYSQLTEST_VARDIR/log/mysqld.1.err
 
 drop table t1;
-source include/rpl_end.inc;
+source include/rpl/deinit.inc;
 -- move_file $MYSQLTEST_VARDIR/log/mysqld.1.err $MYSQLTEST_VARDIR/log/mysqld.1.err.orig
 -- write_file $MYSQLTEST_VARDIR/log/mysqld.1.err
 EOF
