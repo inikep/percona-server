@@ -17089,6 +17089,10 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
                                   &table_def))
       return true;
 
+    auto *saved_partition_names = table_list->partition_names;
+    auto partition_names_guard = create_scope_guard([table_list, saved_partition_names] {
+      table_list->partition_names = saved_partition_names;
+    });
     table_list->partition_names = &alter_info->partition_names;
     if (secondary_engine_unload_table(
             thd, table_list->db, table_list->table_name, *table_def, false))
