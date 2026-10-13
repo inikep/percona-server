@@ -6278,6 +6278,47 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
     }
   }
 
+  void populate_deadlock_buffer() {
+    const auto &dlock_buffer = rdb->GetDeadlockInfoBuffer();
+    m_data += "----------LATEST DETECTED DEADLOCKS----------\n";
+
+    for (const auto &path_entry : dlock_buffer) {
+      std::string path_data;
+      if (path_entry.limit_exceeded) {
+        path_data += "\n-------DEADLOCK EXCEEDED MAX DEPTH-------\n";
+      } else {
+        path_data +=
+            "\n*** DEADLOCK PATH\n"
+            "=========================================\n";
+        const auto dl_info = get_dl_path_trx_info(path_entry);
+        const auto deadlock_time = dl_info.deadlock_time;
+        for (auto it = dl_info.path.begin(); it != dl_info.path.end(); it++) {
+          const auto &trx_info = *it;
+          path_data += format_string(
+              "TIMESTAMP: %" PRId64
+              "\n"
+              "TRANSACTION ID: %llu\n"
+              "COLUMN FAMILY NAME: %s\n"
+              "WAITING KEY: %s\n"
+              "LOCK TYPE: %s\n"
+              "INDEX NAME: %s\n"
+              "TABLE NAME: %s\n",
+              deadlock_time, trx_info.trx_id, trx_info.cf_name.c_str(),
+              trx_info.waiting_key.c_str(),
+              trx_info.exclusive_lock ? "EXCLUSIVE" : "SHARED",
+              trx_info.index_name.c_str(), trx_info.table_name.c_str());
+          if (it != dl_info.path.end() - 1) {
+            path_data += "---------------WAITING FOR---------------\n";
+          }
+        }
+        path_data += format_string(
+            "\n--------TRANSACTION ID: %llu GOT DEADLOCK---------\n",
+            dl_info.victim_trx_id);
+      }
+      m_data += path_data;
+    }
+  }
+
   // Only reads the RocksDB deadlock buffer, no transaction-list walk needed
   static std::vector<Rdb_deadlock_info> get_deadlock_info() {
     std::vector<Rdb_deadlock_info> deadlock_info;
@@ -6390,6 +6431,18 @@ std::vector<Rdb_trx_info> rdb_get_all_trx_info() {
 */
 std::vector<Rdb_deadlock_info> rdb_get_deadlock_info() {
   return Rdb_snapshot_status::get_deadlock_info();
+}
+
+/* Generate the output of SHOW ENGINE ROCKSDB TRANSACTION STATUS */
+static bool rocksdb_show_snapshot_status(THD *const thd,
+                                         stat_print_fn *const stat_print) {
+  Rdb_snapshot_status showStatus;
+
+  Rdb_transaction_list::for_each(showStatus);
+  showStatus.populate_deadlock_buffer();
+
+  /* Send the result data back to MySQL */
+  return print_stats(thd, "rocksdb", "", showStatus.getResult(), stat_print);
 }
 
 /*
@@ -6573,6 +6626,9 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
                            stat_print);
       }
     }
+  } else if (stat_type == HA_ENGINE_TRX) {
+    /* Handle the SHOW ENGINE ROCKSDB TRANSACTION STATUS command */
+    res |= rocksdb_show_snapshot_status(thd, stat_print);
   }
 
   if (res) {
