@@ -25,7 +25,7 @@ EOF
 mkdir $ddir;
 
 # Launch mysqld with non-standard rocksdb_datadir
-exec $MYSQLD_BOOTSTRAP_CMD --datadir=$ddir --rocksdb_datadir=$rdb_ddir --default-storage-engine=rocksdb --skip-innodb --default-tmp-storage-engine=MyISAM --rocksdb < $sql_file;
+exec $MYSQLD_BOOTSTRAP_CMD --datadir=$ddir --rocksdb_datadir=$rdb_ddir --default-storage-engine=rocksdb --default-tmp-storage-engine=MyISAM --rocksdb < $sql_file;
 
 --echo Check for the number of MANIFEST files
 exec ls $rdb_ddir/MANIFEST-0000* | wc -l;

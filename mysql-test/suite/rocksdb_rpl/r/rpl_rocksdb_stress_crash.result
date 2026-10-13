@@ -8,10 +8,10 @@ include/rpl/stop_replica.inc
 change replication source to source_auto_position=1;
 include/rpl/start_replica.inc
 call mtr.add_suppression('Replica: Error dropping database');
-start replica;
-stop replica sql_thread;
+START REPLICA;
+STOP REPLICA sql_thread;
 insert into test0.benchmark set state='slave is processing load';
-start replica sql_thread;
+START REPLICA sql_thread;
 use test0;
 insert into benchmark set state='slave ends load';
 use test;

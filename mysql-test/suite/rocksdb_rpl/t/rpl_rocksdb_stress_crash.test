@@ -15,7 +15,7 @@ change replication source to source_auto_position=1;
 -- let $num_crashes=100
 -- let $include_silent=1
 -- let $storage_engine='rocksdb'
--- source extra/rpl_tests/rpl_parallel_load_innodb.test
+-- source common/rpl/rpl_parallel_load_innodb.test
 -- let $include_silent=0
 
 -- source include/rpl/stop_replica.inc

@@ -75,8 +75,6 @@ call mtr.add_suppression("Replica SQL.*The replica coordinator and worker thread
 call mtr.add_suppression("Slave: Can't find record in 't1'.*");
 include/rpl/wait_for_applier_error.inc [errno=1032]
 SET GLOBAL sql_replica_skip_counter=1;
-Warnings:
-Warning	1287	'@@sql_replica_skip_counter' is deprecated and will be removed in a future release. Please use sql_replica_skip_counter instead.
 START REPLICA;
 include/rpl/sync_to_replica.inc
 SELECT count(*) FROM t1;

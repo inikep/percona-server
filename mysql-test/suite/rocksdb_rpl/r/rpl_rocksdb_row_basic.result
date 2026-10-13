@@ -447,7 +447,7 @@ a	b	c
 **** On Master ****
 DELETE FROM t1;
 include/rpl/sync_to_replica.inc
-include/rpl_reset.inc
+include/rpl/reset.inc
 **** On Master ****
 INSERT INTO t1 VALUES ('K','K'), ('L','L'), ('M','M');
 **** On Master ****
@@ -459,7 +459,7 @@ SELECT COUNT(*) FROM t1 ORDER BY c1,c2;
 COUNT(*)	0
 include/rpl/sync_to_replica.inc
 set @@global.replica_exec_mode= default;
-include/check_slave_is_running.inc
+include/rpl/assert_replica_running.inc
 SELECT COUNT(*) FROM t1 ORDER BY c1,c2;
 COUNT(*)	0
 **** Test for BUG#37076 ****
@@ -547,7 +547,7 @@ call mtr.add_suppression("Replica SQL.*Table definition on source and replica do
 call mtr.add_suppression("Replica SQL.*Could not execute Delete_rows event on table test.t1.* Error_code: MY-001032");
 call mtr.add_suppression("Replica SQL.*Column 1 of table .test.t.. cannot be converted from type.*, Error_code: MY-013146");
 call mtr.add_suppression("The replica coordinator and worker threads are stopped, possibly leaving data in inconsistent state");
-include/rpl_reset.inc
+include/rpl/reset.inc
 [expecting slave to replicate correctly]
 INSERT INTO t4 VALUES (1, "", 1);
 INSERT INTO t4 VALUES (2, repeat(_utf8'a', 128), 2);
@@ -561,14 +561,14 @@ INSERT INTO t5 VALUES (2, repeat(_utf8'a', 255), 2);
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 include/rpl/wait_for_applier_error.inc [errno=13146]
-include/rpl_reset.inc
+include/rpl/reset.inc
 [expecting slave to stop]
 INSERT INTO t6 VALUES (1, "", 1);
 INSERT INTO t6 VALUES (2, repeat(_utf8'a', 255), 2);
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
 include/rpl/wait_for_applier_error.inc [errno=13146]
-include/rpl_reset.inc
+include/rpl/reset.inc
 [expecting slave to replicate correctly]
 INSERT INTO t7 VALUES (1, "", 1);
 INSERT INTO t7 VALUES (2, repeat(_utf8'a', 255), 2);
