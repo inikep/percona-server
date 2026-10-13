@@ -1,3 +1,4 @@
+set session transaction_isolation='READ-COMMITTED';
 CREATE TABLE t1
 (
 /* fields/keys for row retrieval tests */

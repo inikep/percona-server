@@ -239,7 +239,7 @@ a	b
 SELECT * FROM t1 FORCE INDEX (kb);
 a	b
 1	1
-UPDATE t1 set a = a + 1;
+UPDATE t1 set a = a + 1 WHERE a = 1;
 SELECT * FROM t1 FORCE INDEX (PRIMARY);
 a	b
 2	1

@@ -1,3 +1,4 @@
+set session transaction_isolation='READ-COMMITTED';
 DROP TABLE IF EXISTS t1, t2;
 Case 1: Verify user table transactions
 CREATE TABLE t1 (a INT, b CHAR(8), pk INT AUTO_INCREMENT PRIMARY KEY) ENGINE=rocksdb;
@@ -25,7 +26,9 @@ Case 2: Verify tmp table transactions
 CREATE TABLE t1 (a INT, b CHAR(8), pk INT AUTO_INCREMENT PRIMARY KEY) ENGINE=rocksdb;
 INSERT INTO t1 (a,b) VALUES (1,'a'),(2,'b'),(3,'a');
 CREATE TEMPORARY TABLE t2 LIKE t1;
+set session transaction_isolation='READ-COMMITTED';
 INSERT INTO t2 SELECT * FROM t1;
+set session transaction_isolation='REPEATABLE-READ';
 set big_tables = 1;
 FLUSH STATUS;
 START TRANSACTION WITH CONSISTENT SNAPSHOT;

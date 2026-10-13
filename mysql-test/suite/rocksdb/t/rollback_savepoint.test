@@ -4,6 +4,10 @@
 # Save the initial number of concurrent sessions
 --source include/count_sessions.inc
 
+# MyRocks does not support gap locks in REPEATABLE-READ mode, test does not
+# require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
+
 --disable_warnings
 DROP TABLE IF EXISTS t1, t2;
 --enable_warnings
@@ -48,7 +52,9 @@ INSERT INTO t1 (a,b) VALUES (1,'a'),(2,'b'),(3,'a');
 --connect (con2,localhost,root,,)
 --connection con1
 CREATE TEMPORARY TABLE t2 LIKE t1;
+set session transaction_isolation='READ-COMMITTED';
 INSERT INTO t2 SELECT * FROM t1;
+set session transaction_isolation='REPEATABLE-READ';
 set big_tables = 1;
 FLUSH STATUS;
 START TRANSACTION WITH CONSISTENT SNAPSHOT;

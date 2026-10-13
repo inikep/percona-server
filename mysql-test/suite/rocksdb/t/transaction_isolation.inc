@@ -48,8 +48,17 @@ connection con1;
 --sorted_result
 SELECT a FROM t1; # Third snapshot
 
---error 0,ER_LOCK_WAIT_TIMEOUT
-INSERT INTO t1 (a) SELECT a+100 FROM t1; 
+# MyRocks rejects INSERT ... SELECT relying on gap locks in REPEATABLE-READ
+if ($trx_isolation == "REPEATABLE READ")
+{
+  --error ER_UNKNOWN_ERROR
+  INSERT INTO t1 (a) SELECT a+100 FROM t1;
+}
+if ($trx_isolation != "REPEATABLE READ")
+{
+  --error 0,ER_LOCK_WAIT_TIMEOUT
+  INSERT INTO t1 (a) SELECT a+100 FROM t1;
+}
 
 --sorted_result
 SELECT a FROM t1;
@@ -70,8 +79,17 @@ SELECT a FROM t1; # Inside the transaction
 # The test will have a 'logical' result for repeatable read, even although
 # we currently don't have an engine which works this way.
 
---error 0,ER_LOCK_WAIT_TIMEOUT
-INSERT INTO t1 (a) SELECT a+200 FROM t1; 
+# MyRocks rejects INSERT ... SELECT relying on gap locks in REPEATABLE-READ
+if ($trx_isolation == "REPEATABLE READ")
+{
+  --error ER_UNKNOWN_ERROR
+  INSERT INTO t1 (a) SELECT a+200 FROM t1;
+}
+if ($trx_isolation != "REPEATABLE READ")
+{
+  --error 0,ER_LOCK_WAIT_TIMEOUT
+  INSERT INTO t1 (a) SELECT a+200 FROM t1;
+}
 
 --sorted_result
 SELECT a FROM t1;

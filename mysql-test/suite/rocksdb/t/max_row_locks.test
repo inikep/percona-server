@@ -1,5 +1,9 @@
 --source include/have_rocksdb.inc
 
+# MyRocks does not support gap locks in REPEATABLE-READ mode, test does not
+# require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
+
 create table t1 (id1 bigint, id2 bigint, c1 bigint, c2 bigint, c3 bigint, c4 bigint, c5 bigint, c6 bigint, c7 bigint, primary key (id1, id2), index i(c1, c2));
 --disable_query_log
 let $i=0;

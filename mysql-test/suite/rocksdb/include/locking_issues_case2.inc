@@ -48,18 +48,31 @@ BEGIN;
 if ($lock_scanned_rows == 1)
 {
   connection con1;
-  # This is expected to leave locks on all the rows in t0
+  # This is expected to leave locks on all the rows in t0. MyRocks rejects it
+  # in REPEATABLE-READ as it relies on gap locks, so no rows get locked.
+  if ($isolation_level == "REPEATABLE READ")
+  {
+    --error ER_UNKNOWN_ERROR
+  }
   SELECT * FROM t0 WHERE value > 0 FOR UPDATE;
 
   connection con2;
-  --error ER_LOCK_WAIT_TIMEOUT
+  if ($isolation_level == "READ COMMITTED")
+  {
+    --error ER_LOCK_WAIT_TIMEOUT
+  }
   UPDATE t0 SET VALUE=10 WHERE id=1;
 }
 
 if ($lock_scanned_rows == 0)
 {
   connection con1;
-  # This is expected to release locks on rows with value=0
+  # This is expected to release locks on rows with value=0. MyRocks rejects it
+  # in REPEATABLE-READ as it relies on gap locks, so no rows get locked.
+  if ($isolation_level == "REPEATABLE READ")
+  {
+    --error ER_UNKNOWN_ERROR
+  }
   SELECT * FROM t0 WHERE value > 0 FOR UPDATE;
 
   connection con2;
@@ -67,11 +80,18 @@ if ($lock_scanned_rows == 0)
   UPDATE t0 SET VALUE=10 WHERE id=1;
 
   # This should fail because lock on row (5,1) is still held.
-  --error ER_LOCK_WAIT_TIMEOUT
+  if ($isolation_level == "READ COMMITTED")
+  {
+    --error ER_LOCK_WAIT_TIMEOUT
+  }
   UPDATE t0 SET VALUE=10 WHERE id=5;
 
   connection con1;
-  # Do another operation
+  # Do another operation. In REPEATABLE-READ con2 holds the lock on row (5,1).
+  if ($isolation_level == "REPEATABLE READ")
+  {
+    --error ER_LOCK_WAIT_TIMEOUT
+  }
   UPDATE t0 SET value=100 WHERE id in (4,5) and value>0;
 
   connection con2;

@@ -1,3 +1,7 @@
+# MyRocks does not support gap locks in REPEATABLE-READ mode, test does not
+# require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
+
 #
 # Issue #878: Descending scans from reverse column families return no results
 # due to iterator bounds
@@ -83,8 +87,7 @@ drop table t;
 # check query return correct result while query will switch between using bloomfilter 
 # and using iterate bounds during execution
 #
-# force range query
-set optimizer_force_index_for_range = on;
+# force range query (FORCE INDEX)
 # use latin1_swedish_ci to not use bloomfilter
 # for query with "", its eq_cond size = 5, while prefix_extractor=capped:12
 # since 5 < 12, so bloomfilter isn't used. 
@@ -106,8 +109,7 @@ explain select count(*) from t3 force index(b) where b in ("", "33", "","33");
 select count(*) from t3 force index(b) where b in ("", "33", "","33");
 drop table t3;
 
-# force range query
-set optimizer_force_index_for_range = on;
+# force range query (FORCE INDEX)
 create table t2(
   a int, 
   b int, 

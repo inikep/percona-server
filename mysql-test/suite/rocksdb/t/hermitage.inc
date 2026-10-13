@@ -112,6 +112,11 @@ commit;
 
 --source hermitage_init.inc
 connection con1;
+# MyRocks rejects statements relying on gap locks in REPEATABLE-READ
+if ($trx_isolation == "REPEATABLE READ")
+{
+  --error ER_UNKNOWN_ERROR
+}
 update test set value = value + 10;
 connection con2;
 select variable_value into @a from performance_schema.global_status where variable_name='rocksdb_snapshot_conflict_errors';
@@ -128,15 +133,15 @@ if ($trx_isolation == "READ COMMITTED")
 }
 if ($trx_isolation == "REPEATABLE READ")
 {
+  # MyRocks rejects the DELETE relying on gap locks in REPEATABLE-READ
+  --error ER_UNKNOWN_ERROR
+  reap;
   if ($skip_snapshot_validation == 0)
   {
-    --error ER_LOCK_DEADLOCK
-    reap;
     select variable_value-@a from performance_schema.global_status where variable_name='rocksdb_snapshot_conflict_errors';
   }
   if ($skip_snapshot_validation == 1)
   {
-    reap;
     select * from test;
   }
 }
@@ -200,6 +205,11 @@ commit;
 connection con1;
 select * from test where value % 5 = 0;
 connection con2;
+# MyRocks rejects statements relying on gap locks in REPEATABLE-READ
+if ($trx_isolation == "REPEATABLE READ")
+{
+  --error ER_UNKNOWN_ERROR
+}
 update test set value = 12 where value = 10;
 commit;
 connection con1;
@@ -225,14 +235,11 @@ if ($trx_isolation == "READ COMMITTED")
 }
 if ($trx_isolation == "REPEATABLE READ")
 {
-  if ($skip_snapshot_validation == 0)
-  {
-    --error ER_LOCK_DEADLOCK
-    delete from test where value = 20;
-  }
+  # MyRocks rejects the DELETE relying on gap locks in REPEATABLE-READ
+  --error ER_UNKNOWN_ERROR
+  delete from test where value = 20;
   if ($skip_snapshot_validation == 1)
   {
-    delete from test where value = 20; # doesn't delete anything
     select * from test where id = 2; # shows 2 => 18
   }
 }

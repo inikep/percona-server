@@ -1,3 +1,6 @@
+# MyRocks does not support gap locks in REPEATABLE-READ mode, test does not
+# require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
 
 --echo #
 --echo # Issue #809: Wrong query result with bloom filters

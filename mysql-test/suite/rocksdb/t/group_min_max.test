@@ -1,4 +1,9 @@
 --source include/have_debug.inc
+
+# MyRocks does not support gap locks in REPEATABLE-READ mode, test does not
+# require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
+
 set global debug="+d,force_lis_for_group_by";
 
 let $engine=RocksDB;

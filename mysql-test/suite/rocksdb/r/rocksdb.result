@@ -27,10 +27,10 @@ update t1 set b=3334341 where a=2;
 set @var2=(select variable_value
 from performance_schema.global_status
 where variable_name='rocksdb_number_keys_written');
-# The following should produce 2 when binlog is enabled
+# The following should produce 1 (no SE binlog position is written)
 select @var2 - @var1;
 @var2 - @var1
-2
+1
 # Do an update that sets the key to the same value
 update t1 set a=pk where a=3;
 set @var3=(select variable_value
@@ -398,7 +398,7 @@ rocksdb_lock_wait_timeout	2
 begin;
 update t17 set col1='UPD2-AA' where pk='row2';
 update t17 set col1='UPD2-BB' where pk='row2';
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t17.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 set rocksdb_lock_wait_timeout=1000;
 update t17 set col1='UPD2-CC' where pk='row2';
 rollback;
@@ -457,8 +457,11 @@ drop table t21;
 CREATE TABLE t22 (a int primary key) ENGINE=RocksDB CHARSET=latin1;
 INSERT INTO t22 VALUES (1),(2);
 CREATE TABLE t23 (b int primary key) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 INSERT INTO t23 SELECT * FROM t22;
 DELETE IGNORE t22.*, t23.* FROM t22, t23 WHERE b < a;
+set session transaction_isolation=@orig_tx_iso;
 DROP TABLE t22,t23;
 #
 # MDEV-4046: RocksDB: Multi-table DELETE locks itself and ends with ER_LOCK_WAIT_TIMEOUT
@@ -466,8 +469,11 @@ DROP TABLE t22,t23;
 CREATE TABLE t24 (pk int primary key) ENGINE=RocksDB CHARSET=latin1;
 INSERT INTO t24 VALUES (1),(2);
 CREATE TABLE t25 LIKE t24;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 INSERT INTO t25 SELECT * FROM t24;
 DELETE t25.* FROM t24, t25;
+set session transaction_isolation=@orig_tx_iso;
 DROP TABLE t24,t25;
 #
 # MDEV-4044: RocksDB: UPDATE or DELETE with ORDER BY locks itself
@@ -496,7 +502,7 @@ row3	row3data
 connection default;
 set rocksdb_lock_wait_timeout=1;
 update t27 set col1='row2-modified' where pk='row3';
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t27.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 connection con1;
 rollback;
 connection default;
@@ -1028,6 +1034,7 @@ rocksdb_partial_index_blind_delete	ON
 rocksdb_partial_index_ignore_killed	ON
 rocksdb_partial_index_sort_max_mem	0
 rocksdb_pause_background_work	ON
+rocksdb_pause_ttl_compaction_filter	OFF
 rocksdb_perf_context_level	0
 rocksdb_persistent_cache_path	
 rocksdb_persistent_cache_size_mb	0
@@ -1041,14 +1048,6 @@ rocksdb_records_in_range	50
 rocksdb_reset_stats	OFF
 rocksdb_rollback_on_timeout	OFF
 rocksdb_seconds_between_stat_computes	3600
-rocksdb_select_bypass_allow_filters	ON
-rocksdb_select_bypass_debug_row_delay	0
-rocksdb_select_bypass_fail_unsupported	ON
-rocksdb_select_bypass_log_failed	OFF
-rocksdb_select_bypass_log_rejected	ON
-rocksdb_select_bypass_multiget_min	18446744073709551615
-rocksdb_select_bypass_policy	always_off
-rocksdb_select_bypass_rejected_query_history_size	0
 rocksdb_signal_drop_index_thread	OFF
 rocksdb_sim_cache_size	0
 rocksdb_skip_bloom_filter_on_read	OFF
@@ -1315,14 +1314,17 @@ DROP TABLE t1;
 # 
 CREATE TABLE t1 (pk INT PRIMARY KEY, i INT, KEY(i)) ENGINE=RocksDB CHARSET=latin1;
 INSERT INTO t1 VALUES (1,1),(2,2);
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 BEGIN;
 UPDATE t1 SET i = 100;
 connect  con1,localhost,root,,test;
 DELETE IGNORE FROM t1 ORDER BY i;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 disconnect con1;
 connection default;
 COMMIT;
+set session transaction_isolation=@orig_tx_iso;
 DROP TABLE t1;
 #
 # MDEV-4324: RocksDB: Valgrind "Use of uninitialised value" warnings on inserting value into varchar field
@@ -1384,11 +1386,14 @@ create table t1 (pk varchar(12) primary key) ENGINE=RocksDB CHARSET=latin1;
 insert into t1 values ('old-val1'),('old-val2');
 create table t2 (pk varchar(12) primary key) ENGINE=RocksDB CHARSET=latin1;
 insert into t2 values ('new-val2'),('old-val1');
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 begin;
 insert into t1 values ('new-val1');
 insert into t1 select * from t2;
 ERROR 23000: Duplicate entry 'old-val1' for key 't1.PRIMARY'
 commit;
+set session transaction_isolation=@orig_tx_iso;
 select * from t1;
 pk
 new-val1
@@ -1402,6 +1407,8 @@ drop table t1, t2;
 CREATE TABLE t2 (pk INT AUTO_INCREMENT PRIMARY KEY) ENGINE=RocksDB CHARSET=latin1;
 CREATE TABLE t1 (pk INT AUTO_INCREMENT PRIMARY KEY) ENGINE=RocksDB CHARSET=latin1;
 INSERT INTO t1 (pk) VALUES (NULL),(NULL);
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 BEGIN;
 INSERT INTO t2 (pk) VALUES (NULL),(NULL);
 INSERT INTO t1 (pk) VALUES (NULL),(NULL),(NULL),(NULL),(NULL),(NULL);
@@ -1422,6 +1429,7 @@ SELECT * FROM t1 ORDER BY pk LIMIT 9;
 pk
 affected rows: 0
 DROP TABLE t1,t2;
+set session transaction_isolation=@orig_tx_iso;
 #
 # MDEV-4374: RocksDB: Valgrind warnings 'Use of uninitialised value' on 
 #   inserting into a varchar column
@@ -1591,8 +1599,6 @@ drop table t0, t1;
 #
 show status where variable_name like 'rocksdb%' and variable_name not like '%num_get_for_update%';
 Variable_name	Value
-Rocksdb_git_date	#
-Rocksdb_git_hash	#
 rocksdb_rows_deleted	#
 rocksdb_rows_inserted	#
 rocksdb_rows_read	#
@@ -1697,9 +1703,6 @@ rocksdb_partial_index_rows_materialized	#
 rocksdb_partial_index_rows_sorted	#
 rocksdb_row_lock_deadlocks	#
 rocksdb_row_lock_wait_timeouts	#
-rocksdb_select_bypass_executed	#
-rocksdb_select_bypass_failed	#
-rocksdb_select_bypass_rejected	#
 rocksdb_snapshot_conflict_errors	#
 rocksdb_stall_l0_file_count_limit_slowdowns	#
 rocksdb_stall_locked_l0_file_count_limit_slowdowns	#
@@ -1757,8 +1760,6 @@ ROCKSDB_GETUPDATESSINCE_CALLS
 ROCKSDB_GET_HIT_L0
 ROCKSDB_GET_HIT_L1
 ROCKSDB_GET_HIT_L2_AND_UP
-ROCKSDB_GIT_DATE
-ROCKSDB_GIT_HASH
 ROCKSDB_INTRINSIC_TMP_TABLE_COMMITS
 ROCKSDB_ITER_BYTES_READ
 ROCKSDB_LAST_LEVEL_SEEK_DATA
@@ -1819,9 +1820,6 @@ ROCKSDB_ROWS_UNFILTERED_NO_SNAPSHOT
 ROCKSDB_ROWS_UPDATED
 ROCKSDB_ROW_LOCK_DEADLOCKS
 ROCKSDB_ROW_LOCK_WAIT_TIMEOUTS
-ROCKSDB_SELECT_BYPASS_EXECUTED
-ROCKSDB_SELECT_BYPASS_FAILED
-ROCKSDB_SELECT_BYPASS_REJECTED
 ROCKSDB_SNAPSHOT_CONFLICT_ERRORS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_SLOWDOWNS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_STOPS
@@ -1888,8 +1886,6 @@ ROCKSDB_GETUPDATESSINCE_CALLS
 ROCKSDB_GET_HIT_L0
 ROCKSDB_GET_HIT_L1
 ROCKSDB_GET_HIT_L2_AND_UP
-ROCKSDB_GIT_DATE
-ROCKSDB_GIT_HASH
 ROCKSDB_INTRINSIC_TMP_TABLE_COMMITS
 ROCKSDB_ITER_BYTES_READ
 ROCKSDB_LAST_LEVEL_SEEK_DATA
@@ -1950,9 +1946,6 @@ ROCKSDB_ROWS_UNFILTERED_NO_SNAPSHOT
 ROCKSDB_ROWS_UPDATED
 ROCKSDB_ROW_LOCK_DEADLOCKS
 ROCKSDB_ROW_LOCK_WAIT_TIMEOUTS
-ROCKSDB_SELECT_BYPASS_EXECUTED
-ROCKSDB_SELECT_BYPASS_FAILED
-ROCKSDB_SELECT_BYPASS_REJECTED
 ROCKSDB_SNAPSHOT_CONFLICT_ERRORS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_SLOWDOWNS
 ROCKSDB_STALL_L0_FILE_COUNT_LIMIT_STOPS
@@ -2201,7 +2194,10 @@ kp2 int,
 col1 int,
 key(kp1, kp2)
 ) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t2 select * from t1;
+set session transaction_isolation=@orig_tx_iso;
 # This must show 'Using index'
 explain 
 select kp1,kp2 from t2 force index (kp1) 
@@ -2265,7 +2261,10 @@ kp2 int,
 col1 int,
 key(kp1, kp2)
 ) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t2 select * from t1;
+set session transaction_isolation=@orig_tx_iso;
 # This must show 'Using index'
 explain 
 select kp1,kp2 from t2 force index (kp1) 
@@ -2331,7 +2330,10 @@ kp2 int,
 col1 int,
 key(kp1, kp2)
 ) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t2 select * from t1;
+set session transaction_isolation=@orig_tx_iso;
 # This must show 'Using index'
 explain 
 select kp1,kp2 from t2 force index (kp1) 
@@ -2397,7 +2399,10 @@ kp2 int,
 col1 int,
 key(kp1, kp2)
 ) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t2 select * from t1;
+set session transaction_isolation=@orig_tx_iso;
 # This must show 'Using index'
 explain 
 select kp1,kp2 from t2 force index (kp1) 
@@ -2462,7 +2467,10 @@ kp2 int,
 col1 int,
 key(kp1, kp2)
 ) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t2 select * from t1;
+set session transaction_isolation=@orig_tx_iso;
 # This must show 'Using index'
 explain 
 select kp1,kp2 from t2 force index (kp1) 
@@ -2499,7 +2507,7 @@ id
 6
 begin;
 select * from t1 where id=4 for update;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 select * from t1 where id=7 for update;
 id
 select * from t1 where id=9 for update;
@@ -2564,9 +2572,12 @@ create table t2 (
 a varchar(32) primary key,
 col1 int
 ) ENGINE=RocksDB CHARSET=latin1;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t2
 select concat('v-', 100 + A.a*100 + B.a), 12345 from t1 A, t1 B;
 update t2 set a=concat('x-', a) where a between 'v-1002' and 'v-1004';
+set session transaction_isolation=@orig_tx_iso;
 drop table t1,t2;
 #
 # Issue #131: Assertion `v->cfd_->internal_comparator().Compare(start, end) <= 0' failed
@@ -2589,10 +2600,12 @@ CREATE DATABASE test_db;
 CREATE TABLE test_db.t1(c1 INT PRIMARY KEY);
 LOCK TABLES test_db.t1 READ;
 SET AUTOCOMMIT=0;
-SELECT c1 FROM test_db.t1;
+SELECT c1 FROM test_db.t1 WHERE c1=2;
 c1
 START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY;
 DROP DATABASE test_db;
+COMMIT;
+SET AUTOCOMMIT=1;
 #
 # Issue #143: Split rocksdb_bulk_load option into two
 #
@@ -2630,6 +2643,8 @@ id	value
 9	NULL
 10	NULL
 INSERT INTO t1 (id) VALUES (11),(12),(13),(14),(15);
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 BEGIN;
 UPDATE t1 SET value=100;
 ROLLBACK;
@@ -2660,6 +2675,7 @@ id	value
 13	NULL
 14	NULL
 15	NULL
+set session transaction_isolation=@orig_tx_iso;
 SET rocksdb_commit_in_the_middle=0;
 SET rocksdb_bulk_load_size= @save_rocksdb_bulk_load_size;
 DROP TABLE t1;
@@ -2753,10 +2769,13 @@ CREATE TABLE t1(a INT,b INT,KEY (b)) ENGINE=RocksDB CHARSET=latin1 PARTITION BY 
 INSERT INTO t1(a)VALUES (20010101101010.999949);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 lock tables t1 write,t1 as t0 write,t1 as t2 write;
 SELECT a FROM t1 ORDER BY a;
 a
 2147483647
+set session transaction_isolation=@orig_tx_iso;
 truncate t1;
 INSERT INTO t1 VALUES(X'042000200020',X'042000200020'),(X'200400200020',X'200400200020');
 Warnings:
@@ -2891,7 +2910,11 @@ Warning	1681	Integer display width is deprecated and will be removed in a future
 set rocksdb_commit_in_the_middle=1;
 SET @save_rocksdb_bulk_load_size= @@rocksdb_bulk_load_size;
 set rocksdb_bulk_load_size = 100;
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
+COMMIT;
 DELETE t2, t1 FROM t2 LEFT JOIN t1 ON t2.id2 = t1.id2 AND t2.id1 = t1.id1 WHERE t2.id1 = 0;
+set session transaction_isolation=@orig_tx_iso;
 SET rocksdb_bulk_load_size= @save_rocksdb_bulk_load_size;
 SET rocksdb_commit_in_the_middle=0;
 DROP TABLE t1, t2;

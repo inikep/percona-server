@@ -285,7 +285,9 @@ SELECT * FROM t1 FORCE INDEX (PRIMARY);
 --sorted_result
 SELECT * FROM t1 FORCE INDEX (kb); # <= shouldn't be filtered out here
 
-UPDATE t1 set a = a + 1;
+# A full table UPDATE would rely on gap locks in this REPEATABLE-READ
+# transaction, so update the only row by its primary key
+UPDATE t1 set a = a + 1 WHERE a = 1;
 --sorted_result
 SELECT * FROM t1 FORCE INDEX (PRIMARY);
 --sorted_result

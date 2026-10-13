@@ -1,3 +1,4 @@
+set session transaction_isolation='READ-COMMITTED';
 #
 # A basic test whether endspace-aware variable length encoding 
 # works when in PK

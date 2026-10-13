@@ -1,6 +1,10 @@
 --source include/have_debug.inc
 --source include/have_rocksdb.inc
 
+# MyRocks does not support gap locks in REPEATABLE-READ mode, test does not
+# require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
+
 ####################
 # Create a table with a varchar key with the current format and validate
 # that it sorts correctly
