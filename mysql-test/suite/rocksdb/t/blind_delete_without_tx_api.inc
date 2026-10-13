@@ -103,8 +103,9 @@ connection master;
 DELETE FROM t1 WHERE id = 10;
 SELECT count(*) FROM t1;
 connection slave;
-call mtr.add_suppression("Slave SQL.*Could not execute Delete_rows event on table test.t1.*Error_code.*");
-call mtr.add_suppression("Slave: Can't find record in 't1'.*");
+call mtr.add_suppression("Replica SQL.*Could not execute Delete_rows event on table test.t1.*Error_code.*");
+call mtr.add_suppression("Replica: Can't find record in 't1'.*");
+call mtr.add_suppression("The replica coordinator and worker threads are stopped, possibly leaving data in inconsistent state");
 # wait until we have the expected error
 --let $slave_sql_errno= convert_error(ER_KEY_NOT_FOUND)
 --source include/rpl/wait_for_applier_error.inc
@@ -112,7 +113,7 @@ call mtr.add_suppression("Slave: Can't find record in 't1'.*");
 connection slave;
 set @save_rocksdb_read_free_rpl=@@global.rocksdb_read_free_rpl;
 set global rocksdb_read_free_rpl=PK_SK;
-START SLAVE;
+START REPLICA;
 connection master;
 --source include/rpl/sync_to_replica.inc
 connection slave;

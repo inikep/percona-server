@@ -1,7 +1,7 @@
-include/master-slave.inc
+include/rpl/init_source_replica.inc
 Warnings:
 Note	####	Sending passwords in plain text without SSL/TLS is extremely insecure.
-Note	####	Storing MySQL user name or password information in the master info repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL Manual for more information.
+Note	####	Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
 [connection master]
 drop table if exists t1;
 create table t1 (id int primary key, value int);
@@ -20,7 +20,7 @@ id	value
 1	1
 2	2
 3	3
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 select * from t1;
 id	value
 1	1
@@ -42,7 +42,7 @@ id	value
 1	1
 2	2
 3	3
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 select * from t1;
 id	value
 1	1
@@ -64,7 +64,7 @@ id	value
 1	1
 2	2
 3	3
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 select * from t1;
 id	value
 1	1
@@ -93,11 +93,11 @@ id	value
 1	1
 2	2
 3	3
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 select * from t1;
 id	value
 1	1
 2	2
 3	3
 drop table t1;
-include/rpl_end.inc
+include/rpl/deinit.inc

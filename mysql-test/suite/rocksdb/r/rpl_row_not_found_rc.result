@@ -1,7 +1,7 @@
-include/master-slave.inc
+include/rpl/init_source_replica.inc
 Warnings:
 Note	####	Sending passwords in plain text without SSL/TLS is extremely insecure.
-Note	####	Storing MySQL user name or password information in the master info repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL Manual for more information.
+Note	####	Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
 [connection master]
 drop table if exists t1;
 create table t0 (a int) engine=myisam;
@@ -17,11 +17,15 @@ key (kp1,kp2)
 ) engine=rocksdb;
 insert into t2 select a,a,a,a from t1;
 create table t3 like t2;
+set @orig_transaction_isolation=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t3 select * from t2;
-include/sync_slave_sql_with_master.inc
+set session transaction_isolation=@orig_transaction_isolation;
+include/rpl/sync_to_replica.inc
+call mtr.add_suppression("Replica SQL for channel '': Worker .* failed executing transaction .* Could not execute Update_rows event on table test.t[23]; Can't find record");
 set global debug= 'd,dbug.rocksdb.get_row_by_rowid';
-include/stop_slave.inc
-include/start_slave.inc
+include/rpl/stop_replica.inc
+include/rpl/start_replica.inc
 update t2 set col1=100 where kp1 between 1 and 3 and mod(kp2,2)=0;
 set debug_sync= 'now WAIT_FOR Reached';
 set global debug = '';
@@ -29,15 +33,15 @@ set sql_log_bin=0;
 delete from t2 where pk=2;
 delete from t2 where pk=3;
 set debug_sync= 'now SIGNAL signal.rocksdb.get_row_by_rowid_let_running';
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 select * from t2 where pk < 5;
 pk	kp1	kp2	col1
 0	0	0	0
 1	1	1	1
 4	4	4	4
 set global debug= 'd,dbug.rocksdb.get_row_by_rowid';
-include/stop_slave.inc
-include/start_slave.inc
+include/rpl/stop_replica.inc
+include/rpl/start_replica.inc
 update t3 set col1=100 where kp1 between 1 and 4 and mod(kp2,2)=0;
 call mtr.add_suppression("Deadlock found when trying to get lock");
 set debug_sync= 'now WAIT_FOR Reached';
@@ -46,11 +50,11 @@ set sql_log_bin=0;
 delete from t3 where pk=2;
 delete from t3 where pk=3;
 set debug_sync= 'now SIGNAL signal.rocksdb.get_row_by_rowid_let_running';
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 select * from t3 where pk < 5;
 pk	kp1	kp2	col1
 0	0	0	0
 1	1	1	1
 4	4	4	100
 drop table t0, t1, t2, t3;
-include/rpl_end.inc
+include/rpl/deinit.inc

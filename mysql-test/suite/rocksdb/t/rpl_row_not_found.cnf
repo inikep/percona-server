@@ -5,5 +5,6 @@ binlog_format=row
 [mysqld.2]
 binlog_format=row
 slave_parallel_workers=4
-slave_exec_mode=SEMI_STRICT
+# SEMI_STRICT is FB-only; IDEMPOTENT also skips the missing rows here
+slave_exec_mode=IDEMPOTENT
 rocksdb_lock_wait_timeout=5

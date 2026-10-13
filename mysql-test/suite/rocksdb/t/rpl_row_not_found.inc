@@ -23,7 +23,11 @@ create table t2 (
 ) engine=rocksdb;
 insert into t2 select a,a,a,a from t1;
 create table t3 like t2;
+# MyRocks does not support gap locks in REPEATABLE-READ mode
+set @orig_transaction_isolation=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into t3 select * from t2;
+set session transaction_isolation=@orig_transaction_isolation;
 
 
 # For GitHub issue#166
@@ -40,6 +44,8 @@ insert into t3 select * from t2;
 --source include/rpl/sync_to_replica.inc
 
 connection slave;
+# slave_exec_mode=IDEMPOTENT logs the skipped missing rows
+call mtr.add_suppression("Replica SQL for channel '': Worker .* failed executing transaction .* Could not execute Update_rows event on table test.t[23]; Can't find record");
 let $old_debug = `select @@global.debug`;
 set global debug= 'd,dbug.rocksdb.get_row_by_rowid';
 --source include/rpl/stop_replica.inc
