@@ -195,13 +195,52 @@ rocksdb::ColumnFamilyHandle *Rdb_cf_manager::get_or_create_cf(
                       "    target_file_size_base=%" PRIu64,
                       opts.target_file_size_base);
 
-      const rocksdb::Status s =
-          m_db->CreateColumnFamily(opts, cf_name, &cf_handle);
+      rocksdb::ColumnFamilyHandle *new_cf_handle = nullptr;
+      rocksdb::Status s =
+          m_db->CreateColumnFamily(opts, cf_name, &new_cf_handle);
+      DBUG_EXECUTE_IF("rocksdb_create_cf_persist_options_failure", {
+        if (s.ok()) {
+          s = rocksdb::Status::IOError(
+              "Simulated failure to persist the OPTIONS file");
+        }
+      });
 
       if (s.ok()) {
-        assert(cf_handle != nullptr);
+        assert(new_cf_handle != nullptr);
+        cf_handle = new_cf_handle;
         m_cf_name_map[cf_handle->GetName()] = cf_handle;
         m_cf_id_map[cf_handle->GetID()] = cf_handle;
+      } else {
+        rdb_log_status_error(s, "Error creating column family");
+        if (new_cf_handle != nullptr) {
+          // RocksDB has already created the column family but failed
+          // afterwards, typically while persisting the OPTIONS file. Drop it
+          // again so that the database matches what this manager knows about,
+          // and release the handle instead of leaking it.
+          const auto drop_status = DBUG_EVALUATE_IF(
+              "rocksdb_create_cf_rollback_failure",
+              rocksdb::Status::IOError("injected CF rollback failure"),
+              m_db->DropColumnFamily(new_cf_handle));
+          if (!drop_status.ok()) {
+            rdb_log_status_error(drop_status,
+                                 "Error dropping partially created column "
+                                 "family");
+            // The CF still exists in RocksDB. Retain ownership and make it
+            // discoverable for a later CREATE instead of orphaning its name.
+            m_cf_name_map[new_cf_handle->GetName()] = new_cf_handle;
+            m_cf_id_map[new_cf_handle->GetID()] = new_cf_handle;
+          } else {
+            const auto destroy_status =
+                m_db->DestroyColumnFamilyHandle(new_cf_handle);
+            if (!destroy_status.ok()) {
+              rdb_log_status_error(destroy_status,
+                                   "Error releasing partially created column "
+                                   "family handle");
+            }
+          }
+        }
+        std::ignore =
+            ha_rocksdb::rdb_error_to_mysql(s, "Error creating column family");
       }
     } else {
       my_error(ER_WRONG_ARGUMENTS, MYF(0),
