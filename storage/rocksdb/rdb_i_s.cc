@@ -21,6 +21,7 @@
 #include <cinttypes>
 #include <map>
 #include <string>
+#include <sstream>
 #include <vector>
 
 /* MySQL header files */
@@ -646,8 +647,11 @@ static int rdb_i_s_cfoptions_fill_table(
          std::to_string(opts.compaction_options_fifo.max_table_files_size)});
 
     // get table related options
-    std::vector<std::string> table_options =
-        split_into_vector(opts.table_factory->GetPrintableOptions(), '\n');
+    std::vector<std::string> table_options;
+    std::istringstream option_stream(opts.table_factory->GetPrintableOptions());
+    for (std::string option; std::getline(option_stream, option);) {
+      table_options.push_back(option);
+    }
 
     for (std::string option : table_options) {
       option.erase(std::remove(option.begin(), option.end(), ' '),

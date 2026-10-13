@@ -453,7 +453,7 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
                 /* HA_REC_NOT_IN_SEQ | */ HA_CAN_INDEX_BLOBS |
                 (m_pk_can_be_decoded ? HA_PRIMARY_KEY_IN_READ_INDEX : 0) |
                 HA_PRIMARY_KEY_REQUIRED_FOR_POSITION | HA_NULL_IN_KEY |
-                HA_PARTIAL_COLUMN_READ | HA_ONLINE_ANALYZE |
+                HA_PARTIAL_COLUMN_READ |
                 HA_GENERATED_COLUMNS | HA_CAN_INDEX_VIRTUAL_GENERATED_COLUMN |
                 (rocksdb_column_default_value_as_expression
                      ? HA_SUPPORTS_DEFAULT_EXPRESSION
@@ -929,7 +929,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   void build_decoder();
   void check_build_decoder();
 
-  bool is_dd_update() const;
 
  protected:
   int records(ha_rows *num_rows) override;

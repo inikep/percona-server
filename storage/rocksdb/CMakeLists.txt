@@ -85,6 +85,7 @@ IF (CMAKE_COMPILER_IS_GNUCXX)
 ENDIF()
 
 
+INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/compiler_flags.cmake)
 INCLUDE(compiler_features)
 ROCKSDB_SET_BUILD_ARCHITECTURE()  # sets "-march=" using ROCKSDB_BUILD_ARCH or ROCKSDB_DISABLE_MARCH_NATIVE
 ROCKSDB_SET_DEFINTIONS()          # sets HAVE_MEMKIND, HAVE_ALIGNED_NEW
@@ -234,8 +235,8 @@ IF (WITH_BZ2)
 ENDIF()
 
 IF (WITH_ZSTD)
-  SET(rocksdb_static_libs ${rocksdb_static_libs} ${ZSTD_LIBRARY})
-  ADD_DEFINITIONS(-DZSTD)
+  SET(rocksdb_static_libs ${rocksdb_static_libs} zstd_interface)
+  SET(ROCKSDB_COMPRESSION_DEFINITIONS ZSTD)
   ADD_DEFINITIONS(-DZSTD_STATIC_LINKING_ONLY)
 ENDIF()
 
@@ -262,7 +263,7 @@ CHECK_INCLUDE_FILES(zlib.h HAVE_ZLIB_H)
 
 IF (HAVE_ZLIB_H)
   ADD_DEFINITIONS(-DZLIB)
-  SET(rocksdb_static_libs ${rocksdb_static_libs} ${ZLIB_LIBRARY})
+  SET(rocksdb_static_libs ${rocksdb_static_libs} zlib_interface)
 ENDIF()
 
 SET(rocksdb_static_libs ${rocksdb_static_libs} "-ldl" "-lpthread")
@@ -272,6 +273,9 @@ ENDIF()
 
 ADD_LIBRARY(rocksdb_sources ${ROCKSDB_LIB_SOURCES})
 TARGET_LINK_LIBRARIES(rocksdb_sources ${rocksdb_static_libs})
+# RocksDB 9.7 headers rely on transitive integer type declarations.
+TARGET_COMPILE_OPTIONS(rocksdb_sources PRIVATE -include cstdint)
+TARGET_COMPILE_DEFINITIONS(rocksdb_sources PRIVATE ${ROCKSDB_COMPRESSION_DEFINITIONS})
 
 IF (ROCKSDB_DYNAMIC_PLUGIN)
   MYSQL_ADD_PLUGIN(rocksdb ${ROCKSDB_SE_SOURCES} STORAGE_ENGINE DEFAULT
@@ -296,6 +300,7 @@ IF (NOT HAVE_EXTERNAL_ROCKSDB)
     ${CMAKE_SOURCE_DIR}/rocksdb/utilities/blob_db/blob_dump_tool.cc
   )
   TARGET_LINK_LIBRARIES(rocksdb_tool rocksdb_sources)
+  TARGET_COMPILE_DEFINITIONS(rocksdb_tool PRIVATE ${ROCKSDB_COMPRESSION_DEFINITIONS})
 
   MYSQL_ADD_EXECUTABLE(sst_dump ${CMAKE_SOURCE_DIR}/rocksdb/tools/sst_dump.cc)
   TARGET_LINK_LIBRARIES(sst_dump rocksdb_tool)

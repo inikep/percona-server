@@ -338,7 +338,7 @@ int Rdb_iterator_base::seek(enum ha_rkey_function find_flag,
       find_flag == HA_READ_PREFIX_LAST || find_flag == HA_READ_AFTER_KEY) {
     bytes_changed_by_succ = m_kd.successor(start_key_buf, start_key.size());
   } else {
-    start_key_guard.commit();
+    start_key_guard.release();
   }
 
   const uint eq_cond_len =
@@ -929,7 +929,7 @@ int Rdb_iterator_partial::seek(enum ha_rkey_function find_flag,
           find_flag == HA_READ_PREFIX_LAST || find_flag == HA_READ_AFTER_KEY) {
         m_kd.successor(start_key_buf, start_key.size());
       } else {
-        start_key_guard.commit();
+        start_key_guard.release();
       }
 
       if (direction) {
