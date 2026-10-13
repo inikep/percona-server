@@ -15,7 +15,7 @@
    USA */
 #pragma once
 
-#include "sql/partitioning/partition_base.h"
+#include "storage/rocksdb/partition_base.h"
 
 #include "./ha_rocksdb.h"
 
