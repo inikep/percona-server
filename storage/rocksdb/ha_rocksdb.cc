@@ -8540,7 +8540,7 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
   assert(kd.has_ttl());
   assert(kd.m_ttl_rec_offset != UINT_MAX);
   auto *const thd = tx.get_thd();
-  const int64_t curr_ts = tx.get_snapshot_ts();
+  const int64_t curr_ts = tx.get_earliest_snapshot_ts();
 
   /*
     Curr_ts can only be 0 if there are no snapshots open.

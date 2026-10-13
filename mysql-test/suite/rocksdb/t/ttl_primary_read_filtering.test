@@ -314,7 +314,9 @@ select variable_value into @a from performance_schema.global_status where variab
 SELECT * FROM t1; # <= shouldn't be filtered out here
 select variable_value-@a from performance_schema.global_status where variable_name='rocksdb_rows_filtered';
 
-UPDATE t1 set a = a + 1;
+# A full table UPDATE would rely on gap locks in this REPEATABLE-READ
+# transaction, so update the only row by its primary key
+UPDATE t1 set a = a + 1 WHERE a = 1;
 select variable_value into @a from performance_schema.global_status where variable_name='rocksdb_rows_filtered';
 --sorted_result
 SELECT * FROM t1; # <= shouldn't be filtered out here
@@ -401,8 +403,9 @@ SELECT * FROM t16;
 
 SELECT * FROM t16;
 
+# Use the primary key so that the UPDATE does not rely on gap locks
 --error ER_DUP_ENTRY
-UPDATE t16 SET pk = 100, a = 'updated' WHERE a IN ('a', 'b');
+UPDATE t16 SET pk = 100, a = 'updated' WHERE pk IN (1, 2);
 
 SELECT * FROM t16;
 

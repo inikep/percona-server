@@ -214,7 +214,7 @@ a
 select variable_value-@a from performance_schema.global_status where variable_name='rocksdb_rows_filtered';
 variable_value-@a
 0
-UPDATE t1 set a = a + 1;
+UPDATE t1 set a = a + 1 WHERE a = 1;
 select variable_value into @a from performance_schema.global_status where variable_name='rocksdb_rows_filtered';
 SELECT * FROM t1;
 a
@@ -280,7 +280,7 @@ SELECT * FROM t16;
 pk	a
 1	a
 2	b
-UPDATE t16 SET pk = 100, a = 'updated' WHERE a IN ('a', 'b');
+UPDATE t16 SET pk = 100, a = 'updated' WHERE pk IN (1, 2);
 ERROR 23000: Duplicate entry '100' for key 't16.PRIMARY'
 SELECT * FROM t16;
 pk	a
