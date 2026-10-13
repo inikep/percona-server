@@ -1,4 +1,5 @@
 --source include/have_rocksdb.inc
+--source have_rqg.inc
 
 # RQG's examples test
 let $TESTDIR = examples;

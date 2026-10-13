@@ -1,4 +1,5 @@
 --source include/have_rocksdb.inc
+--source have_rqg.inc
 
 call mtr.add_suppression("Did not write failed ");
 call mtr.add_suppression("Can't open and lock privilege tables");
