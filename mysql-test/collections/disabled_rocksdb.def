@@ -36,6 +36,7 @@ rocksdb_rpl.rpl_gtid_crash_safe_wal_corrupt_dual_engine : BUG#0000 idempotent re
 rocksdb_rpl.singledelete_idempotent_recovery : BUG#0000 idempotent recovery (slave_use_idempotent_for_recovery) is missing
 rocksdb_rpl.rpl_ttl_ignore_idempotent_errors : BUG#0000 SQL layer part of ignoring idempotent errors for TTL tables is missing
 rocksdb_rpl.rpl_gtid_rocksdb_sys_header : BUG#0000 SE binlog position and GTID is missing
+rocksdb.ddse_mdl_sync : BUG#0000 RocksDB data dictionary (default_dd_system_storage_engine) is missing
 
 # i_s.table_statistics
 rocksdb.lock_wait_timeout_stats : BUG#0000 table_statistics missing
