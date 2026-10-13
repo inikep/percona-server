@@ -18,6 +18,24 @@ rocksdb_rpl.rpl_mts_dependency_unique_key_conflicts : BUG#0000 missing patch
 rocksdb.innodb_i_s_tables_disabled : BUG#0000 missing patch
 rocksdb.force_shutdown: BUG#0000 missing 5354b969fa6 Extending SHUTDOWN query to support read_only/aborting
 rocksdb_rpl.rpl_rocksdb_schema_change : BUG#0000 missing 031b5cec711 Use column names while applying row changes on slave
+rocksdb_rpl.rpl_missing_columns_sk_update : BUG#0000 missing 031b5cec711 Use column names while applying row changes on slave
+
+# FB server features skipped in the percona-202407 port
+rocksdb.gap_lock_raise_error : BUG#0000 gap_lock_raise_error is missing
+rocksdb.optimize_myrocks_replace_into_base : BUG#0000 enable_blind_replace is missing
+rocksdb.optimize_myrocks_replace_into_lock : BUG#0000 enable_blind_replace is missing
+rocksdb.mysqlbinlog_blind_replace : BUG#0000 enable_blind_replace is missing
+rocksdb_rpl.optimize_myrocks_replace_into : BUG#0000 enable_blind_replace is missing
+rocksdb.mysqlbinlog_gtid_skip_empty_trans_rocksdb : BUG#0000 mysqlbinlog --skip-empty-trans is missing
+rocksdb.mysqldump2 : BUG#0000 mysqldump --rocksdb and --print-ordering-key are missing
+rocksdb.slow_query_log : BUG#0000 RocksDB_key_skipped and RocksDB_del_skipped slow log fields are missing
+rocksdb.rpl_row_triggers : BUG#0000 slave_run_triggers_for_rbr is missing
+rocksdb_rpl.rocksdb_slave_check_before_image_consistency : BUG#0000 slave_check_before_image_consistency is missing
+rocksdb_rpl.rpl_gtid_crash_safe_wal_corrupt : BUG#0000 idempotent recovery (slave_use_idempotent_for_recovery) is missing
+rocksdb_rpl.rpl_gtid_crash_safe_wal_corrupt_dual_engine : BUG#0000 idempotent recovery (slave_use_idempotent_for_recovery) is missing
+rocksdb_rpl.singledelete_idempotent_recovery : BUG#0000 idempotent recovery (slave_use_idempotent_for_recovery) is missing
+rocksdb_rpl.rpl_ttl_ignore_idempotent_errors : BUG#0000 SQL layer part of ignoring idempotent errors for TTL tables is missing
+rocksdb_rpl.rpl_gtid_rocksdb_sys_header : BUG#0000 SE binlog position and GTID is missing
 
 # i_s.table_statistics
 rocksdb.lock_wait_timeout_stats : BUG#0000 table_statistics missing
