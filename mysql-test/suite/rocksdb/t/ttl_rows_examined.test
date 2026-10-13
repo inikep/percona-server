@@ -41,7 +41,10 @@ set debug_sync='now WAIT_FOR parked';
 # display "Rows Examined" before returning from call
 --replace_column 1 ### 2 ### 3 ### 4 ### 6 ### 10 ### 11 ### 12 ###
 --sorted_result
+# 8.4 warns that INFORMATION_SCHEMA.PROCESSLIST is deprecated
+--disable_warnings
 SHOW PROCESSLIST;
+--enable_warnings
 
 set debug_sync='now SIGNAL go';
 

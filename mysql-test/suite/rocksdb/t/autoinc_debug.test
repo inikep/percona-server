@@ -20,7 +20,6 @@ set debug="+d,crash_commit_before";
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --source include/wait_until_connected_again.inc
 select max(i) into @row_max from t;
 select table_schema, table_name, auto_increment > @row_max from information_schema.tables where table_name = 't';
@@ -34,7 +33,6 @@ set debug="+d,crash_commit_after_prepare";
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --source include/wait_until_connected_again.inc
 select max(i) into @row_max from t;
 select table_schema, table_name, auto_increment > @row_max from information_schema.tables where table_name = 't';
@@ -48,7 +46,6 @@ set debug="+d,crash_commit_after_log";
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --source include/wait_until_connected_again.inc
 select max(i) into @row_max from t;
 select table_schema, table_name, auto_increment > @row_max from information_schema.tables where table_name = 't';
@@ -62,7 +59,6 @@ set debug="+d,crash_commit_after";
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --source include/wait_until_connected_again.inc
 select max(i) into @row_max from t;
 select table_schema, table_name, auto_increment > @row_max from information_schema.tables where table_name = 't';
