@@ -1,5 +1,5 @@
 --source include/have_rocksdb.inc
---source include/master-slave.inc
+--source include/rpl/init_source_replica.inc
 --source include/have_binlog_format_row.inc
 
 connection master;
@@ -24,4 +24,4 @@ SELECT * FROM t1 ORDER BY a;
 DROP TABLE t1;
 sync_slave_with_master slave;
 
---source include/rpl_end.inc
+--source include/rpl/deinit.inc

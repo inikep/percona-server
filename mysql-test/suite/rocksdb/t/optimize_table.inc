@@ -29,7 +29,6 @@ let $restart_file= $MYSQLTEST_VARDIR/tmp/mysqld.1.expect;
 --shutdown_server 10
 --source include/wait_until_disconnected.inc
 -- exec echo "restart:--rocksdb_default_cf_options=write_buffer_size=64k;target_file_size_base=64k;max_bytes_for_level_base=1m;compression_per_level=kNoCompression;disable_auto_compactions=true;level0_stop_writes_trigger=1000  " > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
--- enable_reconnect
 -- source include/wait_until_connected_again.inc
 
 select count(*) from t1;

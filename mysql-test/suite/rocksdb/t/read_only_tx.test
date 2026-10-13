@@ -64,6 +64,6 @@ disconnect con1;
 disconnect con2;
 OPTIMIZE TABLE t1;
 DROP TABLE t1;
-reset master;
+reset binary logs and gtids;
 
 --source include/wait_until_count_sessions.inc

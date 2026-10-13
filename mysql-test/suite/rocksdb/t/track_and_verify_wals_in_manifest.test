@@ -98,7 +98,6 @@ EOF
 # Recovery with data loss requires the excluded Facebook binlog truncation.
 --exec cp "$MYSQL_TMP_DIR/uncorrupted.wal" "`cat "$MYSQL_TMP_DIR/uncorrupted.wal.path"`"
 --exec echo "restart:--rocksdb_write_policy=$write_policy" > $_expect_file_name
---enable_reconnect
 --source include/wait_until_connected_again.inc
 
 select * from t1;

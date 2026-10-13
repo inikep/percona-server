@@ -20,9 +20,7 @@ shutdown_server 60;
 --sleep 5
 
 # Wait for reconnect
---enable_reconnect
 --source include/wait_until_connected_again.inc
---disable_reconnect
 
 # The valid_values table lists the values that we want to make sure that the system will allow
 # us to set for rocksdb_rate_limiter_bytes_per_sec
@@ -58,6 +56,4 @@ shutdown_server 10;
 --sleep 5
 
 # Wait for reconnect
---enable_reconnect
 --source include/wait_until_connected_again.inc
---disable_reconnect

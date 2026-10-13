@@ -33,4 +33,4 @@ OPTIMIZE TABLE t1;
 Table	Op	Msg_type	Msg_text
 test.t1	optimize	status	OK
 DROP TABLE t1;
-reset master;
+reset binary logs and gtids;

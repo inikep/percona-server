@@ -1,4 +1,3 @@
 [server]
 default_storage_engine=rocksdb
 default_tmp_storage_engine=MyISAM
-ssl=0

@@ -3,9 +3,9 @@
 [mysqld.1]
 sync_binlog=0
 binlog_format=row
-slave-exec-mode=strict
+replica-exec-mode=strict
 
 [mysqld.2]
 sync_binlog=0
 binlog_format=row
-slave-exec-mode=strict
+replica-exec-mode=strict

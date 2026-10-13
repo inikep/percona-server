@@ -1,5 +1,5 @@
 --source include/have_rocksdb.inc
---source include/master-slave.inc
+--source include/rpl/init_source_replica.inc
 --source include/have_debug.inc
 --source include/have_debug_sync.inc
 
@@ -41,13 +41,13 @@ insert into t3 select * from t2;
 # then doesn't find a row.
 # The slave should not stop with error (Can't find a record).
 
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 
 connection slave;
 let $old_debug = `select @@global.debug`;
 set global debug= 'd,dbug.rocksdb.get_row_by_rowid';
---source include/stop_slave.inc
---source include/start_slave.inc
+--source include/rpl/stop_replica.inc
+--source include/rpl/start_replica.inc
 
 connection master;
 update t2 set col1=100 where kp1 between 1 and 3 and mod(kp2,2)=0;
@@ -61,15 +61,15 @@ delete from t2 where pk=3;
 set debug_sync= 'now SIGNAL signal.rocksdb.get_row_by_rowid_let_running';
 
 connection master;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 select * from t2 where pk < 5;
 
 # For GitHub issue#162 (result file must be updated after fixing #162)
 connection slave;
 set global debug= 'd,dbug.rocksdb.get_row_by_rowid';
---source include/stop_slave.inc
---source include/start_slave.inc
+--source include/rpl/stop_replica.inc
+--source include/rpl/start_replica.inc
 
 connection master;
 update t3 set col1=100 where kp1 between 1 and 4 and mod(kp2,2)=0;
@@ -84,7 +84,7 @@ delete from t3 where pk=3;
 set debug_sync= 'now SIGNAL signal.rocksdb.get_row_by_rowid_let_running';
 
 connection master;
---source include/sync_slave_sql_with_master.inc
+--source include/rpl/sync_to_replica.inc
 connection slave;
 # col1 for pk=4 should be 100
 select * from t3 where pk < 5;
@@ -92,5 +92,5 @@ select * from t3 where pk < 5;
 # Cleanup
 connection master;
 drop table t0, t1, t2, t3;
---source include/rpl_end.inc
+--source include/rpl/deinit.inc
 

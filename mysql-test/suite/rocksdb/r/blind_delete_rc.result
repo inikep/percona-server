@@ -1,4 +1,4 @@
-include/master-slave.inc
+include/rpl/init_source_replica.inc
 Warnings:
 Note	####	Sending passwords in plain text without SSL/TLS is extremely insecure.
 Note	####	Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
@@ -17,7 +17,7 @@ variable_value-@c
 SELECT count(*) FROM t1;
 count(*)
 9000
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 SELECT count(*) FROM t1;
 count(*)
@@ -40,7 +40,7 @@ count(*)
 SELECT count(*) FROM t2;
 count(*)
 8000
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 SELECT count(*) FROM t1;
 count(*)
 8000
@@ -59,7 +59,7 @@ count(*)
 SELECT count(*) FROM t2;
 count(*)
 7000
-include/sync_slave_sql_with_master.inc
+include/rpl/sync_to_replica.inc
 SELECT count(*) FROM t1;
 count(*)
 7000
@@ -73,18 +73,16 @@ count(*)
 call mtr.add_suppression("Replica SQL.*Could not execute Delete_rows event on table test.t1.*Error_code: 1032");
 call mtr.add_suppression("Replica SQL.*The replica coordinator and worker threads are stopped.*Error_code: MY-001756");
 call mtr.add_suppression("Slave: Can't find record in 't1'.*");
-include/wait_for_slave_sql_error.inc [errno=1032]
-SET GLOBAL sql_slave_skip_counter=1;
+include/rpl/wait_for_applier_error.inc [errno=1032]
+SET GLOBAL sql_replica_skip_counter=1;
 Warnings:
-Warning	1287	'@@sql_slave_skip_counter' is deprecated and will be removed in a future release. Please use sql_replica_skip_counter instead.
-START SLAVE;
-Warnings:
-Warning	1287	'START SLAVE' is deprecated and will be removed in a future release. Please use START REPLICA instead
-include/sync_slave_sql_with_master.inc
+Warning	1287	'@@sql_replica_skip_counter' is deprecated and will be removed in a future release. Please use sql_replica_skip_counter instead.
+START REPLICA;
+include/rpl/sync_to_replica.inc
 SELECT count(*) FROM t1;
 count(*)
 7000
 SET session rocksdb_blind_delete_primary_key=@save_rocksdb_blind_delete_primary_key;
 SET session rocksdb_master_skip_tx_api=@save_rocksdb_master_skip_tx_api;
 DROP TABLE t1, t2;
-include/rpl_end.inc
+include/rpl/deinit.inc

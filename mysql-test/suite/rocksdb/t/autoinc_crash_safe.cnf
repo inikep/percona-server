@@ -4,4 +4,4 @@
 binlog_format=row
 [mysqld.2]
 binlog_format=row
-slave_parallel_workers=1
+replica_parallel_workers=1

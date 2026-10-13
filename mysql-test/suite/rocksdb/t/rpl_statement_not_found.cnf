@@ -5,5 +5,5 @@ binlog_format=statement
 rocksdb_unsafe_for_binlog=1
 [mysqld.2]
 binlog_format=row
-slave_parallel_workers=4
+replica_parallel_workers=4
 rocksdb_lock_wait_timeout=5

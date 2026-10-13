@@ -74,5 +74,5 @@ drop table r1;
 connection default;
 disconnect con1;
 disconnect con2;
-reset master;
+reset binary logs and gtids;
 --source include/wait_until_count_sessions.inc

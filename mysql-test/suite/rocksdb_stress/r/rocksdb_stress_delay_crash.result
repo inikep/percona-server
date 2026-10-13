@@ -1,4 +1,4 @@
-include/master-slave.inc
+include/rpl/init_source_replica.inc
 [connection master]
 DROP TABLE IF EXISTS t1;
 SET GLOBAL binlog_group_commit_sync_delay = 500;
@@ -14,21 +14,13 @@ auto_inc BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 KEY(auto_inc),
 KEY msg_i(msg(255), zero_sum))
 ENGINE=RocksDB DEFAULT CHARSET=latin1 COLLATE=latin1_bin;
-stop slave;
-Warnings:
-Warning	1287	'STOP SLAVE' is deprecated and will be removed in a future release. Please use STOP REPLICA instead
-start slave;
-Warnings:
-Warning	1287	'START SLAVE' is deprecated and will be removed in a future release. Please use START REPLICA instead
+stop replica;
+start replica;
 DROP TABLE t1;
-stop slave;
-Warnings:
-Warning	1287	'STOP SLAVE' is deprecated and will be removed in a future release. Please use STOP REPLICA instead
-start slave;
-Warnings:
-Warning	1287	'START SLAVE' is deprecated and will be removed in a future release. Please use START REPLICA instead
-include/stop_slave.inc
-include/start_slave.inc
-include/stop_slave.inc
-include/stop_dump_threads.inc
+stop replica;
+start replica;
+include/rpl/stop_replica.inc
+include/rpl/start_replica.inc
+include/rpl/stop_replica.inc
+include/rpl/stop_dump_threads.inc
 SET GLOBAL binlog_group_commit_sync_delay=0;
