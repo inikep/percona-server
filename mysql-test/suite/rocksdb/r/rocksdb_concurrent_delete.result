@@ -453,9 +453,9 @@ delete from t1 where id1=1 and id2=3;
 set debug_sync='now SIGNAL go';
 select * from t1 where id1=1;
 id1	id2	value
+1	2	200
 1	4	1
 1	5	1
-1	2	200
 --End row delete with PRIMARY
 SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 set debug_sync='rocksdb.get_row_by_rowid SIGNAL parked WAIT_FOR go';
@@ -497,9 +497,9 @@ delete from t1 where id1=1 and id2=3;
 set debug_sync='now SIGNAL go';
 select * from t1 where id1=1;
 id1	id2	value
+1	2	200
 1	4	1
 1	5	1
-1	2	200
 --End row delete with sk
 SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 set debug_sync='rocksdb.get_row_by_rowid SIGNAL parked WAIT_FOR go';

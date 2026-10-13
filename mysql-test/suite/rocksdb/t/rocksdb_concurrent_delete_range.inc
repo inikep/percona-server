@@ -30,6 +30,7 @@ set debug_sync='now SIGNAL go';
 
 connection con;
 reap;
+--sorted_result
 select * from t1 where id1=1;
 
 # deleting a middle row
@@ -61,6 +62,7 @@ if ($isolation_level == "READ COMMITTED")
 {
   reap;
 }
+--sorted_result
 select * from t1 where id1=1;
 
 # deleting the end row
@@ -91,6 +93,7 @@ if ($isolation_level == "READ COMMITTED")
 {
   reap;
 }
+--sorted_result
 select * from t1 where id1=1;
 
 # Cleanup
