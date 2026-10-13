@@ -1,4 +1,3 @@
-set optimizer_force_index_for_range = on;
 CREATE TABLE t (i varchar(64), j varchar(64), k varchar(64), l varchar(64),
 PRIMARY KEY (i, j),
 KEY ik1 (i, k) COMMENT 'cfname=cf;partial_group_keyparts=1;partial_group_threshold=5',
@@ -233,4 +232,3 @@ include/assert.inc [Check that materialized rows are zero.]
 DROP TABLE t1, t2;
 DELETE FROM sentinel where c2 <= 2;
 DROP TABLE sentinel;
-set optimizer_force_index_for_range = off;

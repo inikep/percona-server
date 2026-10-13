@@ -84,7 +84,6 @@ drop table t;
 # and using iterate bounds during execution
 #
 # force range query
-set optimizer_force_index_for_range = on;
 # use latin1_swedish_ci to not use bloomfilter
 # for query with "", its eq_cond size = 5, while prefix_extractor=capped:12
 # since 5 < 12, so bloomfilter isn't used. 
@@ -98,6 +97,14 @@ create table t3(
   primary key(a), key b(b, c)
 );
 insert into t3 values(1, "11",1),(2,"22",2),(3,"33",3);
+--disable_query_log
+let $i=4;
+while ($i <= 100)
+{
+  eval insert into t3 values($i, "99", $i);
+  inc $i;
+}
+--enable_query_log
 --replace_column 8 # 10 # 11 #
 explain select count(*) from t3 force index(b) where b in ("", "33");
 select count(*) from t3 force index(b) where b in ("", "33");
@@ -107,7 +114,6 @@ select count(*) from t3 force index(b) where b in ("", "33", "","33");
 drop table t3;
 
 # force range query
-set optimizer_force_index_for_range = on;
 create table t2(
   a int, 
   b int, 

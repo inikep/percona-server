@@ -641,10 +641,14 @@ CREATE TABLE t1 (a int DEFAULT (last_insert_id()));
 CREATE TABLE t1 (a int DEFAULT (row_count()));
 -- error ER_DEFAULT_VAL_GENERATED_NAMED_FUNCTION_IS_NOT_ALLOWED
 CREATE TABLE t1 (a int, b int DEFAULT (sleep(a)));
--- error ER_DEFAULT_VAL_GENERATED_NAMED_FUNCTION_IS_NOT_ALLOWED
-CREATE TABLE t1 (a varchar(32) DEFAULT (current_user()));
--- error ER_DEFAULT_VAL_GENERATED_NAMED_FUNCTION_IS_NOT_ALLOWED
-CREATE TABLE t1 (a varchar(32) DEFAULT (session_user()));
+CREATE TABLE t1 (a varchar(288) DEFAULT (current_user()));
+INSERT INTO t1 VALUES ();
+SELECT a = current_user() FROM t1;
+DROP TABLE t1;
+CREATE TABLE t1 (a varchar(288) DEFAULT (session_user()));
+INSERT INTO t1 VALUES ();
+SELECT a = session_user() FROM t1;
+DROP TABLE t1;
 -- error ER_DEFAULT_VAL_GENERATED_NAMED_FUNCTION_IS_NOT_ALLOWED
 CREATE TABLE t1 (a varchar(1024), b varchar(1024) DEFAULT (version()));
 

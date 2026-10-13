@@ -8,27 +8,14 @@ set global rocksdb_max_latest_deadlocks = 0;
 set global rocksdb_max_latest_deadlocks = @prior_max_latest_deadlocks;
 create table t (i int primary key) engine=rocksdb;
 insert into t values (1), (2), (3);
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
 Deadlock #1
 begin;
 select * from t where i=1 for update;
@@ -45,57 +32,16 @@ rollback;
 i
 2
 rollback;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
+0	default	EXCLUSIVE	PRIMARY	test.t	0
+0	default	EXCLUSIVE	PRIMARY	test.t	1
 Deadlock #2
 begin;
 select * from t where i=1 for update;
@@ -112,77 +58,18 @@ rollback;
 i
 2
 rollback;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
+0	default	EXCLUSIVE	PRIMARY	test.t	0
+0	default	EXCLUSIVE	PRIMARY	test.t	1
+1	default	EXCLUSIVE	PRIMARY	test.t	0
+1	default	EXCLUSIVE	PRIMARY	test.t	1
 set global rocksdb_max_latest_deadlocks = 10;
 Deadlock #3
 begin;
@@ -200,149 +87,31 @@ rollback;
 i
 2
 rollback;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
+0	default	EXCLUSIVE	PRIMARY	test.t	0
+0	default	EXCLUSIVE	PRIMARY	test.t	1
+1	default	EXCLUSIVE	PRIMARY	test.t	0
+1	default	EXCLUSIVE	PRIMARY	test.t	1
+2	default	EXCLUSIVE	PRIMARY	test.t	0
+2	default	EXCLUSIVE	PRIMARY	test.t	1
 set global rocksdb_max_latest_deadlocks = 1;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
+0	default	EXCLUSIVE	PRIMARY	test.t	0
+0	default	EXCLUSIVE	PRIMARY	test.t	1
 set rocksdb_deadlock_detect_depth = 2;
 Deadlock #4
 begin;
@@ -373,44 +142,14 @@ i
 2
 rollback;
 set global rocksdb_max_latest_deadlocks = 5;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
--------DEADLOCK EXCEEDED MAX DEPTH-------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
 Deadlock #5
 begin;
 select * from t where i=1 for update;
@@ -443,64 +182,16 @@ i
 2
 rollback;
 rollback;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: SHARED
-INDEX NAME: PRIMARY
-TABLE NAME: test.t
-
---------TXN_ID GOT DEADLOCK---------
-
--------DEADLOCK EXCEEDED MAX DEPTH-------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
+0	default	EXCLUSIVE	PRIMARY	test.t	0
+0	default	SHARED	PRIMARY	test.t	1
 Deadlock #6
 create table t1 (id int primary key, value int) engine=rocksdb;
 insert into t1 values (1,1),(2,2),(3,3),(4,4),(5,5);
@@ -523,90 +214,26 @@ drop table t1;
 set global rocksdb_lock_wait_timeout = @prior_lock_wait_timeout;
 set global rocksdb_deadlock_detect = @prior_deadlock_detect;
 drop table t;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: NOT FOUND; IDX_ID
-TABLE NAME: NOT FOUND; IDX_ID
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: NOT FOUND; IDX_ID
-TABLE NAME: NOT FOUND; IDX_ID
-
---------TXN_ID GOT DEADLOCK---------
-
-*** DEADLOCK PATH
-=========================================
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: EXCLUSIVE
-INDEX NAME: NOT FOUND; IDX_ID
-TABLE NAME: NOT FOUND; IDX_ID
----------------WAITING FOR---------------
-TSTAMP
-TXN_ID
-COLUMN FAMILY NAME: default
-KEY
-LOCK TYPE: SHARED
-INDEX NAME: NOT FOUND; IDX_ID
-TABLE NAME: NOT FOUND; IDX_ID
-
---------TXN_ID GOT DEADLOCK---------
-
--------DEADLOCK EXCEEDED MAX DEPTH-------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK
+0	default	EXCLUSIVE	NOT FOUND; INDEX_ID: #	NOT FOUND; INDEX_ID: #	0
+0	default	EXCLUSIVE	NOT FOUND; INDEX_ID: #	NOT FOUND; INDEX_ID: #	1
+1	default	EXCLUSIVE	NOT FOUND; INDEX_ID: #	NOT FOUND; INDEX_ID: #	0
+1	default	SHARED	NOT FOUND; INDEX_ID: #	NOT FOUND; INDEX_ID: #	1
 set global rocksdb_max_latest_deadlocks = 0;
 # Clears deadlock buffer of any existent deadlocks.
 set global rocksdb_max_latest_deadlocks = @prior_max_latest_deadlocks;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;
+DEADLOCK_ID	CF_NAME	LOCK_TYPE	INDEX_NAME	TABLE_NAME	ROLLED_BACK

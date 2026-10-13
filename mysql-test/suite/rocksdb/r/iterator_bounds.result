@@ -53,7 +53,6 @@ select a from t where b = 101 and c like 'view_routine_usage';
 a
 rollback;
 drop table t;
-set optimizer_force_index_for_range = on;
 create table t3(
 a int, 
 b varchar(36) CHARACTER SET latin1 COLLATE latin1_swedish_ci DEFAULT NULL, 
@@ -78,7 +77,6 @@ select count(*) from t3 force index(b) where b in ("", "33", "","33");
 count(*)
 1
 drop table t3;
-set optimizer_force_index_for_range = on;
 create table t2(
 a int, 
 b int, 

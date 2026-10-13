@@ -30,20 +30,20 @@ insert into t values (1), (2), (3);
 select * from information_schema.rocksdb_deadlock;
 
 echo Deadlock #1;
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 connection default;
 --replace_column 1 DEADLOCK_ID 2 TIMESTAMP 3 TRANSACTION_ID 5 WAITING_KEY
 select * from information_schema.rocksdb_deadlock;
 
 echo Deadlock #2;
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 connection default;
 --replace_column 1 DEADLOCK_ID 2 TIMESTAMP 3 TRANSACTION_ID 5 WAITING_KEY
 select * from information_schema.rocksdb_deadlock;
 set global rocksdb_max_latest_deadlocks = 10;
 
 echo Deadlock #3;
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 connection default;
 --replace_column 1 DEADLOCK_ID 2 TIMESTAMP 3 TRANSACTION_ID 5 WAITING_KEY
 select * from information_schema.rocksdb_deadlock;

@@ -22,63 +22,63 @@ INSERT INTO t values ("11111112", "1", "1", "1");
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "1" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "1" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "11111111" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "11111111" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "111111110" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "111111110" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "11111112" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "11111112" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "11111111" AND k < "5" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "11111111" AND k < "5" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "11111111" AND k > "2" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "11111111" AND k > "2" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "11111111" AND k > "2" AND k < "5" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "11111111" AND k > "2" AND k < "5" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = "11111111" AND k > "7" AND k < "9" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = "11111111" AND k > "7" AND k < "9" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i < "111111110" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i < "111111110" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i > "111111110" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i > "111111110" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i >= "111111110" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i >= "111111110" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i <= "111111110" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i <= "111111110" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i LIKE "1%" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i LIKE "1%" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i LIKE "11111111%" ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i LIKE "11111111%" ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 DROP TABLE t;
 
@@ -103,55 +103,55 @@ INSERT INTO t values (4, 1, 1, 1);
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 1 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 1 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 2 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 2 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 3 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 3 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 4 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 4 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 2 AND k < 5 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 2 AND k < 5 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 2 AND k > 2 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 2 AND k > 2 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 2 AND k > 2 AND k < 5 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 2 AND k > 2 AND k < 5 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i = 2 AND k > 7 AND k < 9 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i = 2 AND k > 7 AND k < 9 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i < 3 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i < 3 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i > 3 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i > 3 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i >= 3 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i >= 3 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1) WHERE i <= 3 ORDER BY i $asc , k $asc;
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2) WHERE i <= 3 ORDER BY i $asc , k $asc;
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 set rocksdb_partial_index_sort_max_mem = 1;
 --error ER_OUT_OF_RESOURCES

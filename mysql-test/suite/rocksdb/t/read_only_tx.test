@@ -18,7 +18,7 @@ INSERT INTO t1 VALUES (1,1);
 select variable_value into @p from performance_schema.global_status where variable_name='rocksdb_number_sst_entry_put';
 select variable_value into @s from performance_schema.global_status where variable_name='rocksdb_number_sst_entry_singledelete';
 -- replace_result $uuid uuid
-START TRANSACTION WITH CONSISTENT ROCKSDB SNAPSHOT;
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
 
 connection con2;
 --disable_query_log

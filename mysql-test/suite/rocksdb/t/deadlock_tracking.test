@@ -22,24 +22,29 @@ connection default;
 eval create table t (i int primary key) engine=$engine;
 insert into t values (1), (2), (3);
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 
 echo Deadlock #1;
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 connection default;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 
 echo Deadlock #2;
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 connection default;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 set global rocksdb_max_latest_deadlocks = 10;
 
 echo Deadlock #3;
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 connection default;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 set global rocksdb_max_latest_deadlocks = 1;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 
 connection con3;
 set rocksdb_deadlock_detect_depth = 2;
@@ -89,6 +94,7 @@ rollback;
 connection default;
 set global rocksdb_max_latest_deadlocks = 5;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 
 echo Deadlock #5;
 connection con1;
@@ -130,6 +136,7 @@ rollback;
 
 connection default;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 
 echo Deadlock #6;
 connection con1;
@@ -169,8 +176,10 @@ set global rocksdb_lock_wait_timeout = @prior_lock_wait_timeout;
 set global rocksdb_deadlock_detect = @prior_deadlock_detect;
 drop table t;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 set global rocksdb_max_latest_deadlocks = 0;
 --echo # Clears deadlock buffer of any existent deadlocks.
 set global rocksdb_max_latest_deadlocks = @prior_max_latest_deadlocks;
 --source ../include/show_transaction_status.inc
+--source ../include/show_deadlocks.inc
 --source include/wait_until_count_sessions.inc

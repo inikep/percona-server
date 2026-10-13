@@ -36,6 +36,12 @@ affected rows: 0
 connection conn1;
 a	b
 affected rows: 0
+SELECT ROWS_EXAMINED FROM performance_schema.events_statements_history
+WHERE THREAD_ID = PS_CURRENT_THREAD_ID() AND SQL_TEXT = 'SELECT * FROM t_re'
+ORDER BY EVENT_ID DESC LIMIT 1;
+ROWS_EXAMINED
+2
+affected rows: 1
 set debug_sync='RESET';
 affected rows: 0
 set global rocksdb_debug_ttl_read_filter_ts = DEFAULT;

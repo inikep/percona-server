@@ -7,7 +7,10 @@
 #  $DATA_FILE: name of the data file
 #
 
-let RQG_BASE = $MYSQL_TEST_DIR/../rqg/rqg/common/mariadb-patches;
+if (!$RQG_BASE)
+{
+  let RQG_BASE = $MYSQL_TEST_DIR/../rqg/rqg/common/mariadb-patches;
+}
 let MYSQL_SOCKET = `SELECT @@SOCKET`;
 let GRAMMAR_FILES = $GRAMMAR_FILES;
 let DATA_FILE = $DATA_FILE;

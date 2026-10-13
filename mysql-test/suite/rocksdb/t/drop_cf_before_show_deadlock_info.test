@@ -2,7 +2,6 @@
 --source include/have_debug_sync.inc
 --source include/have_rocksdb.inc
 # Different output with different DDSEs. OK to re-record with either one.
---source include/have_innodb_ddse.inc
 
 --source include/count_sessions.inc
 
@@ -44,7 +43,7 @@ select cf_name, index_name, table_name from information_schema.rocksdb_deadlock;
 
 set @@global.debug = '+d,rocksdb_drop_cf';
 
---source include/simple_deadlock.inc
+--source suite/rocksdb/include/simple_deadlock.inc
 
 connection con3;
 drop table t;

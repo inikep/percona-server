@@ -26,7 +26,7 @@ WHERE variable_name LIKE 'rocksdb_partial_index%';
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1);
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2);
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 CREATE TEMPORARY TABLE t2 AS
 SELECT * FROM performance_schema.global_status
@@ -57,7 +57,7 @@ WHERE variable_name LIKE 'rocksdb_partial_index%';
 
 --let $query1= SELECT i, j, k FROM t FORCE INDEX (ik1);
 --let $query2= SELECT i, j, k FROM t FORCE INDEX (ik2);
---source include/diff_queries.inc
+--source suite/rocksdb/include/diff_queries.inc
 
 CREATE TEMPORARY TABLE t2 AS
 SELECT * FROM performance_schema.global_status

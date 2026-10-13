@@ -42,6 +42,8 @@ insert into t2 values (102);
 
 F=`ls -t $data_dir/.rocksdb/*.log | head -n $1 | tail -n 1`
 SIZE=`stat -c %s $F`
+cp "$F" "$MYSQL_TMP_DIR/uncorrupted.wal"
+echo "$F" > "$MYSQL_TMP_DIR/uncorrupted.wal.path"
 
 case $2 in
   write_committed)
@@ -92,18 +94,21 @@ EOF
 --exec $MYSQLD_CMD  --rocksdb_wal_recovery_mode=2 --rocksdb_track_and_verify_wals_in_manifest=0 --rocksdb_write_policy=$write_policy > $_custom_err 2>&1
 --exec grep "Corruption: SST file is ahead of WALs" $_custom_err | wc -l
 
-#--echo forcing to restart with kSkipAnyCorruptedRecords
-#Needs trim-binlog-to-recover in 8.0 to repro, due to dual engine recovery
---exec echo "restart:--rocksdb_wal_recovery_mode=3 --rocksdb_track_and_verify_wals_in_manifest=0 --trim-binlog-to-recover" --rocksdb_write_policy=$write_policy > $_expect_file_name
+# Restore the original WAL after verifying corruption is rejected.
+# Recovery with data loss requires the excluded Facebook binlog truncation.
+--exec cp "$MYSQL_TMP_DIR/uncorrupted.wal" "`cat "$MYSQL_TMP_DIR/uncorrupted.wal.path"`"
+--exec echo "restart:--rocksdb_write_policy=$write_policy" > $_expect_file_name
 --enable_reconnect
 --source include/wait_until_connected_again.inc
 
 select * from t1;
-# the last row may be lost with server side binlog truncation, which is fine.
-select * from t2 where id <= 101;
+select * from t2;
 
 
 drop table t1, t2;
 
 --remove_file $MYSQL_TMP_DIR/truncate_tail_wal_N.sh
 
+
+--remove_file $MYSQL_TMP_DIR/uncorrupted.wal
+--remove_file $MYSQL_TMP_DIR/uncorrupted.wal.path

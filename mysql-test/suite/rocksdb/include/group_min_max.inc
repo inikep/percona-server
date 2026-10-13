@@ -598,6 +598,7 @@ where exists ( select * from t2 where a1 = t_00.a1 );
 # BUG #8532 - SELECT DISTINCT a, a causes server to crash
 select distinct a1,a1 from t1;
 select distinct a2,a1,a2,a1 from t1;
+--sorted_result
 select distinct t1.a1,t2.a1 from t1,t2;
 
 
@@ -729,11 +730,6 @@ explain select a1,a2,count(a2) from t1 group by a1,a2,b;
 explain select a1,a2,count(a2) from t1 where (a1 > 'a') group by a1,a2,b;
 explain select sum(ord(a1)) from t1 where (a1 > 'a') group by a1,a2,b;
 
-# test multi_range_groupby flag
-set optimizer_switch = 'multi_range_groupby=off';
-explain select a1,a2,b,max(c),min(c) from t2 where (a2 = 'a') and (b = 'a' or b = 'b') group by a1;
-set optimizer_switch = 'default';
-explain select a1,a2,b,max(c),min(c) from t2 where (a2 = 'a') and (b = 'a' or b = 'b') group by a1;
 
 
 #

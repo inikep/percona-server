@@ -34,7 +34,7 @@ set session debug= "+d,rocksdb_return_status_corrupted";
 select * from t1 where pk=1;
 --source include/wait_until_disconnected.inc
 --let SEARCH_PATTERN=data corruption detected
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 --remove_file $LOG
 
 --echo #
@@ -50,7 +50,7 @@ set session debug= "+d,rocksdb_return_status_corrupted";
 select * from t1;
 --source include/wait_until_disconnected.inc
 --let SEARCH_PATTERN=data corruption detected
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 --remove_file $LOG
 
 --echo #
@@ -62,7 +62,7 @@ select * from t1;
 --error 0
 --exec $MYSQLD_CMD $_mysqld_option
 --let SEARCH_PATTERN=The server will exit normally and stop restart attempts
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 --remove_file $LOG
 
 --echo #

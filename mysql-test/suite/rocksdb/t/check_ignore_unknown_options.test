@@ -15,7 +15,7 @@ select variable_name, variable_value from performance_schema.global_variables wh
 
 let SEARCH_FILE= $error_log;
 let SEARCH_PATTERN= RocksDB: Compatibility check against existing database options failed;
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 --enable_reconnect
 --exec echo "restart" > $restart_file
 --source include/wait_until_connected_again.inc

@@ -1,7 +1,6 @@
 --source include/have_rocksdb.inc
 --source include/count_sessions.inc
 # TODO(chni): Remove it once Rocksdb changes the error message and type
---source include/skip_udt_in_mem.inc
 
 --let LOG1=$MYSQLTEST_VARDIR/tmp/rocksdb.bulk_load_errors.1.err
 --replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
@@ -38,7 +37,7 @@ SELECT * FROM t1;
 
 --let SEARCH_FILE=$LOG1
 --let SEARCH_PATTERN=RocksDB: Error 504 finalizing last SST file while setting bulk loading variable
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 
 --let LOG2=$MYSQLTEST_VARDIR/tmp/rocksdb.bulk_load_errors.2.err
 --replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
@@ -63,7 +62,7 @@ SELECT * FROM t1;
 
 --let SEARCH_FILE=$LOG2
 --let SEARCH_PATTERN=RocksDB: Error 504 finalizing last SST file while disconnecting
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 
 --let LOG3=$MYSQLTEST_VARDIR/tmp/rocksdb.bulk_load_errors.3.err
 --replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
@@ -120,7 +119,7 @@ SET @@global.table_open_cache=@orig_table_open_cache;
 
 --let SEARCH_FILE=$LOG3
 --let SEARCH_PATTERN=RocksDB: Error 504 finalizing bulk load while closing handler
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 
 --let LOG4=$MYSQLTEST_VARDIR/tmp/rocksdb.bulk_load_errors.4.err
 --replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
@@ -156,7 +155,7 @@ DROP TABLE t1;
 
 --let SEARCH_FILE=$LOG4
 --let SEARCH_PATTERN=MyRocks: failed to bulk load. status code = 4
---source include/search_pattern_in_file.inc
+--source suite/rocksdb/include/search_pattern_in_file.inc
 
 --remove_file $LOG4
 

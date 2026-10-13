@@ -32,7 +32,7 @@ select * from r1;
 
 # Both Rocksdb/InnoDB participate in snapshot
 --disable_result_log
-START TRANSACTION WITH CONSISTENT ROCKSDB SNAPSHOT;
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
 --enable_result_log
 
 connection con2;
@@ -53,7 +53,7 @@ select * from r1;
 
 # Both Rocksdb/InnoDB participate in snapshot
 --disable_result_log
-START TRANSACTION WITH CONSISTENT INNODB SNAPSHOT;
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
 --enable_result_log
 
 connection con2;

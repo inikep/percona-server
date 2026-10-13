@@ -3,4 +3,4 @@
 #
 
 --let $engine=ROCKSDB
---source include/skip_locked_nowait.inc
+--source suite/rocksdb/include/skip_locked_nowait.inc

@@ -4,6 +4,9 @@ optimize table t1;
 Table	Op	Msg_type	Msg_text
 test.t1	optimize	status	OK
 select variable_value into @a from performance_schema.global_status where variable_name='rocksdb_block_cache_add';
+SET @save_skip_fill_cache = @@global.rocksdb_skip_fill_cache;
+SET GLOBAL rocksdb_skip_fill_cache = 1;
+SET GLOBAL rocksdb_skip_fill_cache = @save_skip_fill_cache;
 select case when variable_value - @a > 20 then 'true' else 'false' end from performance_schema.global_status where variable_name='rocksdb_block_cache_add';
 case when variable_value - @a > 20 then 'true' else 'false' end
 false

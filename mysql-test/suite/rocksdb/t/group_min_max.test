@@ -2,7 +2,7 @@
 set global debug="+d,force_lis_for_group_by";
 
 let $engine=RocksDB;
---source include/group_min_max.inc
+--source suite/rocksdb/include/group_min_max.inc
 
 set global debug="-d,force_lis_for_group_by";
 
