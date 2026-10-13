@@ -4447,7 +4447,7 @@ class Rdb_transaction {
 
     statement_snapshot_type.store(snapshot_type::READ_ONLY_TRX,
                                   std::memory_order_relaxed);
-    acquire_snapshot(true, TABLE_TYPE::USER_TABLE);
+    acquire_snapshot(true);
   }
 
   void remove_from_global_trx_list(void) {
@@ -4496,7 +4496,7 @@ static void dbug_change_status_to_incomplete(rocksdb::Status *status) {
   this object commits them on commit.
 */
 class Rdb_transaction_impl : public Rdb_transaction {
-  // Mutex to protect m_rocksdb_tx[TABLE_TYPE::USER_TABLE] reads by other
+  // Mutex to protect m_rocksdb_tx reads by other
   // threads. Must be also taken by the transaction query thread modifying it.
   // No need to take for the query thread to read it.
   mutable mysql_mutex_t m_rdb_tx_mutex;
@@ -6578,9 +6578,7 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
                            stat_print);
       }
     }
-  } else if (stat_type == HA_ENGINE_TRX) {
-    /* Handle the SHOW ENGINE ROCKSDB TRANSACTION STATUS command */
-    res |= rocksdb_show_snapshot_status(hton, thd, stat_print);
+
   }
 
   if (res) {
@@ -8910,8 +8908,6 @@ bool ha_rocksdb::create_cfs(
   my_core::filename_to_tablename(tbl_def_arg.base_tablename().c_str(),
                                  tablename_sys, sizeof(tablename_sys));
 
-  std::string table_with_enforced_collation =
-      actual_user_table_name.empty() ? tablename_sys : actual_user_table_name;
   uint primary_key_index = pk_index(table_arg, tbl_def_arg);
 
   /*
@@ -9630,7 +9626,7 @@ int ha_rocksdb::create(const char *const name, TABLE *const table_arg,
   Rdb_tbl_def *old_tbl = ddl_manager.find(str);
   if (old_tbl != nullptr) {
     if (thd->lex->sql_command == SQLCOM_TRUNCATE) {
-      DBUG_RETURN(truncate_table(old_tbl, create_info->actual_user_table_name,
+      DBUG_RETURN(truncate_table(old_tbl, "",
                                  table_arg, create_info->auto_increment_value,
                                  table_def));
     } else {
@@ -9638,7 +9634,7 @@ int ha_rocksdb::create(const char *const name, TABLE *const table_arg,
       DBUG_RETURN(handle_rocksdb_corrupt_data_error(ha_thd()));
     }
   }
-  DBUG_RETURN(create_table(str, create_info->actual_user_table_name, *table_arg,
+  DBUG_RETURN(create_table(str, "", *table_arg,
                            create_info->auto_increment_value, table_def));
 }
 
@@ -10560,8 +10556,7 @@ int ha_rocksdb::get_row_by_sk(uchar *buf, const Rdb_key_def &kd,
   Rdb_transaction *const tx = get_tx_from_thd(thd);
   assert(tx != nullptr);
 
-  tx->acquire_snapshot(true /* acquire_now */,
-                       m_tbl_def->get_table_type());
+  tx->acquire_snapshot(true /* acquire_now */);
 
   int rc = m_iterator->get(key, &m_retrieved_record, RDB_LOCK_NONE);
   if (rc) DBUG_RETURN(rc);
@@ -12933,7 +12928,7 @@ int ha_rocksdb::external_lock(THD *const thd, int lock_type) {
       So, we put this code here.
     */
     Rdb_transaction *const tx =
-        get_or_create_tx(thd, m_tbl_def->get_table_type());
+        get_or_create_tx(thd);
     read_thd_vars(thd);
 
     if (lock_type == F_WRLCK) {
@@ -13025,10 +13020,8 @@ static int delete_range(const std::unordered_set<GL_INDEX_ID> &indices) {
   int ret = 0;
   rocksdb::WriteBatch batch;
   for (const auto &d : indices) {
-    auto local_dict_manager =
-        dict_manager.get_dict_manager_selector_non_const(d.cf_id);
     uint32 cf_flags = 0;
-    if (!local_dict_manager->get_cf_flags(d.cf_id, &cf_flags)) {
+    if (!dict_manager.get_cf_flags(d.cf_id, &cf_flags)) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
                       "RocksDB: Failed to get column family flags "
@@ -15351,8 +15344,6 @@ bool ha_rocksdb::commit_inplace_alter_table(
     m_pk_descr = m_key_descr_arr[pk_index(*altered_table, *m_tbl_def)];
 
     {
-      auto local_dict_manager =
-          dict_manager.get_dict_manager_selector_non_const(table_default_cf_id);
       for (inplace_alter_handler_ctx **pctx = ctx_array; *pctx; pctx++) {
         Rdb_inplace_alter_ctx *const ctx =
             static_cast<Rdb_inplace_alter_ctx *>(*pctx);
@@ -15366,7 +15357,7 @@ bool ha_rocksdb::commit_inplace_alter_table(
         }
       }
 
-      if (local_dict_manager->commit(batch)) {
+      if (dict_manager.commit(batch)) {
         /*
           Should never reach here. We assume MyRocks will abort if commit
           fails.

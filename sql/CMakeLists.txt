@@ -474,7 +474,6 @@ SET(SQL_SHARED_SOURCES
   select_lex_visitor.cc
   parser_service.cc
   partition_info.cc
-  partitioning/partition_base.cc
   partitioning/partition_handler.cc
   persisted_variable.cc
   protocol_classic.cc
@@ -1127,7 +1126,6 @@ ELSE()
   SET(MYSQLD_SOURCE main.cc)
 ENDIF()
 
-LIST(APPEND MYSQLD_SOURCE partitioning/partition_base.cc)
 
 MYSQL_ADD_EXECUTABLE(mysqld
   ${MYSQLD_SOURCE} DESTINATION ${INSTALL_SBINDIR} COMPONENT Server

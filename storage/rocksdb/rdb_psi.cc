@@ -76,8 +76,6 @@ my_core::PSI_mutex_info all_rocksdb_mutexes[] = {
      PSI_DOCUMENT_ME},
     {&rdb_sst_commit_key, "sst commit", PSI_FLAG_SINGLETON, 0,
      PSI_DOCUMENT_ME},
-    {&"collation_exception_list",
-     PSI_FLAG_SINGLETON, 0, PSI_DOCUMENT_ME},
     {&rdb_block_cache_resize_mutex_key, "resizing block cache",
      PSI_FLAG_SINGLETON, 0, PSI_DOCUMENT_ME},
     {&rdb_bottom_pri_background_compactions_resize_mutex_key,
@@ -115,6 +113,9 @@ void init_rocksdb_psi_keys() {
 
   count = array_elements(all_rocksdb_mutexes);
   mysql_mutex_register(category, all_rocksdb_mutexes, count);
+
+  count = array_elements(all_rocksdb_rwlocks);
+  mysql_rwlock_register(category, all_rocksdb_rwlocks, count);
 
   count = array_elements(all_rocksdb_conds);
   // TODO(jay) Disabling PFS for conditions due to the bug
