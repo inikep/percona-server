@@ -17,7 +17,7 @@ insert into t1 values(1);
 
 # Wait till we hit the binlog format mismatch error
 --source include/rpl/connection_replica.inc
---let $slave_sql_errno= convert_error(ER_MTS_INCONSISTENT_DATA) # 1756
+--let $slave_sql_errno= convert_error(ER_MTA_INCONSISTENT_DATA) # 1756
 --let $show_slave_sql_error= 1
 --source include/rpl/wait_for_applier_error.inc
 

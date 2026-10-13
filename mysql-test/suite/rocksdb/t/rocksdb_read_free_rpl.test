@@ -190,9 +190,9 @@ select case when variable_value-@up > 0 then 'false' else 'true' end as read_fre
 --echo
 --source include/rpl/connection_replica.inc
 --echo [on slave]
-stop slave;
+stop replica;
 set @@global.rocksdb_read_free_rpl = PK_ONLY;
-start slave;
+start replica;
 --source include/rpl/connection_source.inc
 --echo [on master]
 create table t2 (id int primary key, i1 int, i2 int, value int);
@@ -215,8 +215,8 @@ update u2 set i2=100, value=100 where id=1;
 
 --source include/rpl/connection_replica.inc
 --echo [on slave]
-call mtr.add_suppression("Slave SQL.*Could not execute Update_rows event on table test.u2.*Error_code.*");
-call mtr.add_suppression("Slave: Can't find record in 'u2'.*");
+call mtr.add_suppression("Replica SQL.*Could not execute Update_rows event on table test.u2.*Error_code.*");
+call mtr.add_suppression("Replica: Can't find record in 'u2'.*");
 # wait until we have the expected error
 --let $slave_sql_errno= convert_error(ER_KEY_NOT_FOUND)
 --source include/rpl/wait_for_applier_error.inc
@@ -240,15 +240,15 @@ select i2 from u2 where i2=100;
 # cleanup the problem and restart it
 --disable_query_log
 insert into u2 values(1,1,1,1), (2,2,2,2);
-start slave sql_thread;
+start replica sql_thread;
 --source include/rpl/wait_for_applier_to_start.inc
 --enable_query_log
 
 --source include/rpl/connection_replica.inc
 --echo [on slave]
-stop slave;
+stop replica;
 set @@global.rocksdb_read_free_rpl = PK_SK;
-start slave;
+start replica;
 
 --echo
 --echo # some tables with read-free replication on and some with it off
@@ -256,9 +256,9 @@ start slave;
 # We'll set the table filter to all tables starting with 't'
 --source include/rpl/connection_replica.inc
 --echo [on slave]
-stop slave;
+stop replica;
 set @@global.rocksdb_read_free_rpl_tables = "t.*";
-start slave;
+start replica;
 --source include/rpl/connection_source.inc
 --echo [on master]
 drop table if exists t2;
@@ -283,8 +283,8 @@ update u2 set i2=100, value=100 where id=1;
 
 --source include/rpl/connection_replica.inc
 --echo [on slave]
-call mtr.add_suppression("Slave SQL.*Could not execute Update_rows event on table test.u2.*Error_code.*");
-call mtr.add_suppression("Slave: Can't find record in 'u2'.*");
+call mtr.add_suppression("Replica SQL.*Could not execute Update_rows event on table test.u2.*Error_code.*");
+call mtr.add_suppression("Replica: Can't find record in 'u2'.*");
 # wait until we have the expected error
 --let $slave_sql_errno= convert_error(ER_KEY_NOT_FOUND)
 --source include/rpl/wait_for_applier_error.inc
@@ -306,7 +306,7 @@ select i2 from u2 where i2=100;
 # cleanup the problem and restart it
 --disable_query_log
 insert into u2 values(1,1,1,1), (2,2,2,2);
-start slave sql_thread;
+start replica sql_thread;
 --source include/rpl/wait_for_applier_to_start.inc
 --enable_query_log
 
