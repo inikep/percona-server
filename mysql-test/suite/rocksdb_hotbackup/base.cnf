@@ -1,7 +1,7 @@
 # Use default setting for mysqld processes
 !include include/default_mysqld.cnf
 !include include/default_client.cnf
-!include include/default_myrocks.cnf
+!include include/default_rocksdb.cnf
 
 [mysqld.1]
 binlog_format=row

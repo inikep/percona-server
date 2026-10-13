@@ -103,15 +103,15 @@ connection master;
 DELETE FROM t1 WHERE id = 10;
 SELECT count(*) FROM t1;
 connection slave;
-call mtr.add_suppression("Slave SQL.*Could not execute Delete_rows event on table test.t1.*Error_code.*");
+call mtr.add_suppression("Replica SQL.*Could not execute Delete_rows event on table test.t1.*Error_code: 1032");
+call mtr.add_suppression("Replica SQL.*The replica coordinator and worker threads are stopped.*Error_code: MY-001756");
 call mtr.add_suppression("Slave: Can't find record in 't1'.*");
 # wait until we have the expected error
 --let $slave_sql_errno= convert_error(ER_KEY_NOT_FOUND)
 --source include/wait_for_slave_sql_error.inc
 
 connection slave;
-set @save_rocksdb_read_free_rpl_tables=@@global.rocksdb_read_free_rpl_tables;
-set global rocksdb_read_free_rpl_tables="t.*";
+SET GLOBAL sql_slave_skip_counter=1;
 START SLAVE;
 connection master;
 --source include/sync_slave_sql_with_master.inc
@@ -122,7 +122,6 @@ connection master;
 
 # cleanup
 connection slave;
-set global rocksdb_read_free_rpl_tables=@save_rocksdb_read_free_rpl_tables;
 connection master;
 SET session rocksdb_blind_delete_primary_key=@save_rocksdb_blind_delete_primary_key;
 SET session rocksdb_master_skip_tx_api=@save_rocksdb_master_skip_tx_api;

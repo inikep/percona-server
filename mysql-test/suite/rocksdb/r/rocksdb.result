@@ -398,7 +398,7 @@ rocksdb_lock_wait_timeout	2
 begin;
 update t17 set col1='UPD2-AA' where pk='row2';
 update t17 set col1='UPD2-BB' where pk='row2';
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t17.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 set rocksdb_lock_wait_timeout=1000;
 update t17 set col1='UPD2-CC' where pk='row2';
 rollback;
@@ -496,7 +496,7 @@ row3	row3data
 connection default;
 set rocksdb_lock_wait_timeout=1;
 update t27 set col1='row2-modified' where pk='row3';
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t27.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 connection con1;
 rollback;
 connection default;
@@ -988,6 +988,7 @@ rocksdb_force_index_records_in_range	0
 rocksdb_ignore_unknown_options	ON
 rocksdb_index_type	kBinarySearch
 rocksdb_info_log_level	error_level
+rocksdb_invalid_create_option_action	LOG
 rocksdb_io_error_action	ABORT_SERVER
 rocksdb_is_fd_close_on_exec	ON
 rocksdb_keep_log_file_num	1000
@@ -1023,6 +1024,7 @@ rocksdb_partial_index_blind_delete	ON
 rocksdb_partial_index_ignore_killed	ON
 rocksdb_partial_index_sort_max_mem	0
 rocksdb_pause_background_work	ON
+rocksdb_pause_ttl_compaction_filter	OFF
 rocksdb_perf_context_level	0
 rocksdb_persistent_cache_path	
 rocksdb_persistent_cache_size_mb	0
@@ -1243,7 +1245,7 @@ col1 int,
 key (key1)
 ) ENGINE=RocksDB CHARSET=latin1;
 Warnings:
-Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
+Warning	3778	'utf8mb3_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 insert into t3 values(1, 'one',11), (2,'two',22);
 explain 
 select key1 from t3 where key1='one';
@@ -1304,7 +1306,7 @@ BEGIN;
 UPDATE t1 SET i = 100;
 connect  con1,localhost,root,,test;
 DELETE IGNORE FROM t1 ORDER BY i;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 disconnect con1;
 connection default;
 COMMIT;
@@ -1322,7 +1324,7 @@ DROP TABLE t1;
 CREATE TABLE t1 (pk INT PRIMARY KEY, c1 CHAR(1), c2 CHAR(1), KEY(c1)) ENGINE=RocksDB CHARSET utf8 COLLATE utf8_bin;
 Warnings:
 Warning	3719	'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous.
-Warning	3778	'utf8_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
+Warning	3778	'utf8mb3_bin' is a collation of the deprecated character set UTF8MB3. Please consider using UTF8MB4 with an appropriate collation instead.
 INSERT INTO t1 VALUES (1,'h','h');
 SELECT * FROM t1;
 pk	c1	c2
@@ -2465,7 +2467,7 @@ id
 6
 begin;
 select * from t1 where id=4 for update;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 select * from t1 where id=7 for update;
 id
 select * from t1 where id=9 for update;

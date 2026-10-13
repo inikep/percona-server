@@ -1,5 +1,9 @@
 --source include/have_rocksdb.inc
 --source include/have_debug_sync.inc
+if (!`SELECT @@performance_schema`)
+{
+  --skip Requires performance_schema
+}
 --source include/count_sessions.inc
 
 ####
@@ -41,12 +45,17 @@ set debug_sync='now WAIT_FOR parked';
 # display "Rows Examined" before returning from call
 --replace_column 1 ### 2 ### 3 ### 4 ### 6 ### 10 ### 11 ### 12 ###
 --sorted_result
+--disable_warnings
 SHOW PROCESSLIST;
+--enable_warnings
 
 set debug_sync='now SIGNAL go';
 
 connection conn1;
 reap;
+SELECT ROWS_EXAMINED FROM performance_schema.events_statements_history
+WHERE THREAD_ID = PS_CURRENT_THREAD_ID() AND SQL_TEXT = 'SELECT * FROM t_re'
+ORDER BY EVENT_ID DESC LIMIT 1;
 
 # tidy up
 set debug_sync='RESET';

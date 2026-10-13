@@ -3,6 +3,10 @@
 --source include/have_debug.inc
 --source include/have_debug_sync.inc
 
+--disable_query_log
+call mtr.add_suppression("Replica SQL.*Could not execute Update_rows event on table test.t[23].*Error_code: MY-001032");
+--enable_query_log
+
 connection master;
 --disable_warnings
 drop table if exists t1;

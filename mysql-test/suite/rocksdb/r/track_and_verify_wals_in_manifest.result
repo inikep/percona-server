@@ -22,12 +22,14 @@ select * from t1;
 id
 1
 2
+3
 101
 102
-select * from t2 where id <= 101;
+select * from t2;
 id
 1
 2
 3
 101
+102
 drop table t1, t2;

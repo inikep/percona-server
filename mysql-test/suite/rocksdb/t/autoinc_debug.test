@@ -16,7 +16,7 @@ begin;
 insert into t values ();
 insert into t values ();
 set debug="+d,crash_commit_before";
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--exec echo "wait" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
@@ -32,7 +32,7 @@ begin;
 insert into t values ();
 insert into t values ();
 set debug="+d,crash_commit_after_prepare";
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--exec echo "wait" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
@@ -48,7 +48,7 @@ begin;
 insert into t values ();
 insert into t values ();
 set debug="+d,crash_commit_after_log";
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--exec echo "wait" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc
@@ -64,7 +64,7 @@ begin;
 insert into t values ();
 insert into t values ();
 set debug="+d,crash_commit_after";
---exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--exec echo "wait" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
 --error 2013
 commit;
 --source include/wait_until_disconnected.inc

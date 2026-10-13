@@ -25,6 +25,7 @@ SET GLOBAL rocksdb_force_flush_memtable_now=1;
 SET GLOBAL rocksdb_compact_cf="cf_t1";
 SHOW ENGINE rocksdb STATUS;
 Type	Name	Status
+rocksdb	#	#
 STATISTICS	#	#
 DBSTATS	#	#
 CF_COMPACTION	#	#
@@ -434,48 +435,15 @@ DROP TABLE t4;
 SHOW ENGINE rocksdb MUTEX;
 Type	Name	Status
 SHOW ENGINE ALL MUTEX;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----NO ACTIVE SNAPSHOT
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot never created
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
 START TRANSACTION WITH CONSISTENT SNAPSHOT;
-SHOW ENGINE ROCKSDB TRANSACTION STATUS;
-Type	Name	Status
-rocksdb		
-============================================================
-TIMESTAMP ROCKSDB TRANSACTION MONITOR OUTPUT
-============================================================
----------
-SNAPSHOTS
----------
-LIST OF SNAPSHOTS FOR EACH SESSION:
----SNAPSHOT, ACTIVE NUM sec
-MySQL thread id TID, OS thread handle PTR, query id QID localhost root ACTION
-SHOW ENGINE ROCKSDB TRANSACTION STATUS
-earliest snapshot created NUM sec ago
-lock count 0, write count 0
-insert count 0, update count 0, delete count 0
-----------LATEST DETECTED DEADLOCKS----------
------------------------------------------
-END OF ROCKSDB TRANSACTION MONITOR OUTPUT
-=========================================
-
+SELECT WRITE_COUNT, LOCK_COUNT, READ_ONLY
+FROM information_schema.rocksdb_trx
+WHERE THREAD_ID = CONNECTION_ID();
+WRITE_COUNT	LOCK_COUNT	READ_ONLY
+0	0	1
 ROLLBACK;
 SET GLOBAL rocksdb_max_background_jobs= @save.rocksdb_max_background_jobs;

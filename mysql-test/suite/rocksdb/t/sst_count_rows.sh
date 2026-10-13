@@ -1,6 +1,10 @@
 #!/bin/bash
 
-sst_dump=$2
+sst_dump=${2:-${MYSQLD%/*}/sst_dump}
+if [ ! -x "$sst_dump" ]; then
+  echo "sst_dump executable not found: $sst_dump" >&2
+  exit 1
+fi
 wait_for_no_more_deletes=$3
 wait_for_no_more_rows=$4
 num_retries=240

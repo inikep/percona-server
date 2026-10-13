@@ -14,7 +14,7 @@ select * from i1;
 id	value
 select * from r1;
 id	value
-START TRANSACTION WITH CONSISTENT ROCKSDB SNAPSHOT;
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
 connection con2;
 insert into i1 values (2,2);
 insert into r1 values (2,2);
@@ -35,7 +35,7 @@ id	value
 select * from r1;
 id	value
 1	1
-START TRANSACTION WITH CONSISTENT INNODB SNAPSHOT;
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
 connection con2;
 insert into r1 values (4,4);
 connection con1;

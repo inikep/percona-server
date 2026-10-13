@@ -1,0 +1,4 @@
+--replace_regex /INDEX_ID: [0-9]+/INDEX_ID: #/
+SELECT DEADLOCK_ID, CF_NAME, LOCK_TYPE, INDEX_NAME, TABLE_NAME, ROLLED_BACK
+FROM information_schema.rocksdb_deadlock
+ORDER BY DEADLOCK_ID, ROLLED_BACK;

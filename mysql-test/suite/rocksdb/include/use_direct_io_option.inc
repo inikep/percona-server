@@ -3,7 +3,7 @@
 # Required input:
 #   $io_option - name and assignment to enable on server command line
 
---source include/have_direct_io.inc
+--source suite/rocksdb/include/have_direct_io.inc
 
 --echo Checking direct reads
 --let restart_parameters="restart: $io_option"
