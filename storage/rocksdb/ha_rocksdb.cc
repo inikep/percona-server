@@ -62,7 +62,6 @@
 #include "sql/sql_thd_internal_api.h"
 #include "sql/strfunc.h"
 #include "sql/table.h"
-#include "sql/strfunc.h"
 
 /* RocksDB includes */
 #include "monitoring/histogram.h"
