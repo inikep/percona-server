@@ -167,11 +167,9 @@ ALTER TABLE t2 ENABLE KEYS;
 insert into t2 values (3, 1);
 
 # other alters are still not allowed
-replace_regex /Conflict bulk load [^ ]+/Conflict bulk load <ID>/;
-error ER_DA_BULK_LOAD;
+error ER_LOCK_REFUSED_BY_ENGINE;
 alter table t2 drop index key1;
-replace_regex /Conflict bulk load [^ ]+/Conflict bulk load <ID>/;
-error ER_DA_BULK_LOAD;
+error ER_LOCK_REFUSED_BY_ENGINE;
 ALTER TABLE t2 ADD COLUMN c int;
 insert into t2 values (4, 1);
 SET rocksdb_bulk_load=0;

@@ -15,7 +15,12 @@ create table t (i int primary key);
 create table r1 (id int primary key, value int);
 insert into r1 values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10);
 create table r2 like r1;
-insert into r2 select * from r1;
+insert into r2 values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10);
+
+# MyRocks does not support gap locks: in REPEATABLE-READ, locking reads and
+# updates that do not use a full unique key are rejected inside multi-statement
+# transactions, so use point locking reads and a unique index there.
+let $is_rr = `SELECT @@session.transaction_isolation = 'REPEATABLE-READ'`;
 
 # deadlock on scanned locking reads
 connect (con1,localhost,root,,);
@@ -27,14 +32,25 @@ connect (con2,localhost,root,,);
 let $con2= `SELECT CONNECTION_ID()`;
 begin;
 update r1 set value=100 where id=8;
---send select * from r2 for update;
+if ($is_rr) {
+  --send select * from r2 where id=9 for update
+}
+if (!$is_rr) {
+  --send select * from r2 for update
+}
 
 connection con1;
 let $wait_condition =
 `SELECT CONCAT('select count(*) = 1 from information_schema.rocksdb_trx where THREAD_ID = ', '$con2', ' and WAITING_KEY != ""')`;
 --source include/wait_condition.inc
---error ER_LOCK_DEADLOCK
-select * from r1 for update;
+if ($is_rr) {
+  --error ER_LOCK_DEADLOCK
+  select * from r1 where id=8 for update;
+}
+if (!$is_rr) {
+  --error ER_LOCK_DEADLOCK
+  select * from r1 for update;
+}
 rollback;
 
 connection con2;
@@ -78,7 +94,7 @@ rollback;
 # In repeatable read, rollbacks in write unprepared confuses the snapshot
 # validation logic into thinking that a write has happened, because it sees
 # the rollback writes in the DB.
-let $snapshot_conflict = `SELECT @@global.rocksdb_write_policy = 'write_unprepared' and @@session.tx_isolation = 'repeatable-read'`;
+let $snapshot_conflict = `SELECT @@global.rocksdb_write_policy = 'write_unprepared' and @@session.transaction_isolation = 'repeatable-read'`;
 connection con2;
 --disable_result_log
 if ($snapshot_conflict)
@@ -99,7 +115,12 @@ rollback;
 
 
 connection default;
-create table t1 (id int primary key, value int, value2 int, index(value)) engine=rocksdb;
+if ($is_rr) {
+  create table t1 (id int primary key, value int, value2 int, unique index(value)) engine=rocksdb;
+}
+if (!$is_rr) {
+  create table t1 (id int primary key, value int, value2 int, index(value)) engine=rocksdb;
+}
 insert into t1 values (1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5),(6,6,6),(7,7,7),(8,8,8),(9,9,9),(10,10,10);
 
 connection con1;

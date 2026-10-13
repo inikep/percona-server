@@ -1,7 +1,7 @@
 select * from information_schema.engines where engine = 'rocksdb';
 ENGINE	SUPPORT	COMMENT	TRANSACTIONS	XA	SAVEPOINTS
 ROCKSDB	DEFAULT	RocksDB storage engine	YES	YES	YES
-set optimizer_force_index_for_range = on;
+set session transaction_isolation='READ-COMMITTED';
 drop table if exists t0,t1,t2,t3,t4,t5;
 create table t0 (a int) engine=myisam;
 insert into t0 values (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
@@ -327,4 +327,3 @@ Note	1003	/* select#1 */ select `test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a` AS `a`,
 select * from t5 where a=5 and b in (4) order by c desc;
 pk	a	b	c
 drop table t0,t1,t2,t3,t4,t5;
-set optimizer_force_index_for_range = off;

@@ -7,7 +7,7 @@ USE test;
 CREATE TABLE mysql_table (a INT) ENGINE=ROCKSDB;
 ERROR HY000: Unable to create or change a table without a primary key, when the system variable 'sql_require_primary_key' is set. Add a primary key to the table or unset this variable to avoid this message. Note that tables without a primary key can cause performance problems in row-based replication, so please consult your DBA before changing this setting.
 CREATE TABLE mysql_table_no_cols ENGINE=ROCKSDB;
-ERROR HY000: A table must have at least one visible column.
+ERROR HY000: Unable to create or change a table without a primary key, when the system variable 'sql_require_primary_key' is set. Add a primary key to the table or unset this variable to avoid this message. Note that tables without a primary key can cause performance problems in row-based replication, so please consult your DBA before changing this setting.
 CREATE TABLE mysql_primkey (a INT PRIMARY KEY, b INT, c INT, d INT, INDEX (c)) ENGINE=ROCKSDB;
 ALTER TABLE mysql_primkey DROP b, DROP a, ADD (f INT PRIMARY KEY);
 ALTER TABLE mysql_primkey DROP PRIMARY KEY;
@@ -39,7 +39,7 @@ SET @@session.sql_require_primary_key = true;
 CREATE TABLE mysql_require_primkey LIKE mysql_no_primkey;
 ERROR HY000: Unable to create or change a table without a primary key, when the system variable 'sql_require_primary_key' is set. Add a primary key to the table or unset this variable to avoid this message. Note that tables without a primary key can cause performance problems in row-based replication, so please consult your DBA before changing this setting.
 ALTER TABLE mysql_no_primkey1 ADD column(c INT);
-ALTER TABLE mysql_no_primkey1 DROP column c;
+ERROR HY000: Unable to create or change a table without a primary key, when the system variable 'sql_require_primary_key' is set. Add a primary key to the table or unset this variable to avoid this message. Note that tables without a primary key can cause performance problems in row-based replication, so please consult your DBA before changing this setting.
 ALTER TABLE mysql_no_primkey1 ADD column(c INT PRIMARY KEY);
 ALTER TABLE mysql_no_primkey1 DROP column c;
 ERROR HY000: Unable to create or change a table without a primary key, when the system variable 'sql_require_primary_key' is set. Add a primary key to the table or unset this variable to avoid this message. Note that tables without a primary key can cause performance problems in row-based replication, so please consult your DBA before changing this setting.

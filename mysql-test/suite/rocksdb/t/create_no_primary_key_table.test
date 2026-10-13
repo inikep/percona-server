@@ -6,7 +6,7 @@ CREATE TABLE test.mysql_table (a INT) ENGINE=ROCKSDB;
 USE test;
 -- error ER_TABLE_WITHOUT_PK
 CREATE TABLE mysql_table (a INT) ENGINE=ROCKSDB;
--- error ER_TABLE_MUST_HAVE_A_VISIBLE_COLUMN
+-- error ER_TABLE_WITHOUT_PK
 CREATE TABLE mysql_table_no_cols ENGINE=ROCKSDB;
 
 CREATE TABLE mysql_primkey (a INT PRIMARY KEY, b INT, c INT, d INT, INDEX (c)) ENGINE=ROCKSDB;
@@ -48,8 +48,9 @@ SET @@session.sql_require_primary_key = true;
 -- error ER_TABLE_WITHOUT_PK
 CREATE TABLE mysql_require_primkey LIKE mysql_no_primkey;
 	
+# sql_require_primary_key also blocks ALTER of a table that has no PK
+-- error ER_TABLE_WITHOUT_PK
 ALTER TABLE mysql_no_primkey1 ADD column(c INT);
-ALTER TABLE mysql_no_primkey1 DROP column c;
 ALTER TABLE mysql_no_primkey1 ADD column(c INT PRIMARY KEY);
 -- error ER_TABLE_WITHOUT_PK
 ALTER TABLE mysql_no_primkey1 DROP column c;

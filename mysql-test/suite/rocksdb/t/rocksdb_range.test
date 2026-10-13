@@ -5,7 +5,9 @@
 #
 select * from information_schema.engines where engine = 'rocksdb';
 
-set optimizer_force_index_for_range = on;
+# MyRocks does not support gap locks in REPEATABLE-READ mode, this test
+# does not require RR ISO to complete, so lets alter the ISO to RC
+set session transaction_isolation='READ-COMMITTED';
 
 --disable_warnings
 drop table if exists t0,t1,t2,t3,t4,t5;
@@ -198,4 +200,3 @@ select * from t5 where a=5 and b in (4) order by c desc;
 select * from t5 where a=5 and b in (4) order by c desc;
 
 drop table t0,t1,t2,t3,t4,t5;
-set optimizer_force_index_for_range = off;

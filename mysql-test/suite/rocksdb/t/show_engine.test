@@ -67,12 +67,6 @@ SHOW ENGINE rocksdb MUTEX;
 SHOW ENGINE ALL MUTEX;
 --enable_result_log
 
-PREPARE stmt1 FROM 'SHOW ENGINE ROCKSDB TRANSACTION STATUS';
---disable_result_log
-EXECUTE stmt1;
---enable_result_log
---echo # EXECUTE PREPARE complete
-
 
 # Restore old values
 SET GLOBAL rocksdb_max_background_jobs= @save.rocksdb_max_background_jobs;

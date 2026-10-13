@@ -1,4 +1,3 @@
-set optimizer_force_index_for_range = on;
 CREATE TABLE `link_table` (
 `id1` bigint unsigned NOT NULL DEFAULT '0',
 `id1_type` int unsigned NOT NULL DEFAULT '0',
@@ -146,4 +145,3 @@ include/assert.inc [Check that materialized groups are zero.]
 include/assert.inc [Check that materialized rows are zero.]
 DROP TABLE t1, t2;
 DROP TABLE link_table;
-set optimizer_force_index_for_range = off;

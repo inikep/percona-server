@@ -6,12 +6,12 @@ create table t (i int primary key);
 create table r1 (id int primary key, value int);
 insert into r1 values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10);
 create table r2 like r1;
-insert into r2 select * from r1;
+insert into r2 values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10);
 begin;
 update r2 set value=100 where id=9;
 begin;
 update r1 set value=100 where id=8;
-select * from r2 for update;;
+select * from r2 for update;
 select * from r1 for update;
 ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 rollback;
