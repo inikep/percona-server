@@ -51,6 +51,7 @@
 #include <mysys_err.h>
 #include "sql/debug_sync.h"
 #include "my_sys.h"
+#include "strxmov.h"
 #include "mysqld_error.h"
 #include "scope_guard.h"
 #include "sql/dd/cache/dictionary_client.h"  // dd::cache::Dictionary_client
@@ -8168,7 +8169,7 @@ static handler *rocksdb_create_handler(my_core::handlerton *const hton,
   if (partitioned) {
     ha_rockspart *file = new (mem_root) ha_rockspart(hton, table_arg);
     if (file && file->init_partitioning(mem_root)) {
-      destroy(file);
+      ::destroy_at(file);
       return (nullptr);
     }
     return (file);

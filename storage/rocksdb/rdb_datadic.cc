@@ -38,8 +38,9 @@
 #include <vector>
 
 /* MySQL header files */
-#include "./m_ctype.h"
-#include "./my_bit.h"
+#include "mysql/strings/m_ctype.h"
+#include "strings/m_ctype_internals.h"
+#include <bit>
 #include "./my_bitmap.h"
 #include "./my_byteorder.h"
 #include "my_checksum.h"
@@ -1040,7 +1041,7 @@ uint Rdb_key_def::pack_index_tuple(TABLE *const tbl, uchar *const pack_buffer,
   key_restore(tbl->record[0], const_cast<uchar *>(key_tuple),
               &tbl->key_info[m_keyno], key_len);
 
-  uint n_used_parts = my_count_bits(keypart_map);
+  uint n_used_parts = std::popcount(keypart_map);
   if (keypart_map == HA_WHOLE_KEY) n_used_parts = 0;  // Full key is used
 
   /* Then, convert the record into a mem-comparable form */
@@ -3626,7 +3627,7 @@ static const Rdb_collation_codec *rdb_init_collation_mapping(
         uchar dst = p.first;
         for (uint idx = 0; idx < p.second.size(); idx++) {
           uchar src = p.second[idx];
-          uchar bits = my_bit_log2(my_round_up_to_next_power(p.second.size()));
+          uchar bits = std::bit_width(p.second.size() - 1);
           cur->m_enc_idx[src] = idx;
           cur->m_enc_size[src] = bits;
           cur->m_dec_size[dst] = bits;

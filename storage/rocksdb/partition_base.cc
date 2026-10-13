@@ -20,6 +20,7 @@
   MYSQL_SERVER define is set!
 */
 #include "my_io.h"
+#include "strxmov.h"
 #include "sql/sql_partition.h"
 #define MYSQL_SERVER 1
 #define LOG_SUBSYSTEM_TAG "partition_base"
@@ -390,13 +391,13 @@ Partition_base::~Partition_base() {
     m_new_partitions_share_refs.delete_elements();
   if (m_file != nullptr) {
     for (uint i = 0; i < m_tot_parts; i++) {
-      destroy(m_file[i]);
+      ::destroy_at(m_file[i]);
       m_file[i] = nullptr;
     }
   }
   if (m_new_file != nullptr) {
     for (uint i = 0; i < m_num_new_partitions; i++) {
-      destroy(m_new_file[i]);
+      ::destroy_at(m_new_file[i]);
       m_new_file[i] = nullptr;
     }
   }
@@ -3915,7 +3916,7 @@ class Partition_base_inplace_ctx : public inplace_alter_handler_ctx {
   ~Partition_base_inplace_ctx() override {
     if (handler_ctx_array) {
       for (uint index = 0; index < m_tot_parts; index++)
-        destroy(handler_ctx_array[index]);
+        ::destroy_at(handler_ctx_array[index]);
     }
   }
 };
@@ -4142,7 +4143,7 @@ bool Partition_base::commit_inplace_alter_table(
                 error = (*file)->ha_delete_table(name, old_table_def);
                 if (error) goto end;
                 (*file)->ha_close();
-                destroy(*file);
+                ::destroy_at(*file);
                 *file = nullptr;
                 file++;
               }
@@ -4155,7 +4156,7 @@ bool Partition_base::commit_inplace_alter_table(
               error = (*file)->ha_delete_table(name, old_table_def);
               if (error) goto end;
               (*file)->ha_close();
-              destroy(*file);
+              ::destroy_at(*file);
               *file = nullptr;
               file += num_subparts;
             }
