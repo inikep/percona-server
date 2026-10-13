@@ -18,15 +18,12 @@ INSERT INTO t1 VALUES (1, 1), (2, 2), (3, 3);
 set global rocksdb_force_flush_memtable_now = true;
 select * from INFORMATION_SCHEMA.ROCKSDB_GLOBAL_INFO;
 TYPE	NAME	VALUE
-BINLOG	FILE	binlog.000001
-BINLOG	POS	1291
-BINLOG	GTID	uuid:5
 MAX_INDEX_ID	MAX_INDEX_ID	max_index_id
 CF_FLAGS	0	default [0]
 CF_FLAGS	1	__system__ [0]
 select count(*) from INFORMATION_SCHEMA.ROCKSDB_GLOBAL_INFO;
 count(*)
-6
+3
 set global rocksdb_force_flush_memtable_now = true;
 set global rocksdb_compact_cf='default';
 select case when VALUE-@keysIn >= 3 then 'true' else 'false' end from INFORMATION_SCHEMA.ROCKSDB_COMPACTION_STATS where CF_NAME = 'default' and LEVEL = 'Sum' and TYPE = 'KeyIn';

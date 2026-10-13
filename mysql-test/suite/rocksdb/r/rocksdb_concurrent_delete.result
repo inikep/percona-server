@@ -22,14 +22,14 @@ SELECT * FROM t1 order by t1.pk ASC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 3;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 --PK end row delete
 SET debug_sync='rocksdb_concurrent_delete SIGNAL parked WAIT_FOR go';
 SELECT * FROM t1 order by t1.pk ASC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 5;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 set debug_sync='RESET';
 drop table t1;
 SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
@@ -56,14 +56,14 @@ SELECT a FROM t1 FORCE INDEX(a) FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 3;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 --SK end row delete
 SET debug_sync='rocksdb_concurrent_upd_or_delete_sk SIGNAL parked WAIT_FOR go';
 SELECT a FROM t1 FORCE INDEX(a) FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 5;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 set debug_sync='RESET';
 drop table t1;
 SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
@@ -90,14 +90,14 @@ SELECT * FROM t1 order by t1.pk DESC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 3;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 --PK end row delete
 SET debug_sync='rocksdb_concurrent_delete SIGNAL parked WAIT_FOR go';
 SELECT * FROM t1 order by t1.pk DESC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 1;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 set debug_sync='RESET';
 drop table t1;
 SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
@@ -124,14 +124,14 @@ SELECT * FROM t1 order by t1.pk ASC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 3;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 --PK end row delete
 SET debug_sync='rocksdb_concurrent_delete SIGNAL parked WAIT_FOR go';
 SELECT * FROM t1 order by t1.pk ASC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 5;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 set debug_sync='RESET';
 drop table t1;
 SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
@@ -158,14 +158,14 @@ SELECT * FROM t1 order by t1.pk DESC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 3;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 --PK end row delete
 SET debug_sync='rocksdb_concurrent_delete SIGNAL parked WAIT_FOR go';
 SELECT * FROM t1 order by t1.pk DESC FOR UPDATE;
 SET debug_sync='now WAIT_FOR parked';
 DELETE FROM t1 WHERE pk = 1;
 SET debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 set debug_sync='RESET';
 drop table t1;
 set debug_sync='RESET';
@@ -194,7 +194,7 @@ update t1 force index (PRIMARY) set value=200 where id1=1;
 set debug_sync='now WAIT_FOR parked';
 delete from t1 where id1=1 and id2=3;
 set debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 select * from t1 where id1=1;
 id1	id2	value
 1	2	100
@@ -207,7 +207,7 @@ update t1 force index (PRIMARY) set value=300 where id1=1;
 set debug_sync='now WAIT_FOR parked';
 delete from t1 where id1=1 and id2=5;
 set debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 select * from t1 where id1=1;
 id1	id2	value
 1	2	100
@@ -240,7 +240,7 @@ update t1 force index (sk) set value=200 where id1=1;
 set debug_sync='now WAIT_FOR parked';
 delete from t1 where id1=1 and id2=3;
 set debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 select * from t1 where id1=1;
 id1	id2	value
 1	2	100
@@ -253,7 +253,7 @@ update t1 force index (sk) set value=300 where id1=1;
 set debug_sync='now WAIT_FOR parked';
 delete from t1 where id1=1 and id2=5;
 set debug_sync='now SIGNAL go';
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 select * from t1 where id1=1;
 id1	id2	value
 1	2	100
