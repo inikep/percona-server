@@ -1,3 +1,4 @@
+set session transaction_isolation='READ-COMMITTED';
 SET rocksdb_bulk_load_size=15;
 CREATE TABLE t4 (a INT, b INT, c INT,
 PRIMARY KEY (a),

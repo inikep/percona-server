@@ -15,18 +15,16 @@ row_key	val1	val2
 2	14	Bravo
 3	14	Charlie
 4	14	Delta
-SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 SET SESSION rocksdb_skip_snapshot_validation=0;
-START TRANSACTION;
-Conn A: Started TRANSACTION A (SELECT .. FOR UPDATE )
+Conn A: Locking read (SELECT .. FOR UPDATE) in autocommit mode
 set DEBUG_SYNC = "rocksdb_concurrent_upd_or_delete_sk SIGNAL waiting_for_update WAIT_FOR update_done";
 Conn A: activate DEBUG_SYNC point rocksdb_concurrent_upd_or_delete_sk 
 SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 AND val2 = 'Alfa' FOR UPDATE;
 Conn A: Sent SELECT
-SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 SET SESSION rocksdb_skip_snapshot_validation=0;
-START TRANSACTION;
-Conn B: Started TRANSACTION B (Concurrent update)
+Conn B: Concurrent autocommit update
 Conn B: Waiting for Conn A to hit `waiting_for_update`
 set DEBUG_SYNC = "now WAIT_FOR waiting_for_update";
 Conn B: Conn A triggered `waiting_for_update`
@@ -37,14 +35,12 @@ row_key	val1	val2
 2	14	Bravo
 3	14	Charlie
 4	14	Delta
-COMMIT;
-Conn B: COMMIT for update done
+Conn B: update done
 set DEBUG_SYNC = "now SIGNAL update_done";
 Conn B: signalled Conn A with event `update_done`
 Conn A: reaping SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 AND val2 = 'Alfa';  
 The SELECT output should see the snapshot conflict error
-ERROR 40001: Deadlock found when trying to get lock; try restarting transaction (snapshot conflict)
-ROLLBACK;
+ERROR 40001: Deadlock found when trying to get lock; try restarting transaction
 Conn A: Table after
 SELECT * FROM table1;
 row_key	val1	val2
@@ -70,18 +66,16 @@ row_key	val1	val2
 2	14	Bravo
 3	14	Charlie
 4	14	Delta
-SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 SET SESSION rocksdb_skip_snapshot_validation=1;
-START TRANSACTION;
-Conn A: Started TRANSACTION A (SELECT .. FOR UPDATE )
+Conn A: Locking read (SELECT .. FOR UPDATE) in autocommit mode
 set DEBUG_SYNC = "rocksdb_concurrent_upd_or_delete_sk SIGNAL waiting_for_update WAIT_FOR update_done";
 Conn A: activate DEBUG_SYNC point rocksdb_concurrent_upd_or_delete_sk 
 SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 AND val2 = 'Alfa' FOR UPDATE;
 Conn A: Sent SELECT
-SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 SET SESSION rocksdb_skip_snapshot_validation=1;
-START TRANSACTION;
-Conn B: Started TRANSACTION B (Concurrent update)
+Conn B: Concurrent autocommit update
 Conn B: Waiting for Conn A to hit `waiting_for_update`
 set DEBUG_SYNC = "now WAIT_FOR waiting_for_update";
 Conn B: Conn A triggered `waiting_for_update`
@@ -92,15 +86,13 @@ row_key	val1	val2
 2	14	Bravo
 3	14	Charlie
 4	14	Delta
-COMMIT;
-Conn B: COMMIT for update done
+Conn B: update done
 set DEBUG_SYNC = "now SIGNAL update_done";
 Conn B: signalled Conn A with event `update_done`
 Conn A: reaping SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 AND val2 = 'Alfa';  
 The SELECT output should be empty
 row_key	val1	val2
 1	15	Alfa
-ROLLBACK;
 Conn A: Table after
 SELECT * FROM table1;
 row_key	val1	val2
@@ -126,18 +118,16 @@ row_key	val1	val2
 2	14	Bravo
 3	14	Charlie
 4	14	Delta
-SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 SET SESSION rocksdb_skip_snapshot_validation=0;
-START TRANSACTION;
-Conn A: Started TRANSACTION A (SELECT .. FOR UPDATE )
+Conn A: Locking read (SELECT .. FOR UPDATE) in autocommit mode
 set DEBUG_SYNC = "rocksdb_concurrent_upd_or_delete_sk SIGNAL waiting_for_update WAIT_FOR update_done";
 Conn A: activate DEBUG_SYNC point rocksdb_concurrent_upd_or_delete_sk 
 SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 AND val2 = 'Alfa' FOR UPDATE;
 Conn A: Sent SELECT
-SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 SET SESSION rocksdb_skip_snapshot_validation=0;
-START TRANSACTION;
-Conn B: Started TRANSACTION B (Concurrent update)
+Conn B: Concurrent autocommit update
 Conn B: Waiting for Conn A to hit `waiting_for_update`
 set DEBUG_SYNC = "now WAIT_FOR waiting_for_update";
 Conn B: Conn A triggered `waiting_for_update`
@@ -148,14 +138,12 @@ row_key	val1	val2
 2	14	Bravo
 3	14	Charlie
 4	14	Delta
-COMMIT;
-Conn B: COMMIT for update done
+Conn B: update done
 set DEBUG_SYNC = "now SIGNAL update_done";
 Conn B: signalled Conn A with event `update_done`
 Conn A: reaping SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 AND val2 = 'Alfa';  
 The SELECT output should be empty
 row_key	val1	val2
-ROLLBACK;
 Conn A: Table after
 SELECT * FROM table1;
 row_key	val1	val2

@@ -2,6 +2,9 @@
 
 SET SESSION default_storage_engine = RocksDB;
 
+# MyRocks does not support gap locks in REPEATABLE-READ mode
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+
 --source t/lock.test
 
 --source include/count_sessions.inc
@@ -24,12 +27,14 @@ drop table if exists t1;
 #
 
 connection con1;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 create table t1 (id integer, x integer) engine=ROCKSDB;
 insert into t1 values(0, 0);
 set autocommit=0;
 SELECT * from t1 where id = 0 FOR UPDATE;
 
 connection con2;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 set autocommit=0;
 
 # The following statement should hang because con1 is locking the page

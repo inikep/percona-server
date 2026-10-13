@@ -1,6 +1,10 @@
 --source include/have_rocksdb.inc
 --source include/have_debug_sync.inc
 
+--disable_query_log
+call mtr.add_suppression("Got error 522 when reading table");
+--enable_query_log
+
 # This test verified the behavior of RocksDB in the path of point updates 
 # (or locking reads) using SK as the index, when a concurrent transaction 
 # modifies the same row

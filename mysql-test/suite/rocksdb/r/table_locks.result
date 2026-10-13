@@ -1,4 +1,5 @@
 SET SESSION default_storage_engine = RocksDB;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 create table t1 (c1 int);
 create table t2 (c1 int);
 create table t3 (c1 int);
@@ -358,19 +359,6 @@ UNLOCK TABLES;
 UNLOCK TABLES;
 DROP TABLE t1, t2;
 #
-# Bug#13586314 - RUNTIME - HIBISCUS: ISSUE DEPRECATION
-# WARNING FOR LOW_PRIORITY MODIFIER
-#
-DROP TABLE IF EXISTS t1;
-CREATE TABLE t1 (a INT);
-# Below statement should return a deprecation warning
-LOCK TABLES t1 LOW_PRIORITY WRITE;
-Warnings:
-Warning	1287	'LOW_PRIORITY WRITE' is deprecated and will be removed in a future release. Please use WRITE instead
-UNLOCK TABLES;
-DROP TABLE t1;
-# End of Bug#13586314
-#
 # End of 6.0 tests.
 #
 call mtr.add_suppression("Can't open and lock privilege tables: Table 'user' was not locked with LOCK TABLES");
@@ -388,12 +376,14 @@ UNLOCK TABLES;
 FLUSH PRIVILEGES;
 DROP TABLE t1;
 drop table if exists t1;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 create table t1 (id integer, x integer) engine=ROCKSDB;
 insert into t1 values(0, 0);
 set autocommit=0;
 SELECT * from t1 where id = 0 FOR UPDATE;
 id	x
 0	0
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 set autocommit=0;
 lock table t1 write;
 update t1 set x=1 where id = 0;

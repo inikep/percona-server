@@ -6,8 +6,12 @@ set debug_sync='RESET';
 set global rocksdb_debug_ttl_read_filter_ts = -10;
 
 connect (conn1, localhost, root,,);
+# MyRocks does not support gap locks in REPEATABLE-READ mode
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 --let $conn1_id = `SELECT CONNECTION_ID()`
 connection default;
+# MyRocks does not support gap locks in REPEATABLE-READ mode
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
 CREATE TABLE t1 (id INT, value INT, KEY (id), KEY (value)) ENGINE=ROCKSDB;
 CREATE TABLE t2 (id INT, value INT) ENGINE=ROCKSDB;

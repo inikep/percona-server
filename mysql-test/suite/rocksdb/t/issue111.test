@@ -17,9 +17,17 @@ create table ten(a int primary key);
 insert into ten values (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
 
 create table one_k(a int primary key);
+
+# MyRocks does not support gap locks in REPEATABLE-READ mode, this part of the
+# test does not require RR ISO to complete, so lets temporarily alter the
+# ISO to RC
+set @orig_tx_iso=@@session.transaction_isolation;
+set session transaction_isolation='READ-COMMITTED';
 insert into one_k select A.a + B.a* 10 + C.a * 100 from ten A, ten B, ten C;
 
 insert into t1 select a,a,a from one_k;
+
+set session transaction_isolation=@orig_tx_iso;
 
 --echo # Start the transaction, get the snapshot
 begin;
@@ -34,8 +42,14 @@ commit;
 
 connection default;
 
---error ER_LOCK_DEADLOCK
+# MyRocks does not support gap locks in REPEATABLE-READ mode: this range
+# update is rejected before it can hit the snapshot conflict (ER_LOCK_DEADLOCK)
+--error ER_UNKNOWN_ERROR
 update t1 set col2=col2+1 where col1 < 10 limit 5;
+
+# A point update by the full primary key still hits the snapshot conflict
+--error ER_LOCK_DEADLOCK
+update t1 set col2=col2+1 where pk=0;
 
 disconnect con2;
 drop table t1, ten, one_k;

@@ -26,10 +26,12 @@ SELECT * FROM table1;
 # the update command should be `sent` after activating a DEBUG_SYNC point, so that the 
 # update gets frozen. 
 
-eval SET TRANSACTION ISOLATION LEVEL $isolation_level;
+eval SET SESSION TRANSACTION ISOLATION LEVEL $isolation_level;
 eval SET SESSION rocksdb_skip_snapshot_validation=$skip_snapshot_validation;
-START TRANSACTION;
---echo Conn A: Started TRANSACTION A (SELECT .. FOR UPDATE )
+# MyRocks rejects locking reads on a non-unique key in multi-statement
+# REPEATABLE READ transactions (no gap locks), so run the locking read as an
+# autocommit statement.
+--echo Conn A: Locking read (SELECT .. FOR UPDATE) in autocommit mode
 
 set DEBUG_SYNC = "rocksdb_concurrent_upd_or_delete_sk SIGNAL waiting_for_update WAIT_FOR update_done";
 --echo Conn A: activate DEBUG_SYNC point rocksdb_concurrent_upd_or_delete_sk 
@@ -41,18 +43,16 @@ send SELECT * from table1 FORCE INDEX(idx_val1) WHERE row_key = 1 AND val1 = 14 
 # the parallel transaction from Conn A hits the conflict
 --connection con0
 
-eval SET TRANSACTION ISOLATION LEVEL $isolation_level;
+eval SET SESSION TRANSACTION ISOLATION LEVEL $isolation_level;
 eval SET SESSION rocksdb_skip_snapshot_validation=$skip_snapshot_validation;
-START TRANSACTION;
---echo Conn B: Started TRANSACTION B (Concurrent update)
+--echo Conn B: Concurrent autocommit update
 
 --echo Conn B: Waiting for Conn A to hit `waiting_for_update`
 set DEBUG_SYNC = "now WAIT_FOR waiting_for_update";
 --echo Conn B: Conn A triggered `waiting_for_update`
 UPDATE table1 SET val1 = 15 WHERE val1 = 14 AND val2 = 'Alfa';
 SELECT * FROM table1;
-COMMIT;
---echo Conn B: COMMIT for update done
+--echo Conn B: update done
 
 # Unfreeze the Conn A update so that it can hit the conflict, and error out
 set DEBUG_SYNC = "now SIGNAL update_done";
@@ -83,7 +83,6 @@ if ($isolation_level == "READ COMMITTED")
    --echo The SELECT output should be empty
    reap;
 }
-ROLLBACK;
 
 --echo Conn A: Table after
 SELECT * FROM table1;

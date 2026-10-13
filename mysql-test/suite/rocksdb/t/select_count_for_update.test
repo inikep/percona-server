@@ -17,6 +17,9 @@ INSERT INTO t1 values (1, 1), (2, 2), (3, 3);
 
 # PRIMARY KEY
 --connect (con1,localhost,root,,)
+# MyRocks does not support gap locks in REPEATABLE-READ mode, the locking
+# reads in this multi-statement transaction do not need RR, so use RC
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 BEGIN;
 SELECT COUNT(*) FROM t1 FORCE INDEX (PRIMARY) FOR UPDATE;
 

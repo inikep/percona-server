@@ -18,6 +18,8 @@ SELECT @@rocksdb_enable_iterate_bounds; # should be disabled
 DROP TABLE IF EXISTS t;
 
 --disable_query_log
+# MyRocks does not support gap locks in REPEATABLE-READ mode
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 CREATE TABLE t (a INT AUTO_INCREMENT PRIMARY KEY, b CHAR(8)) ENGINE=rocksdb;
 INSERT INTO t (a, b) VALUES (NULL, 'foo');
 INSERT INTO t SELECT 0, b FROM t;

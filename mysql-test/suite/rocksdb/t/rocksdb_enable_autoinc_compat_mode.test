@@ -135,6 +135,9 @@ DROP TABLE t1;
 --echo #
 --echo # bulk insert 
 --echo #
+# MyRocks does not support gap locks in REPEATABLE-READ mode, the INSERT ...
+# SELECT below does not require RR ISO, so lets temporarily alter the ISO to RC
+SET SESSION transaction_isolation = 'READ-COMMITTED';
 CREATE TABLE t1 (a INT NOT NULL AUTO_INCREMENT PRIMARY KEY, b INT);
 INSERT INTO t1(b) VALUES(1),(2),(3),(4),(5),(6),(7),(8),(9);
 # when rocksdb_enable_autoinc_compat_mode is true, SQL layer will try to 
@@ -153,6 +156,7 @@ INSERT into t1(b) select b from t1;
 --replace_column 5 # 7 # 12 # 13 #
 SHOW TABLE STATUS LIKE 't1';
 DROP TABLE t1;
+SET SESSION transaction_isolation = 'REPEATABLE-READ';
 
 --echo #
 --echo # auto vars

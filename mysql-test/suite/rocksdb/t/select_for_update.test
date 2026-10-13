@@ -16,6 +16,9 @@ CREATE TABLE t1 (a INT, b CHAR(8), pk INT AUTO_INCREMENT PRIMARY KEY) ENGINE=roc
 INSERT INTO t1 (a,b) VALUES (1,'a'),(2,'b'),(3,'a');
 
 --connect (con1,localhost,root,,)
+# MyRocks does not support gap locks in REPEATABLE-READ mode, the locking
+# reads in this multi-statement transaction do not need RR, so use RC
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 BEGIN;
 --sorted_result
 SELECT a,b FROM t1 WHERE b='a' FOR UPDATE;

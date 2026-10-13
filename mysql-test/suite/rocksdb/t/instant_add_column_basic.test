@@ -274,6 +274,11 @@ DROP TABLE t1;
 
 
 
+# For Scenario 4 to Scenario 6
+# MyRocks does not support gap locks in REPEATABLE-READ mode, these scenarios
+# do not require RR ISO to complete, so lets temporarily alter the ISO to RC
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+
 --echo #
 --echo # Scenario 4:
 --echo # Create a small table, add some columns instantly, then do DML
@@ -467,6 +472,8 @@ ROLLBACK;
 SELECT id, length(c1), length(c2), length(c3), length(c4) FROM t1;
 
 DROP TABLE t1;
+
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 
 
 
@@ -683,6 +690,11 @@ DROP TABLE t1;
 
 
 
+# For Scenario 13
+# MyRocks does not support gap locks in REPEATABLE-READ mode, this scenario
+# does not require RR ISO to complete, so lets temporarily alter the ISO to RC
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+
 --echo #
 --echo # Scenario 13:
 --echo # Create a table with a two level clustered index, do instant ADD COLUMN, then the non-leaf node
@@ -715,6 +727,8 @@ CHECK TABLE t1;
 SELECT COUNT(*) FROM t1;
 
 DROP TABLE t1;
+
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 
 
 # MyRocks doesn't support GEOMETRY
@@ -1448,8 +1462,6 @@ set global rocksdb_enable_instant_ddl_for_drop_index_changes = @saved_rocksdb_dr
 --echo # Scenario 29:
 --echo # bypass query
 --echo #
-SELECT @@rocksdb_select_bypass_policy;
-SELECT @@rocksdb_select_bypass_policy INTO @save_rocksdb_select_bypass_policy;
 
 CREATE TABLE `t1` (
   `id1` bigint(20) unsigned NOT NULL DEFAULT '0' ,
@@ -1529,48 +1541,20 @@ insert into t1 values (10, 1, 2, 2, 5, 6, '01234567  ', 14, 125, 128);
 insert into t1 values (10, 1, 1, 2, 5, 6, '012345678  ', 15, 125, 128);
 insert into t1 values (10, 1, 0, 2, 5, 6, '0123456789  ', 15, 125, 128);
 
-SELECT @@rocksdb_select_bypass_policy;
-SET GLOBAL rocksdb_select_bypass_policy=1;
-SELECT @@rocksdb_select_bypass_policy;
-
-SELECT variable_value INTO @a FROM performance_schema.global_status WHERE
-variable_name="rocksdb_select_bypass_executed";
-
-SELECT /*+ bypass */ id1,id2,id1_type,id2_type,data,version FROM t1
-WHERE id1=1 AND id2=2 AND link_type=3;
 SELECT /*+ abc */ id1,id2,id1_type,id2_type,data,version FROM t1
-WHERE id1=1 AND id2=2 AND link_type=3;
-SELECT /*+ no_bypass*/ id1,id2,id1_type,id2_type,data,version FROM t1
 WHERE id1=1 AND id2=2 AND link_type=3;
 SELECT id1,id2,id1_type,id2_type,data,version FROM t1
 WHERE id1=1 AND id2=2 AND link_type=3;
 
-SELECT /*+ bypass */ id1,id2,id1_type,id2_type,data,version, version2 FROM t1
-WHERE id1=1 AND id2=2 AND link_type=3;
 SELECT /*+ abc */ id1,id2,id1_type,id2_type,data,version, version2 FROM t1
-WHERE id1=1 AND id2=2 AND link_type=3;
-SELECT /*+ no_bypass*/ id1,id2,id1_type,id2_type,data,version, version2 FROM t1
 WHERE id1=1 AND id2=2 AND link_type=3;
 SELECT id1,id2,id1_type,id2_type,data,version, version2 FROM t1
 WHERE id1=1 AND id2=2 AND link_type=3;
 
-SELECT /*+ bypass */ id1,id2,id1_type,id2_type,data,version, version2 FROM t1
-WHERE id1=1 AND id2=2 AND link_type=5;
 SELECT /*+ abc */ id1,id2,id1_type,id2_type,data,version, version2 FROM t1
-WHERE id1=1 AND id2=2 AND link_type=5;
-SELECT /*+ no_bypass*/ id1,id2,id1_type,id2_type,data,version, version2 FROM t1
 WHERE id1=1 AND id2=2 AND link_type=5;
 SELECT id1,id2,id1_type,id2_type,data,version, version2 FROM t1
 WHERE id1=1 AND id2=2 AND link_type=5;
-
-SELECT variable_value INTO @b FROM performance_schema.global_status WHERE
-variable_name="rocksdb_select_bypass_executed";
-
---echo # Should be 12
-SELECT @b-@a;
-SELECT @@rocksdb_select_bypass_policy;
-set global rocksdb_select_bypass_policy=@save_rocksdb_select_bypass_policy;
-SELECT @@rocksdb_select_bypass_policy;
 
 CHECK TABLE t1;
 

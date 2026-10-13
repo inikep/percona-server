@@ -1,5 +1,7 @@
 SET SESSION rocksdb_lock_wait_timeout=1;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 SET SESSION rocksdb_lock_wait_timeout=1;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 # Case 1: Test primary index
 CREATE TABLE t1(
 seat_id    INT,
@@ -30,7 +32,7 @@ seat_id	state
 1	0
 2	0
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR UPDATE;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR UPDATE SKIP LOCKED;
@@ -49,9 +51,9 @@ seat_id	state
 1	0
 2	0
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 LOCK IN SHARE MODE;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR SHARE;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR SHARE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR SHARE SKIP LOCKED;
@@ -59,7 +61,7 @@ seat_id	state
 3	0
 4	0
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR UPDATE;
-ERROR HY000: Lock wait timeout exceeded; try restarting transaction: Timeout on index: test.t1.PRIMARY
+ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 LIMIT 2 FOR UPDATE SKIP LOCKED;
@@ -94,10 +96,12 @@ SELECT * FROM t1 WHERE state = 0 AND row_id = 1 LIMIT 1 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 AND row_id = 1 LIMIT 1 FOR UPDATE SKIP LOCKED;
 seat_id	row_id	state
+2	1	0
 SELECT * FROM t1 WHERE state = 0 AND row_id > 0 LIMIT 1 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 AND row_id > 0 LIMIT 1 FOR UPDATE SKIP LOCKED;
 seat_id	row_id	state
+2	1	0
 SELECT * FROM t1 WHERE state = 0 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 FOR UPDATE SKIP LOCKED;
@@ -116,6 +120,7 @@ SELECT * FROM t1 WHERE state = 0 AND row_id = 1 LIMIT 1 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 AND row_id = 1 LIMIT 1 FOR UPDATE SKIP LOCKED;
 seat_id	row_id	state
+2	1	0
 SELECT * FROM t1 WHERE state = 0 FOR UPDATE NOWAIT;
 Got one of the listed errors
 SELECT * FROM t1 WHERE state = 0 FOR UPDATE SKIP LOCKED;

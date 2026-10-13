@@ -15,6 +15,8 @@ if ($engine=="INNODB")
 if ($engine=="ROCKSDB")
 {
   SET SESSION rocksdb_lock_wait_timeout=1;
+  # Required because RocksDb does not implement gap locks
+  SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 }
 
 connection default;
@@ -25,6 +27,8 @@ if ($engine=="INNODB")
 if ($engine=="ROCKSDB")
 {
   SET SESSION rocksdb_lock_wait_timeout=1;
+  # Required because RocksDb does not implement gap locks
+  SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 }
 
 --echo # Case 1: Test primary index
