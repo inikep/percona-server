@@ -1,1 +1,4 @@
+--disable_query_log
+call mtr.add_suppression("Got error 522 when reading table");
+--enable_query_log
 --source suite/rocksdb/t/rocksdb_deadlock_stress.inc
