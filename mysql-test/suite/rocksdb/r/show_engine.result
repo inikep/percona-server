@@ -25,7 +25,6 @@ SET GLOBAL rocksdb_force_flush_memtable_now=1;
 SET GLOBAL rocksdb_compact_cf="cf_t1";
 SHOW ENGINE rocksdb STATUS;
 Type	Name	Status
-rocksdb	#	#
 STATISTICS	#	#
 DBSTATS	#	#
 CF_COMPACTION	#	#

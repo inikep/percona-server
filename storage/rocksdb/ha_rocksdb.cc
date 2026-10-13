@@ -6687,7 +6687,7 @@ std::vector<Rdb_deadlock_info> rdb_get_deadlock_info() {
   return showStatus.get_deadlock_info();
 }
 
-/* Generate the transaction monitor section of SHOW ENGINE ROCKSDB STATUS */
+/* Generate the output of SHOW ENGINE ROCKSDB TRANSACTION STATUS */
 static bool rocksdb_show_snapshot_status(THD *const thd,
                                          stat_print_fn *const stat_print) {
   Rdb_snapshot_status showStatus;
@@ -6717,7 +6717,6 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
 
   if (stat_type == HA_ENGINE_STATUS) {
     assert(rdb != nullptr);
-    res |= rocksdb_show_snapshot_status(thd, stat_print);
 
     std::string str;
 
@@ -6881,6 +6880,9 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
                            stat_print);
       }
     }
+  } else if (stat_type == HA_ENGINE_TRX) {
+    /* Handle the SHOW ENGINE ROCKSDB TRANSACTION STATUS command */
+    res |= rocksdb_show_snapshot_status(thd, stat_print);
   }
 
   if (res) {
