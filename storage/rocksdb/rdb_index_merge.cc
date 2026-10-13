@@ -22,6 +22,7 @@
 /* MySQL header files */
 #include "mysql/components/services/log_builtins.h"
 #include "mysql/plugin.h"
+#include "my_systime.h"
 #include "mysql/psi/mysql_file.h"
 #include "mysqld_error.h"
 #include "sql/sql_thd_internal_api.h"

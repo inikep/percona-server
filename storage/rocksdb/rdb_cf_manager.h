@@ -47,6 +47,7 @@ namespace myrocks {
 */
 
 class Rdb_cf_manager : public Ensure_initialized {
+  rocksdb::DB *m_db = nullptr;
   std::map<std::string, rocksdb::ColumnFamilyHandle *> m_cf_name_map;
   std::map<uint32_t, rocksdb::ColumnFamilyHandle *> m_cf_id_map;
 

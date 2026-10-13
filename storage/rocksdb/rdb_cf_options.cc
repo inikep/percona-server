@@ -364,8 +364,7 @@ bool Rdb_cf_options::get_cf_options(const std::string &cf_name,
   opts->merge_operator = get_cf_merge_operator(cf_name);
   // this sst partitioner is used in bulk load scenario, no need to set it for
   // non-data cfs.
-  if (cf_name != DEFAULT_SYSTEM_CF_NAME && cf_name != DEFAULT_TMP_CF_NAME &&
-      cf_name != DEFAULT_TMP_SYSTEM_CF_NAME) {
+  if (cf_name != DEFAULT_SYSTEM_CF_NAME) {
     if (opts->sst_partitioner_factory != nullptr) {
       // NO_LINT_DEBUG
       LogPluginErrMsg(

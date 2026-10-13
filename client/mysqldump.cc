@@ -6357,13 +6357,11 @@ int main(int argc, char **argv) {
   }
 
   if (opt_rocksdb_bulk_load) {
-    if (!opt_order_by_primary && !opt_order_by_primary_desc) {
+    if (!opt_order_by_primary) {
       opt_order_by_primary = true;
       fprintf(stderr,
-              "-- Warning: --rocksdb-bulk-load requires either "
-              "--order-by-primary or "
-              "--order-by-primary-desc. "
-              "Continuing with --order-by-primary-desc as default option.");
+              "-- Warning: --rocksdb-bulk-load requires --order-by-primary. "
+              "Continuing with --order-by-primary as default option.\n");
     }
   }
   /*

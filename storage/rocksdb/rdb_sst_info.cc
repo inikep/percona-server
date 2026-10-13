@@ -16,6 +16,7 @@
 
 /* This C++ file's header file */
 #include "./rdb_sst_info.h"
+#include "my_dir.h"
 
 /* C++ standard header files */
 #include <cinttypes>

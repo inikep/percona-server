@@ -153,6 +153,10 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
   bool should_filter_ttl_rec(const rocksdb::Slice &key
                                  MY_ATTRIBUTE((__unused__)),
                              const rocksdb::Slice &existing_value) const {
+    if (rdb_is_ttl_compaction_filter_paused()) {
+      return false;
+    }
+
     uint64 ttl_timestamp;
     Rdb_string_reader reader(&existing_value);
     if (!reader.read(m_ttl_offset) || reader.read_uint64(&ttl_timestamp)) {
