@@ -8,6 +8,10 @@
 call mtr.add_suppression("Column family.*not found");
 call mtr.add_suppression("Cannot mark Column family.*to be dropped");
 call mtr.add_suppression("Could not get index information for Index Number");
+# Concurrent index creation can encounter overlapping SST ranges; the worker
+# already handles the corresponding bulk-load error.
+call mtr.add_suppression("MyRocks: failed to bulk load. status code = 4, status = Invalid argument: Global seqno is required, but disabled");
+call mtr.add_suppression("Plugin rocksdb reported: 'Error finishing bulk load.'");
 --enable_query_log
 
 --let $num_workers = 8
