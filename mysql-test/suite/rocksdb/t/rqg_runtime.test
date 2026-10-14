@@ -16,14 +16,15 @@ SET @ORIG_INNODB_FILE_PER_TABLE = @@INNODB_FILE_PER_TABLE;
 --disable_warnings
 # CREATE TABLE user_temp LIKE mysql.user;
 # MySQL 8.0 has a regression and always create the table in mysql tablespace
-# Official doc recommends the following workaround
-CREATE TABLE user_temp SELECT * FROM mysql.user LIMIT 0;
+# Official doc recommends the following workaround. Use InnoDB, restoring
+# from a MyRocks copy would rely on gap locks.
+CREATE TABLE user_temp ENGINE=InnoDB SELECT * FROM mysql.user LIMIT 0;
 INSERT user_temp SELECT * FROM mysql.user;
 
 # CREATE TABLE tables_priv_temp LIKE mysql.tables_priv;
 # MySQL 8.0 has a regression and always create the table in mysql tablespace
 # Official doc recommends the following workaround
-CREATE TABLE tables_priv_temp SELECT * FROM mysql.tables_priv LIMIT 0;
+CREATE TABLE tables_priv_temp ENGINE=InnoDB SELECT * FROM mysql.tables_priv LIMIT 0;
 INSERT tables_priv_temp SELECT * FROM mysql.tables_priv;
 --enable_warnings
 

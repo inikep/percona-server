@@ -3,7 +3,11 @@
 # Source it before the test changes any server state.
 #
 
-let RQG_BASE = $MYSQL_TEST_DIR/../rqg/rqg/common/mariadb-patches;
+# RQG_BASE can point to an RQG checkout outside the source tree
+if (!$RQG_BASE)
+{
+  let RQG_BASE = $MYSQL_TEST_DIR/../rqg/rqg/common/mariadb-patches;
+}
 
 # RQG is not bundled with the source tree and needs Perl DBD::mysql
 --perl

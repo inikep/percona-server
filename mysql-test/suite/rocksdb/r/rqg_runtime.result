@@ -3,9 +3,9 @@ call mtr.add_suppression("Can't open and lock privilege tables");
 call mtr.add_suppression("Attempt to delete the trigger file");
 SET @ORIG_EVENT_SCHEDULER = @@EVENT_SCHEDULER;
 SET @ORIG_INNODB_FILE_PER_TABLE = @@INNODB_FILE_PER_TABLE;
-CREATE TABLE user_temp SELECT * FROM mysql.user LIMIT 0;
+CREATE TABLE user_temp ENGINE=InnoDB SELECT * FROM mysql.user LIMIT 0;
 INSERT user_temp SELECT * FROM mysql.user;
-CREATE TABLE tables_priv_temp SELECT * FROM mysql.tables_priv LIMIT 0;
+CREATE TABLE tables_priv_temp ENGINE=InnoDB SELECT * FROM mysql.tables_priv LIMIT 0;
 INSERT tables_priv_temp SELECT * FROM mysql.tables_priv;
 CREATE DATABASE IF NOT EXISTS rqg_runtime;
 Running test with grammar file alter_online.yy
