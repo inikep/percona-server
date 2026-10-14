@@ -1,8 +1,3 @@
-# Transaction related
-rocksdb.cons_snapshot_serializable : BUG#0000 Consistent read does not work on serializable
-rocksdb.level_read_uncommitted : BUG#0000 Not supported
-rocksdb.level_serializable: BUG#0000 Not supported
-
 # Disable hotbackup tests
 rocksdb_hotbackup.xbstream_direct : BUG#0000 hotbackup feature is missing in 8.0
 rocksdb_hotbackup.slocket : BUG#0000 hotbackup feature is missing in 8.0
@@ -27,7 +22,6 @@ rocksdb.optimize_myrocks_replace_into_lock : BUG#0000 enable_blind_replace is mi
 rocksdb.mysqlbinlog_blind_replace : BUG#0000 enable_blind_replace is missing
 rocksdb_rpl.optimize_myrocks_replace_into : BUG#0000 enable_blind_replace is missing
 rocksdb.mysqlbinlog_gtid_skip_empty_trans_rocksdb : BUG#0000 mysqlbinlog --skip-empty-trans is missing
-rocksdb.mysqldump2 : BUG#0000 mysqldump --rocksdb and --print-ordering-key are missing
 rocksdb.slow_query_log : BUG#0000 RocksDB_key_skipped and RocksDB_del_skipped slow log fields are missing
 rocksdb.rpl_row_triggers : BUG#0000 slave_run_triggers_for_rbr is missing
 rocksdb_rpl.rocksdb_slave_check_before_image_consistency : BUG#0000 slave_check_before_image_consistency is missing
@@ -45,7 +39,3 @@ rocksdb.deadlock_stats : BUG#0000 table_statistics missing
 
 # Detached session
 rocksdb.com_rpc_tx : BUG#0000 detached session is missing in 8.0
-
-# Misc bugs
-rocksdb.persistent_cache : BUG#0000 only repros with other tests running
-rocksdb.index_merge_rocksdb2 : BUG#0000 query plan is different between 8.0 and 5.6
