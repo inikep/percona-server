@@ -6686,6 +6686,18 @@ std::vector<Rdb_deadlock_info> rdb_get_deadlock_info() {
   return showStatus.get_deadlock_info();
 }
 
+/* Generate the transaction monitor section of SHOW ENGINE ROCKSDB STATUS */
+static bool rocksdb_show_snapshot_status(THD *const thd,
+                                         stat_print_fn *const stat_print) {
+  Rdb_snapshot_status showStatus;
+
+  Rdb_transaction_list::for_each(showStatus);
+  showStatus.populate_deadlock_buffer();
+
+  /* Send the result data back to MySQL */
+  return print_stats(thd, "rocksdb", "", showStatus.getResult(), stat_print);
+}
+
 /*
   This is called for SHOW ENGINE ROCKSDB STATUS | LOGS | etc.
 
@@ -6704,6 +6716,7 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
 
   if (stat_type == HA_ENGINE_STATUS) {
     assert(rdb != nullptr);
+    res |= rocksdb_show_snapshot_status(thd, stat_print);
 
     std::string str;
 
