@@ -682,11 +682,11 @@ enum legacy_db_type {
   DB_TYPE_MEMCACHE [[deprecated]],
   DB_TYPE_FALCON,
   DB_TYPE_MARIA,
-  DB_TYPE_ROCKSDB, /* Need it here for extended keys to work */
   /** Performance schema engine. */
   DB_TYPE_PERFORMANCE_SCHEMA,
   DB_TYPE_TEMPTABLE,
-  DB_TYPE_FIRST_DYNAMIC = 42,
+  DB_TYPE_ROCKSDB = 42,
+  DB_TYPE_FIRST_DYNAMIC = 43,
   DB_TYPE_DEFAULT = 127  // Must be last
 };
 
