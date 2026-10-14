@@ -8411,7 +8411,16 @@ int MYSQL_BIN_LOG::prepare(THD *thd, bool all) {
   CONDITIONAL_SYNC_POINT_FOR_TIMESTAMP("after_ha_prepare_low");
   // Invoke `commit` if we're dealing with `XA PREPARE` in order to use BCG
   // to write the event to file.
-  if (!error && all && is_xa_prepare(thd)) return this->commit(thd, true);
+  if (!error && all && is_xa_prepare(thd)) {
+    const auto result = this->commit(thd, true);
+    if (result != RESULT_SUCCESS) return result;
+    // An unlogged XA transaction does not enter ordered_commit, where the
+    // engines normally persist the prepared-in-TC state. It still needs that
+    // state to survive a clean restart (for example with sql_log_bin=OFF).
+    if (!thd->get_transaction()->xid_state()->is_binlogged()) {
+      return trx_coordinator::set_prepared_in_tc_in_engines(thd, all);
+    }
+  }
 
   return error;
 }
