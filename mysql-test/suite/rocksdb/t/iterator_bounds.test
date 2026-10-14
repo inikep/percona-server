@@ -101,6 +101,10 @@ create table t3(
   primary key(a), key b(b, c)
 );
 insert into t3 values(1, "11",1),(2,"22",2),(3,"33",3);
+# Without FB optimizer_force_index_for_range, add non-matching rows so that
+# the range scan on b is always cheaper than a full index scan
+insert into t3 with recursive s(n) as (select 4 union all select n + 1 from s
+  where n < 200) select n, concat("x", n), n from s;
 --replace_column 8 # 10 # 11 #
 explain select count(*) from t3 force index(b) where b in ("", "33");
 select count(*) from t3 force index(b) where b in ("", "33");
@@ -118,6 +122,8 @@ create table t2(
   primary key(a), key b(b,c,d)
 );
 insert into t2 values(1,1,1,1),(2,2,2,2),(3,3,3,3);
+insert into t2 with recursive s(n) as (select 4 union all select n + 1 from s
+  where n < 200) select n, n + 10, n, n from s;
 --replace_column 8 # 10 # 11 #
 explain select count(*) from t2 force index(b) where b = 2 or (b = 3 and c=3);
 select count(*) from t2 force index(b) where b = 2 or (b = 3 and c=3);
