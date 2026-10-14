@@ -103,7 +103,7 @@ MESSAGE(STATUS "MyRocks compile definitions: ${COMPILE_DEFINITIONS}")
 
 
 # Suppress warnings for all compilers
-remove_compile_flags(-Wcast-qual -Wextra-semi)
+remove_compile_flags(-Wcast-qual -Wextra-semi -Wundef)
 append_cflags_if_supported(-Wno-invalid-offsetof)
 
 # Suppress warnings for all clang versions
