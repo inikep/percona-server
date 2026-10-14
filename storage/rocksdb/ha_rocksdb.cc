@@ -6988,18 +6988,24 @@ static int rocksdb_start_tx_and_assign_read_view(
 ) {
   ulong const tx_isolation = my_core::thd_tx_isolation(thd);
 
-  if (tx_isolation != ISO_REPEATABLE_READ) {
-    my_error(ER_ISOLATION_LEVEL_WITH_CONSISTENT_SNAPSHOT, MYF(0));
-    return HA_EXIT_FAILURE;
-  }
-
   Rdb_transaction *const tx = get_or_create_tx(thd, TABLE_TYPE::USER_TABLE);
   Rdb_perf_context_guard guard(tx, thd);
 
   assert(!tx->has_snapshot(TABLE_TYPE::USER_TABLE));
   tx->set_tx_read_only(true);
   rocksdb_register_tx(hton, thd, tx);
-  tx->acquire_snapshot(true, TABLE_TYPE::USER_TABLE);
+
+  // As InnoDB and Percona Server do, only warn: the statement also applies
+  // to sessions that never access MyRocks tables.
+  if (tx_isolation == ISO_REPEATABLE_READ) {
+    tx->acquire_snapshot(true, TABLE_TYPE::USER_TABLE);
+  } else {
+    push_warning_printf(thd, Sql_condition::SL_WARNING, HA_ERR_UNSUPPORTED,
+                        "RocksDB: Only REPEATABLE READ isolation level is "
+                        "supported for START TRANSACTION WITH CONSISTENT "
+                        "SNAPSHOT in RocksDB Storage Engine. Snapshot has not "
+                        "been taken.");
+  }
 
   return HA_EXIT_SUCCESS;
 }
