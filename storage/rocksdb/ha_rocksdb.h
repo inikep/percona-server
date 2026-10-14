@@ -967,8 +967,6 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
 
   virtual bool use_read_free_rpl() const override;
 
-  virtual bool has_ttl_column() const;
-
  private:
   /* Flags tracking if we are inside different replication operation */
   bool m_in_rpl_delete_rows;

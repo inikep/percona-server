@@ -18057,12 +18057,6 @@ bool ha_rocksdb::use_read_free_rpl() const {
   DBUG_RETURN(false);
 }
 
-/**
-  @brief
-  The table has a TTL enabled column or not
-*/
-bool ha_rocksdb::has_ttl_column() const { return m_tbl_def->has_ttl_col(); }
-
 uchar *blob_buffer::get_blob_buffer(uint current_size) {
   auto output = m_blob_buffer_current;
   m_blob_buffer_current = m_blob_buffer_current + current_size;
