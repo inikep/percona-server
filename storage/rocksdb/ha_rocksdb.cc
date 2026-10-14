@@ -8987,6 +8987,13 @@ bool ha_rocksdb::get_error_message(const int error, String *const buf) {
     buf->append(rdb_error_messages[error - HA_ERR_ROCKSDB_FIRST]);
   }
 
+  // Lock wait timeouts, deadlocks and snapshot conflicts are temporary
+  // errors, the server must not log them.
+  if (error == HA_ERR_LOCK_WAIT_TIMEOUT || error == HA_ERR_LOCK_DEADLOCK ||
+      error == HA_ERR_ROCKSDB_STATUS_BUSY) {
+    DBUG_RETURN(true);
+  }
+
   // We can be called with the values which are < HA_ERR_FIRST because most
   // MySQL internal functions will just return HA_EXIT_FAILURE in case of
   // an error.
