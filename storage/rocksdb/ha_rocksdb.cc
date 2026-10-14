@@ -13726,11 +13726,13 @@ static int delete_range(const std::unordered_set<GL_INDEX_ID> &indices) {
   rocksdb::Status status =
       rdb->Write(rocksdb::WriteOptions(), optimize, &batch);
 
-  if (status.ok()) {
-    if (!rdb_sync_wal_supported()) {
-      // If we don't support SyncWAL, do a flush at least
-      rdb->FlushWAL(false);
-    }
+  if (!status.ok()) {
+    rdb_handle_io_error(status, RDB_IO_ERROR_DICT_COMMIT);
+    return HA_EXIT_FAILURE;
+  }
+  if (!rdb_sync_wal_supported()) {
+    // If we don't support SyncWAL, do a flush at least
+    rdb->FlushWAL(false);
   }
   return HA_EXIT_SUCCESS;
 }
