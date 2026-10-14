@@ -35,6 +35,23 @@ connection default;
 --replace_column 1 DEADLOCK_ID 2 TIMESTAMP 3 TRANSACTION_ID 5 WAITING_KEY
 select * from information_schema.rocksdb_deadlock;
 
+--echo # The transaction monitor in SHOW ENGINE ROCKSDB STATUS must show the
+--echo # same transaction IDs as information_schema.rocksdb_deadlock
+let $trx1 = query_get_value(select transaction_id from information_schema.rocksdb_deadlock order by rolled_back, transaction_id, 1);
+let $trx2 = query_get_value(select transaction_id from information_schema.rocksdb_deadlock order by rolled_back, transaction_id, 2);
+let $victim_trx = query_get_value(select transaction_id from information_schema.rocksdb_deadlock where rolled_back = 1, transaction_id, 1);
+let $assert_file = $MYSQLTEST_VARDIR/tmp/i_s_deadlock_status.txt;
+--exec $MYSQL --raw --silent --skip-column-names -e "SHOW ENGINE ROCKSDB STATUS" > $assert_file
+let $assert_text = The transaction monitor shows both deadlocked transaction IDs;
+let $assert_select = ^TRANSACTION ID: ($trx1|$trx2)\n;
+let $assert_count = 2;
+--source include/assert_grep.inc
+let $assert_text = The transaction monitor shows the deadlock victim;
+let $assert_select = ^--------TRANSACTION ID: $victim_trx GOT DEADLOCK---------\n;
+let $assert_count = 1;
+--source include/assert_grep.inc
+--remove_file $assert_file
+
 echo Deadlock #2;
 --source include/simple_deadlock.inc
 connection default;

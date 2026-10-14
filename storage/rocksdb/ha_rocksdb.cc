@@ -6343,7 +6343,8 @@ static bool print_stats(THD *const thd, std::string const &type,
                     status.c_str(), status.size());
 }
 
-static std::string format_string(const char *const format, ...) {
+static std::string MY_ATTRIBUTE((format(printf, 1, 2)))
+    format_string(const char *const format, ...) {
   std::string res;
   va_list args;
   va_list args_copy;
@@ -6503,7 +6504,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
         // The transaction had a snapshot, but does not have one at the moment
         m_data += format_string("---NO ACTIVE SNAPSHOT\n");
       } else {
-        m_data += format_string("---SNAPSHOT, ACTIVE %lld sec\n",
+        m_data += format_string("---SNAPSHOT, ACTIVE %" PRId64 " sec\n",
                                 curr_time - snapshot_ts);
       }
 
@@ -6512,7 +6513,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
       thd_security_context(thd, buffer, sizeof buffer, 0);
       m_data += format_string(
           "%s\n"
-          "earliest snapshot created %lld sec ago\n"
+          "earliest snapshot created %" PRId64 " sec ago\n"
           "lock count %llu, write count %llu\n"
           "insert count %llu, update count %llu, delete count %llu\n",
           buffer, earliest_snapshot_age, tx->get_row_lock_count(),
@@ -6554,7 +6555,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
           path_data += format_string(
               "TIMESTAMP: %" PRId64
               "\n"
-              "TRANSACTION ID: %u\n"
+              "TRANSACTION ID: %llu\n"
               "COLUMN FAMILY NAME: %s\n"
               "WAITING KEY: %s\n"
               "LOCK TYPE: %s\n"
@@ -6569,7 +6570,7 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
           }
         }
         path_data += format_string(
-            "\n--------TRANSACTION ID: %u GOT DEADLOCK---------\n",
+            "\n--------TRANSACTION ID: %llu GOT DEADLOCK---------\n",
             dl_info.victim_trx_id);
       }
       m_data += path_data;
