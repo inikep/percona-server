@@ -5842,6 +5842,9 @@ class handler {
   bool is_using_prohibited_gap_locks(
       TABLE *table, bool using_full_primary_key) const noexcept;
 
+  /** Report an unsupported gap lock; return true to reject the operation. */
+  virtual bool report_unsupported_gap_lock(THD *thd) const noexcept;
+
   /**
     Notify storage engine about imminent index read with key length.
   */
