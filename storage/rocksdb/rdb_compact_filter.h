@@ -31,6 +31,7 @@
 /* MyRocks includes */
 #include "./ha_rocksdb_proto.h"
 #include "./rdb_datadic.h"
+#include "./rdb_ttl.h"
 
 namespace myrocks {
 
@@ -69,7 +70,10 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
         get_ttl_duration_and_offset(gl_index_id, &m_ttl_duration,
                                     &m_ttl_offset);
 
-        if (m_ttl_duration != 0 && m_snapshot_timestamp == 0) {
+        if (m_ttl_offset != UINT_MAX && !m_cutoff_initialized) {
+          m_cutoff_initialized = true;
+          uint64_t purge_bound;
+          m_purge_allowed = rdb_ttl_purge_bound(&purge_bound);
           // Capture the cutoff before inspecting snapshots so snapshots
           // acquired after these checks cannot observe rows expired by this
           // compaction.
@@ -80,6 +84,7 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                   &oldest_snapshot)) {
             // Without the snapshot information, retain TTL rows conservatively.
             m_snapshot_timestamp = 1;
+            m_purge_allowed = false;
           } else if (oldest_snapshot != 0) {
             m_snapshot_timestamp =
                 std::min(m_snapshot_timestamp, oldest_snapshot);
@@ -95,6 +100,7 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                 std::min(m_snapshot_timestamp, oldest_transaction);
           }
 
+          const auto safe_cutoff = m_snapshot_timestamp;
 #if !defined(NDEBUG)
           int snapshot_ts = rdb_dbug_set_ttl_snapshot_ts();
           if (snapshot_ts) {
@@ -102,6 +108,10 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                 static_cast<uint64_t>(std::time(nullptr)) + snapshot_ts;
           }
 #endif  // !defined(NDEBUG)
+          if (rdb_ttl_session_time_enabled())
+            m_snapshot_timestamp = std::min(m_snapshot_timestamp, safe_cutoff);
+          if (m_purge_allowed)
+            m_snapshot_timestamp = std::min(m_snapshot_timestamp, purge_bound);
         }
       }
 
@@ -111,8 +121,14 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
     if (m_should_delete) {
       m_num_deleted++;
       return true;
-    } else if (m_ttl_duration > 0 &&
+    } else if (m_ttl_offset != UINT_MAX && m_purge_allowed &&
                should_filter_ttl_rec(key, existing_value)) {
+      uint64_t unused_bound;
+      if (!rdb_ttl_purge_bound(&unused_bound)) return false;
+      if (rdb_ttl_dry_run_enabled()) {
+        rdb_update_global_stats(ROWS_TTL_WOULD_PURGE, 1);
+        return false;
+      }
       m_num_expired++;
       return true;
     }
@@ -128,6 +144,9 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                                    uint64 *ttl_duration,
                                    uint32 *ttl_offset) const {
     assert(ttl_duration != nullptr);
+    *ttl_duration = 0;
+    *ttl_offset = UINT_MAX;
+    m_absolute_expiry = false;
     /*
       If TTL is disabled set ttl_duration to 0.  This prevents the compaction
       filter from dropping expired records.
@@ -165,11 +184,10 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
 #endif  // !defined(NDEBUG)
 
     *ttl_duration = index_info.m_ttl_duration;
-    if (Rdb_key_def::has_index_flag(index_info.m_index_flags,
-                                    Rdb_key_def::TTL_FLAG)) {
-      *ttl_offset = Rdb_key_def::calculate_index_flag_offset(
-          index_info.m_index_flags, Rdb_key_def::TTL_FLAG);
-    }
+    *ttl_offset =
+        Rdb_key_def::calculate_ttl_rec_offset(index_info.m_index_flags);
+    m_absolute_expiry = Rdb_key_def::has_index_flag(
+        index_info.m_index_flags, Rdb_key_def::EXPIRY_TS_FLAG);
   }
 
   bool should_filter_ttl_rec(const rocksdb::Slice &key,
@@ -199,7 +217,8 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
       timestamp.  This prevents any rows from expiring in the middle of
       long-running transactions.
     */
-    return ttl_timestamp + m_ttl_duration <= m_snapshot_timestamp;
+    return rdb_ttl_expired(ttl_timestamp, m_ttl_duration, m_absolute_expiry,
+                           m_snapshot_timestamp);
   }
 
  private:
@@ -216,7 +235,10 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
   // TTL duration for the current index if TTL is enabled
   mutable uint64 m_ttl_duration = 0;
   // TTL offset for all records in the current index
-  mutable uint32 m_ttl_offset = 0;
+  mutable uint32 m_ttl_offset = UINT_MAX;
+  mutable bool m_absolute_expiry = false;
+  mutable bool m_cutoff_initialized = false;
+  mutable bool m_purge_allowed = false;
   // Oldest snapshot timestamp at the time a TTL index is discovered
   mutable uint64_t m_snapshot_timestamp = 0;
 };

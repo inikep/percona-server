@@ -1,0 +1,22 @@
+--source include/have_rocksdb.inc
+CREATE TABLE t (id INT PRIMARY KEY, expiry BIGINT, KEY(expiry))
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t VALUES (1,1),(2,0),(3,NULL);
+SELECT * FROM t ORDER BY id;
+SELECT * FROM t FORCE INDEX(expiry) ORDER BY id;
+SELECT VARIABLE_VALUE > 0 AS would_hide FROM performance_schema.global_status
+ WHERE VARIABLE_NAME='rocksdb_ttl_would_hide';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT * FROM t ORDER BY id;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SELECT VARIABLE_VALUE = 0 AS paused FROM performance_schema.global_status
+ WHERE VARIABLE_NAME='rocksdb_ttl_would_purge';
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;
+SET GLOBAL rocksdb_compact_cf='default';
+SELECT VARIABLE_VALUE > 0 AS would_purge FROM performance_schema.global_status
+ WHERE VARIABLE_NAME='rocksdb_ttl_would_purge';
+SELECT * FROM t ORDER BY id;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+DROP TABLE t;

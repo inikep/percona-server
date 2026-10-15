@@ -10634,6 +10634,9 @@ ER_CANT_DROP_CF
 ER_GAP_LOCK_USED
   eng "This query may rely on gap locks, which MyRocks does not support. Use equality predicates on all columns of a unique key, or use a single-table, single-statement transaction."
 
+ER_RDB_TTL_POLICY
+  eng "MyRocks TTL: %s"
+
 #
 # End of MyRocks specific client messages
 #

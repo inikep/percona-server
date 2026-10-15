@@ -1,0 +1,6 @@
+--source include/have_rocksdb.inc
+SELECT @@global.rocksdb_rpl_skip_ttl_read_filtering;
+--error ER_INCORRECT_GLOBAL_LOCAL_VAR
+SET GLOBAL rocksdb_rpl_skip_ttl_read_filtering=1;
+--error ER_INCORRECT_GLOBAL_LOCAL_VAR,ER_GLOBAL_VARIABLE
+SET SESSION rocksdb_rpl_skip_ttl_read_filtering=1;

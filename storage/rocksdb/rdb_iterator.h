@@ -51,6 +51,7 @@ class Rdb_iterator {
   virtual rocksdb::Slice key() = 0;
   virtual rocksdb::Slice value() = 0;
   virtual void reset() = 0;
+  virtual void set_ttl_before_image(bool value) = 0;
 };
 
 class Rdb_iterator_base : public Rdb_iterator {
@@ -100,6 +101,8 @@ class Rdb_iterator_base : public Rdb_iterator {
     m_valid = false;
   }
 
+  void set_ttl_before_image(bool value) override { m_ttl_before_image = value; }
+
   void set_ignore_killed(bool flag) { m_ignore_killed = flag; }
 
  protected:
@@ -141,6 +144,7 @@ class Rdb_iterator_base : public Rdb_iterator {
   Rdb_iterator_base &operator=(const Rdb_iterator_base &) = delete;
   Rdb_iterator_base &operator=(Rdb_iterator_base &&) = delete;
   bool m_valid;
+  bool m_ttl_before_image = false;
 };
 
 class Rdb_iterator_partial : public Rdb_iterator_base {
@@ -213,6 +217,10 @@ class Rdb_iterator_partial : public Rdb_iterator_base {
                        const Rdb_tbl_def *tbl_def, TABLE *table,
                        const dd::Table *dd_table);
   ~Rdb_iterator_partial() override;
+  void set_ttl_before_image(bool value) override {
+    Rdb_iterator_base::set_ttl_before_image(value);
+    m_iterator_pk.set_ttl_before_image(value);
+  }
 
   int seek(enum ha_rkey_function find_flag, const rocksdb::Slice start_key,
            bool full_key_match, const rocksdb::Slice end_key,

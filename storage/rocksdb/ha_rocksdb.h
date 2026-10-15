@@ -715,13 +715,15 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
                                    const struct key_def_cf_info &cf_info,
                                    uint64 ttl_duration,
                                    const std::string &ttl_column,
+                                   const std::string &row_ttl_column,
                                    bool is_dd_tbl = false) const;
 
   [[nodiscard]] bool create_inplace_key_defs(
       const TABLE &table_arg, Rdb_tbl_def &tbl_def_arg,
       const TABLE &old_table_arg, const Rdb_tbl_def &old_tbl_def_arg,
       const std::array<key_def_cf_info, MAX_INDEXES + 1> &cfs,
-      uint64 ttl_duration, const std::string &ttl_column) const;
+      uint64 ttl_duration, const std::string &ttl_column,
+      const std::string &row_ttl_column) const;
 
   [[nodiscard]] std::unordered_map<std::string, uint> get_old_key_positions(
       const TABLE &table_arg, const Rdb_tbl_def &tbl_def_arg,
@@ -733,6 +735,8 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
 
   int compare_keys(const KEY *const old_key, const KEY *const new_key) const
       MY_ATTRIBUTE((__warn_unused_result__));
+
+  bool ttl_before_image_lookup() const;
 
   int index_read_intern(uchar *const buf, const uchar *const key,
                         key_part_map keypart_map,
@@ -1118,6 +1122,7 @@ extern Rdb_compaction_stats compaction_stats;
 unsigned long long get_partial_index_sort_max_mem(THD *thd);
 
 Rdb_transaction *get_tx_from_thd(THD *const thd);
+int rdb_ttl_admit(Rdb_transaction *tx);
 Rdb_bulk_load_context *get_bulk_load_ctx_from_thd(THD *const thd);
 
 void rdb_tx_acquire_snapshot(Rdb_transaction &tx);

@@ -1,0 +1,7 @@
+SELECT @@global.rocksdb_ttl_dry_run;
+@@global.rocksdb_ttl_dry_run
+0
+SET GLOBAL rocksdb_ttl_dry_run=1;
+ERROR HY000: Variable 'rocksdb_ttl_dry_run' is a read only variable
+SET SESSION rocksdb_ttl_dry_run=1;
+Got one of the listed errors

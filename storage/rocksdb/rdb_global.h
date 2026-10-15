@@ -172,6 +172,7 @@ const constexpr char RDB_TTL_DURATION_QUALIFIER[] = "ttl_duration";
   Qualifier name for a custom per partition ttl duration.
 */
 const constexpr char RDB_TTL_COL_QUALIFIER[] = "ttl_col";
+const constexpr char RDB_ROW_TTL_COL_QUALIFIER[] = "row_ttl_col";
 
 /*
   Qualifier name for number of prefix keyparts in partial index
@@ -369,6 +370,9 @@ enum operation_type : int {
   ROWS_EXPIRED,
   ROWS_FILTERED,
   ROWS_UNFILTERED_NO_SNAPSHOT,
+  ROWS_TTL_WOULD_HIDE,
+  ROWS_TTL_WOULD_PURGE,
+  TTL_REJECTED_ADMISSIONS,
   ROWS_MAX
 };
 
@@ -409,6 +413,9 @@ struct st_export_stats {
   ulonglong rows_read;
   ulonglong rows_updated;
   ulonglong rows_deleted_blind;
+  ulonglong ttl_would_hide;
+  ulonglong ttl_would_purge;
+  ulonglong ttl_rejected_admissions;
   ulonglong rows_expired;
   ulonglong rows_filtered;
   ulonglong rows_unfiltered_no_snapshot;

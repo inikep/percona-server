@@ -1,0 +1,175 @@
+CALL mtr.add_suppression("Found 1 prepared XA transactions");
+SET timestamp=100;
+CREATE TABLE t_session (id INT PRIMARY KEY, expiry BIGINT, v INT, UNIQUE KEY(v))
+ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t_session VALUES (1,150,1),(2,100,2),(3,0,3);
+CREATE TABLE t_auto(id INT AUTO_INCREMENT PRIMARY KEY, expiry BIGINT)
+ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t_auto VALUES(NULL,500);
+SELECT id FROM t_session ORDER BY id;
+id
+1
+3
+SET timestamp=150;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+SET timestamp=100;
+BEGIN;
+SELECT id FROM t_session ORDER BY id;
+id
+1
+3
+SET timestamp=200;
+SELECT id FROM t_session ORDER BY id;
+id
+1
+3
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=101;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=100;
+COMMIT;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t_session ORDER BY id;
+id
+1
+3
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+SET timestamp=99;
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 99 is below durable boundary 100 or TTL recovery is incomplete
+SET timestamp=100;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=99;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=150;
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 100 is below durable boundary 150 or TTL recovery is incomplete
+SET timestamp=150;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+# restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+@@global.rocksdb_ttl_safe_purge_timestamp
+150
+SET timestamp=149;
+SELECT * FROM t_auto;
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+SET timestamp=150;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+CREATE TABLE t_fallback(id INT PRIMARY KEY, base BIGINT UNSIGNED NOT NULL, expiry BIGINT)
+ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry;ttl_col=base;ttl_duration=1000';
+INSERT INTO t_fallback VALUES(1,1,100),(2,1,0),(3,1,1000);
+SET timestamp=200;
+SELECT id FROM t_fallback ORDER BY id;
+id
+2
+3
+CREATE TABLE t_implicit(id INT PRIMARY KEY) ENGINE=ROCKSDB COMMENT='ttl_duration=10';
+INSERT INTO t_implicit VALUES(1);
+SET timestamp=209;
+SELECT * FROM t_implicit;
+id
+1
+SET timestamp=210;
+SELECT * FROM t_implicit;
+id
+SET timestamp=200;
+SET DEBUG_SYNC='rocksdb_snapshot_before_publication SIGNAL snapshot_ready WAIT_FOR publish';
+BEGIN;
+SELECT id FROM t_fallback ORDER BY id;
+SET DEBUG_SYNC='now WAIT_FOR snapshot_ready';
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=201;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=200;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET DEBUG_SYNC='now SIGNAL publish';
+id
+2
+3
+COMMIT;
+SET DEBUG_SYNC='RESET';
+SET timestamp=210;
+XA START 'ttl_xa';
+INSERT INTO t_session VALUES (4,500,4);
+XA END 'ttl_xa';
+XA PREPARE 'ttl_xa';
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=211;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=210;
+# Kill and restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+SET timestamp=210;
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 210 is below durable boundary 210 or TTL recovery is incomplete
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=211;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+XA COMMIT 'ttl_xa';
+SELECT id FROM t_session ORDER BY id;
+id
+3
+4
+SET SESSION debug='+d,rocksdb_ttl_watermark_ambiguous_error';
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=220;
+ERROR HY000: MyRocks TTL: watermark durability is uncertain; restart to reload the durable fence
+SET SESSION debug='-d,rocksdb_ttl_watermark_ambiguous_error';
+SET timestamp=300;
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 300 is below durable boundary 210 or TTL recovery is incomplete
+# restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+@@global.rocksdb_ttl_safe_purge_timestamp
+220
+SET timestamp=219;
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 219 is below durable boundary 220 or TTL recovery is incomplete
+SET timestamp=220;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+4
+SET DEBUG_SYNC='rocksdb_ttl_before_watermark_write SIGNAL writing WAIT_FOR persist';
+SET timestamp=229;
+SET DEBUG_SYNC='rocksdb_ttl_before_admission SIGNAL persist WAIT_FOR writing';
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=230;
+SELECT * FROM t_session;
+ERROR HY000: MyRocks TTL: session time 229 is below durable boundary 230 or TTL recovery is incomplete
+SET DEBUG_SYNC='RESET';
+SET timestamp=230;
+SET SESSION transaction_isolation='READ-COMMITTED';
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
+Warnings:
+Warning	138	RocksDB: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine. Snapshot has not been taken.
+Warning	138	InnoDB: WITH CONSISTENT SNAPSHOT was ignored because this phrase can only be used with REPEATABLE READ isolation level.
+SELECT id FROM t_session ORDER BY id;
+id
+3
+4
+SET timestamp=600;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+4
+SAVEPOINT keep_time;
+ROLLBACK TO SAVEPOINT keep_time;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+4
+ROLLBACK;
+SELECT id FROM t_session ORDER BY id;
+id
+3
+SET SESSION transaction_isolation=DEFAULT;
+DROP TABLE t_implicit,t_fallback,t_session,t_auto;
+# restart: --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=ON
+# restart: --rocksdb-datadir=.rocksdb --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=OFF

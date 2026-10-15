@@ -1,0 +1,2 @@
+--rocksdb-ttl-dry-run=ON
+--rocksdb-default-cf-options=disable_auto_compactions=true

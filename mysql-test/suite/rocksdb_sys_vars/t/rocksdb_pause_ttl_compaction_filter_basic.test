@@ -1,0 +1,9 @@
+--source include/have_rocksdb.inc
+SELECT @@global.rocksdb_pause_ttl_compaction_filter;
+--error ER_GLOBAL_VARIABLE
+SET SESSION rocksdb_pause_ttl_compaction_filter=ON;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+SELECT @@global.rocksdb_pause_ttl_compaction_filter;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_pause_ttl_compaction_filter='bad';

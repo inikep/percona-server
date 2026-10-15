@@ -321,12 +321,14 @@ Rdb_key_def::Rdb_key_def(uint indexnr_arg, uint keyno_arg,
       m_ttl_rec_offset(ttl_rec_offset),
       m_ttl_duration(ttl_duration),
       m_ttl_column(""),
+      m_row_ttl_column(""),
       m_pk_part_no(nullptr),
       m_pack_info(nullptr),
       m_keyno(keyno_arg),
       m_key_parts(0),
       m_ttl_pk_key_part_offset(UINT_MAX),
       m_ttl_field_index(UINT_MAX),
+      m_row_ttl_field_index(UINT_MAX),
       m_partial_index_keyparts(0),
       m_partial_index_threshold(0),
       m_prefix_extractor(nullptr),
@@ -357,12 +359,14 @@ Rdb_key_def::Rdb_key_def(const Rdb_key_def &k)
       m_ttl_rec_offset(k.m_ttl_rec_offset),
       m_ttl_duration(k.m_ttl_duration),
       m_ttl_column(k.m_ttl_column),
+      m_row_ttl_column(k.m_row_ttl_column),
       m_pk_part_no(k.m_pk_part_no),
       m_pack_info(nullptr),
       m_keyno(k.m_keyno),
       m_key_parts(k.m_key_parts),
       m_ttl_pk_key_part_offset(k.m_ttl_pk_key_part_offset),
       m_ttl_field_index(UINT_MAX),
+      m_row_ttl_field_index(UINT_MAX),
       m_partial_index_keyparts(k.m_partial_index_keyparts),
       m_partial_index_threshold(k.m_partial_index_threshold),
       m_prefix_extractor(k.m_prefix_extractor),
@@ -497,6 +501,11 @@ void Rdb_key_def::setup(const TABLE &tbl, const Rdb_tbl_def &tbl_def) {
     const auto res [[maybe_unused]] = Rdb_key_def::extract_ttl_col(
         tbl, tbl_def, m_ttl_column, m_ttl_field_index, true);
     assert(res == HA_EXIT_SUCCESS);
+    if (uses_absolute_expiry()) {
+      const auto row_res [[maybe_unused]] = extract_row_ttl_col(
+          tbl, tbl_def, m_row_ttl_column, m_row_ttl_field_index);
+      assert(row_res == HA_EXIT_SUCCESS && m_row_ttl_field_index != UINT_MAX);
+    }
     const auto res2 [[maybe_unused]] = extract_partial_index_info(tbl, tbl_def);
     assert(res2 == HA_EXIT_SUCCESS);
 
@@ -738,6 +747,38 @@ uint Rdb_key_def::extract_ttl_col(const TABLE &table_arg,
   return HA_EXIT_SUCCESS;
 }
 
+// Unlike ttl_col, this column may be nullable and signed.
+// Persisted index flags control activation.
+uint Rdb_key_def::extract_row_ttl_col(const TABLE &table,
+                                      const Rdb_tbl_def &def,
+                                      std::string &column, uint &field_index,
+                                      bool skip_checks) {
+  bool per_partition = false;
+  column = parse_comment_for_qualifier(
+      std::string(table.s->comment.str, table.s->comment.length), table, def,
+      per_partition, RDB_ROW_TTL_COL_QUALIFIER);
+  field_index = UINT_MAX;
+  if (column.empty()) return HA_EXIT_SUCCESS;
+  for (uint i = 0; i < table.s->fields; ++i) {
+    const auto *field = table.field[i];
+    if (my_strcasecmp(system_charset_info, field->field_name, column.c_str()) !=
+        0)
+      continue;
+    if (skip_checks || (!field->is_virtual_gcol() &&
+                        (field->real_type() == MYSQL_TYPE_LONGLONG ||
+                         field->type() == MYSQL_TYPE_TIMESTAMP))) {
+      field_index = i;
+      return HA_EXIT_SUCCESS;
+    }
+    break;
+  }
+  if (skip_checks) return HA_EXIT_SUCCESS;
+  const std::string reason = "row_ttl_col '" + column +
+                             "' must name a stored BIGINT or TIMESTAMP column";
+  my_error(ER_RDB_TTL_POLICY, MYF(0), reason.c_str());
+  return HA_EXIT_FAILURE;
+}
+
 uint Rdb_key_def::extract_partial_index_info(const TABLE &table_arg,
                                              const Rdb_tbl_def &tbl_def_arg) {
   // Nothing to parse if this is a hidden PK.
@@ -853,6 +894,7 @@ const std::string Rdb_key_def::gen_qualifier_for_table(
   if (!strcmp(qualifier, RDB_CF_NAME_QUALIFIER) ||
       !strcmp(qualifier, RDB_TTL_DURATION_QUALIFIER) ||
       !strcmp(qualifier, RDB_TTL_COL_QUALIFIER) ||
+      !strcmp(qualifier, RDB_ROW_TTL_COL_QUALIFIER) ||
       !strcmp(qualifier, RDB_PARTIAL_INDEX_KEYPARTS_QUALIFIER) ||
       !strcmp(qualifier, RDB_PARTIAL_INDEX_THRESHOLD_QUALIFIER)) {
     qualifier_str += std::string(qualifier) + RDB_QUALIFIER_VALUE_SEP;
@@ -1402,9 +1444,9 @@ uint Rdb_key_def::pack_record(const TABLE *const tbl, uchar *const pack_buffer,
 
       // Insert TTL timestamp
       if (has_ttl() && ttl_bytes) {
-        write_index_flag_field(unpack_info,
-                               reinterpret_cast<const uchar *>(ttl_bytes),
-                               Rdb_key_def::TTL_FLAG);
+        write_index_flag_field(
+            unpack_info, reinterpret_cast<const uchar *>(ttl_bytes),
+            uses_absolute_expiry() ? EXPIRY_TS_FLAG : TTL_FLAG);
       }
     }
 
@@ -4576,8 +4618,8 @@ time_t Rdb_tbl_def::get_create_time() {
 
 // Length that each index flag takes inside the record.
 // Each index in the array maps to the enum INDEX_FLAG
-static const std::array<uint, 1> index_flag_lengths = {
-    {ROCKSDB_SIZEOF_TTL_RECORD}};
+static const std::array<uint, 2> index_flag_lengths = {
+    {ROCKSDB_SIZEOF_TTL_RECORD, ROCKSDB_SIZEOF_TTL_RECORD}};
 
 bool Rdb_key_def::has_index_flag(uint32 index_flags, enum INDEX_FLAG flag) {
   return flag & index_flags;
@@ -5023,11 +5065,7 @@ bool Rdb_ddl_manager::init(Rdb_dict_manager *const dict_arg,
       assert(cfh);
 
       uint32 ttl_rec_offset =
-          Rdb_key_def::has_index_flag(index_info.m_index_flags,
-                                      Rdb_key_def::TTL_FLAG)
-              ? Rdb_key_def::calculate_index_flag_offset(
-                    index_info.m_index_flags, Rdb_key_def::TTL_FLAG)
-              : UINT_MAX;
+          Rdb_key_def::calculate_ttl_rec_offset(index_info.m_index_flags);
 
       /*
         We can't fully initialize Rdb_key_def object here, because full
@@ -5727,6 +5765,11 @@ bool Rdb_dict_manager::get_index_info(
 
     const uchar *const val = (const uchar *)value.c_str();
     const uchar *ptr = val;
+    if (value.size() < RDB_SIZEOF_INDEX_INFO_VERSION) {
+      LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
+                      "Truncated MyRocks index metadata");
+      abort();
+    }
     index_info->m_index_dict_version = rdb_netbuf_to_uint16(val);
     ptr += RDB_SIZEOF_INDEX_INFO_VERSION;
 
@@ -5773,6 +5816,11 @@ bool Rdb_dict_manager::get_index_info(
 
       case Rdb_key_def::INDEX_INFO_VERSION_VERIFY_KV_FORMAT:
       case Rdb_key_def::INDEX_INFO_VERSION_GLOBAL_ID:
+        if (value.size() != RDB_SIZEOF_INDEX_INFO_VERSION +
+                                RDB_SIZEOF_INDEX_TYPE + RDB_SIZEOF_KV_VERSION) {
+          error = true;
+          break;
+        }
         index_info->m_index_type = rdb_netbuf_to_byte(ptr);
         ptr += RDB_SIZEOF_INDEX_TYPE;
         index_info->m_kv_version = rdb_netbuf_to_uint16(ptr);
@@ -5784,16 +5832,28 @@ bool Rdb_dict_manager::get_index_info(
         break;
     }
 
+    const bool absolute = Rdb_key_def::has_index_flag(
+        index_info->m_index_flags, Rdb_key_def::EXPIRY_TS_FLAG);
+    const bool table_ttl = Rdb_key_def::has_index_flag(
+        index_info->m_index_flags, Rdb_key_def::TTL_FLAG);
+    error |= (index_info->m_index_flags & ~(Rdb_key_def::MAX_FLAG - 1)) != 0;
+    error |= absolute && table_ttl;
+    const auto row_version =
+        index_info->m_index_type == Rdb_key_def::INDEX_TYPE_SECONDARY
+            ? Rdb_key_def::SECONDARY_FORMAT_VERSION_ROW_TTL
+            : Rdb_key_def::PRIMARY_FORMAT_VERSION_ROW_TTL;
+    error |= absolute != (index_info->m_kv_version == row_version);
+
     switch (index_info->m_index_type) {
       case Rdb_key_def::INDEX_TYPE_PRIMARY:
       case Rdb_key_def::INDEX_TYPE_HIDDEN_PRIMARY: {
-        error = index_info->m_kv_version >
-                Rdb_key_def::PRIMARY_FORMAT_VERSION_LATEST;
+        error |= index_info->m_kv_version >
+                 Rdb_key_def::PRIMARY_FORMAT_VERSION_LATEST;
         break;
       }
       case Rdb_key_def::INDEX_TYPE_SECONDARY:
-        error = index_info->m_kv_version >
-                Rdb_key_def::SECONDARY_FORMAT_VERSION_LATEST;
+        error |= index_info->m_kv_version >
+                 Rdb_key_def::SECONDARY_FORMAT_VERSION_LATEST;
         break;
       default:
         error = true;

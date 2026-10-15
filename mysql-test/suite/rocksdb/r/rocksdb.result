@@ -1028,6 +1028,7 @@ rocksdb_partial_index_blind_delete	ON
 rocksdb_partial_index_ignore_killed	ON
 rocksdb_partial_index_sort_max_mem	0
 rocksdb_pause_background_work	ON
+rocksdb_pause_ttl_compaction_filter	OFF
 rocksdb_perf_context_level	0
 rocksdb_persistent_cache_path	
 rocksdb_persistent_cache_size_mb	0
@@ -1041,6 +1042,7 @@ rocksdb_records_in_range	50
 rocksdb_records_in_range_dive_threshold	100
 rocksdb_reset_stats	OFF
 rocksdb_rollback_on_timeout	OFF
+rocksdb_rpl_skip_ttl_read_filtering	OFF
 rocksdb_rpl_skip_tx_api	OFF
 rocksdb_seconds_between_stat_computes	3600
 rocksdb_signal_drop_index_thread	OFF
@@ -1066,6 +1068,11 @@ rocksdb_trace_block_cache_access
 rocksdb_trace_queries	
 rocksdb_trace_sst_api	OFF
 rocksdb_track_and_verify_wals_in_manifest	ON
+rocksdb_ttl_dry_run	OFF
+rocksdb_ttl_safe_purge_timestamp	0
+rocksdb_ttl_session_allow_legacy_transition	OFF
+rocksdb_ttl_session_bootstrap_timestamp	0
+rocksdb_ttl_use_session_timestamp	OFF
 rocksdb_two_write_queues	ON
 rocksdb_unsafe_for_binlog	OFF
 rocksdb_update_cf_options	
@@ -1595,6 +1602,9 @@ rocksdb_rows_deleted_blind	#
 rocksdb_rows_inserted	#
 rocksdb_rows_read	#
 rocksdb_rows_updated	#
+rocksdb_ttl_would_hide	#
+rocksdb_ttl_would_purge	#
+rocksdb_ttl_rejected_admissions	#
 rocksdb_rows_expired	#
 rocksdb_rows_filtered	#
 rocksdb_rows_unfiltered_no_snapshot	#
@@ -1718,6 +1728,9 @@ rocksdb_rows_deleted_blind
 rocksdb_rows_inserted
 rocksdb_rows_read
 rocksdb_rows_updated
+rocksdb_ttl_would_hide
+rocksdb_ttl_would_purge
+rocksdb_ttl_rejected_admissions
 rocksdb_rows_expired
 rocksdb_rows_filtered
 rocksdb_rows_unfiltered_no_snapshot
@@ -1843,6 +1856,9 @@ rocksdb_rows_deleted_blind
 rocksdb_rows_inserted
 rocksdb_rows_read
 rocksdb_rows_updated
+rocksdb_ttl_would_hide
+rocksdb_ttl_would_purge
+rocksdb_ttl_rejected_admissions
 rocksdb_rows_expired
 rocksdb_rows_filtered
 rocksdb_rows_unfiltered_no_snapshot

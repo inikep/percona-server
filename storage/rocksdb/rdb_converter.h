@@ -192,6 +192,7 @@ class Rdb_converter {
                                                rocksdb::Slice *unpack_slice);
 
   void setup_field_encoders(const dd::Table *dd_table);
+  uint64 read_ttl_field(uint field_index) const;
 
   void get_storage_type(Rdb_field_encoder *const encoder, const uint kp);
 

@@ -17,6 +17,9 @@
 /* This C++ file's header file */
 #include "./rdb_converter.h"
 
+#include "./rdb_ttl.h"
+#include "sql/sql_class.h"
+
 /* Standard C++ header files */
 #include <algorithm>
 #include <string>
@@ -827,6 +830,15 @@ int Rdb_converter::verify_row_debug_checksum(const Rdb_key_def &pk_def,
   @is_ttl_bytes_updated       OUT       Whether ttl bytes is updated
   @param value_slice          OUT       Data slice with record data.
 */
+uint64 Rdb_converter::read_ttl_field(uint field_index) const {
+  assert(field_index != UINT_MAX);
+  const auto *field = m_table->field[field_index];
+  if (field->is_null()) return 0;
+  if (field->type() == MYSQL_TYPE_TIMESTAMP)
+    return rdb_netbuf_to_uint32(field->field_ptr());
+  return uint8korr(field->field_ptr());
+}
+
 int Rdb_converter::encode_value_slice(
     const Rdb_key_def &pk_def, const rocksdb::Slice &pk_packed_slice,
     Rdb_string_writer *pk_unpack_info, bool is_update_row,
@@ -852,7 +864,30 @@ int Rdb_converter::encode_value_slice(
     // ha_rocksdb::update_write_sk() for more info
     *is_ttl_bytes_updated = false;
     char *const data = const_cast<char *>(m_storage_record.ptr());
-    if (has_ttl_column) {
+    if (pk_def.uses_absolute_expiry()) {
+      const auto *field = m_table->field[pk_def.get_row_ttl_field_index()];
+      if (!field->is_null() && field->real_type() == MYSQL_TYPE_LONGLONG &&
+          !field->is_unsigned() && field->val_int() < 0) {
+        const std::string reason =
+            std::string("negative expiry in row_ttl_col '") +
+            field->field_name + "'";
+        my_error(ER_RDB_TTL_POLICY, MYF(0), reason.c_str());
+        return HA_ERR_GENERIC;
+      }
+      uint64 expiry = read_ttl_field(pk_def.get_row_ttl_field_index());
+      if (expiry == 0 && pk_def.has_table_ttl())
+        expiry =
+            rdb_ttl_saturating_add(read_ttl_field(pk_def.get_ttl_field_index()),
+                                   pk_def.m_ttl_duration);
+#ifndef NDEBUG
+      expiry = rdb_ttl_adjust_expiry(expiry, rdb_dbug_set_ttl_rec_ts());
+#endif
+      rdb_netbuf_store_uint64(reinterpret_cast<uchar *>(data), expiry);
+      if (is_update_row)
+        *is_ttl_bytes_updated =
+            memcmp(ttl_bytes, data, ROCKSDB_SIZEOF_TTL_RECORD);
+      memcpy(ttl_bytes, data, ROCKSDB_SIZEOF_TTL_RECORD);
+    } else if (has_ttl_column) {
       assert(pk_def.get_ttl_field_index() != UINT_MAX);
       const auto *const field = m_table->field[pk_def.get_ttl_field_index()];
       assert(field->real_type() == MYSQL_TYPE_LONGLONG ||
@@ -900,7 +935,9 @@ int Rdb_converter::encode_value_slice(
       if (is_update_row) {
         memcpy(data, ttl_bytes, sizeof(uint64));
       } else {
-        uint64 ts = static_cast<uint64>(std::time(nullptr));
+        uint64 ts = rdb_ttl_session_time_enabled()
+                        ? m_thd->query_start_in_secs()
+                        : static_cast<uint64>(std::time(nullptr));
 #ifndef NDEBUG
         ts += rdb_dbug_set_ttl_rec_ts();
 #endif

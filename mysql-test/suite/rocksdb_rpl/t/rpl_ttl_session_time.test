@@ -1,0 +1,107 @@
+--source include/have_rocksdb.inc
+--source include/have_binlog_format_row.inc
+--source include/rpl/init_source_replica.inc
+--connection master
+--let $ttl_master_datadir=`SELECT CONCAT(@@datadir, @@rocksdb_datadir)`
+SET timestamp=100;
+CREATE TABLE t (id INT PRIMARY KEY, expiry BIGINT, v INT, UNIQUE KEY(v))
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t VALUES (1,150,1),(2,50,2),(3,0,3),(4,150,4);
+CREATE TABLE ti (id INT PRIMARY KEY) ENGINE=ROCKSDB COMMENT='ttl_duration=100';
+INSERT INTO ti VALUES(1);
+--source include/rpl/sync_to_replica.inc
+--connection slave
+--let $ttl_slave_datadir=`SELECT CONCAT(@@datadir, @@rocksdb_datadir)`
+CALL mtr.add_suppression("Replica SQL.*Error_code: 1032");
+CALL mtr.add_suppression("Worker .* failed executing transaction");
+CALL mtr.add_suppression("Coordinator stopped because there were error.* in the worker");
+CALL mtr.add_suppression("Replica SQL.*The replica coordinator and worker threads are stopped");
+CALL mtr.add_suppression("Replica SQL.*Replica worker thread has failed to apply an event");
+--source include/rpl/stop_applier.inc
+SET timestamp=100;
+SELECT id FROM t ORDER BY id;
+SELECT * FROM ti;
+--connection master
+SET timestamp=100;
+BEGIN;
+SELECT id FROM t WHERE id=1;
+# The source's read time is 100, but the first replicated row event is at 200.
+SET timestamp=200;
+UPDATE t SET expiry=300,v=2 WHERE id=1;
+COMMIT;
+--connection slave
+# No active reader: the durable horizon alone must retain the old before image.
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t ORDER BY id;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+--source include/rpl/start_applier.inc
+--connection master
+--source include/rpl/sync_to_replica.inc
+--connection slave
+SET timestamp=200;
+# Before-image bypass must not affect the expired new-key uniqueness probe.
+SELECT id,v FROM t ORDER BY id;
+SELECT id,v FROM t FORCE INDEX(v) ORDER BY id;
+SELECT * FROM ti;
+# A replica-only PK extension forces before-image lookup through unique SK v.
+SET timestamp=100;
+ALTER TABLE t ADD COLUMN extra INT NOT NULL DEFAULT 0,
+ DROP PRIMARY KEY, ADD PRIMARY KEY(id,extra), ALGORITHM=COPY;
+SET timestamp=200;
+# Explicit source maintenance can update a retained expired row. Without the
+# before-image option the replica must report the ordinary missing-row error.
+--source include/rpl/stop_applier.inc
+--connection master
+SET timestamp=200;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+UPDATE t SET expiry=300 WHERE id=4;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+--connection slave
+# With bypass disabled, the SK lookup hides the retained expired before image.
+--let $rpl_server_number=2
+--let $rpl_server_parameters=--rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-rpl-skip-ttl-read-filtering=OFF
+--source include/rpl/restart_server.inc
+--connection slave
+START REPLICA;
+--let $slave_sql_errno=1032
+--source include/rpl/wait_for_applier_error.inc
+# Re-enable the policy and retry the same event without skipping errors.
+--let $rpl_server_number=2
+--let $rpl_server_parameters=--rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-rpl-skip-ttl-read-filtering=ON
+--source include/rpl/restart_server.inc
+--connection slave
+--source include/rpl/start_replica.inc
+--connection master
+--source include/rpl/sync_to_replica.inc
+--connection slave
+SET timestamp=200;
+SELECT id,v FROM t ORDER BY id;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=300;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SET timestamp=300;
+SELECT id FROM t ORDER BY id;
+SELECT * FROM ti;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+--connection master
+SET timestamp=300;
+DROP TABLE t,ti;
+--source include/rpl/sync_to_replica.inc
+--source include/rpl/deinit.inc
+--connection master
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=ON
+--source include/restart_mysqld.inc
+--connection slave
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=ON
+--source include/restart_mysqld.inc
+--connection master
+--let $restart_parameters=restart: --rocksdb-datadir=.rocksdb --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=OFF
+--source include/restart_mysqld.inc
+--force-rmdir $ttl_master_datadir
+--connection slave
+--let $restart_parameters=restart: --rocksdb-datadir=.rocksdb --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=OFF
+--source include/restart_mysqld.inc
+--force-rmdir $ttl_slave_datadir
