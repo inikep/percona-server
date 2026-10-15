@@ -1,0 +1,68 @@
+--source include/have_rocksdb.inc
+--source include/have_debug.inc
+# Reproduce old-binary metadata without activating the ignored qualifier.
+SET SESSION debug='+d,myrocks_ignore_row_ttl_col';
+CREATE TABLE inert(id INT PRIMARY KEY,e BIGINT,v INT) ENGINE=ROCKSDB
+ COMMENT='row_ttl_col=e';
+CREATE TABLE implicit_ttl(id INT PRIMARY KEY,e BIGINT,v INT) ENGINE=ROCKSDB
+ COMMENT='ttl_duration=1000000;row_ttl_col=e';
+CREATE TABLE part(id INT PRIMARY KEY,e BIGINT,e2 BIGINT) ENGINE=ROCKSDB
+ COMMENT='row_ttl_col=e' PARTITION BY RANGE(id)
+ (PARTITION p0 VALUES LESS THAN(10),PARTITION p1 VALUES LESS THAN(20));
+SET SESSION debug='-d,myrocks_ignore_row_ttl_col';
+INSERT INTO inert VALUES(1,1,1);
+INSERT INTO implicit_ttl VALUES(1,1,1);
+INSERT INTO part VALUES(1,1,1),(11,1,1);
+# Ordinary table opens must not emit SQL warnings.
+FLUSH TABLES;
+SELECT * FROM inert;
+SHOW COUNT(*) WARNINGS;
+FLUSH TABLES;
+SELECT * FROM inert;
+SHOW COUNT(*) WARNINGS;
+# Incidental COPY rebuilds preserve legacy encoding and visibility.
+ALTER TABLE inert MODIFY v BIGINT, ALGORITHM=COPY;
+ALTER TABLE implicit_ttl MODIFY v BIGINT,ALGORITHM=COPY;
+ALTER TABLE inert FORCE;
+ALTER TABLE inert FORCE,MODIFY v INT,ALGORITHM=COPY;
+OPTIMIZE TABLE inert;
+SELECT * FROM implicit_ttl;
+ALTER TABLE part ADD PARTITION(PARTITION p2 VALUES LESS THAN(30));
+INSERT INTO part VALUES(21,1,1);
+ALTER TABLE part REORGANIZE PARTITION p1,p2 INTO
+ (PARTITION p12 VALUES LESS THAN(30));
+SELECT * FROM inert;
+SELECT * FROM part ORDER BY id;
+SELECT TABLE_NAME,PARTITION_NAME,INDEX_NAME,INDEX_FLAGS,KV_FORMAT_VERSION
+ FROM INFORMATION_SCHEMA.ROCKSDB_DDL WHERE TABLE_SCHEMA='test'
+ AND TABLE_NAME IN('inert','implicit_ttl','part') ORDER BY TABLE_NAME,PARTITION_NAME,INDEX_NAME;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SELECT * FROM inert;
+SELECT * FROM part ORDER BY id;
+# Explicit activation is still available and changes the persisted format.
+ALTER TABLE inert FORCE, ALGORITHM=COPY;
+SELECT * FROM inert;
+# Adding/changing a qualifier explicitly activates it on affected partitions.
+ALTER TABLE part COMMENT='p0_row_ttl_col=e2;row_ttl_col=e',ALGORITHM=COPY;
+ALTER TABLE part COMMENT='row_ttl_col=e',ALGORITHM=COPY;
+SELECT * FROM part ORDER BY id;
+SELECT TABLE_NAME,PARTITION_NAME,INDEX_FLAGS,KV_FORMAT_VERSION
+ FROM INFORMATION_SCHEMA.ROCKSDB_DDL WHERE TABLE_SCHEMA='test'
+ AND TABLE_NAME='part' ORDER BY PARTITION_NAME;
+# New names cannot silently choose between active and inactive inherited state.
+--error ER_RDB_TTL_POLICY
+ALTER TABLE part REORGANIZE PARTITION p0,p12 INTO
+ (PARTITION merged VALUES LESS THAN(30));
+# Reusing an old name must not bypass the ambiguity check either.
+--error ER_RDB_TTL_POLICY
+ALTER TABLE part REORGANIZE PARTITION p0,p12 INTO
+ (PARTITION p0 VALUES LESS THAN(30));
+SELECT * FROM part ORDER BY id;
+ALTER TABLE part FORCE,ALGORITHM=COPY;
+ALTER TABLE part REORGANIZE PARTITION p0,p12 INTO
+ (PARTITION merged VALUES LESS THAN(30));
+SELECT * FROM part;
+INSERT INTO part VALUES(1,0,0),(2,1,1);
+SELECT * FROM part;
+DROP TABLE inert,implicit_ttl,part;

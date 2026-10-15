@@ -428,6 +428,7 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
     Returns the name of the table's base name
   */
   const std::string &get_table_basename() const;
+  const Rdb_tbl_def *ttl_table_def() const { return m_tbl_def; }
 
   /** @brief
     This is a list of flags that indicate what functionality the storage engine
@@ -715,13 +716,15 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
                                    const struct key_def_cf_info &cf_info,
                                    uint64 ttl_duration,
                                    const std::string &ttl_column,
+                                   const std::string &row_ttl_column,
                                    bool is_dd_tbl = false) const;
 
   [[nodiscard]] bool create_inplace_key_defs(
       const TABLE &table_arg, Rdb_tbl_def &tbl_def_arg,
       const TABLE &old_table_arg, const Rdb_tbl_def &old_tbl_def_arg,
       const std::array<key_def_cf_info, MAX_INDEXES + 1> &cfs,
-      uint64 ttl_duration, const std::string &ttl_column) const;
+      uint64 ttl_duration, const std::string &ttl_column,
+      const std::string &row_ttl_column) const;
 
   [[nodiscard]] std::unordered_map<std::string, uint> get_old_key_positions(
       const TABLE &table_arg, const Rdb_tbl_def &tbl_def_arg,
@@ -946,6 +949,14 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   bool m_in_rpl_delete_rows;
   bool m_in_rpl_update_rows;
 #endif  // defined(ROCKSDB_INCLUDE_RFR) && ROCKSDB_INCLUDE_RFR
+
+  // TRUNCATE recreates indexes but must not activate an ignored legacy comment.
+  bool m_truncate_legacy_ttl = false;
+  // Source stays open and MDL-locked while COPY creates its replacement.
+  const TABLE *m_ttl_rebuild_source = nullptr;
+  int preserve_rebuild_row_ttl(const TABLE &new_table,
+                               const Rdb_tbl_def &new_def,
+                               bool *keep_legacy) const;
 
   /* Need to build decoder on next read operation */
   bool m_need_build_decoder;

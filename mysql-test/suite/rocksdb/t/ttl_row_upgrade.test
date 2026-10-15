@@ -1,0 +1,62 @@
+--source include/have_rocksdb.inc
+--source include/have_debug.inc
+# Construct the same indexes as the baseline that ignored row_ttl_col.
+# An actual old-binary round trip is also covered by the external upgrade test.
+--disable_warnings
+SET SESSION debug='+d,myrocks_ignore_row_ttl_col';
+CREATE TABLE inert(id INT PRIMARY KEY,e BIGINT,v INT) ENGINE=ROCKSDB
+ COMMENT='row_ttl_col=e';
+CREATE TABLE implicit_ttl(id INT PRIMARY KEY,e BIGINT) ENGINE=ROCKSDB
+ COMMENT='ttl_duration=1000000;row_ttl_col=e';
+CREATE TABLE explicit_ttl(id INT PRIMARY KEY,b BIGINT UNSIGNED NOT NULL,e BIGINT)
+ ENGINE=ROCKSDB COMMENT='ttl_duration=100;ttl_col=b;row_ttl_col=e';
+CREATE TABLE part(id INT PRIMARY KEY,e BIGINT) ENGINE=ROCKSDB
+ COMMENT='p0_row_ttl_col=e;p1_ttl_duration=1000000;p1_row_ttl_col=e'
+ PARTITION BY LIST(id) (PARTITION p0 VALUES IN(1,2),PARTITION p1 VALUES IN(3,4));
+SET SESSION debug='-d,myrocks_ignore_row_ttl_col';
+INSERT INTO inert VALUES(1,1,1);
+ALTER TABLE inert ADD KEY(v),ALGORITHM=INPLACE;
+UPDATE inert SET v=2;
+SELECT * FROM inert;
+TRUNCATE TABLE inert;
+TRUNCATE TABLE implicit_ttl;
+TRUNCATE TABLE explicit_ttl;
+ALTER TABLE part TRUNCATE PARTITION p0,p1;
+INSERT INTO inert VALUES(2,1,2);
+INSERT INTO implicit_ttl VALUES(1,1);
+INSERT INTO explicit_ttl VALUES(1,2147483600,1);
+INSERT INTO part VALUES(1,1),(3,1);
+SELECT * FROM inert;
+SELECT * FROM implicit_ttl;
+SELECT * FROM explicit_ttl;
+SELECT * FROM part ORDER BY id;
+SELECT TABLE_NAME,PARTITION_NAME,INDEX_NAME,INDEX_FLAGS,KV_FORMAT_VERSION
+ FROM INFORMATION_SCHEMA.ROCKSDB_DDL WHERE TABLE_SCHEMA='test'
+ AND TABLE_NAME IN('inert','implicit_ttl','explicit_ttl','part')
+ ORDER BY TABLE_NAME,PARTITION_NAME,INDEX_NAME;
+# Reopening keeps the persisted inactive state too.
+--let $restart_parameters=restart:
+--source include/restart_mysqld.inc
+SELECT * FROM inert;
+SELECT * FROM part ORDER BY id;
+# COPY is still the explicit activation operation.
+ALTER TABLE inert FORCE,ALGORITHM=COPY;
+SELECT * FROM inert;
+TRUNCATE TABLE inert;
+INSERT INTO inert VALUES(3,1,3),(4,0,4);
+SELECT * FROM inert;
+# Active per-partition state must also survive truncation.
+CREATE TABLE active_part(id INT PRIMARY KEY,e BIGINT) ENGINE=ROCKSDB
+ COMMENT='p0_row_ttl_col=e' PARTITION BY LIST(id)
+ (PARTITION p0 VALUES IN(1,2),PARTITION p1 VALUES IN(3,4));
+ALTER TABLE active_part TRUNCATE PARTITION p0,p1;
+INSERT INTO active_part VALUES(1,1),(2,0),(3,1),(4,0);
+SELECT * FROM active_part ORDER BY id;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT * FROM active_part ORDER BY id;
+SELECT * FROM inert;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+DROP TABLE inert,implicit_ttl,explicit_ttl,part,active_part;
+--enable_warnings

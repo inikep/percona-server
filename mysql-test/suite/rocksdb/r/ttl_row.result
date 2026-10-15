@@ -1,0 +1,96 @@
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+CREATE TABLE t_row (id INT PRIMARY KEY, expiry BIGINT NULL, v INT, KEY(v))
+ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t_row VALUES (1,1,1),(2,NULL,2),(3,0,3),(4,UNIX_TIMESTAMP()+3600,4);
+SET timestamp=100;
+SELECT id FROM t_row FORCE INDEX(PRIMARY) ORDER BY id;
+id
+2
+3
+4
+SET timestamp=DEFAULT;
+SELECT id FROM t_row FORCE INDEX(v) ORDER BY id;
+id
+2
+3
+4
+INSERT INTO t_row VALUES (5,-1,5);
+ERROR HY000: MyRocks TTL: negative expiry in row_ttl_col 'expiry'
+ALTER TABLE t_row ADD INDEX exp (expiry), ALGORITHM=INPLACE;
+UPDATE t_row SET v=44 WHERE id=4;
+SELECT id FROM t_row FORCE INDEX(exp) ORDER BY id;
+id
+2
+3
+4
+SELECT INDEX_NAME,INDEX_FLAGS,KV_FORMAT_VERSION,TTL_DURATION
+FROM INFORMATION_SCHEMA.ROCKSDB_DDL WHERE TABLE_SCHEMA='test' AND TABLE_NAME='t_row' ORDER BY INDEX_NAME;
+INDEX_NAME	INDEX_FLAGS	KV_FORMAT_VERSION	TTL_DURATION
+exp	2	17	0
+PRIMARY	2	16	0
+v	2	17	0
+ALTER TABLE t_row COMMENT='', ALGORITHM=INPLACE;
+Got one of the listed errors
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t_row ORDER BY id;
+id
+2
+3
+4
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+# restart:
+SELECT id FROM t_row FORCE INDEX(v) ORDER BY id;
+id
+2
+3
+4
+UPDATE t_row SET expiry=1 WHERE id=4;
+SELECT id FROM t_row FORCE INDEX(v) ORDER BY id;
+id
+2
+3
+DROP TABLE t_row;
+CREATE TABLE t_row (id INT PRIMARY KEY, base BIGINT UNSIGNED NOT NULL,
+expiry BIGINT UNSIGNED NULL, v INT, KEY(v)) ENGINE=ROCKSDB
+COMMENT='ttl_duration=10;ttl_col=base;row_ttl_col=expiry';
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+INSERT INTO t_row VALUES (1,1,NULL,1),(2,1,0,2),(3,1,18446744073709551615,3),
+(4,18446744073709551610,NULL,4),(5,1,UNIX_TIMESTAMP()+3600,5);
+SELECT id FROM t_row FORCE INDEX(v) ORDER BY id;
+id
+3
+4
+5
+UPDATE t_row SET expiry=0 WHERE id=5;
+SELECT id FROM t_row FORCE INDEX(v) ORDER BY id;
+id
+3
+4
+ALTER TABLE t_row COMMENT='ttl_duration=20;ttl_col=base;row_ttl_col=expiry', ALGORITHM=INPLACE;
+Got one of the listed errors
+ALTER TABLE t_row COMMENT='ttl_duration=20;ttl_col=base;row_ttl_col=expiry', ALGORITHM=COPY;
+SELECT id FROM t_row ORDER BY id;
+id
+3
+4
+DROP TABLE t_row;
+CREATE TABLE t_row (id INT PRIMARY KEY, expiry INT) ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+ERROR HY000: MyRocks TTL: row_ttl_col 'expiry' must name a stored BIGINT or TIMESTAMP column
+CREATE TABLE t_row (id INT PRIMARY KEY, expiry BIGINT) ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry;ttl_duration=1';
+ERROR HY000: MyRocks TTL: row_ttl_col with ttl_duration requires an explicit ttl_col
+CREATE TABLE t_row (id INT PRIMARY KEY, expiry BIGINT AS (id+1) VIRTUAL) ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+ERROR HY000: MyRocks TTL: row_ttl_col 'expiry' must name a stored BIGINT or TIMESTAMP column
+CREATE TABLE t_row (id INT PRIMARY KEY, base BIGINT, expiry BIGINT AS (base+10) STORED, KEY(base))
+ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t_row (id,base) VALUES (1,1),(2,2147483600);
+SELECT id FROM t_row ORDER BY id;
+id
+2
+UPDATE t_row SET base=1 WHERE id=2;
+SELECT id FROM t_row ORDER BY id;
+id
+DROP TABLE t_row;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;

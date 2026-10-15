@@ -33,6 +33,12 @@ void ha_rockspart::set_pk_can_be_decoded_for_each_partition() {
     (*file)->set_pk_can_be_decoded(m_pk_can_be_decoded);
 }
 
+void ha_rockspart::ttl_table_defs(
+    std::vector<const myrocks::Rdb_tbl_def *> *defs) const {
+  for (auto file = m_file; *file; ++file)
+    defs->push_back(static_cast<ha_rocksdb *>(*file)->ttl_table_def());
+}
+
 int ha_rockspart::open(const char *name, int mode, uint test_if_locked,
                        const dd::Table *table_def) {
   int result =

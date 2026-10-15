@@ -23,6 +23,7 @@
 
 /* The C++ file's header */
 #include "./ha_rocksdb.h"
+#include "./rdb_ttl.h"
 
 #ifdef TARGET_OS_LINUX
 #include <errno.h>
@@ -8741,8 +8742,14 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
 #if !defined(NDEBUG)
   read_filter_ts += rdb_dbug_set_ttl_read_filter_ts();
 #endif  // !defined(NDEBUG)
-  bool is_hide_ttl =
-      ts + kd.m_ttl_duration + read_filter_ts <= static_cast<uint64>(curr_ts);
+  const auto expired_at = [&](uint64_t timestamp) {
+    return kd.uses_absolute_expiry()
+               ? rdb_ttl_expired(rdb_ttl_adjust_expiry(
+                                     ts, static_cast<int64_t>(read_filter_ts)),
+                                 0, true, timestamp)
+               : ts + kd.m_ttl_duration + read_filter_ts <= timestamp;
+  };
+  const bool is_hide_ttl = expired_at(static_cast<uint64_t>(curr_ts));
   if (is_hide_ttl) {
     rdb_update_global_stats(ROWS_FILTERED, 1);
 
@@ -8853,6 +8860,50 @@ int ha_rocksdb::alloc_key_buffers(const TABLE &table_arg,
 
   std::shared_ptr<Rdb_key_def> *const kd_arr = tbl_def_arg.m_key_descr_arr;
   m_pk_descr = kd_arr[pk_index(table_arg, tbl_def_arg)];
+
+  std::string row_column;
+  uint row_field;
+  if (Rdb_key_def::extract_row_ttl_col(table_arg, tbl_def_arg, row_column,
+                                       row_field,
+                                       !m_pk_descr->uses_absolute_expiry()))
+    DBUG_RETURN(HA_ERR_ROCKSDB_INVALID_TABLE);
+  if (m_pk_descr->uses_absolute_expiry() && row_column.empty()) {
+    my_error(ER_RDB_TTL_POLICY, MYF(0),
+             "absolute-expiry index has no row_ttl_col");
+    DBUG_RETURN(HA_ERR_ROCKSDB_INVALID_TABLE);
+  }
+  if (m_pk_descr->uses_absolute_expiry()) {
+    uint64 duration = 0;
+    std::string base_column;
+    uint base_field = UINT_MAX;
+    if (Rdb_key_def::extract_ttl_duration(table_arg, tbl_def_arg, duration) ||
+        Rdb_key_def::extract_ttl_col(table_arg, tbl_def_arg, base_column,
+                                     base_field))
+      DBUG_RETURN(HA_ERR_ROCKSDB_INVALID_TABLE);
+    if (duration != m_pk_descr->m_ttl_duration ||
+        (duration != 0 && (base_field == UINT_MAX ||
+                           table_arg.field[base_field]->is_virtual_gcol())) ||
+        (duration == 0 && !base_column.empty())) {
+      my_error(ER_RDB_TTL_POLICY, MYF(0),
+               "inconsistent absolute-expiry fallback metadata");
+      DBUG_RETURN(HA_ERR_ROCKSDB_INVALID_TABLE);
+    }
+  }
+  if (!m_pk_descr->uses_absolute_expiry() && !row_column.empty() &&
+      !tbl_def_arg.m_ignored_row_ttl_noted.exchange(
+          true, std::memory_order_relaxed)) {
+    LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
+                    "Table %s has an ignored legacy row_ttl_col; use "
+                    "ALTER TABLE ... FORCE, ALGORITHM=COPY to activate it.",
+                    tbl_def_arg.full_tablename().c_str());
+  }
+  for (uint i = 0; i < tbl_def_arg.m_key_count; ++i) {
+    if (kd_arr[i]->uses_absolute_expiry() !=
+        m_pk_descr->uses_absolute_expiry()) {
+      my_error(ER_RDB_TTL_POLICY, MYF(0), "inconsistent PK/SK TTL formats");
+      DBUG_RETURN(HA_ERR_ROCKSDB_INVALID_TABLE);
+    }
+  }
 
   // move this into get_table_handler() ??
   m_pk_descr->setup(table_arg, tbl_def_arg);
@@ -9294,6 +9345,72 @@ int ha_rocksdb::rdb_error_to_mysql(const rocksdb::Status &s,
   return err;
 }
 
+// COPY and partition maintenance must not activate an inherited qualifier.
+// Unchanged partition layouts retain their individual states. Repartitioning
+// inherits an unambiguous state for the same qualifier; mixed states require an
+// explicit choice instead of silently making legacy rows expire.
+int ha_rocksdb::preserve_rebuild_row_ttl(const TABLE &new_table,
+                                         const Rdb_tbl_def &new_def,
+                                         bool *keep_legacy) const {
+  const TABLE &old_table = *m_ttl_rebuild_source;
+  const auto qualifier = [](const TABLE &t, const Rdb_tbl_def &def) {
+    bool per_partition;
+    return Rdb_key_def::parse_comment_for_qualifier(get_table_comment(&t), t,
+                                                    def, per_partition,
+                                                    RDB_ROW_TTL_COL_QUALIFIER);
+  };
+  const auto new_row = qualifier(new_table, new_def);
+  if (new_row.empty()) return HA_EXIT_SUCCESS;
+
+  std::vector<const Rdb_tbl_def *> old_defs;
+  if (old_table.part_info)
+    static_cast<const ha_rockspart *>(old_table.file)
+        ->ttl_table_defs(&old_defs);
+  else
+    old_defs.push_back(
+        static_cast<const ha_rocksdb *>(old_table.file)->ttl_table_def());
+
+  const auto *alter = ha_thd()->lex->alter_info;
+  const bool repartition =
+      alter &&
+      (alter->flags &
+       (Alter_info::ALTER_ADD_PARTITION | Alter_info::ALTER_COALESCE_PARTITION |
+        Alter_info::ALTER_REORGANIZE_PARTITION | Alter_info::ALTER_PARTITION |
+        Alter_info::ALTER_REMOVE_PARTITIONING));
+  bool active = false, inactive = false;
+  for (const auto *old_def : old_defs) {
+    const auto old_row = qualifier(old_table, *old_def);
+    const bool same =
+        !my_strcasecmp(system_charset_info, old_row.c_str(), new_row.c_str());
+    const bool old_active =
+        old_def->m_key_descr_arr[pk_index(old_table, *old_def)]
+            ->uses_absolute_expiry();
+    if (!repartition && old_def->base_partition() == new_def.base_partition()) {
+      *keep_legacy = same && !old_active;
+      return HA_EXIT_SUCCESS;
+    }
+    if (same) (old_active ? active : inactive) = true;
+  }
+
+  // A newly added/changed qualifier is an explicit request for row TTL.
+  bool per_partition;
+  const auto inherited_row = Rdb_key_def::parse_comment_for_qualifier(
+      get_table_comment(&old_table), new_table, new_def, per_partition,
+      RDB_ROW_TTL_COL_QUALIFIER);
+  if (my_strcasecmp(system_charset_info, inherited_row.c_str(),
+                    new_row.c_str()))
+    return HA_EXIT_SUCCESS;
+  if (active && inactive) {
+    my_error(ER_RDB_TTL_POLICY, MYF(0),
+             "ambiguous row TTL activation for rebuilt partitions; activate "
+             "the legacy qualifier with FORCE, ALGORITHM=COPY first, or "
+             "remove it before repartitioning");
+    return HA_EXIT_FAILURE;
+  }
+  *keep_legacy = !active;
+  return HA_EXIT_SUCCESS;
+}
+
 /*
   Create structures needed for storing data in rocksdb. This is called when the
   table is created. The structures will be shared by all TABLE* objects.
@@ -9348,6 +9465,8 @@ int ha_rocksdb::create_key_defs(
   uint64 ttl_duration = 0;
   std::string ttl_column;
   uint ttl_field_offset;
+  std::string row_ttl_column;
+  uint row_ttl_field_offset;
 
   uint err;
   if ((err = Rdb_key_def::extract_ttl_duration(table_arg, tbl_def_arg,
@@ -9360,8 +9479,38 @@ int ha_rocksdb::create_key_defs(
     DBUG_RETURN(err);
   }
 
-  /* We don't currently support TTL on tables with hidden primary keys. */
-  if (ttl_duration > 0 && has_hidden_pk(table_arg)) {
+  // Reusing a legacy index never activates a formerly ignored qualifier.
+  const bool keep_legacy =
+      m_truncate_legacy_ttl ||
+      (old_tbl_def_arg &&
+       !old_tbl_def_arg
+            ->m_key_descr_arr[pk_index(
+                old_table_arg ? *old_table_arg : table_arg, *old_tbl_def_arg)]
+            ->uses_absolute_expiry());
+  bool ignore_row_ttl = keep_legacy;
+  if (!ignore_row_ttl && m_ttl_rebuild_source &&
+      (err = preserve_rebuild_row_ttl(table_arg, tbl_def_arg, &ignore_row_ttl)))
+    DBUG_RETURN(err);
+  // Exercise real legacy encodings in the upgrade regression tests.
+  DBUG_EXECUTE_IF("myrocks_ignore_row_ttl_col", { ignore_row_ttl = true; });
+  if (!ignore_row_ttl &&
+      (err = Rdb_key_def::extract_row_ttl_col(
+           table_arg, tbl_def_arg, row_ttl_column, row_ttl_field_offset))) {
+    DBUG_RETURN(err);
+  }
+  if (!row_ttl_column.empty() && ttl_duration && ttl_column.empty()) {
+    my_error(ER_RDB_TTL_POLICY, MYF(0),
+             "row_ttl_col with ttl_duration requires an explicit ttl_col");
+    DBUG_RETURN(HA_EXIT_FAILURE);
+  }
+  if (!row_ttl_column.empty() && !ttl_column.empty() &&
+      table_arg.field[ttl_field_offset]->is_virtual_gcol()) {
+    my_error(ER_RDB_TTL_POLICY, MYF(0),
+             "absolute-expiry fallback must be stored");
+    DBUG_RETURN(HA_EXIT_FAILURE);
+  }
+  if ((ttl_duration > 0 || !row_ttl_column.empty()) &&
+      has_hidden_pk(table_arg)) {
     my_error(ER_RDB_TTL_UNSUPPORTED, MYF(0));
     DBUG_RETURN(HA_EXIT_FAILURE);
   }
@@ -9385,7 +9534,7 @@ int ha_rocksdb::create_key_defs(
     */
     for (uint i = 0; i < tbl_def_arg.m_key_count; i++) {
       if (create_key_def(table_arg, i, tbl_def_arg, m_key_descr_arr[i], cfs[i],
-                         ttl_duration, ttl_column, is_dd_tbl)) {
+                         ttl_duration, ttl_column, row_ttl_column, is_dd_tbl)) {
         DBUG_RETURN(HA_EXIT_FAILURE);
       }
     }
@@ -9396,8 +9545,8 @@ int ha_rocksdb::create_key_defs(
       generate the necessary new key definitions if any.
     */
     if (create_inplace_key_defs(table_arg, tbl_def_arg, *old_table_arg,
-                                *old_tbl_def_arg, cfs, ttl_duration,
-                                ttl_column)) {
+                                *old_tbl_def_arg, cfs, ttl_duration, ttl_column,
+                                row_ttl_column)) {
       DBUG_RETURN(HA_EXIT_FAILURE);
     }
   }
@@ -9578,7 +9727,8 @@ bool ha_rocksdb::create_inplace_key_defs(
     const TABLE &table_arg, Rdb_tbl_def &tbl_def_arg,
     const TABLE &old_table_arg, const Rdb_tbl_def &old_tbl_def_arg,
     const std::array<key_def_cf_info, MAX_INDEXES + 1> &cfs,
-    uint64 ttl_duration, const std::string &ttl_column) const {
+    uint64 ttl_duration, const std::string &ttl_column,
+    const std::string &row_ttl_column) const {
   DBUG_TRACE;
 
   std::shared_ptr<Rdb_key_def> *const old_key_descr =
@@ -9613,11 +9763,7 @@ bool ha_rocksdb::create_inplace_key_defs(
       }
 
       uint32 ttl_rec_offset =
-          Rdb_key_def::has_index_flag(index_info.m_index_flags,
-                                      Rdb_key_def::TTL_FLAG)
-              ? Rdb_key_def::calculate_index_flag_offset(
-                    index_info.m_index_flags, Rdb_key_def::TTL_FLAG)
-              : UINT_MAX;
+          Rdb_key_def::calculate_ttl_rec_offset(index_info.m_index_flags);
 
       /*
         We can't use the copy constructor because we need to update the
@@ -9633,7 +9779,8 @@ bool ha_rocksdb::create_inplace_key_defs(
               ->get_stats(gl_index_id),
           index_info.m_index_flags, ttl_rec_offset, ttl_duration);
     } else if (create_key_def(table_arg, i, tbl_def_arg, new_key_descr[i],
-                              cfs[i], ttl_duration, ttl_column)) {
+                              cfs[i], ttl_duration, ttl_column,
+                              row_ttl_column)) {
       return true;
     }
 
@@ -9797,6 +9944,7 @@ int ha_rocksdb::create_key_def(const TABLE &table_arg, uint i,
                                const struct key_def_cf_info &cf_info,
                                uint64 ttl_duration,
                                const std::string &ttl_column,
+                               const std::string &row_ttl_column,
                                bool is_dd_tbl /* = false */) const {
   DBUG_ENTER_FUNC();
 
@@ -9810,14 +9958,14 @@ int ha_rocksdb::create_key_def(const TABLE &table_arg, uint i,
 
   if (is_hidden_pk(i, table_arg, tbl_def_arg)) {
     index_type = Rdb_key_def::INDEX_TYPE_HIDDEN_PRIMARY;
-    kv_version = Rdb_key_def::PRIMARY_FORMAT_VERSION_LATEST;
+    kv_version = Rdb_key_def::PRIMARY_FORMAT_VERSION_DEFAULT;
   } else if (i == table_arg.s->primary_key) {
     index_type = Rdb_key_def::INDEX_TYPE_PRIMARY;
-    uint16 pk_latest_version = Rdb_key_def::PRIMARY_FORMAT_VERSION_LATEST;
+    uint16 pk_latest_version = Rdb_key_def::PRIMARY_FORMAT_VERSION_DEFAULT;
     kv_version = pk_latest_version;
   } else {
     index_type = Rdb_key_def::INDEX_TYPE_SECONDARY;
-    uint16 sk_latest_version = Rdb_key_def::SECONDARY_FORMAT_VERSION_LATEST;
+    uint16 sk_latest_version = Rdb_key_def::SECONDARY_FORMAT_VERSION_DEFAULT;
     kv_version = sk_latest_version;
   }
 
@@ -9842,13 +9990,17 @@ int ha_rocksdb::create_key_def(const TABLE &table_arg, uint i,
     }
   });
 
-  uint32 index_flags = (ttl_duration > 0 ? Rdb_key_def::TTL_FLAG : 0);
+  // Do not let debug legacy-format overrides mislabel absolute expiry bytes.
+  if (!row_ttl_column.empty()) {
+    kv_version = index_type == Rdb_key_def::INDEX_TYPE_SECONDARY
+                     ? Rdb_key_def::SECONDARY_FORMAT_VERSION_ROW_TTL
+                     : Rdb_key_def::PRIMARY_FORMAT_VERSION_ROW_TTL;
+  }
+  uint32 index_flags = !row_ttl_column.empty()
+                           ? Rdb_key_def::EXPIRY_TS_FLAG
+                           : (ttl_duration > 0 ? Rdb_key_def::TTL_FLAG : 0);
 
-  uint32 ttl_rec_offset =
-      Rdb_key_def::has_index_flag(index_flags, Rdb_key_def::TTL_FLAG)
-          ? Rdb_key_def::calculate_index_flag_offset(index_flags,
-                                                     Rdb_key_def::TTL_FLAG)
-          : UINT_MAX;
+  uint32 ttl_rec_offset = Rdb_key_def::calculate_ttl_rec_offset(index_flags);
 
   const char *const key_name = get_key_name(i, table_arg, *m_tbl_def);
   new_key_def = std::make_shared<Rdb_key_def>(
@@ -10272,6 +10424,20 @@ int ha_rocksdb::create(const char *const name, TABLE *const table_arg,
       DBUG_RETURN(handle_rocksdb_corrupt_data_error(ha_thd()));
     }
   }
+  // The original TABLE is still open during COPY, including partition rebuilds
+  // and OPTIMIZE. CREATE/CREATE LIKE have no actual_user_table_name.
+  auto reset_ttl_source =
+      create_scope_guard([this]() { m_ttl_rebuild_source = nullptr; });
+  const auto *source_ref = thd->lex->query_tables;
+  const auto *alter = thd->lex->alter_info;
+  const bool explicit_activation =
+      thd->lex->sql_command == SQLCOM_ALTER_TABLE && alter &&
+      alter->flags == Alter_info::ALTER_RECREATE &&
+      alter->requested_algorithm == Alter_info::ALTER_TABLE_ALGORITHM_COPY;
+  if (!explicit_activation && !create_info->actual_user_table_name.empty() &&
+      source_ref && source_ref->table &&
+      source_ref->table->s->db_type() == rocksdb_hton)
+    m_ttl_rebuild_source = source_ref->table;
   DBUG_RETURN(create_table(str, create_info->actual_user_table_name, *table_arg,
                            create_info->auto_increment_value, table_def));
 }
@@ -10312,6 +10478,11 @@ int ha_rocksdb::truncate_table(Rdb_tbl_def *tbl_def_arg,
   std::string orig_tablename = tbl_def_arg->full_tablename();
   std::string dbname, tblname, partition;
 
+  // rename_table() replaces the definition, so capture the persisted state now.
+  const bool legacy_ttl =
+      !tbl_def_arg->m_key_descr_arr[pk_index(*table_arg, *tbl_def_arg)]
+           ->uses_absolute_expiry();
+
   /*
     Rename the table in the data dictionary. Since this thread should be
     holding the MDL for this tablename, it is safe to perform these renames
@@ -10335,8 +10506,10 @@ int ha_rocksdb::truncate_table(Rdb_tbl_def *tbl_def_arg,
     Attempt to create the table. If this succeeds, then drop the old table.
     Otherwise, try to restore it.
   */
+  m_truncate_legacy_ttl = legacy_ttl;
   err = create_table(orig_tablename, actual_user_table_name, *table_arg,
                      auto_increment_value, table_def);
+  m_truncate_legacy_ttl = false;
   bool should_remove_old_table = true;
 
   /* Restore the old table being truncated if creating the new table failed */
@@ -11679,7 +11852,9 @@ const std::string ha_rocksdb::get_table_comment(const TABLE *const table_arg) {
   assert(table_arg != nullptr);
   assert(table_arg->s != nullptr);
 
-  return table_arg->s->comment.str;
+  const auto &comment = table_arg->s->comment;
+  return comment.length ? std::string(comment.str, comment.length)
+                        : std::string();
 }
 
 /**
@@ -15168,6 +15343,33 @@ my_core::enum_alter_inplace_result ha_rocksdb::check_if_supported_inplace_alter(
   DBUG_ENTER_FUNC();
 
   assert(ha_alter_info != nullptr);
+
+  if (m_tbl_def != nullptr) {
+    std::string old_row, new_row, old_base, new_base;
+    uint field;
+    uint64 old_duration = 0, new_duration = 0;
+    if (Rdb_key_def::extract_row_ttl_col(*table, *m_tbl_def, old_row, field,
+                                         true) ||
+        Rdb_key_def::extract_row_ttl_col(*altered_table, *m_tbl_def, new_row,
+                                         field, true))
+      DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
+    if (my_strcasecmp(system_charset_info, old_row.c_str(), new_row.c_str()))
+      DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
+    if (m_pk_descr->uses_absolute_expiry()) {
+      if (Rdb_key_def::extract_row_ttl_col(*altered_table, *m_tbl_def, new_row,
+                                           field) ||
+          Rdb_key_def::extract_ttl_col(*table, *m_tbl_def, old_base, field) ||
+          Rdb_key_def::extract_ttl_col(*altered_table, *m_tbl_def, new_base,
+                                       field) ||
+          Rdb_key_def::extract_ttl_duration(*table, *m_tbl_def, old_duration) ||
+          Rdb_key_def::extract_ttl_duration(*altered_table, *m_tbl_def,
+                                            new_duration) ||
+          old_duration != new_duration ||
+          my_strcasecmp(system_charset_info, old_base.c_str(),
+                        new_base.c_str()))
+        DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
+    }
+  }
 
   /* No need for a table rebuild when changing only index metadata */
   if (ha_alter_info->handler_flags == Alter_inplace_info::RENAME_INDEX &&

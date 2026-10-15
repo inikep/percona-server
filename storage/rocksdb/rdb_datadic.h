@@ -412,6 +412,7 @@ class Rdb_key_def {
   uint get_key_parts() const { return m_key_parts; }
 
   uint get_ttl_field_index() const { return m_ttl_field_index; }
+  uint get_row_ttl_field_index() const { return m_row_ttl_field_index; }
 
   /*
     Get a field object for key part #part_no
@@ -463,10 +464,13 @@ class Rdb_key_def {
   // currently only used for TTL.
   enum INDEX_FLAG {
     TTL_FLAG = 1 << 0,
+    // Mutually exclusive with TTL_FLAG: the same eight bytes hold absolute
+    // expiry, with 0 and UINT64_MAX meaning never. Requires ROW_TTL KV format.
+    EXPIRY_TS_FLAG = 1 << 1,
 
     // MAX_FLAG marks where the actual record starts
     // This flag always needs to be set to the last index flag enum.
-    MAX_FLAG = TTL_FLAG << 1,
+    MAX_FLAG = EXPIRY_TS_FLAG << 1,
   };
 
   // Set of flags to ignore when comparing two CF-s and determining if
@@ -560,7 +564,9 @@ class Rdb_key_def {
     // This change includes:
     //  - NO_PAD collations should not use the space padded encoding
     PRIMARY_FORMAT_VERSION_COLL = 15,
-    PRIMARY_FORMAT_VERSION_LATEST = PRIMARY_FORMAT_VERSION_COLL,
+    PRIMARY_FORMAT_VERSION_DEFAULT = PRIMARY_FORMAT_VERSION_COLL,
+    PRIMARY_FORMAT_VERSION_ROW_TTL = 16,
+    PRIMARY_FORMAT_VERSION_LATEST = PRIMARY_FORMAT_VERSION_ROW_TTL,
 
     SECONDARY_FORMAT_VERSION_INITIAL = 10,
     // This change the SK format to include unpack_info.
@@ -586,7 +592,9 @@ class Rdb_key_def {
     // previously-unsupported collations by storing entire copy of original
     // field in "unpack_info".
     SECONDARY_FORMAT_VERSION_COLL = 16,
-    SECONDARY_FORMAT_VERSION_LATEST = SECONDARY_FORMAT_VERSION_COLL,
+    SECONDARY_FORMAT_VERSION_DEFAULT = SECONDARY_FORMAT_VERSION_COLL,
+    SECONDARY_FORMAT_VERSION_ROW_TTL = 17,
+    SECONDARY_FORMAT_VERSION_LATEST = SECONDARY_FORMAT_VERSION_ROW_TTL,
   };
 
   // Stores if the secondary index keys are covered for index scans or not.
@@ -606,7 +614,23 @@ class Rdb_key_def {
                                             std::string &ttl_column,
                                             uint &ttl_field_index,
                                             bool skip_checks = false);
-  inline bool has_ttl() const { return m_ttl_duration > 0; }
+  [[nodiscard]] static uint extract_row_ttl_col(const TABLE &table,
+                                                const Rdb_tbl_def &def,
+                                                std::string &column,
+                                                uint &field_index,
+                                                bool skip_checks = false);
+  bool uses_absolute_expiry() const {
+    return has_index_flag(m_index_flags_bitmap, EXPIRY_TS_FLAG);
+  }
+  bool has_ttl() const { return m_ttl_rec_offset != UINT_MAX; }
+  bool has_table_ttl() const { return m_ttl_duration > 0; }
+  static uint32 calculate_ttl_rec_offset(uint32 flags) {
+    if (has_index_flag(flags, EXPIRY_TS_FLAG))
+      return calculate_index_flag_offset(flags, EXPIRY_TS_FLAG);
+    if (has_index_flag(flags, TTL_FLAG))
+      return calculate_index_flag_offset(flags, TTL_FLAG);
+    return UINT_MAX;
+  }
 
   [[nodiscard]] uint extract_partial_index_info(const TABLE &table_arg,
                                                 const Rdb_tbl_def &tbl_def_arg);
@@ -975,6 +999,7 @@ class Rdb_key_def {
 
   /* TTL column (if defined by user, otherwise implicit TTL is used) */
   std::string m_ttl_column;
+  std::string m_row_ttl_column;
 
   /* Maximum total length of mem-comparable blob keys */
   uint m_max_blob_length;
@@ -1017,6 +1042,7 @@ class Rdb_key_def {
     Default is UINT_MAX to denote that it does not exist.
   */
   uint m_ttl_field_index;
+  uint m_row_ttl_field_index;
 
   uint m_partial_index_keyparts;
 
@@ -1405,6 +1431,8 @@ class Rdb_tbl_def {
   bool put_dict(Rdb_dict_manager *const dict, Rdb_cf_manager *const cf_manager,
                 rocksdb::WriteBatch &batch, const rocksdb::Slice &key);
 
+  // Diagnostic only; table-cache reopen must not repeat the note.
+  mutable std::atomic<bool> m_ignored_row_ttl_noted{false};
   const std::string &full_tablename() const { return m_dbname_tablename; }
   const std::string &base_dbname() const { return m_dbname; }
   const std::string &base_tablename() const { return m_tablename; }

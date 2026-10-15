@@ -1,0 +1,54 @@
+--source include/have_rocksdb.inc
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+SET time_zone='+00:00';
+CREATE TABLE t(id INT PRIMARY KEY, e TIMESTAMP(6) NULL, v INT, KEY(v))
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=e';
+INSERT INTO t VALUES(1,'1970-01-01 00:00:01.999999',1),(2,NULL,2),
+ (3,'2037-01-01 00:00:00.123456',3);
+SELECT id FROM t ORDER BY id;
+UPDATE t SET v=v+1 WHERE id=3;
+SELECT id FROM t FORCE INDEX(v) ORDER BY id;
+--error ER_RDB_TTL_POLICY
+ALTER TABLE t RENAME COLUMN e TO expiry, ALGORITHM=COPY;
+ALTER TABLE t RENAME COLUMN e TO expiry, COMMENT='row_ttl_col=expiry', ALGORITHM=COPY;
+SELECT id FROM t ORDER BY id;
+ALTER TABLE t COMMENT='', ALGORITHM=COPY;
+SELECT INDEX_FLAGS,KV_FORMAT_VERSION FROM INFORMATION_SCHEMA.ROCKSDB_DDL
+ WHERE TABLE_SCHEMA='test' AND TABLE_NAME='t' AND INDEX_NAME='PRIMARY';
+DROP TABLE t;
+CREATE TABLE t(id INT PRIMARY KEY, e BIGINT, KEY(e)) ENGINE=ROCKSDB
+ COMMENT='p0_row_ttl_col=e' PARTITION BY LIST(id)
+ (PARTITION p0 VALUES IN(1,2), PARTITION p1 VALUES IN(3,4));
+INSERT INTO t VALUES(1,1),(2,0),(3,1),(4,0);
+SELECT * FROM t ORDER BY id;
+ALTER TABLE t ADD INDEX extra(e), ALGORITHM=INPLACE;
+SELECT * FROM t FORCE INDEX(extra) ORDER BY id;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT * FROM t ORDER BY id;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+DROP TABLE t;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+CREATE TABLE t(i INT, j INT, k INT, e BIGINT UNSIGNED, PRIMARY KEY(i,j),
+ KEY partial(i,k) COMMENT 'cfname=ttl_partial;partial_group_keyparts=1;partial_group_threshold=2',
+ KEY full_index(i,k) COMMENT 'cfname=ttl_partial')
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=e';
+SET rocksdb_bulk_load_allow_sk=ON;
+SET rocksdb_bulk_load=ON;
+INSERT INTO t VALUES(1,1,1,1),(1,2,2,2147483647),(1,3,3,0),
+ (2,1,1,18446744073709551615),(2,2,2,1),(2,3,3,0);
+SET rocksdb_bulk_load=OFF;
+SELECT i,j,k FROM t FORCE INDEX(PRIMARY) ORDER BY i,j;
+SELECT i,j,k FROM t FORCE INDEX(partial) ORDER BY i,j;
+SELECT i,j,k FROM t FORCE INDEX(full_index) ORDER BY i,j;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;
+SET GLOBAL rocksdb_compact_cf='ttl_partial';
+SELECT i,j,k FROM t FORCE INDEX(partial) ORDER BY i,j;
+UPDATE t SET e=1 WHERE i=1 AND j=2;
+SELECT i,j,k FROM t FORCE INDEX(partial) ORDER BY i,j;
+CHECK TABLE t;
+DROP TABLE t;
+SET rocksdb_bulk_load_allow_sk=DEFAULT;

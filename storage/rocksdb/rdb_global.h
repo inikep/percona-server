@@ -172,6 +172,7 @@ const constexpr char RDB_TTL_DURATION_QUALIFIER[] = "ttl_duration";
   Qualifier name for a custom per partition ttl duration.
 */
 const constexpr char RDB_TTL_COL_QUALIFIER[] = "ttl_col";
+const constexpr char RDB_ROW_TTL_COL_QUALIFIER[] = "row_ttl_col";
 
 /*
   Qualifier name for number of prefix keyparts in partial index

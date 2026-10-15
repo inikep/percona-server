@@ -45,6 +45,7 @@ class ha_rockspart : public native_part::Partition_base,
     return ROW_TYPE_NOT_USED;
   }
   bool allow_unsafe_alter() const override;
+  void ttl_table_defs(std::vector<const myrocks::Rdb_tbl_def *> *defs) const;
 
  private:
   handler *get_file_handler(TABLE_SHARE *share, MEM_ROOT *alloc) const override;

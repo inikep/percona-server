@@ -1,0 +1,107 @@
+SET SESSION debug='+d,myrocks_ignore_row_ttl_col';
+CREATE TABLE inert(id INT PRIMARY KEY,e BIGINT,v INT) ENGINE=ROCKSDB
+COMMENT='row_ttl_col=e';
+CREATE TABLE implicit_ttl(id INT PRIMARY KEY,e BIGINT,v INT) ENGINE=ROCKSDB
+COMMENT='ttl_duration=1000000;row_ttl_col=e';
+CREATE TABLE part(id INT PRIMARY KEY,e BIGINT,e2 BIGINT) ENGINE=ROCKSDB
+COMMENT='row_ttl_col=e' PARTITION BY RANGE(id)
+(PARTITION p0 VALUES LESS THAN(10),PARTITION p1 VALUES LESS THAN(20));
+SET SESSION debug='-d,myrocks_ignore_row_ttl_col';
+INSERT INTO inert VALUES(1,1,1);
+INSERT INTO implicit_ttl VALUES(1,1,1);
+INSERT INTO part VALUES(1,1,1),(11,1,1);
+FLUSH TABLES;
+SELECT * FROM inert;
+id	e	v
+1	1	1
+SHOW COUNT(*) WARNINGS;
+@@session.warning_count
+0
+FLUSH TABLES;
+SELECT * FROM inert;
+id	e	v
+1	1	1
+SHOW COUNT(*) WARNINGS;
+@@session.warning_count
+0
+ALTER TABLE inert MODIFY v BIGINT, ALGORITHM=COPY;
+ALTER TABLE implicit_ttl MODIFY v BIGINT,ALGORITHM=COPY;
+ALTER TABLE inert FORCE;
+ALTER TABLE inert FORCE,MODIFY v INT,ALGORITHM=COPY;
+OPTIMIZE TABLE inert;
+Table	Op	Msg_type	Msg_text
+test.inert	optimize	status	OK
+SELECT * FROM implicit_ttl;
+id	e	v
+1	1	1
+ALTER TABLE part ADD PARTITION(PARTITION p2 VALUES LESS THAN(30));
+Warnings:
+Warning	138	Inplace partition altering is not supported
+INSERT INTO part VALUES(21,1,1);
+ALTER TABLE part REORGANIZE PARTITION p1,p2 INTO
+(PARTITION p12 VALUES LESS THAN(30));
+Warnings:
+Warning	138	Inplace partition altering is not supported
+SELECT * FROM inert;
+id	e	v
+1	1	1
+SELECT * FROM part ORDER BY id;
+id	e	e2
+1	1	1
+11	1	1
+21	1	1
+SELECT TABLE_NAME,PARTITION_NAME,INDEX_NAME,INDEX_FLAGS,KV_FORMAT_VERSION
+FROM INFORMATION_SCHEMA.ROCKSDB_DDL WHERE TABLE_SCHEMA='test'
+ AND TABLE_NAME IN('inert','implicit_ttl','part') ORDER BY TABLE_NAME,PARTITION_NAME,INDEX_NAME;
+TABLE_NAME	PARTITION_NAME	INDEX_NAME	INDEX_FLAGS	KV_FORMAT_VERSION
+implicit_ttl	NULL	PRIMARY	1	15
+inert	NULL	PRIMARY	0	15
+part	p0	PRIMARY	0	15
+part	p12	PRIMARY	0	15
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SELECT * FROM inert;
+id	e	v
+1	1	1
+SELECT * FROM part ORDER BY id;
+id	e	e2
+1	1	1
+11	1	1
+21	1	1
+ALTER TABLE inert FORCE, ALGORITHM=COPY;
+SELECT * FROM inert;
+id	e	v
+ALTER TABLE part COMMENT='p0_row_ttl_col=e2;row_ttl_col=e',ALGORITHM=COPY;
+ALTER TABLE part COMMENT='row_ttl_col=e',ALGORITHM=COPY;
+SELECT * FROM part ORDER BY id;
+id	e	e2
+11	1	1
+21	1	1
+SELECT TABLE_NAME,PARTITION_NAME,INDEX_FLAGS,KV_FORMAT_VERSION
+FROM INFORMATION_SCHEMA.ROCKSDB_DDL WHERE TABLE_SCHEMA='test'
+ AND TABLE_NAME='part' ORDER BY PARTITION_NAME;
+TABLE_NAME	PARTITION_NAME	INDEX_FLAGS	KV_FORMAT_VERSION
+part	p0	2	16
+part	p12	0	15
+ALTER TABLE part REORGANIZE PARTITION p0,p12 INTO
+(PARTITION merged VALUES LESS THAN(30));
+ERROR HY000: MyRocks TTL: ambiguous row TTL activation for rebuilt partitions; activate the legacy qualifier with FORCE, ALGORITHM=COPY first, or remove it before repartitioning
+ALTER TABLE part REORGANIZE PARTITION p0,p12 INTO
+(PARTITION p0 VALUES LESS THAN(30));
+ERROR HY000: MyRocks TTL: ambiguous row TTL activation for rebuilt partitions; activate the legacy qualifier with FORCE, ALGORITHM=COPY first, or remove it before repartitioning
+SELECT * FROM part ORDER BY id;
+id	e	e2
+11	1	1
+21	1	1
+ALTER TABLE part FORCE,ALGORITHM=COPY;
+ALTER TABLE part REORGANIZE PARTITION p0,p12 INTO
+(PARTITION merged VALUES LESS THAN(30));
+Warnings:
+Warning	138	Inplace partition altering is not supported
+SELECT * FROM part;
+id	e	e2
+INSERT INTO part VALUES(1,0,0),(2,1,1);
+SELECT * FROM part;
+id	e	e2
+1	0	0
+DROP TABLE inert,implicit_ttl,part;
