@@ -39,7 +39,9 @@ The partial-index sentinel retains its never-expire meaning.
 Changing the row TTL column, enabling/disabling row TTL, or changing an active
 row TTL fallback requires `ALGORITHM=COPY`. Unchanged definitions support existing
 in-place index operations. A `row_ttl_col` comment ignored by an older binary
-remains inactive after upgrade, including during in-place ADD INDEX and UPDATE.
+remains inactive after upgrade, including during in-place ADD INDEX, UPDATE,
+TRUNCATE TABLE and TRUNCATE PARTITION. Truncation preserves each partition's
+persisted activation state.
 Opening such a table warns; use `ALTER TABLE ... FORCE, ALGORITHM=COPY` to activate
 it. The persisted flag, rather than the presence of a comment, selects decoding.
 
@@ -67,6 +69,8 @@ both an admission fence and a compaction upper bound:
 
 * New transactions with time T < W are rejected before engine access. T == W is
   accepted. Changing `timestamp` during a transaction does not change its T.
+  Admission covers all MyRocks tables, including non-TTL accesses, bulk loading
+  and lock-skipping writes; it is not deferred until a TTL row is encountered.
 * Compaction never expires rows beyond W, the active transaction minimum, the
   oldest physical snapshot, or wall time, whichever is earliest.
 * `SET GLOBAL rocksdb_ttl_safe_purge_timestamp=N` requires session mode and a
@@ -119,6 +123,15 @@ and W. Do not delete or edit this record to evade a startup failure.
 6. Re-entering session mode after a legacy interval requires a newly assessed H
    and the bootstrap procedure again. The former W is only a lower bound.
 
+An older binary does not understand this policy record. Even with only legacy
+TTL formats present, **perform step 5 using the new binary before starting an
+older binary**. Otherwise the old binary can purge past W without updating the
+record; a later session-mode restart cannot detect that intervening history loss.
+Clean shutdown alone does not prove that no old binary ran afterwards. If an old
+binary has already run without the transition, quiesce work, use the new binary
+to make the explicit legacy transition, reassess retained history and bootstrap
+again before accepting session-time work. Do not simply resume SESSION_ACTIVE.
+
 Physical backup/restore must preserve the policy record with the data, and the
 external producer must restore its dependencies/checkpoints consistently. A
 logical dump contains table definitions and rows, not this policy record; restore
@@ -149,9 +162,22 @@ alone cannot reconstruct every arbitrary source read history.
 | `rocksdb_ttl_session_bootstrap_timestamp` | Startup, 0 | One-shot verified history horizon |
 | `rocksdb_ttl_session_allow_legacy_transition` | Startup, OFF | Explicit drained exit from session mode |
 | `rocksdb_ttl_safe_purge_timestamp` | Dynamic global, durable | Monotonic admission/purge boundary in session mode |
+| `rocksdb_ttl_session_timestamp_shadow` | Startup, OFF | Count differing session-time read verdicts while preserving ordinary behavior |
 | `rocksdb_ttl_dry_run` | Startup, OFF | Return expired rows and retain them during TTL compaction |
 | `rocksdb_pause_ttl_compaction_filter` | Dynamic global, OFF | Stop TTL deletion; reads still filter |
 | `rocksdb_rpl_skip_ttl_read_filtering` | Startup, OFF | Retained RBR before-image lookup |
+
+Session timestamp shadow captures the first MyRocks access time in each
+transaction and compares TTL read decisions against that hypothetical clock.
+`rocksdb_ttl_session_read_mismatches` counts differing decisions, not unique rows.
+It keeps ordinary snapshot visibility, wall-clock implicit INSERT stamps and
+compaction behavior; it neither admits historical transactions under a durable
+fence nor reserves history for them. The hypothetical clock survives savepoints
+and READ COMMITTED snapshot renewal and resets at transaction completion.
+Startup rejects combining shadow with session mode or full-retention dry run.
+TTL disabled, read filtering disabled and replication before-image bypass do not
+produce shadow measurements. Missing or already-purged rows cannot be measured,
+so this diagnostic is not proof that enabling session mode is safe.
 
 Dry run changes query results and DML/uniqueness behavior: it is a full-retention
 mode, not an invisible preview. It still enforces admission and recovery fences.

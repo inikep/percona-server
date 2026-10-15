@@ -762,6 +762,7 @@ static bool rocksdb_cancel_manual_compactions_var = false;
 // Session TTL has a durable admission fence. Never publish a new purge bound
 // before its metadata is durable, or let admission race with that write.
 static bool rocksdb_ttl_use_session_timestamp = false;
+static bool rocksdb_ttl_session_timestamp_shadow = false;
 static bool rocksdb_ttl_dry_run = false;
 static bool rocksdb_pause_ttl_compaction_filter = false;
 static std::atomic<bool> rdb_ttl_compaction_paused{false};
@@ -851,6 +852,13 @@ static void rdb_ttl_update_watermark(THD *thd, SYS_VAR *, void *var_ptr,
 
 static int rdb_ttl_initialize() {
   std::lock_guard<std::mutex> guard(rdb_ttl_admission_mutex);
+  if (rocksdb_ttl_session_timestamp_shadow &&
+      (rocksdb_ttl_use_session_timestamp || rocksdb_ttl_dry_run)) {
+    LogPluginErrMsg(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
+                    "TTL session timestamp shadow requires both session mode "
+                    "and full-retention dry run to be OFF.");
+    return HA_EXIT_FAILURE;
+  }
   auto *dict =
       rdb_get_dict_manager()->get_dict_manager_selector_non_const(false);
   std::string value;
@@ -2522,6 +2530,13 @@ static MYSQL_SYSVAR_BOOL(ttl_dry_run, rocksdb_ttl_dry_run,
                          "records; changes query results",
                          nullptr, nullptr, false);
 static MYSQL_SYSVAR_BOOL(
+    ttl_session_timestamp_shadow, rocksdb_ttl_session_timestamp_shadow,
+    PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+    "Count TTL read verdicts that differ at transaction session time without "
+    "changing snapshot visibility, insert timestamps or compaction; requires "
+    "session mode and full-retention dry run OFF",
+    nullptr, nullptr, false);
+static MYSQL_SYSVAR_BOOL(
     rpl_skip_ttl_read_filtering, rocksdb_rpl_skip_ttl_read_filtering,
     PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
     "Allow RBR before-image lookup of physically retained expired rows",
@@ -3152,6 +3167,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(compact_lzero_now),
     MYSQL_SYSVAR(cancel_manual_compactions),
     MYSQL_SYSVAR(ttl_use_session_timestamp),
+    MYSQL_SYSVAR(ttl_session_timestamp_shadow),
     MYSQL_SYSVAR(ttl_dry_run),
     MYSQL_SYSVAR(rpl_skip_ttl_read_filtering),
     MYSQL_SYSVAR(ttl_session_allow_legacy_transition),
@@ -3611,6 +3627,9 @@ class Rdb_transaction {
   Rdb_transaction_list::mutex. */
   std::int64_t m_earliest_snapshot_ts = 0;
 
+  // Owning thread only; a hypothetical read clock, never a purge reservation.
+  uint64_t m_ttl_shadow_ts = 0;
+
   std::atomic<std::size_t> m_num_ongoing_bulk_load = 0;
 
  protected:
@@ -3830,6 +3849,8 @@ class Rdb_transaction {
   [[nodiscard]] bool is_ddl_transaction() const { return m_ddl_transaction; }
 
   int ensure_ttl_admitted() {
+    if (rocksdb_ttl_session_timestamp_shadow && m_ttl_shadow_ts == 0)
+      m_ttl_shadow_ts = m_thd->query_start_in_secs();
     if (!rocksdb_ttl_use_session_timestamp || m_earliest_snapshot_ts != 0)
       return HA_EXIT_SUCCESS;
     DEBUG_SYNC(m_thd, "rocksdb_ttl_before_admission");
@@ -3850,6 +3871,8 @@ class Rdb_transaction {
     DEBUG_SYNC(m_thd, "rocksdb_ttl_after_admission");
     return HA_EXIT_SUCCESS;
   }
+
+  uint64_t get_ttl_shadow_ts() const { return m_ttl_shadow_ts; }
 
   // Safe to call from other threads
   [[nodiscard]] std::int64_t get_earliest_snapshot_ts() const noexcept {
@@ -4819,6 +4842,7 @@ class Rdb_transaction {
     modified_tables.clear();
 
     Rdb_transaction_list::reinsert_without_snapshot(this);
+    m_ttl_shadow_ts = 0;
   }
 
  protected:
@@ -9013,13 +9037,17 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
 #if !defined(NDEBUG)
   read_filter_ts += rdb_dbug_set_ttl_read_filter_ts();
 #endif  // !defined(NDEBUG)
-  bool is_hide_ttl =
-      kd.uses_absolute_expiry()
-          ? rdb_ttl_expired(
-                rdb_ttl_adjust_expiry(ts, static_cast<int64_t>(read_filter_ts)),
-                0, true, static_cast<uint64>(curr_ts))
-          : ts + kd.m_ttl_duration + read_filter_ts <=
-                static_cast<uint64>(curr_ts);
+  const auto expired_at = [&](uint64_t timestamp) {
+    return kd.uses_absolute_expiry()
+               ? rdb_ttl_expired(rdb_ttl_adjust_expiry(
+                                     ts, static_cast<int64_t>(read_filter_ts)),
+                                 0, true, timestamp)
+               : ts + kd.m_ttl_duration + read_filter_ts <= timestamp;
+  };
+  const bool is_hide_ttl = expired_at(static_cast<uint64_t>(curr_ts));
+  const auto shadow_ts = tx->get_ttl_shadow_ts();
+  if (shadow_ts != 0 && is_hide_ttl != expired_at(shadow_ts))
+    rdb_update_global_stats(TTL_SESSION_READ_MISMATCHES, 1);
   if (is_hide_ttl && rocksdb_ttl_dry_run) {
     rdb_update_global_stats(ROWS_TTL_WOULD_HIDE, 1);
     return false;
@@ -9686,12 +9714,16 @@ int ha_rocksdb::create_key_defs(
 
   // Reusing a legacy index never activates a formerly ignored qualifier.
   const bool keep_legacy =
-      old_tbl_def_arg &&
-      !old_tbl_def_arg
-           ->m_key_descr_arr[pk_index(
-               old_table_arg ? *old_table_arg : table_arg, *old_tbl_def_arg)]
-           ->uses_absolute_expiry();
-  if (!keep_legacy &&
+      m_truncate_legacy_ttl ||
+      (old_tbl_def_arg &&
+       !old_tbl_def_arg
+            ->m_key_descr_arr[pk_index(
+                old_table_arg ? *old_table_arg : table_arg, *old_tbl_def_arg)]
+            ->uses_absolute_expiry());
+  bool ignore_row_ttl = keep_legacy;
+  // Exercise real legacy encodings in the upgrade regression tests.
+  DBUG_EXECUTE_IF("myrocks_ignore_row_ttl_col", { ignore_row_ttl = true; });
+  if (!ignore_row_ttl &&
       (err = Rdb_key_def::extract_row_ttl_col(
            table_arg, tbl_def_arg, row_ttl_column, row_ttl_field_offset))) {
     DBUG_RETURN(err);
@@ -10662,6 +10694,11 @@ int ha_rocksdb::truncate_table(Rdb_tbl_def *tbl_def_arg,
   std::string orig_tablename = tbl_def_arg->full_tablename();
   std::string dbname, tblname, partition;
 
+  // rename_table() replaces the definition, so capture the persisted state now.
+  const bool legacy_ttl =
+      !tbl_def_arg->m_key_descr_arr[pk_index(*table_arg, *tbl_def_arg)]
+           ->uses_absolute_expiry();
+
   /*
     Rename the table in the data dictionary. Since this thread should be
     holding the MDL for this tablename, it is safe to perform these renames
@@ -10685,8 +10722,10 @@ int ha_rocksdb::truncate_table(Rdb_tbl_def *tbl_def_arg,
     Attempt to create the table. If this succeeds, then drop the old table.
     Otherwise, try to restore it.
   */
+  m_truncate_legacy_ttl = legacy_ttl;
   err = create_table(orig_tablename, actual_user_table_name, *table_arg,
                      auto_increment_value, table_def);
+  m_truncate_legacy_ttl = false;
   bool should_remove_old_table = true;
 
   /* Restore the old table being truncated if creating the new table failed */
@@ -16701,6 +16740,8 @@ static void myrocks_update_status() {
   export_stats.rows_read = global_stats.rows[ROWS_READ];
   export_stats.rows_updated = global_stats.rows[ROWS_UPDATED];
   export_stats.ttl_would_hide = global_stats.rows[ROWS_TTL_WOULD_HIDE];
+  export_stats.ttl_session_read_mismatches =
+      global_stats.rows[TTL_SESSION_READ_MISMATCHES];
   export_stats.ttl_would_purge = global_stats.rows[ROWS_TTL_WOULD_PURGE];
   export_stats.ttl_rejected_admissions =
       global_stats.rows[TTL_REJECTED_ADMISSIONS];
@@ -16752,6 +16793,9 @@ static SHOW_VAR myrocks_status_variables[] = {
     DEF_STATUS_VAR_FUNC("rows_updated", &export_stats.rows_updated,
                         SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("ttl_would_hide", &export_stats.ttl_would_hide,
+                        SHOW_LONGLONG),
+    DEF_STATUS_VAR_FUNC("ttl_session_read_mismatches",
+                        &export_stats.ttl_session_read_mismatches,
                         SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("ttl_would_purge", &export_stats.ttl_would_purge,
                         SHOW_LONGLONG),

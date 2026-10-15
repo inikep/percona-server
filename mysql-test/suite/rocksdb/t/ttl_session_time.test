@@ -49,7 +49,19 @@ SET timestamp=149;
 SELECT * FROM t_auto;
 --error ER_RDB_TTL_POLICY
 SELECT * FROM t_session;
+# No snapshot/uniqueness shortcut may bypass admission.
+SET rocksdb_bulk_load=ON;
+--error ER_RDB_TTL_POLICY
+INSERT INTO t_auto VALUES(10,500);
+SET rocksdb_bulk_load=OFF;
+SET unique_checks=0;
+SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=ON;
+--error ER_RDB_TTL_POLICY
+INSERT INTO t_auto VALUES(11,500);
+SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=DEFAULT;
+SET unique_checks=1;
 SET timestamp=150;
+SELECT id FROM t_auto ORDER BY id;
 SELECT id FROM t_session ORDER BY id;
 # Exact low absolute expiry with a larger fallback duration.
 CREATE TABLE t_fallback(id INT PRIMARY KEY, base BIGINT UNSIGNED NOT NULL, expiry BIGINT)

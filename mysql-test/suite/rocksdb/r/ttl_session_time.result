@@ -62,7 +62,20 @@ SELECT * FROM t_auto;
 ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
 SELECT * FROM t_session;
 ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+SET rocksdb_bulk_load=ON;
+INSERT INTO t_auto VALUES(10,500);
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+SET rocksdb_bulk_load=OFF;
+SET unique_checks=0;
+SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=ON;
+INSERT INTO t_auto VALUES(11,500);
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=DEFAULT;
+SET unique_checks=1;
 SET timestamp=150;
+SELECT id FROM t_auto ORDER BY id;
+id
+1
 SELECT id FROM t_session ORDER BY id;
 id
 3

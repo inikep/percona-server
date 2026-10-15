@@ -1072,6 +1072,7 @@ rocksdb_ttl_dry_run	OFF
 rocksdb_ttl_safe_purge_timestamp	0
 rocksdb_ttl_session_allow_legacy_transition	OFF
 rocksdb_ttl_session_bootstrap_timestamp	0
+rocksdb_ttl_session_timestamp_shadow	OFF
 rocksdb_ttl_use_session_timestamp	OFF
 rocksdb_two_write_queues	ON
 rocksdb_unsafe_for_binlog	OFF
@@ -1603,6 +1604,7 @@ rocksdb_rows_inserted	#
 rocksdb_rows_read	#
 rocksdb_rows_updated	#
 rocksdb_ttl_would_hide	#
+rocksdb_ttl_session_read_mismatches	#
 rocksdb_ttl_would_purge	#
 rocksdb_ttl_rejected_admissions	#
 rocksdb_rows_expired	#
@@ -1729,6 +1731,7 @@ rocksdb_rows_inserted
 rocksdb_rows_read
 rocksdb_rows_updated
 rocksdb_ttl_would_hide
+rocksdb_ttl_session_read_mismatches
 rocksdb_ttl_would_purge
 rocksdb_ttl_rejected_admissions
 rocksdb_rows_expired
@@ -1857,6 +1860,7 @@ rocksdb_rows_inserted
 rocksdb_rows_read
 rocksdb_rows_updated
 rocksdb_ttl_would_hide
+rocksdb_ttl_session_read_mismatches
 rocksdb_ttl_would_purge
 rocksdb_ttl_rejected_admissions
 rocksdb_rows_expired

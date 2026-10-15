@@ -1,0 +1,62 @@
+SELECT @@global.rocksdb_ttl_session_timestamp_shadow;
+@@global.rocksdb_ttl_session_timestamp_shadow
+1
+CREATE TABLE t(id INT PRIMARY KEY,e BIGINT) ENGINE=ROCKSDB COMMENT='row_ttl_col=e';
+INSERT INTO t VALUES(1,150),(2,0);
+CREATE TABLE ti(id INT PRIMARY KEY) ENGINE=ROCKSDB COMMENT='ttl_duration=1000';
+SET timestamp=100;
+INSERT INTO ti VALUES(1);
+SELECT * FROM ti;
+id
+1
+SET SESSION transaction_isolation='READ-COMMITTED';
+BEGIN;
+SELECT variable_value INTO @before_count FROM performance_schema.global_status
+WHERE variable_name='rocksdb_ttl_session_read_mismatches';
+SELECT id FROM t ORDER BY id;
+id
+2
+SELECT variable_value > @before_count AS measured FROM performance_schema.global_status
+WHERE variable_name='rocksdb_ttl_session_read_mismatches';
+measured
+1
+SET timestamp=200;
+SAVEPOINT s;
+ROLLBACK TO SAVEPOINT s;
+SELECT variable_value INTO @before_count FROM performance_schema.global_status
+WHERE variable_name='rocksdb_ttl_session_read_mismatches';
+SELECT id FROM t ORDER BY id;
+id
+2
+SELECT variable_value > @before_count AS measured FROM performance_schema.global_status
+WHERE variable_name='rocksdb_ttl_session_read_mismatches';
+measured
+1
+COMMIT;
+SELECT variable_value INTO @before_count FROM performance_schema.global_status
+WHERE variable_name='rocksdb_ttl_session_read_mismatches';
+SELECT id FROM t ORDER BY id;
+id
+2
+SELECT variable_value = @before_count AS unchanged FROM performance_schema.global_status
+WHERE variable_name='rocksdb_ttl_session_read_mismatches';
+unchanged
+1
+SET timestamp=100;
+INSERT INTO t VALUES(1,0);
+SELECT id FROM t ORDER BY id;
+id
+1
+2
+INSERT INTO t VALUES(3,150);
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t ORDER BY id;
+id
+1
+2
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+DROP TABLE t,ti;
+SET timestamp=DEFAULT;
+SET SESSION transaction_isolation=DEFAULT;

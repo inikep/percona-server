@@ -951,6 +951,9 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   bool m_in_rpl_update_rows;
 #endif  // defined(ROCKSDB_INCLUDE_RFR) && ROCKSDB_INCLUDE_RFR
 
+  // TRUNCATE recreates indexes but must not activate an ignored legacy comment.
+  bool m_truncate_legacy_ttl = false;
+
   /* Need to build decoder on next read operation */
   bool m_need_build_decoder;
 };

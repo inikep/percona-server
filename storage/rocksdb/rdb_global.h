@@ -371,6 +371,7 @@ enum operation_type : int {
   ROWS_FILTERED,
   ROWS_UNFILTERED_NO_SNAPSHOT,
   ROWS_TTL_WOULD_HIDE,
+  TTL_SESSION_READ_MISMATCHES,
   ROWS_TTL_WOULD_PURGE,
   TTL_REJECTED_ADMISSIONS,
   ROWS_MAX
@@ -414,6 +415,7 @@ struct st_export_stats {
   ulonglong rows_updated;
   ulonglong rows_deleted_blind;
   ulonglong ttl_would_hide;
+  ulonglong ttl_session_read_mismatches;
   ulonglong ttl_would_purge;
   ulonglong ttl_rejected_admissions;
   ulonglong rows_expired;
