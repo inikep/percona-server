@@ -1,7 +1,33 @@
 # MyRocks Changelog
 
+## MyRocks 9.7.4-1
+* Updates RocksDB submodule to 9.7.4.
+* PS-9766 – Ported MyRocks changes from the Facebook MySQL 202407 release
+· [Jira](https://perconadev.atlassian.net/browse/PS-9766)
+* PS-10110 – Fixed poor MyRocks query plans caused by 1-row range estimates by refining small `records_in_range()` estimates with a bounded index dive
+· [Jira](https://perconadev.atlassian.net/browse/PS-10110) · [Changes](https://github.com/percona/percona-server/commit/9c8b21e9ce52)
+* Added the `SHOW ENGINE ROCKSDB TRANSACTION STATUS` statement. It lists each session's snapshot state, age, and lock and write counts, followed by the most recently detected deadlocks. It requires the `PROCESS` privilege.
+* Added the `INFORMATION_SCHEMA.ROCKSDB_BULK_LOAD_HISTORY` table, which lists active and recently completed bulk-load sessions.
+* `ALTER TABLE` and `DROP TABLE` fail on a table that has an active bulk load, and a bulk load fails on a table with an active `ALTER TABLE` or `DROP TABLE`.
+* Disconnecting with `rocksdb_bulk_load=ON` aborts the unfinished bulk-load session and discards its buffered rows and SST files. Complete the load with `SET SESSION rocksdb_bulk_load=OFF` and check that it succeeds before closing the connection. Previously, disconnect could finalize the buffered load.
+
+### New MyRocks Variables:
+
+* `rocksdb_bulk_load_history_size` – Number of completed bulk-load sessions kept in `INFORMATION_SCHEMA.ROCKSDB_BULK_LOAD_HISTORY` (default 10, maximum 1024).
+* `rocksdb_enable_autoinc_compat_mode` – Lets simple inserts allocate consecutive auto-increment values, as InnoDB does with `innodb_autoinc_lock_mode=2` (default OFF).
+* `rocksdb_gap_lock_raise_error` – How MyRocks handles queries that would need unsupported gap locks: `OFF` allows them, `WARNING` allows them with one warning per statement, `ERROR` rejects them (default ERROR).
+* `rocksdb_max_trash_db_ratio_pct` – `max_trash_db_ratio` of the SST file manager, in percent (default 100000000000). File deletion speed is still limited by `rocksdb_sst_mgr_rate_bytes_per_sec`.
+* `rocksdb_records_in_range_dive_threshold` – If the `records_in_range()` row estimate is below this value, refine it by scanning the index range, reading at most this many keys (default 100, 0 disables).
+* `rocksdb_skip_bulk_load_notify_ddl` – Skips the check for conflicts between DDL and active bulk loads (default OFF).
+* `rocksdb_write_batch_mem_free_threshold` – Frees a write batch instead of reusing it when its allocated memory is above this many bytes; 0 means no limit (default 0).
+
+### Removed MyRocks Variables:
+
+* `rocksdb_error_on_suboptimal_collation` – It has had no effect since Percona Server 8.0.23-14. A configuration file that still sets it must remove it or use the `loose-` prefix, or the server fails to start.
+* `rocksdb_fault_injection_options`
+
 ## MyRocks 9.3.1-5
-**This version was shipped with Percona Server 8.0.46-37, 8.4.9-9, and 9.7.0-1.**
+**This version was shipped with Percona Server 8.0.46-37, 8.4.10-10, and 9.7.1-1.**
 * PS-11142 – Fix gcc-16 compilation issues with c++23
 · [Jira](https://perconadev.atlassian.net/browse/PS-11142) · [Changes](https://github.com/percona/percona-server/commit/d246ab773875)
 * PS-11142 – Fix clang-22, gcc 11-16 / libstdc++ 11-16 compilation issues in RocksDB submodule
@@ -66,9 +92,6 @@
 * `rocksdb_enable_instant_ddl_for_column_default_changes` – Enable instant DDL for column default changes.
 * `rocksdb_enable_instant_ddl_for_drop_index_changes` – Enable instant DDL for dropping indexes.
 * `rocksdb_enable_instant_ddl_for_table_comment_changes` – Enable instant DDL for table comment changes.
-* `rocksdb-bulk-load-compression-parallel-threads` – Alias for `rocksdb_bulk_load_compression_parallel_threads`.
-* `rocksdb-bulk-load-enable-unique-key-check` – Alias for `rocksdb_bulk_load_enable_unique_key_check`.
-* `rocksdb-debug-skip-bloom-filter-check-on-iterator-bounds` – Alias for `rocksdb_debug_skip_bloom_filter_check_on_iterator_bounds`.
 
 ### Changes to Default Values of MyRocks Variables:
 
@@ -82,10 +105,10 @@
 
 ### Removed MyRocks Variables:
 
-* `rocksdb-access-hint-on-compaction-start`
+* `rocksdb_access_hint_on_compaction_start`
 * `rocksdb_large_prefix`
-* `rocksdb_strict_collation_check`
-* `rocksdb_strict_collation_exceptions`
+* `rocksdb_strict_collation_check` (Percona Server 8.0 only; already removed in 8.4)
+* `rocksdb_strict_collation_exceptions` (Percona Server 8.0 only; already removed in 8.4)
 
 
 ## MyRocks 8.5.1-1
