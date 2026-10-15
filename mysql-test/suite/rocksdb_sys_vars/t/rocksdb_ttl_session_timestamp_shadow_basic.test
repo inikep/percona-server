@@ -1,0 +1,6 @@
+--source include/have_rocksdb.inc
+SELECT @@global.rocksdb_ttl_session_timestamp_shadow;
+--error ER_INCORRECT_GLOBAL_LOCAL_VAR
+SET GLOBAL rocksdb_ttl_session_timestamp_shadow=1;
+--error ER_INCORRECT_GLOBAL_LOCAL_VAR,ER_GLOBAL_VARIABLE
+SET SESSION rocksdb_ttl_session_timestamp_shadow=1;
