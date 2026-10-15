@@ -1,6 +1,7 @@
 # MyRocks Changelog
 
 ## MyRocks 9.7.4-1
+* Added opt-in absolute row expiry (`row_ttl_col`), transaction session-time TTL with a durable safe-purge boundary, full-retention dry run, session timestamp shadow diagnostics, and RBR before-image lookup of retained expired rows. Legacy formats and defaults are unchanged; new absolute-expiry indexes require conversion before downgrade. See [TTL configuration and migration](TTL.md).
 * Updates RocksDB submodule to 9.7.4.
 * PS-9766 – Ported MyRocks changes from the Facebook MySQL 202407 release
 · [Jira](https://perconadev.atlassian.net/browse/PS-9766)
