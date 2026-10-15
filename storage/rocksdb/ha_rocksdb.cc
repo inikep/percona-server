@@ -762,6 +762,7 @@ static bool rocksdb_cancel_manual_compactions_var = false;
 static bool rocksdb_ttl_dry_run = false;
 static bool rocksdb_pause_ttl_compaction_filter = false;
 static std::atomic<bool> rdb_ttl_compaction_paused{false};
+static bool rocksdb_rpl_skip_ttl_read_filtering = false;
 
 bool rdb_ttl_dry_run_enabled() { return rocksdb_ttl_dry_run; }
 static void rdb_ttl_update_pause(THD *, SYS_VAR *, void *var_ptr,
@@ -2349,6 +2350,11 @@ static MYSQL_SYSVAR_BOOL(ttl_dry_run, rocksdb_ttl_dry_run,
                          "records; changes query results",
                          nullptr, nullptr, false);
 static MYSQL_SYSVAR_BOOL(
+    rpl_skip_ttl_read_filtering, rocksdb_rpl_skip_ttl_read_filtering,
+    PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+    "Allow RBR before-image lookup of physically retained expired rows",
+    nullptr, nullptr, false);
+static MYSQL_SYSVAR_BOOL(
     pause_ttl_compaction_filter, rocksdb_pause_ttl_compaction_filter,
     PLUGIN_VAR_RQCMDARG,
     "Pause TTL deletion, preserving read filtering and dropped-index cleanup",
@@ -2955,6 +2961,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(compact_lzero_now),
     MYSQL_SYSVAR(cancel_manual_compactions),
     MYSQL_SYSVAR(ttl_dry_run),
+    MYSQL_SYSVAR(rpl_skip_ttl_read_filtering),
     MYSQL_SYSVAR(pause_ttl_compaction_filter),
     MYSQL_SYSVAR(enable_ttl),
     MYSQL_SYSVAR(enable_ttl_read_filtering),
@@ -11284,7 +11291,8 @@ int ha_rocksdb::get_row_by_rowid(uchar *const buf, const char *const rowid,
     bool skip_wait =
         m_locked_row_action == THR_NOWAIT || m_locked_row_action == THR_SKIP;
     rc = get_pk_iterator()->get(&key_slice, &m_retrieved_record, m_lock_rows,
-                                skip_ttl_check, skip_wait);
+                                skip_ttl_check || ttl_before_image_lookup(),
+                                skip_wait);
   }
 
   if (!rc) {
@@ -12961,6 +12969,15 @@ void ha_rocksdb::check_build_decoder() {
     HA_EXIT_SUCCESS  OK
     other            HA_ERR error code (can be SE-specific)
 */
+bool ha_rocksdb::ttl_before_image_lookup() const {
+#if defined(ROCKSDB_INCLUDE_RFR) && ROCKSDB_INCLUDE_RFR
+  return rocksdb_rpl_skip_ttl_read_filtering &&
+         (m_in_rpl_update_rows || m_in_rpl_delete_rows);
+#else
+  return false;
+#endif
+}
+
 int ha_rocksdb::index_init(uint idx, bool sorted) {
   DBUG_ENTER_FUNC();
 
@@ -12991,6 +13008,8 @@ int ha_rocksdb::index_init(uint idx, bool sorted) {
     m_iterator.reset(new Rdb_iterator_base(
         thd, *m_key_descr_arr[active_index_pos()], *m_pk_descr, m_tbl_def));
   }
+
+  m_iterator->set_ttl_before_image(ttl_before_image_lookup());
 
   // If m_lock_rows is not RDB_LOCK_NONE then we will be doing a get_for_update
   // when accessing the index, so don't acquire the snapshot right away.
@@ -18359,6 +18378,7 @@ void ha_rocksdb::rpl_before_delete_rows() {
   DBUG_ENTER_FUNC();
 
   m_in_rpl_delete_rows = true;
+  if (m_iterator) m_iterator->set_ttl_before_image(ttl_before_image_lookup());
 
   DBUG_VOID_RETURN;
 }
@@ -18367,6 +18387,7 @@ void ha_rocksdb::rpl_after_delete_rows() {
   DBUG_ENTER_FUNC();
 
   m_in_rpl_delete_rows = false;
+  if (m_iterator) m_iterator->set_ttl_before_image(false);
 
   DBUG_VOID_RETURN;
 }
@@ -18375,6 +18396,7 @@ void ha_rocksdb::rpl_before_update_rows() {
   DBUG_ENTER_FUNC();
 
   m_in_rpl_update_rows = true;
+  if (m_iterator) m_iterator->set_ttl_before_image(ttl_before_image_lookup());
 
   DBUG_VOID_RETURN;
 }
@@ -18383,6 +18405,7 @@ void ha_rocksdb::rpl_after_update_rows() {
   DBUG_ENTER_FUNC();
 
   m_in_rpl_update_rows = false;
+  if (m_iterator) m_iterator->set_ttl_before_image(false);
 
   DBUG_VOID_RETURN;
 }

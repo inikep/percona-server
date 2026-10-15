@@ -737,6 +737,8 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
   int compare_keys(const KEY *const old_key, const KEY *const new_key) const
       MY_ATTRIBUTE((__warn_unused_result__));
 
+  bool ttl_before_image_lookup() const;
+
   int index_read_intern(uchar *const buf, const uchar *const key,
                         key_part_map keypart_map,
                         enum ha_rkey_function find_flag)

@@ -1042,6 +1042,7 @@ rocksdb_records_in_range	50
 rocksdb_records_in_range_dive_threshold	100
 rocksdb_reset_stats	OFF
 rocksdb_rollback_on_timeout	OFF
+rocksdb_rpl_skip_ttl_read_filtering	OFF
 rocksdb_rpl_skip_tx_api	OFF
 rocksdb_seconds_between_stat_computes	3600
 rocksdb_signal_drop_index_thread	OFF

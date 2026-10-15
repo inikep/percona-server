@@ -324,7 +324,8 @@ int Rdb_iterator_base::next_with_direction(bool move_forward, bool skip_next) {
     }
 
     // Record is not visible due to TTL, move to next record.
-    if (m_pkd.has_ttl() && rdb_should_hide_ttl_rec(m_kd, &value, tx)) {
+    if (!m_ttl_before_image && m_pkd.has_ttl() &&
+        rdb_should_hide_ttl_rec(m_kd, &value, tx)) {
       continue;
     }
 
@@ -414,7 +415,7 @@ int Rdb_iterator_base::convert_get_status(myrocks::Rdb_transaction &tx,
   }
 
   const bool hide_ttl_rec =
-      !skip_ttl_check && m_kd.has_ttl() &&
+      !skip_ttl_check && !m_ttl_before_image && m_kd.has_ttl() &&
       rdb_should_hide_ttl_rec(m_kd, s.IsNotFound() ? nullptr : value, &tx);
 
   if (hide_ttl_rec || s.IsNotFound()) {
