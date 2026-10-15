@@ -342,6 +342,7 @@ int Rdb_iterator_base::next_with_direction(bool move_forward, bool skip_next) {
 int Rdb_iterator_base::seek(enum ha_rkey_function find_flag,
                             const rocksdb::Slice start_key, bool full_key_match,
                             const rocksdb::Slice end_key, bool read_current) {
+  if (const int error = rdb_ttl_admit(get_tx_from_thd(m_thd))) return error;
   int rc = 0;
   int bytes_changed_by_succ = 0;
 
@@ -428,6 +429,7 @@ int Rdb_iterator_base::convert_get_status(myrocks::Rdb_transaction &tx,
 int Rdb_iterator_base::get(const rocksdb::Slice *key,
                            rocksdb::PinnableSlice *value, Rdb_lock_type type,
                            bool skip_ttl_check, bool skip_wait) {
+  if (const int error = rdb_ttl_admit(get_tx_from_thd(m_thd))) return error;
   m_valid = false;
   Rdb_transaction *const tx = get_tx_from_thd(m_thd);
   rocksdb::Status s;
@@ -903,6 +905,7 @@ int Rdb_iterator_partial::seek(enum ha_rkey_function find_flag,
                                const rocksdb::Slice start_key, bool,
                                const rocksdb::Slice end_key,
                                bool read_current) {
+  if (const int error = rdb_ttl_admit(get_tx_from_thd(m_thd))) return error;
   int rc = 0;
   uint tmp;
 
@@ -1034,6 +1037,7 @@ int Rdb_iterator_partial::seek(enum ha_rkey_function find_flag,
 int Rdb_iterator_partial::get(const rocksdb::Slice *key,
                               rocksdb::PinnableSlice *value, Rdb_lock_type type,
                               bool skip_ttl_check, bool skip_wait) {
+  if (const int error = rdb_ttl_admit(get_tx_from_thd(m_thd))) return error;
   int rc = Rdb_iterator_base::get(key, value, type, skip_ttl_check, skip_wait);
 
   if (rc == HA_ERR_KEY_NOT_FOUND) {

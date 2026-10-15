@@ -1,0 +1,9 @@
+SELECT @@global.rocksdb_ttl_use_session_timestamp;
+@@global.rocksdb_ttl_use_session_timestamp
+0
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=1;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=0;
+ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
+SET SESSION rocksdb_ttl_safe_purge_timestamp=1;
+ERROR HY000: Variable 'rocksdb_ttl_safe_purge_timestamp' is a GLOBAL variable and should be set with SET GLOBAL

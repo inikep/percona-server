@@ -759,11 +759,182 @@ static bool rocksdb_force_flush_memtable_now_var = true;
 static bool rocksdb_force_flush_memtable_and_lzero_now_var = false;
 static bool rocksdb_compact_lzero_now_var = false;
 static bool rocksdb_cancel_manual_compactions_var = false;
+// Session TTL has a durable admission fence. Never publish a new purge bound
+// before its metadata is durable, or let admission race with that write.
+static bool rocksdb_ttl_use_session_timestamp = false;
 static bool rocksdb_ttl_dry_run = false;
 static bool rocksdb_pause_ttl_compaction_filter = false;
 static std::atomic<bool> rdb_ttl_compaction_paused{false};
 static bool rocksdb_rpl_skip_ttl_read_filtering = false;
+static ulonglong rocksdb_ttl_session_bootstrap_timestamp = 0;
+static bool rocksdb_ttl_session_allow_legacy_transition = false;
+static ulonglong rocksdb_ttl_safe_purge_timestamp = 0;
+// Lock order: admission mutex -> transaction-list mutex. Transaction completion
+// only takes the list mutex. Admission and watermark SET are serialized through
+// the synchronous metadata write, so no accepted reader can fall below a newly
+// durable boundary, including after a crash between persistence and
+// publication.
+static std::mutex rdb_ttl_admission_mutex;
+static std::atomic<uint64_t> rdb_ttl_watermark{0};
+static std::atomic<bool> rdb_ttl_initialized{false};
+static std::atomic<bool> rdb_ttl_ready{false};
+static bool rdb_ttl_io_failed = false;  // under admission mutex
+// Only detached/recovered XA needs extra lifetime storage. Ordinary
+// transactions continue to use Rdb_transaction_list. A recovered unknown time
+// blocks admission.
+static std::map<std::string, uint64_t> rdb_ttl_detached;
 
+static std::string rdb_ttl_state_key() {
+  char key[4];
+  rdb_netbuf_store_uint32(reinterpret_cast<uchar *>(key),
+                          Rdb_key_def::TTL_POLICY);
+  return std::string(key, sizeof(key));
+}
+
+static rocksdb::Status rdb_ttl_write_state(uint8_t state, uint64_t watermark) {
+  auto *dict =
+      rdb_get_dict_manager()->get_dict_manager_selector_non_const(false);
+  char value[11];
+  rdb_netbuf_store_uint16(reinterpret_cast<uchar *>(value), 1);
+  value[2] = state;  // 1 = session active, 2 = legacy authorized
+  rdb_netbuf_store_uint64(reinterpret_cast<uchar *>(value + 3), watermark);
+  auto batch = Rdb_dict_manager::begin();
+  dict->put_key(batch, rdb_ttl_state_key(),
+                rocksdb::Slice(value, sizeof(value)));
+  rocksdb::WriteOptions options;
+  options.sync = true;
+  rocksdb::TransactionDBWriteOptimizations optimize;
+  optimize.skip_concurrency_control = true;
+  DBUG_EXECUTE_IF("rocksdb_ttl_watermark_write_error", {
+    return rocksdb::Status::IOError("injected TTL policy write failure");
+  });
+  auto status = rdb_get_rocksdb_db()->Write(options, optimize, &batch);
+  DBUG_EXECUTE_IF("rocksdb_ttl_watermark_ambiguous_error", {
+    if (status.ok())
+      return rocksdb::Status::IOError("injected ambiguous TTL write");
+  });
+  return status;
+}
+
+static int rdb_ttl_check_watermark(THD *, SYS_VAR *, void *save,
+                                   struct st_mysql_value *value) {
+  long long candidate;
+  if (value->val_int(value, &candidate) || candidate < 0 ||
+      candidate > 2147483647)
+    return HA_EXIT_FAILURE;
+  *static_cast<ulonglong *>(save) = static_cast<ulonglong>(candidate);
+  return HA_EXIT_SUCCESS;
+}
+
+static void rdb_ttl_update_watermark(THD *thd, SYS_VAR *, void *var_ptr,
+                                     const void *save) {
+  const auto candidate = *static_cast<const ulonglong *>(save);
+  std::lock_guard<std::mutex> guard(rdb_ttl_admission_mutex);
+  uint64_t oldest = oldest_transaction_timestamp();
+  for (const auto &entry : rdb_ttl_detached) {
+    if (oldest == 0 || entry.second < oldest) oldest = entry.second;
+  }
+  if (!rocksdb_ttl_use_session_timestamp || !rdb_ttl_ready.load() ||
+      candidate == 0 || candidate < rdb_ttl_watermark.load() ||
+      (oldest != 0 && candidate > oldest)) {
+    my_error(
+        ER_RDB_TTL_POLICY, MYF(0),
+        "watermark must be monotonic and no greater than any active TTL time; "
+        "resolve recovery blockers or wait for older transactions");
+    return;
+  }
+  if (candidate == rdb_ttl_watermark.load()) return;
+  DEBUG_SYNC(thd, "rocksdb_ttl_before_watermark_write");
+  const auto status = rdb_ttl_write_state(1, candidate);
+  if (!status.ok()) {
+    rdb_ttl_io_failed = true;
+    rdb_ttl_ready.store(false);
+    my_error(ER_RDB_TTL_POLICY, MYF(0),
+             "watermark durability is uncertain; restart to reload the durable "
+             "fence");
+    return;
+  }
+  DEBUG_SYNC(thd, "rocksdb_ttl_after_watermark_write");
+  rdb_ttl_watermark.store(candidate);
+  *static_cast<ulonglong *>(var_ptr) = candidate;
+}
+
+static int rdb_ttl_initialize() {
+  std::lock_guard<std::mutex> guard(rdb_ttl_admission_mutex);
+  auto *dict =
+      rdb_get_dict_manager()->get_dict_manager_selector_non_const(false);
+  std::string value;
+  const auto status = dict->get_value(rdb_ttl_state_key(), &value);
+  uint64_t watermark = 0;
+  uint8_t state = 0;
+  if (status.ok()) {
+    if (value.size() != 11 ||
+        rdb_netbuf_to_uint16(reinterpret_cast<const uchar *>(value.data())) !=
+            1)
+      return HA_EXIT_FAILURE;
+    state = static_cast<uint8_t>(value[2]);
+    watermark =
+        rdb_netbuf_to_uint64(reinterpret_cast<const uchar *>(value.data() + 3));
+    if ((state != 1 && state != 2) || watermark == 0 || watermark > 2147483647)
+      return HA_EXIT_FAILURE;
+  } else if (!status.IsNotFound()) {
+    return HA_EXIT_FAILURE;
+  }
+  std::vector<rocksdb::Transaction *> prepared;
+  rdb_get_rocksdb_db()->GetAllPreparedTransactions(&prepared);
+  if (rocksdb_ttl_use_session_timestamp) {
+    if (!rdb_sync_wal_supported() ||
+        rocksdb_ttl_session_allow_legacy_transition)
+      return HA_EXIT_FAILURE;
+    if (state != 1) {
+      if (!prepared.empty() || rocksdb_ttl_session_bootstrap_timestamp == 0 ||
+          rocksdb_ttl_session_bootstrap_timestamp < watermark)
+        return HA_EXIT_FAILURE;
+      watermark = rocksdb_ttl_session_bootstrap_timestamp;
+      if (!rdb_ttl_write_state(1, watermark).ok()) return HA_EXIT_FAILURE;
+    } else if (rocksdb_ttl_session_bootstrap_timestamp != 0) {
+      return HA_EXIT_FAILURE;
+    }
+    for (const auto *tx : prepared) rdb_ttl_detached.emplace(tx->GetName(), 0);
+  } else {
+    if (rocksdb_ttl_session_bootstrap_timestamp != 0) return HA_EXIT_FAILURE;
+    if (state == 1) {
+      if (!rocksdb_ttl_session_allow_legacy_transition || !prepared.empty() ||
+          !rdb_sync_wal_supported() || !rdb_ttl_write_state(2, watermark).ok())
+        return HA_EXIT_FAILURE;
+    }
+  }
+  rocksdb_ttl_safe_purge_timestamp = watermark;
+  rdb_ttl_watermark.store(watermark);
+  rdb_ttl_ready.store(!rocksdb_ttl_use_session_timestamp || prepared.empty());
+  rdb_ttl_initialized.store(true);
+  return HA_EXIT_SUCCESS;
+}
+
+static void rdb_ttl_detach(const std::string &name, uint64_t timestamp) {
+  if (!rocksdb_ttl_use_session_timestamp) return;
+  std::lock_guard<std::mutex> guard(rdb_ttl_admission_mutex);
+  try {
+    rdb_ttl_detached.emplace(name, timestamp);
+    if (timestamp == 0) rdb_ttl_ready.store(false);
+  } catch (const std::bad_alloc &) {
+    rdb_ttl_io_failed = true;
+    rdb_ttl_ready.store(false);
+  }
+}
+
+static void rdb_ttl_resolve(const std::string &name) {
+  if (!rocksdb_ttl_use_session_timestamp) return;
+  std::lock_guard<std::mutex> guard(rdb_ttl_admission_mutex);
+  rdb_ttl_detached.erase(name);
+  bool known = true;
+  for (const auto &entry : rdb_ttl_detached) known &= entry.second != 0;
+  rdb_ttl_ready.store(known && !rdb_ttl_io_failed);
+}
+
+bool rdb_ttl_session_time_enabled() {
+  return rocksdb_ttl_use_session_timestamp;
+}
 bool rdb_ttl_dry_run_enabled() { return rocksdb_ttl_dry_run; }
 static void rdb_ttl_update_pause(THD *, SYS_VAR *, void *var_ptr,
                                  const void *save) {
@@ -772,7 +943,13 @@ static void rdb_ttl_update_pause(THD *, SYS_VAR *, void *var_ptr,
   rdb_ttl_compaction_paused.store(paused);
 }
 bool rdb_ttl_purge_bound(uint64_t *bound) {
-  if (rdb_ttl_compaction_paused.load()) return false;
+  if (!rdb_ttl_initialized.load() || !rdb_ttl_ready.load() ||
+      rdb_ttl_compaction_paused.load())
+    return false;
+  if (rocksdb_ttl_use_session_timestamp) {
+    *bound = rdb_ttl_watermark.load();
+    return *bound != 0;
+  }
   *bound = UINT64_MAX;
   return true;
 }
@@ -2344,6 +2521,12 @@ static MYSQL_THDVAR_BOOL(disable_file_deletions,
                          "Prevent file deletions", nullptr,
                          rocksdb_disable_file_deletions_update, false);
 
+static MYSQL_SYSVAR_BOOL(ttl_use_session_timestamp,
+                         rocksdb_ttl_use_session_timestamp,
+                         PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+                         "Use a transaction-stable SQL session timestamp for "
+                         "TTL; requires verified bootstrap",
+                         nullptr, nullptr, false);
 static MYSQL_SYSVAR_BOOL(ttl_dry_run, rocksdb_ttl_dry_run,
                          PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
                          "Count TTL decisions without hiding or TTL-deleting "
@@ -2355,10 +2538,29 @@ static MYSQL_SYSVAR_BOOL(
     "Allow RBR before-image lookup of physically retained expired rows",
     nullptr, nullptr, false);
 static MYSQL_SYSVAR_BOOL(
+    ttl_session_allow_legacy_transition,
+    rocksdb_ttl_session_allow_legacy_transition,
+    PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+    "Authorize a drained session-to-legacy TTL migration at startup", nullptr,
+    nullptr, false);
+static MYSQL_SYSVAR_BOOL(
     pause_ttl_compaction_filter, rocksdb_pause_ttl_compaction_filter,
     PLUGIN_VAR_RQCMDARG,
     "Pause TTL deletion, preserving read filtering and dropped-index cleanup",
     nullptr, rdb_ttl_update_pause, false);
+static MYSQL_SYSVAR_ULONGLONG(ttl_session_bootstrap_timestamp,
+                              rocksdb_ttl_session_bootstrap_timestamp,
+                              PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+                              "Verified initial TTL history horizon (one-shot "
+                              "bootstrap; remove after success)",
+                              nullptr, nullptr, 0, 0, 2147483647, 0);
+static MYSQL_SYSVAR_ULONGLONG(ttl_safe_purge_timestamp,
+                              rocksdb_ttl_safe_purge_timestamp,
+                              PLUGIN_VAR_NOCMDOPT | PLUGIN_VAR_NOPERSIST,
+                              "Durable safe TTL boundary; coordinator "
+                              "guarantees no pending or retryable older work",
+                              rdb_ttl_check_watermark, rdb_ttl_update_watermark,
+                              0, 0, 2147483647, 0);
 
 static MYSQL_SYSVAR_BOOL(
     enable_ttl, rocksdb_enable_ttl, PLUGIN_VAR_RQCMDARG,
@@ -2960,9 +3162,13 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(force_flush_memtable_and_lzero_now),
     MYSQL_SYSVAR(compact_lzero_now),
     MYSQL_SYSVAR(cancel_manual_compactions),
+    MYSQL_SYSVAR(ttl_use_session_timestamp),
     MYSQL_SYSVAR(ttl_dry_run),
     MYSQL_SYSVAR(rpl_skip_ttl_read_filtering),
+    MYSQL_SYSVAR(ttl_session_allow_legacy_transition),
     MYSQL_SYSVAR(pause_ttl_compaction_filter),
+    MYSQL_SYSVAR(ttl_session_bootstrap_timestamp),
+    MYSQL_SYSVAR(ttl_safe_purge_timestamp),
     MYSQL_SYSVAR(enable_ttl),
     MYSQL_SYSVAR(enable_ttl_read_filtering),
     MYSQL_SYSVAR(debug_ttl_rec_ts),
@@ -3410,8 +3616,9 @@ class Rdb_transaction {
   /** The timestamp of the earliest snapshot in the transaction, which does not
   change even if the snapshot gets renewed or released. It is used to ensure
   that the TTL filtering returns the same set of the rows throughout the
-  transaction lifetime. Zero if the transaction hasn't acquired a snapshot
-  yet. Writes and reads from other threads are protected by
+  transaction lifetime. In session-time mode this is the logical time reserved
+  before engine access, while m_snapshot_ts remains physical. Zero means no
+  snapshot/reservation yet. Writes and reads from other threads are protected by
   Rdb_transaction_list::mutex. */
   std::int64_t m_earliest_snapshot_ts = 0;
 
@@ -3633,6 +3840,36 @@ class Rdb_transaction {
 
   [[nodiscard]] bool is_ddl_transaction() const { return m_ddl_transaction; }
 
+  int ensure_ttl_admitted() {
+    if (!rocksdb_ttl_use_session_timestamp || m_earliest_snapshot_ts != 0)
+      return HA_EXIT_SUCCESS;
+    DEBUG_SYNC(m_thd, "rocksdb_ttl_before_admission");
+    std::lock_guard<std::mutex> guard(rdb_ttl_admission_mutex);
+    const uint64_t timestamp = m_thd->query_start_in_secs();
+    if (!rdb_ttl_ready.load() || timestamp == 0 ||
+        timestamp < rdb_ttl_watermark.load()) {
+      rdb_update_global_stats(TTL_REJECTED_ADMISSIONS, 1);
+      std::string reason;
+      if (!rdb_ttl_ready.load()) {
+        reason = rdb_ttl_io_failed ? "watermark durability is uncertain; "
+                                     "restart to reload the durable fence"
+                                   : "TTL recovery is incomplete; resolve "
+                                     "recovered prepared XA transactions";
+      } else if (timestamp == 0) {
+        reason = "session timestamp is zero; set a valid session time";
+      } else {
+        reason = "session time " + std::to_string(timestamp) +
+                 " is below durable boundary " +
+                 std::to_string(rdb_ttl_watermark.load());
+      }
+      my_error(ER_RDB_TTL_POLICY, MYF(0), reason.c_str());
+      return HA_ERR_GENERIC;
+    }
+    Rdb_transaction_list::reinsert_with_snapshot(this, timestamp);
+    DEBUG_SYNC(m_thd, "rocksdb_ttl_after_admission");
+    return HA_EXIT_SUCCESS;
+  }
+
   // Safe to call from other threads
   [[nodiscard]] std::int64_t get_earliest_snapshot_ts() const noexcept {
     const auto result = m_earliest_snapshot_ts;
@@ -3641,7 +3878,8 @@ class Rdb_transaction {
     assert(result >= 0);
     const auto current_timestamp =
         m_snapshot_ts.load(std::memory_order_relaxed);
-    assert(current_timestamp >= result || current_timestamp == 0);
+    assert(rocksdb_ttl_use_session_timestamp || current_timestamp >= result ||
+           current_timestamp == 0);
 #endif
 
     return result;
@@ -3653,7 +3891,8 @@ class Rdb_transaction {
 
     assert(result >= 0);
     assert(m_earliest_snapshot_ts >= 0);
-    assert(m_earliest_snapshot_ts <= result || result == 0);
+    assert(rocksdb_ttl_use_session_timestamp ||
+           m_earliest_snapshot_ts <= result || result == 0);
 
     return result;
   }
@@ -3782,10 +4021,13 @@ class Rdb_transaction {
     DEBUG_SYNC(m_thd, "rocksdb_snapshot_before_publication");
     const auto earliest_ts = get_earliest_snapshot_ts();
     if (earliest_ts == 0) {
+      // Session admission is fallible and must precede this void callback.
+      assert(!rocksdb_ttl_use_session_timestamp);
       const auto new_earliest_ts = snapshot->GetUnixTime();
       Rdb_transaction_list::reinsert_with_snapshot(this, new_earliest_ts);
     } else {
-      assert(earliest_ts <= snapshot->GetUnixTime());
+      assert(rocksdb_ttl_use_session_timestamp ||
+             earliest_ts <= snapshot->GetUnixTime());
     }
     m_is_delayed_snapshot = false;
   }
@@ -4855,6 +5097,7 @@ class Rdb_transaction_impl : public Rdb_transaction {
   void detach_prepared() override {
     if (m_rocksdb_tx &&
         m_rocksdb_tx->GetState() == rocksdb::Transaction::PREPARED) {
+      rdb_ttl_detach(m_rocksdb_tx->GetName(), get_earliest_snapshot_ts());
       release_snapshot();
       mysql_mutex_lock(&m_rdb_tx_mutex);
       // TransactionDB keeps named prepared transactions alive. Its XID
@@ -6136,6 +6379,7 @@ static xa_status_code rocksdb_commit_by_xid(handlerton *const hton,
 
   const int marker_error = rocksdb_write_xa_marker(name, false);
   delete trx;
+  rdb_ttl_resolve(name);
 
   // `Add()` is implemented in a thread-safe manner.
   commit_latency_stats->Add(timer.ElapsedNanos() / 1000);
@@ -6168,6 +6412,7 @@ static xa_status_code rocksdb_rollback_by_xid(
 
   const int marker_error = rocksdb_write_xa_marker(name, false);
   delete trx;
+  rdb_ttl_resolve(name);
 
   DBUG_RETURN(marker_error ? XAER_RMERR : XA_OK);
 }
@@ -6518,15 +6763,24 @@ class Rdb_snapshot_status : public Rdb_tx_list_walker {
       THD *thd = tx->get_thd();
       char buffer[1024];
       thd_security_context(thd, buffer, sizeof buffer, 0);
-      m_data += format_string(
-          "%s\n"
-          "earliest snapshot created %" PRId64
-          " sec ago\n"
-          "lock count %llu, write count %llu\n"
-          "insert count %llu, update count %llu, delete count %llu\n",
-          buffer, earliest_snapshot_age, tx->get_row_lock_count(),
-          tx->get_write_count(), tx->get_insert_count(), tx->get_update_count(),
-          tx->get_delete_count());
+      if (rocksdb_ttl_use_session_timestamp) {
+        m_data += format_string(
+            "%s\nlogical TTL timestamp %" PRId64
+            "\nlock count %llu, write count %llu\n"
+            "insert count %llu, update count %llu, delete count %llu\n",
+            buffer, earliest_snapshot_timestamp, tx->get_row_lock_count(),
+            tx->get_write_count(), tx->get_insert_count(),
+            tx->get_update_count(), tx->get_delete_count());
+      } else
+        m_data += format_string(
+            "%s\n"
+            "earliest snapshot created %" PRId64
+            " sec ago\n"
+            "lock count %llu, write count %llu\n"
+            "insert count %llu, update count %llu, delete count %llu\n",
+            buffer, earliest_snapshot_age, tx->get_row_lock_count(),
+            tx->get_write_count(), tx->get_insert_count(),
+            tx->get_update_count(), tx->get_delete_count());
     } else {
       m_data += format_string("---NO ACTIVE SNAPSHOT\n");
 
@@ -7013,6 +7267,7 @@ static int rocksdb_start_tx_and_assign_read_view(
   ulong const tx_isolation = my_core::thd_tx_isolation(thd);
 
   Rdb_transaction *tx = get_or_create_tx(thd);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) return ttl_error;
   Rdb_perf_context_guard guard(tx, rocksdb_perf_context_level(thd));
 
   assert(!tx->has_snapshot());
@@ -7317,6 +7572,10 @@ static bool rocksdb_notify_rename_table(THD *, const MDL_key *,
 static int rocksdb_init_internal(void *const p) {
   DBUG_ENTER_FUNC();
 
+  rdb_ttl_initialized.store(false);
+  rdb_ttl_ready.store(false);
+  rdb_ttl_io_failed = false;
+  rdb_ttl_detached.clear();
   rdb_ttl_compaction_paused.store(rocksdb_pause_ttl_compaction_filter);
 
   // Validate the assumption about the size of ROCKSDB_SIZEOF_HIDDEN_PK_COLUMN.
@@ -7887,6 +8146,16 @@ static int rocksdb_init_internal(void *const p) {
     DBUG_RETURN(HA_EXIT_FAILURE);
   }
 
+  if (rdb_ttl_initialize()) {
+    LogPluginErrMsg(
+        ERROR_LEVEL, ER_LOG_PRINTF_MSG,
+        "TTL policy initialization failed: check durable metadata, bootstrap "
+        "horizon, "
+        "prepared transactions and explicit legacy-transition options. "
+        "Never remove TTL metadata to bypass this check.");
+    DBUG_RETURN(HA_EXIT_FAILURE);
+  }
+
   LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
                   "Initializing DDL Manager...");
   if (st_rdb_exec_time.exec("Rdb_ddl_manager::init", [&]() {
@@ -8046,6 +8315,9 @@ static int rocksdb_init_internal(void *const p) {
 // (experimentation).
 static int rocksdb_shutdown(bool minimalShutdown) {
   int error = 0;
+
+  rdb_ttl_initialized.store(false);
+  rdb_ttl_ready.store(false);
 
   // If we finalize the storage engine plugin, it is no longer initialized.
   // Grab a writer lock for the duration of the call, so we can clear the flag
@@ -8388,6 +8660,9 @@ int ha_rocksdb::load_auto_incr_value() {
 }
 
 int ha_rocksdb::load_auto_incr_value_from_index(ulonglong *value) {
+  Rdb_transaction *const tx = get_or_create_tx(table->in_use);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) return ttl_error;
+
   const int save_active_index = active_index;
   active_index = table->s->next_number_index;
 
@@ -8398,7 +8673,6 @@ int ha_rocksdb::load_auto_incr_value_from_index(ulonglong *value) {
 
   ulonglong last_val = 0;
 
-  Rdb_transaction *const tx = get_or_create_tx(table->in_use);
   const bool is_new_snapshot = !tx->has_snapshot();
   if (is_new_snapshot) {
     tx->acquire_snapshot(true);
@@ -11255,6 +11529,7 @@ int ha_rocksdb::get_row_by_rowid(uchar *const buf, const char *const rowid,
   rocksdb::Slice key_slice(rowid, rowid_size);
 
   Rdb_transaction *const tx = get_or_create_tx(table->in_use);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) DBUG_RETURN(ttl_error);
   assert(tx != nullptr);
 
   DEBUG_SYNC(ha_thd(), "rocksdb.get_row_by_rowid");
@@ -11362,6 +11637,7 @@ int ha_rocksdb::get_row_by_sk(uchar *buf, const Rdb_key_def &kd,
   }
 
   Rdb_transaction *const tx = get_tx_from_thd(thd);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) DBUG_RETURN(ttl_error);
   assert(tx != nullptr);
 
   tx->acquire_snapshot(true /* acquire_now */);
@@ -12712,6 +12988,8 @@ int ha_rocksdb::update_write_row(const uchar *const old_data,
   set_last_rowkey(old_data);
 
   row_info.tx = get_or_create_tx(table->in_use);
+  if (const int ttl_error = row_info.tx->ensure_ttl_admitted())
+    DBUG_RETURN(ttl_error);
 
   if (old_data != nullptr) {
     row_info.old_pk_slice =
@@ -12987,6 +13265,7 @@ int ha_rocksdb::index_init(uint idx, bool sorted) {
   }
 
   Rdb_transaction *const tx = get_or_create_tx(thd);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) DBUG_RETURN(ttl_error);
   assert(tx != nullptr);
 
   m_need_build_decoder = true;
@@ -13119,6 +13398,7 @@ int ha_rocksdb::delete_row(const uchar *const buf) {
 
   rocksdb::Slice key_slice(m_last_rowkey.ptr(), m_last_rowkey.length());
   Rdb_transaction *const tx = get_or_create_tx(table->in_use);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) DBUG_RETURN(ttl_error);
 
   const uint index = pk_index(*table, *m_tbl_def);
   rocksdb::Status s =
@@ -13720,6 +14000,7 @@ int ha_rocksdb::external_lock(THD *const thd, int lock_type) {
       So, we put this code here.
     */
     Rdb_transaction *const tx = get_or_create_tx(thd);
+    if (const int ttl_error = tx->ensure_ttl_admitted()) DBUG_RETURN(ttl_error);
     read_thd_vars(thd);
 
     if (lock_type == F_WRLCK) {
@@ -13770,6 +14051,7 @@ int ha_rocksdb::start_stmt(THD *const thd, thr_lock_type lock_type) {
   assert(thd != nullptr);
 
   Rdb_transaction *const tx = get_or_create_tx(thd);
+  if (const int ttl_error = tx->ensure_ttl_admitted()) DBUG_RETURN(ttl_error);
   read_thd_vars(thd);
   rocksdb_register_tx(ht, thd, tx);
   tx->io_perf_start(&m_io_perf);
@@ -16539,6 +16821,8 @@ static void myrocks_update_status() {
   export_stats.rows_updated = global_stats.rows[ROWS_UPDATED];
   export_stats.ttl_would_hide = global_stats.rows[ROWS_TTL_WOULD_HIDE];
   export_stats.ttl_would_purge = global_stats.rows[ROWS_TTL_WOULD_PURGE];
+  export_stats.ttl_rejected_admissions =
+      global_stats.rows[TTL_REJECTED_ADMISSIONS];
   export_stats.rows_expired = global_stats.rows[ROWS_EXPIRED];
   export_stats.rows_filtered = global_stats.rows[ROWS_FILTERED];
   export_stats.rows_unfiltered_no_snapshot =
@@ -16590,6 +16874,8 @@ static SHOW_VAR myrocks_status_variables[] = {
                         SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("ttl_would_purge", &export_stats.ttl_would_purge,
                         SHOW_LONGLONG),
+    DEF_STATUS_VAR_FUNC("ttl_rejected_admissions",
+                        &export_stats.ttl_rejected_admissions, SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("rows_expired", &export_stats.rows_expired,
                         SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("rows_filtered", &export_stats.rows_filtered,
@@ -18599,6 +18885,8 @@ void Rdb_compaction_stats::record_end(rocksdb::CompactionJobInfo info) {
 unsigned long long get_partial_index_sort_max_mem(THD *thd) {
   return THDVAR(thd, partial_index_sort_max_mem);
 }
+
+int rdb_ttl_admit(Rdb_transaction *tx) { return tx->ensure_ttl_admitted(); }
 
 void rdb_tx_acquire_snapshot(Rdb_transaction &tx) { tx.acquire_snapshot(true); }
 

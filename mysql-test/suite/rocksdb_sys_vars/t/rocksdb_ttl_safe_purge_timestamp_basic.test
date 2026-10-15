@@ -1,0 +1,8 @@
+--source include/have_rocksdb.inc
+SELECT @@global.rocksdb_ttl_use_session_timestamp;
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=1;
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=0;
+--error ER_GLOBAL_VARIABLE
+SET SESSION rocksdb_ttl_safe_purge_timestamp=1;

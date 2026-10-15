@@ -1,0 +1,186 @@
+--source include/have_rocksdb.inc
+--source include/have_debug_sync.inc
+CALL mtr.add_suppression("Found 1 prepared XA transactions");
+--let $ttl_test_datadir=`SELECT CONCAT(@@datadir, @@rocksdb_datadir)`
+# Reject values outside the session-time domain, without clamping or publishing.
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=-1;
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=2147483648;
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=18446744073709551615;
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+SET timestamp=100;
+CREATE TABLE t_session (id INT PRIMARY KEY, expiry BIGINT, v INT, UNIQUE KEY(v))
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t_session VALUES (1,150,1),(2,100,2),(3,0,3);
+CREATE TABLE t_auto(id INT AUTO_INCREMENT PRIMARY KEY, expiry BIGINT)
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
+INSERT INTO t_auto VALUES(NULL,500);
+SELECT id FROM t_session ORDER BY id;
+SET timestamp=150;
+SELECT id FROM t_session ORDER BY id;
+SET timestamp=100;
+BEGIN;
+SELECT id FROM t_session ORDER BY id;
+SET timestamp=200;
+SELECT id FROM t_session ORDER BY id;
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=101;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=100;
+COMMIT;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t_session ORDER BY id;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+SET timestamp=99;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_session;
+SET timestamp=100;
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=99;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=150;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_session;
+SET timestamp=150;
+SET GLOBAL rocksdb_compact_cf='default';
+SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
+SELECT id FROM t_session ORDER BY id;
+SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
+# Restart must reload the fence without replaying bootstrap.
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+--source include/restart_mysqld.inc
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+SET timestamp=149;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_auto;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_session;
+# No snapshot/uniqueness shortcut may bypass admission.
+SET rocksdb_bulk_load=ON;
+--error ER_RDB_TTL_POLICY
+INSERT INTO t_auto VALUES(10,500);
+SET rocksdb_bulk_load=OFF;
+SET unique_checks=0;
+SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=ON;
+--error ER_RDB_TTL_POLICY
+INSERT INTO t_auto VALUES(11,500);
+SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=DEFAULT;
+SET unique_checks=1;
+SET timestamp=150;
+SELECT id FROM t_auto ORDER BY id;
+SELECT id FROM t_session ORDER BY id;
+# Exact low absolute expiry with a larger fallback duration.
+CREATE TABLE t_fallback(id INT PRIMARY KEY, base BIGINT UNSIGNED NOT NULL, expiry BIGINT)
+ ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry;ttl_col=base;ttl_duration=1000';
+INSERT INTO t_fallback VALUES(1,1,100),(2,1,0),(3,1,1000);
+SET timestamp=200;
+SELECT id FROM t_fallback ORDER BY id;
+CREATE TABLE t_implicit(id INT PRIMARY KEY) ENGINE=ROCKSDB COMMENT='ttl_duration=10';
+INSERT INTO t_implicit VALUES(1);
+SET timestamp=209;
+SELECT * FROM t_implicit;
+SET timestamp=210;
+SELECT * FROM t_implicit;
+# Admission precedes snapshot publication; watermark cannot pass a reader.
+--connect (reader,localhost,root,,test)
+SET timestamp=200;
+SET DEBUG_SYNC='rocksdb_snapshot_before_publication SIGNAL snapshot_ready WAIT_FOR publish';
+BEGIN;
+--send SELECT id FROM t_fallback ORDER BY id
+--connection default
+SET DEBUG_SYNC='now WAIT_FOR snapshot_ready';
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=201;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=200;
+SET GLOBAL rocksdb_force_flush_memtable_now=ON;
+SET GLOBAL rocksdb_compact_cf='default';
+SET DEBUG_SYNC='now SIGNAL publish';
+--connection reader
+--reap
+COMMIT;
+--disconnect reader
+--connection default
+SET DEBUG_SYNC='RESET';
+# Detached XA remains a watermark blocker after its connection is gone.
+--connect (xa_conn,localhost,root,,test)
+SET timestamp=210;
+XA START 'ttl_xa';
+INSERT INTO t_session VALUES (4,500,4);
+XA END 'ttl_xa';
+XA PREPARE 'ttl_xa';
+--disconnect xa_conn
+--connection default
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=211;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=210;
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+--source include/kill_and_restart_mysqld.inc
+SET timestamp=210;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_session;
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=211;
+XA COMMIT 'ttl_xa';
+SELECT id FROM t_session ORDER BY id;
+# A durable write followed by an ambiguous error closes admission until restart.
+SET SESSION debug='+d,rocksdb_ttl_watermark_ambiguous_error';
+--error ER_RDB_TTL_POLICY
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=220;
+SET SESSION debug='-d,rocksdb_ttl_watermark_ambiguous_error';
+SET timestamp=300;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_session;
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+--source include/restart_mysqld.inc
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+SET timestamp=219;
+--error ER_RDB_TTL_POLICY
+SELECT * FROM t_session;
+SET timestamp=220;
+SELECT id FROM t_session ORDER BY id;
+# Admission waits for durable publication, then rejects an obsolete timestamp.
+--connect (publisher,localhost,root,,test)
+SET DEBUG_SYNC='rocksdb_ttl_before_watermark_write SIGNAL writing WAIT_FOR persist';
+--connect (late_reader,localhost,root,,test)
+SET timestamp=229;
+SET DEBUG_SYNC='rocksdb_ttl_before_admission SIGNAL persist WAIT_FOR writing';
+--connection publisher
+--send SET GLOBAL rocksdb_ttl_safe_purge_timestamp=230
+--connection late_reader
+--send SELECT * FROM t_session
+--connection publisher
+--reap
+--connection late_reader
+--error ER_RDB_TTL_POLICY
+--reap
+--disconnect late_reader
+--disconnect publisher
+--connection default
+SET DEBUG_SYNC='RESET';
+SET timestamp=230;
+SET SESSION transaction_isolation='READ-COMMITTED';
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
+SELECT id FROM t_session ORDER BY id;
+SET timestamp=600;
+SELECT id FROM t_session ORDER BY id;
+SAVEPOINT keep_time;
+ROLLBACK TO SAVEPOINT keep_time;
+SELECT id FROM t_session ORDER BY id;
+ROLLBACK;
+SELECT id FROM t_session ORDER BY id;
+SET SESSION transaction_isolation=DEFAULT;
+DROP TABLE t_implicit,t_fallback,t_session,t_auto;
+# The largest supported boundary is accepted and survives recovery.
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=2147483647;
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+--source include/restart_mysqld.inc
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+# Explicit exit keeps subsequent legacy tests usable on the same worker.
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=ON
+--source include/restart_mysqld.inc
+# Discard only this test's empty fixture after switching back to the normal DB.
+--let $restart_parameters=restart: --rocksdb-datadir=.rocksdb --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=OFF
+--source include/restart_mysqld.inc
+--force-rmdir $ttl_test_datadir

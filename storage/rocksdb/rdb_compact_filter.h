@@ -100,6 +100,7 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                 std::min(m_snapshot_timestamp, oldest_transaction);
           }
 
+          const auto safe_cutoff = m_snapshot_timestamp;
 #if !defined(NDEBUG)
           int snapshot_ts = rdb_dbug_set_ttl_snapshot_ts();
           if (snapshot_ts) {
@@ -107,6 +108,8 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                 static_cast<uint64_t>(std::time(nullptr)) + snapshot_ts;
           }
 #endif  // !defined(NDEBUG)
+          if (rdb_ttl_session_time_enabled())
+            m_snapshot_timestamp = std::min(m_snapshot_timestamp, safe_cutoff);
           if (m_purge_allowed)
             m_snapshot_timestamp = std::min(m_snapshot_timestamp, purge_bound);
         }

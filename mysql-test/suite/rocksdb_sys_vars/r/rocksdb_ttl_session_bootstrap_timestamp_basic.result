@@ -1,0 +1,7 @@
+SELECT @@global.rocksdb_ttl_session_bootstrap_timestamp;
+@@global.rocksdb_ttl_session_bootstrap_timestamp
+0
+SET GLOBAL rocksdb_ttl_session_bootstrap_timestamp=1;
+ERROR HY000: Variable 'rocksdb_ttl_session_bootstrap_timestamp' is a read only variable
+SET SESSION rocksdb_ttl_session_bootstrap_timestamp=1;
+Got one of the listed errors

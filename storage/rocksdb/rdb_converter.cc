@@ -935,7 +935,9 @@ int Rdb_converter::encode_value_slice(
       if (is_update_row) {
         memcpy(data, ttl_bytes, sizeof(uint64));
       } else {
-        uint64 ts = static_cast<uint64>(std::time(nullptr));
+        uint64 ts = rdb_ttl_session_time_enabled()
+                        ? m_thd->query_start_in_secs()
+                        : static_cast<uint64>(std::time(nullptr));
 #ifndef NDEBUG
         ts += rdb_dbug_set_ttl_rec_ts();
 #endif

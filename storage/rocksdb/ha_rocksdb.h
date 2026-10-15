@@ -1131,6 +1131,7 @@ extern Rdb_compaction_stats compaction_stats;
 unsigned long long get_partial_index_sort_max_mem(THD *thd);
 
 Rdb_transaction *get_tx_from_thd(THD *const thd);
+int rdb_ttl_admit(Rdb_transaction *tx);
 Rdb_bulk_load_context *get_bulk_load_ctx_from_thd(THD *const thd);
 
 void rdb_tx_acquire_snapshot(Rdb_transaction &tx);
