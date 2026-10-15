@@ -1067,6 +1067,7 @@ rocksdb_trace_block_cache_access
 rocksdb_trace_queries	
 rocksdb_trace_sst_api	OFF
 rocksdb_track_and_verify_wals_in_manifest	ON
+rocksdb_ttl_dry_run	OFF
 rocksdb_two_write_queues	ON
 rocksdb_unsafe_for_binlog	OFF
 rocksdb_update_cf_options	
@@ -1596,6 +1597,8 @@ rocksdb_rows_deleted_blind	#
 rocksdb_rows_inserted	#
 rocksdb_rows_read	#
 rocksdb_rows_updated	#
+rocksdb_ttl_would_hide	#
+rocksdb_ttl_would_purge	#
 rocksdb_rows_expired	#
 rocksdb_rows_filtered	#
 rocksdb_rows_unfiltered_no_snapshot	#
@@ -1719,6 +1722,8 @@ rocksdb_rows_deleted_blind
 rocksdb_rows_inserted
 rocksdb_rows_read
 rocksdb_rows_updated
+rocksdb_ttl_would_hide
+rocksdb_ttl_would_purge
 rocksdb_rows_expired
 rocksdb_rows_filtered
 rocksdb_rows_unfiltered_no_snapshot
@@ -1844,6 +1849,8 @@ rocksdb_rows_deleted_blind
 rocksdb_rows_inserted
 rocksdb_rows_read
 rocksdb_rows_updated
+rocksdb_ttl_would_hide
+rocksdb_ttl_would_purge
 rocksdb_rows_expired
 rocksdb_rows_filtered
 rocksdb_rows_unfiltered_no_snapshot

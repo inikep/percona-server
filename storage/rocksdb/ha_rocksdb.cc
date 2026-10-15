@@ -759,9 +759,11 @@ static bool rocksdb_force_flush_memtable_now_var = true;
 static bool rocksdb_force_flush_memtable_and_lzero_now_var = false;
 static bool rocksdb_compact_lzero_now_var = false;
 static bool rocksdb_cancel_manual_compactions_var = false;
+static bool rocksdb_ttl_dry_run = false;
 static bool rocksdb_pause_ttl_compaction_filter = false;
 static std::atomic<bool> rdb_ttl_compaction_paused{false};
 
+bool rdb_ttl_dry_run_enabled() { return rocksdb_ttl_dry_run; }
 static void rdb_ttl_update_pause(THD *, SYS_VAR *, void *var_ptr,
                                  const void *save) {
   const bool paused = *static_cast<const bool *>(save);
@@ -2341,6 +2343,11 @@ static MYSQL_THDVAR_BOOL(disable_file_deletions,
                          "Prevent file deletions", nullptr,
                          rocksdb_disable_file_deletions_update, false);
 
+static MYSQL_SYSVAR_BOOL(ttl_dry_run, rocksdb_ttl_dry_run,
+                         PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+                         "Count TTL decisions without hiding or TTL-deleting "
+                         "records; changes query results",
+                         nullptr, nullptr, false);
 static MYSQL_SYSVAR_BOOL(
     pause_ttl_compaction_filter, rocksdb_pause_ttl_compaction_filter,
     PLUGIN_VAR_RQCMDARG,
@@ -2947,6 +2954,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(force_flush_memtable_and_lzero_now),
     MYSQL_SYSVAR(compact_lzero_now),
     MYSQL_SYSVAR(cancel_manual_compactions),
+    MYSQL_SYSVAR(ttl_dry_run),
     MYSQL_SYSVAR(pause_ttl_compaction_filter),
     MYSQL_SYSVAR(enable_ttl),
     MYSQL_SYSVAR(enable_ttl_read_filtering),
@@ -8696,7 +8704,8 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
     return false;
   }
 
-  if (!rdb_is_ttl_read_filtering_enabled() || !rdb_is_ttl_enabled()) {
+  if ((!rdb_is_ttl_read_filtering_enabled() && !rocksdb_ttl_dry_run) ||
+      !rdb_is_ttl_enabled()) {
     return false;
   }
 
@@ -8750,6 +8759,10 @@ bool rdb_should_hide_ttl_rec(const Rdb_key_def &kd,
                : ts + kd.m_ttl_duration + read_filter_ts <= timestamp;
   };
   const bool is_hide_ttl = expired_at(static_cast<uint64_t>(curr_ts));
+  if (is_hide_ttl && rocksdb_ttl_dry_run) {
+    rdb_update_global_stats(ROWS_TTL_WOULD_HIDE, 1);
+    return false;
+  }
   if (is_hide_ttl) {
     rdb_update_global_stats(ROWS_FILTERED, 1);
 
@@ -16505,6 +16518,8 @@ static void myrocks_update_status() {
   export_stats.rows_inserted = global_stats.rows[ROWS_INSERTED];
   export_stats.rows_read = global_stats.rows[ROWS_READ];
   export_stats.rows_updated = global_stats.rows[ROWS_UPDATED];
+  export_stats.ttl_would_hide = global_stats.rows[ROWS_TTL_WOULD_HIDE];
+  export_stats.ttl_would_purge = global_stats.rows[ROWS_TTL_WOULD_PURGE];
   export_stats.rows_expired = global_stats.rows[ROWS_EXPIRED];
   export_stats.rows_filtered = global_stats.rows[ROWS_FILTERED];
   export_stats.rows_unfiltered_no_snapshot =
@@ -16551,6 +16566,10 @@ static SHOW_VAR myrocks_status_variables[] = {
                         SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("rows_read", &export_stats.rows_read, SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("rows_updated", &export_stats.rows_updated,
+                        SHOW_LONGLONG),
+    DEF_STATUS_VAR_FUNC("ttl_would_hide", &export_stats.ttl_would_hide,
+                        SHOW_LONGLONG),
+    DEF_STATUS_VAR_FUNC("ttl_would_purge", &export_stats.ttl_would_purge,
                         SHOW_LONGLONG),
     DEF_STATUS_VAR_FUNC("rows_expired", &export_stats.rows_expired,
                         SHOW_LONGLONG),

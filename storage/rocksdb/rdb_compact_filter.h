@@ -122,6 +122,10 @@ class Rdb_compact_filter : public rocksdb::CompactionFilter {
                should_filter_ttl_rec(key, existing_value)) {
       uint64_t unused_bound;
       if (!rdb_ttl_purge_bound(&unused_bound)) return false;
+      if (rdb_ttl_dry_run_enabled()) {
+        rdb_update_global_stats(ROWS_TTL_WOULD_PURGE, 1);
+        return false;
+      }
       m_num_expired++;
       return true;
     }
