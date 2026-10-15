@@ -1028,6 +1028,7 @@ rocksdb_partial_index_blind_delete	ON
 rocksdb_partial_index_ignore_killed	ON
 rocksdb_partial_index_sort_max_mem	0
 rocksdb_pause_background_work	ON
+rocksdb_pause_ttl_compaction_filter	OFF
 rocksdb_perf_context_level	0
 rocksdb_persistent_cache_path	
 rocksdb_persistent_cache_size_mb	0

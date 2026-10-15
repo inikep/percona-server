@@ -1,0 +1,12 @@
+SELECT @@global.rocksdb_pause_ttl_compaction_filter;
+@@global.rocksdb_pause_ttl_compaction_filter
+0
+SET SESSION rocksdb_pause_ttl_compaction_filter=ON;
+ERROR HY000: Variable 'rocksdb_pause_ttl_compaction_filter' is a GLOBAL variable and should be set with SET GLOBAL
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=ON;
+SELECT @@global.rocksdb_pause_ttl_compaction_filter;
+@@global.rocksdb_pause_ttl_compaction_filter
+1
+SET GLOBAL rocksdb_pause_ttl_compaction_filter=OFF;
+SET GLOBAL rocksdb_pause_ttl_compaction_filter='bad';
+ERROR 42000: Variable 'rocksdb_pause_ttl_compaction_filter' can't be set to the value of 'bad'

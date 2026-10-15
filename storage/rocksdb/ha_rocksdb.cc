@@ -758,6 +758,21 @@ static bool rocksdb_force_flush_memtable_now_var = true;
 static bool rocksdb_force_flush_memtable_and_lzero_now_var = false;
 static bool rocksdb_compact_lzero_now_var = false;
 static bool rocksdb_cancel_manual_compactions_var = false;
+static bool rocksdb_pause_ttl_compaction_filter = false;
+static std::atomic<bool> rdb_ttl_compaction_paused{false};
+
+static void rdb_ttl_update_pause(THD *, SYS_VAR *, void *var_ptr,
+                                 const void *save) {
+  const bool paused = *static_cast<const bool *>(save);
+  *static_cast<bool *>(var_ptr) = paused;
+  rdb_ttl_compaction_paused.store(paused);
+}
+bool rdb_ttl_purge_bound(uint64_t *bound) {
+  if (rdb_ttl_compaction_paused.load()) return false;
+  *bound = UINT64_MAX;
+  return true;
+}
+
 static bool rocksdb_enable_ttl = true;
 static bool rocksdb_enable_ttl_read_filtering = true;
 static int rocksdb_debug_ttl_rec_ts = 0;
@@ -2326,6 +2341,12 @@ static MYSQL_THDVAR_BOOL(disable_file_deletions,
                          rocksdb_disable_file_deletions_update, false);
 
 static MYSQL_SYSVAR_BOOL(
+    pause_ttl_compaction_filter, rocksdb_pause_ttl_compaction_filter,
+    PLUGIN_VAR_RQCMDARG,
+    "Pause TTL deletion, preserving read filtering and dropped-index cleanup",
+    nullptr, rdb_ttl_update_pause, false);
+
+static MYSQL_SYSVAR_BOOL(
     enable_ttl, rocksdb_enable_ttl, PLUGIN_VAR_RQCMDARG,
     "Enable expired TTL records to be dropped during compaction.", nullptr,
     nullptr, true);
@@ -2925,6 +2946,7 @@ static struct SYS_VAR *rocksdb_system_variables[] = {
     MYSQL_SYSVAR(force_flush_memtable_and_lzero_now),
     MYSQL_SYSVAR(compact_lzero_now),
     MYSQL_SYSVAR(cancel_manual_compactions),
+    MYSQL_SYSVAR(pause_ttl_compaction_filter),
     MYSQL_SYSVAR(enable_ttl),
     MYSQL_SYSVAR(enable_ttl_read_filtering),
     MYSQL_SYSVAR(debug_ttl_rec_ts),
@@ -7278,6 +7300,8 @@ static bool rocksdb_notify_rename_table(THD *, const MDL_key *,
 
 static int rocksdb_init_internal(void *const p) {
   DBUG_ENTER_FUNC();
+
+  rdb_ttl_compaction_paused.store(rocksdb_pause_ttl_compaction_filter);
 
   // Validate the assumption about the size of ROCKSDB_SIZEOF_HIDDEN_PK_COLUMN.
   static_assert(sizeof(longlong) == 8, "Assuming that longlong is 8 bytes.");
