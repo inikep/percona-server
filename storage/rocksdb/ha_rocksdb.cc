@@ -817,6 +817,16 @@ static rocksdb::Status rdb_ttl_write_state(uint8_t state, uint64_t watermark) {
   return status;
 }
 
+static int rdb_ttl_check_watermark(THD *, SYS_VAR *, void *save,
+                                   struct st_mysql_value *value) {
+  long long candidate;
+  if (value->val_int(value, &candidate) || candidate < 0 ||
+      candidate > 2147483647)
+    return HA_EXIT_FAILURE;
+  *static_cast<ulonglong *>(save) = static_cast<ulonglong>(candidate);
+  return HA_EXIT_SUCCESS;
+}
+
 static void rdb_ttl_update_watermark(THD *thd, SYS_VAR *, void *var_ptr,
                                      const void *save) {
   const auto candidate = *static_cast<const ulonglong *>(save);
@@ -873,7 +883,8 @@ static int rdb_ttl_initialize() {
     state = static_cast<uint8_t>(value[2]);
     watermark =
         rdb_netbuf_to_uint64(reinterpret_cast<const uchar *>(value.data() + 3));
-    if ((state != 1 && state != 2) || watermark == 0) return HA_EXIT_FAILURE;
+    if ((state != 1 && state != 2) || watermark == 0 || watermark > 2147483647)
+      return HA_EXIT_FAILURE;
   } else if (!status.IsNotFound()) {
     return HA_EXIT_FAILURE;
   }
@@ -2563,8 +2574,8 @@ static MYSQL_SYSVAR_ULONGLONG(ttl_safe_purge_timestamp,
                               PLUGIN_VAR_NOCMDOPT | PLUGIN_VAR_NOPERSIST,
                               "Durable safe TTL boundary; coordinator "
                               "guarantees no pending or retryable older work",
-                              nullptr, rdb_ttl_update_watermark, 0, 0,
-                              2147483647, 0);
+                              rdb_ttl_check_watermark, rdb_ttl_update_watermark,
+                              0, 0, 2147483647, 0);
 
 static MYSQL_SYSVAR_BOOL(
     enable_ttl, rocksdb_enable_ttl, PLUGIN_VAR_RQCMDARG,
@@ -3859,11 +3870,19 @@ class Rdb_transaction {
     if (!rdb_ttl_ready.load() || timestamp == 0 ||
         timestamp < rdb_ttl_watermark.load()) {
       rdb_update_global_stats(TTL_REJECTED_ADMISSIONS, 1);
-      const auto reason = std::string("session time ") +
-                          std::to_string(timestamp) +
-                          " is below durable boundary " +
-                          std::to_string(rdb_ttl_watermark.load()) +
-                          " or TTL recovery is incomplete";
+      std::string reason;
+      if (!rdb_ttl_ready.load()) {
+        reason = rdb_ttl_io_failed ? "watermark durability is uncertain; "
+                                     "restart to reload the durable fence"
+                                   : "TTL recovery is incomplete; resolve "
+                                     "recovered prepared XA transactions";
+      } else if (timestamp == 0) {
+        reason = "session timestamp is zero; set a valid session time";
+      } else {
+        reason = "session time " + std::to_string(timestamp) +
+                 " is below durable boundary " +
+                 std::to_string(rdb_ttl_watermark.load());
+      }
       my_error(ER_RDB_TTL_POLICY, MYF(0), reason.c_str());
       return HA_ERR_GENERIC;
     }
@@ -9191,10 +9210,13 @@ int ha_rocksdb::alloc_key_buffers(const TABLE &table_arg,
       DBUG_RETURN(HA_ERR_ROCKSDB_INVALID_TABLE);
     }
   }
-  if (!m_pk_descr->uses_absolute_expiry() && !row_column.empty()) {
-    push_warning_printf(ha_thd(), Sql_condition::SL_WARNING, ER_RDB_TTL_POLICY,
-                        "MyRocks TTL: ignored legacy row_ttl_col; use "
-                        "ALGORITHM=COPY to activate it");
+  if (!m_pk_descr->uses_absolute_expiry() && !row_column.empty() &&
+      !tbl_def_arg.m_ignored_row_ttl_noted.exchange(
+          true, std::memory_order_relaxed)) {
+    LogPluginErrMsg(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
+                    "Table %s has an ignored legacy row_ttl_col; use "
+                    "ALTER TABLE ... FORCE, ALGORITHM=COPY to activate it.",
+                    tbl_def_arg.full_tablename().c_str());
   }
   for (uint i = 0; i < tbl_def_arg.m_key_count; ++i) {
     if (kd_arr[i]->uses_absolute_expiry() !=
@@ -9644,6 +9666,72 @@ int ha_rocksdb::rdb_error_to_mysql(const rocksdb::Status &s,
   return err;
 }
 
+// COPY and partition maintenance must not activate an inherited qualifier.
+// Unchanged partition layouts retain their individual states. Repartitioning
+// inherits an unambiguous state for the same qualifier; mixed states require an
+// explicit choice instead of silently making legacy rows expire.
+int ha_rocksdb::preserve_rebuild_row_ttl(const TABLE &new_table,
+                                         const Rdb_tbl_def &new_def,
+                                         bool *keep_legacy) const {
+  const TABLE &old_table = *m_ttl_rebuild_source;
+  const auto qualifier = [](const TABLE &t, const Rdb_tbl_def &def) {
+    bool per_partition;
+    return Rdb_key_def::parse_comment_for_qualifier(get_table_comment(&t), t,
+                                                    def, per_partition,
+                                                    RDB_ROW_TTL_COL_QUALIFIER);
+  };
+  const auto new_row = qualifier(new_table, new_def);
+  if (new_row.empty()) return HA_EXIT_SUCCESS;
+
+  std::vector<const Rdb_tbl_def *> old_defs;
+  if (old_table.part_info)
+    static_cast<const ha_rockspart *>(old_table.file)
+        ->ttl_table_defs(&old_defs);
+  else
+    old_defs.push_back(
+        static_cast<const ha_rocksdb *>(old_table.file)->ttl_table_def());
+
+  const auto *alter = ha_thd()->lex->alter_info;
+  const bool repartition =
+      alter &&
+      (alter->flags &
+       (Alter_info::ALTER_ADD_PARTITION | Alter_info::ALTER_COALESCE_PARTITION |
+        Alter_info::ALTER_REORGANIZE_PARTITION | Alter_info::ALTER_PARTITION |
+        Alter_info::ALTER_REMOVE_PARTITIONING));
+  bool active = false, inactive = false;
+  for (const auto *old_def : old_defs) {
+    const auto old_row = qualifier(old_table, *old_def);
+    const bool same =
+        !my_strcasecmp(system_charset_info, old_row.c_str(), new_row.c_str());
+    const bool old_active =
+        old_def->m_key_descr_arr[pk_index(old_table, *old_def)]
+            ->uses_absolute_expiry();
+    if (!repartition && old_def->base_partition() == new_def.base_partition()) {
+      *keep_legacy = same && !old_active;
+      return HA_EXIT_SUCCESS;
+    }
+    if (same) (old_active ? active : inactive) = true;
+  }
+
+  // A newly added/changed qualifier is an explicit request for row TTL.
+  bool per_partition;
+  const auto inherited_row = Rdb_key_def::parse_comment_for_qualifier(
+      get_table_comment(&old_table), new_table, new_def, per_partition,
+      RDB_ROW_TTL_COL_QUALIFIER);
+  if (my_strcasecmp(system_charset_info, inherited_row.c_str(),
+                    new_row.c_str()))
+    return HA_EXIT_SUCCESS;
+  if (active && inactive) {
+    my_error(ER_RDB_TTL_POLICY, MYF(0),
+             "ambiguous row TTL activation for rebuilt partitions; activate "
+             "the legacy qualifier with FORCE, ALGORITHM=COPY first, or "
+             "remove it before repartitioning");
+    return HA_EXIT_FAILURE;
+  }
+  *keep_legacy = !active;
+  return HA_EXIT_SUCCESS;
+}
+
 /*
   Create structures needed for storing data in rocksdb. This is called when the
   table is created. The structures will be shared by all TABLE* objects.
@@ -9721,6 +9809,9 @@ int ha_rocksdb::create_key_defs(
                 old_table_arg ? *old_table_arg : table_arg, *old_tbl_def_arg)]
             ->uses_absolute_expiry());
   bool ignore_row_ttl = keep_legacy;
+  if (!ignore_row_ttl && m_ttl_rebuild_source &&
+      (err = preserve_rebuild_row_ttl(table_arg, tbl_def_arg, &ignore_row_ttl)))
+    DBUG_RETURN(err);
   // Exercise real legacy encodings in the upgrade regression tests.
   DBUG_EXECUTE_IF("myrocks_ignore_row_ttl_col", { ignore_row_ttl = true; });
   if (!ignore_row_ttl &&
@@ -10654,6 +10745,20 @@ int ha_rocksdb::create(const char *const name, TABLE *const table_arg,
       DBUG_RETURN(handle_rocksdb_corrupt_data_error(ha_thd()));
     }
   }
+  // The original TABLE is still open during COPY, including partition rebuilds
+  // and OPTIMIZE. CREATE/CREATE LIKE have no actual_user_table_name.
+  auto reset_ttl_source =
+      create_scope_guard([this]() { m_ttl_rebuild_source = nullptr; });
+  const auto *source_ref = thd->lex->query_tables;
+  const auto *alter = thd->lex->alter_info;
+  const bool explicit_activation =
+      thd->lex->sql_command == SQLCOM_ALTER_TABLE && alter &&
+      alter->flags == Alter_info::ALTER_RECREATE &&
+      alter->requested_algorithm == Alter_info::ALTER_TABLE_ALGORITHM_COPY;
+  if (!explicit_activation && !create_info->actual_user_table_name.empty() &&
+      source_ref && source_ref->table &&
+      source_ref->table->s->db_type() == rocksdb_hton)
+    m_ttl_rebuild_source = source_ref->table;
   DBUG_RETURN(create_table(str, create_info->actual_user_table_name, *table_arg,
                            create_info->auto_increment_value, table_def));
 }
@@ -12071,7 +12176,9 @@ const std::string ha_rocksdb::get_table_comment(const TABLE *const table_arg) {
   assert(table_arg != nullptr);
   assert(table_arg->s != nullptr);
 
-  return table_arg->s->comment.str;
+  const auto &comment = table_arg->s->comment;
+  return comment.length ? std::string(comment.str, comment.length)
+                        : std::string();
 }
 
 /**

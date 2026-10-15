@@ -428,6 +428,7 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
     Returns the name of the table's base name
   */
   const std::string &get_table_basename() const;
+  const Rdb_tbl_def *ttl_table_def() const { return m_tbl_def; }
 
   /** @brief
     This is a list of flags that indicate what functionality the storage engine
@@ -953,6 +954,11 @@ class ha_rocksdb : public my_core::handler, public blob_buffer {
 
   // TRUNCATE recreates indexes but must not activate an ignored legacy comment.
   bool m_truncate_legacy_ttl = false;
+  // Source stays open and MDL-locked while COPY creates its replacement.
+  const TABLE *m_ttl_rebuild_source = nullptr;
+  int preserve_rebuild_row_ttl(const TABLE &new_table,
+                               const Rdb_tbl_def &new_def,
+                               bool *keep_legacy) const;
 
   /* Need to build decoder on next read operation */
   bool m_need_build_decoder;

@@ -1,4 +1,13 @@
 CALL mtr.add_suppression("Found 1 prepared XA transactions");
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=-1;
+ERROR 42000: Variable 'rocksdb_ttl_safe_purge_timestamp' can't be set to the value of '-1'
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=2147483648;
+ERROR 42000: Variable 'rocksdb_ttl_safe_purge_timestamp' can't be set to the value of '2147483648'
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=18446744073709551615;
+ERROR 42000: Variable 'rocksdb_ttl_safe_purge_timestamp' can't be set to the value of '18446744073709551615'
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+@@global.rocksdb_ttl_safe_purge_timestamp
+1
 SET timestamp=100;
 CREATE TABLE t_session (id INT PRIMARY KEY, expiry BIGINT, v INT, UNIQUE KEY(v))
 ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
@@ -39,13 +48,13 @@ id
 SET GLOBAL rocksdb_enable_ttl_read_filtering=ON;
 SET timestamp=99;
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 99 is below durable boundary 100 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 99 is below durable boundary 100
 SET timestamp=100;
 SET GLOBAL rocksdb_ttl_safe_purge_timestamp=99;
 ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
 SET GLOBAL rocksdb_ttl_safe_purge_timestamp=150;
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 100 is below durable boundary 150 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 100 is below durable boundary 150
 SET timestamp=150;
 SET GLOBAL rocksdb_compact_cf='default';
 SET GLOBAL rocksdb_enable_ttl_read_filtering=OFF;
@@ -59,17 +68,17 @@ SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
 150
 SET timestamp=149;
 SELECT * FROM t_auto;
-ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150
 SET rocksdb_bulk_load=ON;
 INSERT INTO t_auto VALUES(10,500);
-ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150
 SET rocksdb_bulk_load=OFF;
 SET unique_checks=0;
 SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=ON;
 INSERT INTO t_auto VALUES(11,500);
-ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 149 is below durable boundary 150
 SET GLOBAL rocksdb_skip_locks_if_skip_unique_check=DEFAULT;
 SET unique_checks=1;
 SET timestamp=150;
@@ -123,7 +132,7 @@ SET GLOBAL rocksdb_ttl_safe_purge_timestamp=210;
 # Kill and restart: --rocksdb-ttl-session-bootstrap-timestamp=0
 SET timestamp=210;
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 210 is below durable boundary 210 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: TTL recovery is incomplete; resolve recovered prepared XA transactions
 SET GLOBAL rocksdb_ttl_safe_purge_timestamp=211;
 ERROR HY000: MyRocks TTL: watermark must be monotonic and no greater than any active TTL time; resolve recovery blockers or wait for older transactions
 XA COMMIT 'ttl_xa';
@@ -137,14 +146,14 @@ ERROR HY000: MyRocks TTL: watermark durability is uncertain; restart to reload t
 SET SESSION debug='-d,rocksdb_ttl_watermark_ambiguous_error';
 SET timestamp=300;
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 300 is below durable boundary 210 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: watermark durability is uncertain; restart to reload the durable fence
 # restart: --rocksdb-ttl-session-bootstrap-timestamp=0
 SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
 @@global.rocksdb_ttl_safe_purge_timestamp
 220
 SET timestamp=219;
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 219 is below durable boundary 220 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 219 is below durable boundary 220
 SET timestamp=220;
 SELECT id FROM t_session ORDER BY id;
 id
@@ -155,7 +164,7 @@ SET timestamp=229;
 SET DEBUG_SYNC='rocksdb_ttl_before_admission SIGNAL persist WAIT_FOR writing';
 SET GLOBAL rocksdb_ttl_safe_purge_timestamp=230;
 SELECT * FROM t_session;
-ERROR HY000: MyRocks TTL: session time 229 is below durable boundary 230 or TTL recovery is incomplete
+ERROR HY000: MyRocks TTL: session time 229 is below durable boundary 230
 SET DEBUG_SYNC='RESET';
 SET timestamp=230;
 SET SESSION transaction_isolation='READ-COMMITTED';
@@ -184,5 +193,10 @@ id
 3
 SET SESSION transaction_isolation=DEFAULT;
 DROP TABLE t_implicit,t_fallback,t_session,t_auto;
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=2147483647;
+# restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
+@@global.rocksdb_ttl_safe_purge_timestamp
+2147483647
 # restart: --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=ON
 # restart: --rocksdb-datadir=.rocksdb --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=OFF

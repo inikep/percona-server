@@ -2,6 +2,14 @@
 --source include/have_debug_sync.inc
 CALL mtr.add_suppression("Found 1 prepared XA transactions");
 --let $ttl_test_datadir=`SELECT CONCAT(@@datadir, @@rocksdb_datadir)`
+# Reject values outside the session-time domain, without clamping or publishing.
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=-1;
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=2147483648;
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=18446744073709551615;
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
 SET timestamp=100;
 CREATE TABLE t_session (id INT PRIMARY KEY, expiry BIGINT, v INT, UNIQUE KEY(v))
  ENGINE=ROCKSDB COMMENT='row_ttl_col=expiry';
@@ -164,6 +172,11 @@ ROLLBACK;
 SELECT id FROM t_session ORDER BY id;
 SET SESSION transaction_isolation=DEFAULT;
 DROP TABLE t_implicit,t_fallback,t_session,t_auto;
+# The largest supported boundary is accepted and survives recovery.
+SET GLOBAL rocksdb_ttl_safe_purge_timestamp=2147483647;
+--let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0
+--source include/restart_mysqld.inc
+SELECT @@global.rocksdb_ttl_safe_purge_timestamp;
 # Explicit exit keeps subsequent legacy tests usable on the same worker.
 --let $restart_parameters=restart: --rocksdb-ttl-session-bootstrap-timestamp=0 --rocksdb-ttl-use-session-timestamp=OFF --rocksdb-ttl-session-allow-legacy-transition=ON
 --source include/restart_mysqld.inc

@@ -1432,6 +1432,8 @@ class Rdb_tbl_def {
   bool put_dict(Rdb_dict_manager *const dict, Rdb_cf_manager *const cf_manager,
                 rocksdb::WriteBatch &batch, const rocksdb::Slice &key);
 
+  // Diagnostic only; table-cache reopen must not repeat the note.
+  mutable std::atomic<bool> m_ignored_row_ttl_noted{false};
   const std::string &full_tablename() const { return m_dbname_tablename; }
   const std::string &base_dbname() const { return m_dbname; }
   const std::string &base_tablename() const { return m_tablename; }

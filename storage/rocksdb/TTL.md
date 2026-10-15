@@ -40,10 +40,16 @@ Changing the row TTL column, enabling/disabling row TTL, or changing an active
 row TTL fallback requires `ALGORITHM=COPY`. Unchanged definitions support existing
 in-place index operations. A `row_ttl_col` comment ignored by an older binary
 remains inactive after upgrade, including during in-place ADD INDEX, UPDATE,
-TRUNCATE TABLE and TRUNCATE PARTITION. Truncation preserves each partition's
-persisted activation state.
-Opening such a table warns; use `ALTER TABLE ... FORCE, ALGORITHM=COPY` to activate
-it. The persisted flag, rather than the presence of a comment, selects decoding.
+TRUNCATE TABLE/PARTITION, ordinary COPY rebuilds and partition maintenance.
+An unchanged partition layout preserves each partition's activation state.
+Repartitioning inherits the state of the unchanged qualifier; ambiguous mixtures
+of active and inactive state require explicit activation or removal of the
+qualifier first, even when reusing existing partition names.
+An informational error-log entry notes ignored qualifiers once per loaded table
+definition; ordinary opens produce no SQL warning. Use the standalone
+`ALTER TABLE ... FORCE, ALGORITHM=COPY` to activate an ignored qualifier, or
+explicitly change/add the effective qualifier with COPY. The persisted flag,
+rather than the presence of a comment, selects decoding.
 
 An old binary cannot read the new absolute-expiry formats and must reject them.
 Before downgrade, convert every affected table and partition with COPY to a
@@ -115,6 +121,7 @@ and W. Do not delete or edit this record to evade a startup failure.
    the bootstrap already became durable.
 4. Advance W only under the coordinator contract above. Supported boundaries are
    integer Unix seconds through 2147483647, matching the SQL session-time domain.
+   SQL values outside this range are rejected rather than clamped.
 5. To return to wall time, drain all old logical work and resolve prepared XA.
    Restart with session mode OFF, bootstrap=0, and the one-shot
    `rocksdb_ttl_session_allow_legacy_transition=ON`. This durably authorizes legacy
@@ -138,6 +145,102 @@ logical dump contains table definitions and rows, not this policy record; restor
 it into a fresh, quiesced target, establish a new horizon, and bootstrap before
 accepting session-time work. `SET PERSIST` is not supported for W: its sole durable
 source is the engine record. Startup configuration is not a replacement for it.
+
+### Production watermark producer and acceptance gate
+
+This implementation supplies the engine fence, not a production watermark
+producer. Until a deployment identifies and validates that producer, keep W at
+the verified bootstrap value. Compaction may reclaim rows up to W; reclamation
+beyond W remains blocked. Shadow measurements and the engine regression tests
+do not establish that an external producer is safe.
+
+The deployment specification must name the producer and its owner, all writers
+and replication channels it covers, its durable evidence store, and the mechanism
+that fences obsolete producer instances. Include stopped channels, parallel
+workers, incoming and local queues, retries, failover sources, maintenance, and
+clients that can supply backdated session times. Adding or resetting a channel,
+changing timestamp assignment, losing a checkpoint, or losing evidence must stop
+advancement until that change is reconciled. An idle or disconnected channel is
+not evidence that its earlier work is complete.
+
+For every candidate C, the producer must prove both conditions:
+
+* Every transaction that can still arrive, execute or retry has logical time
+  T >= C. Per-source evidence must bound future work as well as work currently
+  visible in queues; a maximum observed timestamp is insufficient.
+* Every physically retained before image still needed by any such work has
+  resolved expiry E > C, or never expires. Equality is unsafe because compaction
+  can delete at E == W. Keep the dependency until application and all possible
+  retries are covered by a durable checkpoint, even when the event's T >= C.
+
+Require 0 < C <= 2147483647 and C >= the engine's durable W. Persist the proof,
+source membership/version, dependency set and corresponding checkpoints before
+issuing `SET GLOBAL rocksdb_ttl_safe_purge_timestamp=C`. Serialize publication
+through the fenced producer. Record successful publication and reconcile the
+actual engine W after restart or an uncertain response; never assume a failed
+client call means the fence did not advance. If proof for the recovered W cannot
+be reconstructed, keep normal work fenced for investigation or restore. Lowering
+W or choosing a newer timestamp does not recover deleted history.
+
+The producer's integration suite must force flush/compaction and verify row
+contents through primary and secondary access paths, not just inspect W. Run
+each scenario against the deployed channel and checkpoint configuration:
+
+| Scenario | Required result |
+|---|---|
+| One channel stops with old work while another advances; a parallel worker finishes newer work first | W cannot pass the unfinished work or its before-image dependencies. Resume and replay produce the expected rows. |
+| An event is queued, retried after rollback, or committed before its replay checkpoint is durable | The dependency survives until replay is no longer possible. Crash/restart cannot release it early. |
+| An update/delete at T needs a before image expiring at E <= T | C stays strictly below E until application and retry obligations finish. Test both point and secondary-index/scan lookup with the narrow RBR bypass. |
+| A source emits a late backdated event, joins, resets, or fails over | Its timestamp contract and membership fencing prevent advancement based on an incomplete source set. Unknown bounds stop advancement. |
+| Producer crash or leadership change before/after evidence persistence, W publication, and acknowledgement | Recovery reconciles durable evidence and engine W; a stale producer cannot publish. Uncertain engine durability closes admission until recovery. |
+| An active or detached XA transaction, then recovered prepared XA | Engine blockers remain effective; coordinator progress cannot bypass them. Recovered XA is resolved before normal admission resumes. |
+| Physical/logical restore or an old-binary interval | Follow the recovery procedure below; legitimate replay dependencies remain available. An unverifiable history is rejected for service. |
+| All dependencies are durably discharged | W can advance and forced compaction reclaims eligible rows. New T < W access, including non-TTL/write-only access, is rejected. |
+
+Record the producer version, topology, crash points, checkpoints, expected and
+actual rows, and W before/after each scenario. Existing `ttl_session_time`,
+`ttl_row_upgrade`, `ttl_row_rebuild`, `rpl_ttl_session_time` and
+`rpl_ttl_session_formats` cover engine mechanisms and selected upgrade/replication
+cases. They do not certify an unspecified producer or a multi-channel recovery
+protocol. The acceptance scenarios above remain deployment work until that
+producer exists and passes them.
+
+### Re-establishing the bootstrap proof after recovery
+
+Fence application writers and appliers while assessing a restore or old-binary
+interval. On the new binary, start with
+`rocksdb_pause_ttl_compaction_filter=ON` during assessment to prevent additional
+TTL deletion. This does not restore lost rows or relax admission/recovery checks.
+Retain the data, policy record, checkpoint/dependency evidence, source identities
+and binary/configuration history as one recovery set. Resolve prepared XA using
+its durable transaction outcome before attempting a legacy transition or a
+first-enable bootstrap; startup rejects those operations while XA is prepared.
+
+* **Consistent physical restore:** verify the restored W and the producer's
+  evidence against the restored data and replay positions. Include every event
+  that can replay from those positions, not just the live producer's latest
+  checkpoints. If the original bootstrap proof still holds and the record is
+  SESSION_ACTIVE, resume with bootstrap=0 and recovered W. A live producer's
+  newer W must not be copied into an older backup without a fresh proof.
+* **Logical restore:** the dump lacks the policy record and may omit previously
+  expired rows. Restore into a fresh isolated target, prove that the restored
+  rows support all required future work and before images, establish H, and use
+  the first-enable bootstrap procedure. An empty destination before import does
+  not by itself justify H=1 for the imported history.
+* **Old-binary interval or unverifiable history:** the former W is not evidence
+  of retained history. If the explicit legacy transition was skipped, perform
+  it with the new binary while clients remain fenced and TTL compaction remains
+  paused. Reassess H against retained rows and every replay/retry dependency,
+  then re-enter session mode through the documented bootstrap procedure. H must
+  be at least the retained W, all legitimate future T must be >= H, and required
+  expiring before images must have E > H. If these conditions cannot be proved,
+  recover from a suitable backup/source; do not discard legitimate old work or
+  relabel its timestamps merely to pass admission.
+
+Remove the one-shot bootstrap/transition options after success, verify recovered
+XA blockers are resolved and producer evidence matches the accepted history,
+then resume service and compaction. Without a validated producer, leave the
+re-established W fixed. Pause, shadow and dry run cannot certify missing history.
 
 ## Replication before-image lookup
 
