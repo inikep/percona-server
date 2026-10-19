@@ -454,11 +454,9 @@ SELECT 'rx_next_sentinel';
 connection default;
 --source filter_definition_regex_summary.inc
 disconnect rx;
---echo # Known issue, independent of regex conditions: the replace_filter action
---echo # stores the activated replacement in the rule object shared by all
---echo # sessions using the filter, so a new session starts with the replacement
---echo # still active. A nonmatching insert followed by the sentinel statement
---echo # records the current behaviour; a fix changes this result
+--echo # The activated replacement belongs to the session that activated it, so
+--echo # a new session starts with the original filter: a nonmatching insert
+--echo # followed by the sentinel statement logs nothing
 connect (rx, localhost, rx_app,, tpcc);
 connection default;
 --source filter_definition_regex_begin.inc

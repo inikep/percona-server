@@ -43,16 +43,16 @@ EventActionType EventFieldActionReplaceFilter::get_action_type()
 bool EventFieldActionReplaceFilter::apply(
     const AuditRecordFieldsList &fields,
     AuditRecordVariant &audit_record [[maybe_unused]],
-    AuditRule *audit_rule) const noexcept {
+    const AuditRule *&replacement_rule) const noexcept {
   if (!m_replacement_filter_ref.empty()) {
     // This is a temporary filter. Switch filtering rule back to original one
     // pointed by the ref.
-    audit_rule->clear_replacement_rule();
+    replacement_rule = nullptr;
     return true;
   }
 
   if (m_activation_cond->check_applies(fields)) {
-    audit_rule->set_replacement_rule(m_replacement_rule.get());
+    replacement_rule = m_replacement_rule.get();
   }
 
   return true;

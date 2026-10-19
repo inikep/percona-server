@@ -22,28 +22,21 @@
 namespace audit_log_filter {
 
 AuditRule::AuditRule()
-    : m_filter_id{0},
-      m_rule_name{},
-      m_should_log_unmatched{false},
-      m_replacement_rule{nullptr} {}
+    : m_filter_id{0}, m_rule_name{}, m_should_log_unmatched{false} {}
 
 AuditRule::AuditRule(const char *rule_name) : AuditRule{0, rule_name} {}
 
 AuditRule::AuditRule(uint64_t filter_id, const char *rule_name)
     : m_filter_id{filter_id},
       m_rule_name{rule_name},
-      m_should_log_unmatched{false},
-      m_replacement_rule{nullptr} {}
+      m_should_log_unmatched{false} {}
 
 AuditRule::AuditRule(AuditRule &&other) noexcept
     : m_filter_id{other.m_filter_id},
       m_rule_name{std::move(other.m_rule_name)},
       m_should_log_unmatched{other.m_should_log_unmatched},
       m_matched_event_to_action_map{
-          std::move(other.m_matched_event_to_action_map)},
-      m_replacement_rule{other.m_replacement_rule} {
-  other.m_replacement_rule = nullptr;
-}
+          std::move(other.m_matched_event_to_action_map)} {}
 
 uint64_t AuditRule::get_filter_id() const noexcept { return m_filter_id; }
 
@@ -51,14 +44,6 @@ std::string AuditRule::get_rule_name() const noexcept { return m_rule_name; }
 
 std::string_view AuditRule::get_rule_name_view() const noexcept {
   return m_rule_name;
-}
-
-void AuditRule::set_replacement_rule(AuditRule *rule) noexcept {
-  m_replacement_rule = rule;
-}
-
-void AuditRule::clear_replacement_rule() noexcept {
-  m_replacement_rule = nullptr;
 }
 
 bool AuditRule::should_log_unmatched() const noexcept {
@@ -108,53 +93,42 @@ const std::string &AuditRule::get_parse_error() const noexcept {
 bool AuditRule::has_actions_for(
     std::string_view event_class_name,
     std::string_view event_subclass_name) const noexcept {
-  if (m_replacement_rule == nullptr) {
-    std::stringstream subclass_key;
-    subclass_key << event_class_name << "." << event_subclass_name;
+  std::stringstream subclass_key;
+  subclass_key << event_class_name << "." << event_subclass_name;
 
-    if (m_matched_event_to_action_map.count(subclass_key.str()) > 0) {
-      return true;
-    }
-
-    return m_matched_event_to_action_map.count(event_class_name.data()) > 0;
+  if (m_matched_event_to_action_map.count(subclass_key.str()) > 0) {
+    return true;
   }
 
-  return m_replacement_rule->has_actions_for(event_class_name,
-                                             event_subclass_name);
+  return m_matched_event_to_action_map.count(event_class_name.data()) > 0;
 }
 
 const EventFieldActionBase *AuditRule::get_action(
     const EventActionType action_type, const std::string_view event_class_name,
     const std::string_view event_subclass_name) const noexcept {
-  if (m_replacement_rule == nullptr) {
-    std::stringstream subclass_key;
-    subclass_key << event_class_name << "." << event_subclass_name;
+  std::stringstream subclass_key;
+  subclass_key << event_class_name << "." << event_subclass_name;
 
-    auto it = m_matched_event_to_action_map.find(subclass_key.str());
+  auto it = m_matched_event_to_action_map.find(subclass_key.str());
 
-    if (it == m_matched_event_to_action_map.cend()) {
-      it = m_matched_event_to_action_map.find(event_class_name.data());
-    }
-
-    if (it == m_matched_event_to_action_map.cend()) {
-      return nullptr;
-    }
-
-    const auto action =
-        std::find_if(it->second.cbegin(), it->second.cend(),
-                     [&action_type](const auto &act) {
-                       return act->get_action_type() == action_type;
-                     });
-
-    if (action == std::cend(it->second)) {
-      return nullptr;
-    }
-
-    return action->get();
+  if (it == m_matched_event_to_action_map.cend()) {
+    it = m_matched_event_to_action_map.find(event_class_name.data());
   }
 
-  return m_replacement_rule->get_action(action_type, event_class_name,
-                                        event_subclass_name);
+  if (it == m_matched_event_to_action_map.cend()) {
+    return nullptr;
+  }
+
+  const auto action = std::find_if(
+      it->second.cbegin(), it->second.cend(), [&action_type](const auto &act) {
+        return act->get_action_type() == action_type;
+      });
+
+  if (action == std::cend(it->second)) {
+    return nullptr;
+  }
+
+  return action->get();
 }
 
 }  // namespace audit_log_filter
