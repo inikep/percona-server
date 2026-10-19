@@ -99,6 +99,7 @@ class AuditLogReader {
   std::map<LogFileTimestamp, std::shared_ptr<FileInfo>> m_timestamp_to_file_map;
   std::shared_mutex m_reader_mutex;
   std::atomic<bool> m_reload_requested;
+  std::atomic<bool> m_current_log_has_timestamp{false};
 };
 
 }  // namespace audit_log_filter

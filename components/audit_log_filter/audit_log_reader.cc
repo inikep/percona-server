@@ -18,6 +18,7 @@
 #include "components/audit_log_filter/audit_error_log.h"
 #include "components/audit_log_filter/audit_keyring.h"
 #include "components/audit_log_filter/audit_psi_info.h"
+#include "components/audit_log_filter/log_writer/file_name.h"
 
 #include "rapidjson/document.h"
 #include "rapidjson/reader.h"
@@ -98,6 +99,28 @@ class AuditJsonFirstTimestampHandler
   bool m_array_open = false;
 };
 
+/**
+  Checks if the log file name is the name of the current log, the configured
+  file name with the optional compression and encryption suffixes.
+*/
+bool is_current_log_name(const std::string &log_name) {
+  auto name = std::filesystem::path{log_name};
+
+  if (name.extension() == ".enc") {
+    // Drop ".enc" and the encryption options timestamp before it
+    name.replace_extension();
+    name.replace_extension();
+  }
+
+  if (name.extension() == ".gz") {
+    name.replace_extension();
+  }
+
+  return name ==
+         std::filesystem::path{audit_log_filter::SysVars::get_file_name()}
+             .filename();
+}
+
 }  // namespace
 
 namespace audit_log_filter {
@@ -113,8 +136,11 @@ void AuditLogReader::set_files_to_read_list(
     auto next_item = std::next(item);
     bool is_last_item = next_item == m_timestamp_to_file_map.cend();
 
-    if (is_last_item || reader_context->next_event_bookmark.timestamp <=
-                            next_item->second->first_timestamp) {
+    // The current log has no first timestamp while it has no records, its
+    // records are later than all others
+    if (is_last_item || next_item->second->first_timestamp.empty() ||
+        reader_context->next_event_bookmark.timestamp <=
+            next_item->second->first_timestamp) {
       const auto &file_info = item->second;
 
       if (file_info->is_encrypted && file_info->encryption_options == nullptr) {
@@ -137,7 +163,7 @@ bool AuditLogReader::init() noexcept {
 
   std::unique_lock lock(m_reader_mutex);
 
-  if (!m_reload_requested) {
+  if (!m_reload_requested && m_current_log_has_timestamp) {
     return true;
   }
 
@@ -191,6 +217,18 @@ bool AuditLogReader::init() noexcept {
     have_complete_file_snapshot = false;
   }
 
+  // The current log keeps its name on rotation and starts with later
+  // records then, read its first timestamp again. Sessions keep their own
+  // references to the dropped entry.
+  for (auto entry = m_timestamp_to_file_map.begin();
+       entry != m_timestamp_to_file_map.end();) {
+    if (is_current_log_name(entry->second->name)) {
+      entry = m_timestamp_to_file_map.erase(entry);
+    } else {
+      ++entry;
+    }
+  }
+
   std::vector<std::string> new_files;
   std::vector<std::string> removed_files;
 
@@ -217,7 +255,18 @@ bool AuditLogReader::init() noexcept {
         });
   }
 
+  bool current_log_has_timestamp = false;
+
   for (const auto &log_name : new_files) {
+    const bool is_current_log = is_current_log_name(log_name);
+
+    // Other files with the log name in their names, for example backup
+    // copies, would take the map key of the current log
+    if (!is_current_log &&
+        !log_writer::FileName::from_path(log_name).is_rotated()) {
+      continue;
+    }
+
     bool is_compressed = log_name.find(".gz") != std::string::npos;
     bool is_encrypted = log_name.find(".enc") != std::string::npos;
 
@@ -249,7 +298,9 @@ bool AuditLogReader::init() noexcept {
     AuditJsonFirstTimestampHandler first_timestamp_handler;
     json_reader.Parse(*json_reader_stream, first_timestamp_handler);
 
-    if (first_timestamp_handler.timestamp.empty()) {
+    // Keep the current log before its first record is written, sessions
+    // read the records written later
+    if (first_timestamp_handler.timestamp.empty() && !is_current_log) {
       continue;
     }
 
@@ -257,7 +308,11 @@ bool AuditLogReader::init() noexcept {
 
     try {
       auto ts = LogFileTimestamp(log_name);
-      m_timestamp_to_file_map.emplace(std::move(ts), std::move(file_info));
+      if (m_timestamp_to_file_map.emplace(std::move(ts), std::move(file_info))
+              .second &&
+          is_current_log && !first_timestamp_handler.timestamp.empty()) {
+        current_log_has_timestamp = true;
+      }
     } catch (const std::exception &e) {
       LogComponentErr(WARNING_LEVEL, ER_AUDIT_LOG_FILE_NAME_PARSE_FAILURE,
                       log_name.c_str(), e.what());
@@ -278,6 +333,11 @@ bool AuditLogReader::init() noexcept {
       m_timestamp_to_file_map.erase(it);
     }
   }
+
+  // Until the current log is in the list with its first timestamp, because
+  // it has no records yet or could not be read, every new read sequence
+  // reads the file list again
+  m_current_log_has_timestamp = current_log_has_timestamp;
 
   if (!have_complete_file_snapshot) {
     return false;
@@ -366,7 +426,7 @@ bool AuditLogReader::read(AuditLogReaderContext *reader_context) noexcept try {
 
 AuditLogReaderContext *AuditLogReader::init_reader_session(
     MYSQL_THD thd, const AuditLogReaderArgs *reader_args) noexcept {
-  if (m_reload_requested && !init()) {
+  if ((m_reload_requested || !m_current_log_has_timestamp) && !init()) {
     return nullptr;
   }
 
