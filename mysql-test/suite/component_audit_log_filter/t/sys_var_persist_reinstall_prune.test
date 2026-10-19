@@ -1,0 +1,92 @@
+--echo #
+--echo # PS-11934: on component install the persisted max_size, prune_seconds
+--echo # and the log pruning take effect as they do on server restart
+--echo #
+
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+--let $log_path = `SELECT @@global.datadir`
+--let $log_name = `SELECT @@global.audit_log_filter.file`
+--let $log_max_size = 8192
+
+--source clean_all_audit_logs.inc
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+SELECT audit_log_filter_set_user('%', 'log_all');
+--source generate_audit_events.inc
+--source generate_audit_events.inc
+--source generate_audit_events.inc
+--source generate_audit_events.inc
+--source generate_audit_events.inc
+SELECT audit_log_filter_remove_user('%');
+--source check_logs_size.inc
+
+--echo #
+--echo # Server start does not prune with max_size from the command line
+--echo # that a persisted max_size overrides
+SET PERSIST audit_log_filter.max_size = 0;
+--let $restart_parameters = restart: --audit_log_filter.max_size=8192
+--source include/restart_mysqld.inc
+SELECT @@global.audit_log_filter.max_size;
+--source check_logs_size.inc
+RESET PERSIST audit_log_filter.max_size;
+--let $restart_parameters = restart:
+--source include/restart_mysqld.inc
+
+--echo #
+--echo # Logs are pruned on install with max_size persisted
+
+# PERSIST_ONLY does not call the update callback, so nothing is pruned yet
+SET PERSIST_ONLY audit_log_filter.max_size = 8192;
+--source check_logs_size.inc
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_comp_install.inc
+SELECT @@global.audit_log_filter.max_size;
+--source check_logs_size.inc
+RESET PERSIST audit_log_filter.max_size;
+
+--echo #
+--echo # max_size persisted after prune_seconds, max_size wins
+SET PERSIST audit_log_filter.prune_seconds = 86400;
+SET PERSIST audit_log_filter.max_size = 1073741824;
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_comp_install.inc
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+--source include/restart_mysqld.inc
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+RESET PERSIST audit_log_filter.prune_seconds;
+RESET PERSIST audit_log_filter.max_size;
+
+--echo #
+--echo # prune_seconds persisted after max_size, prune_seconds wins
+SET PERSIST audit_log_filter.max_size = 1073741824;
+SET PERSIST audit_log_filter.prune_seconds = 86400;
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_comp_install.inc
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+--source include/restart_mysqld.inc
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+RESET PERSIST audit_log_filter.max_size;
+RESET PERSIST audit_log_filter.prune_seconds;
+
+--echo #
+--echo # Persisted max_size wins over prune_seconds from the command line
+SET PERSIST audit_log_filter.max_size = 1073741824;
+--let $restart_parameters = restart: --audit_log_filter.prune_seconds=86400
+--source include/restart_mysqld.inc
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_comp_install.inc
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+RESET PERSIST audit_log_filter.max_size;
+--let $restart_parameters = restart:
+--source include/restart_mysqld.inc
+
+--echo #
+--echo # Cleanup
+SELECT audit_log_filter_remove_filter('log_all');
+--source clean_all_audit_logs.inc
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

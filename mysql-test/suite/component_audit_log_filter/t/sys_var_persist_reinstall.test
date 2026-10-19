@@ -1,0 +1,52 @@
+--echo #
+--echo # PS-11934: persisted values of the variables whose update callbacks act
+--echo # on the component instance are applied while the component variables
+--echo # are registered, before the instance exists, so reinstalling the
+--echo # component crashed the server
+--echo #
+
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+--let $i = 0
+while ($i < 5) {
+  if ($i == 0) {
+    --let $var = audit_log_filter.max_size
+    --let $value = 1073741824
+  }
+  if ($i == 1) {
+    --let $var = audit_log_filter.prune_seconds
+    --let $value = 86400
+  }
+  if ($i == 2) {
+    --let $var = audit_log_filter.password_history_keep_days
+    --let $value = 10
+  }
+  if ($i == 3) {
+    --let $var = audit_log_filter.event_mode
+    --let $value = FULL
+  }
+  if ($i == 4) {
+    --let $var = audit_log_filter.format_unix_timestamp
+    --let $value = ON
+  }
+
+  --echo #
+  --echo # $var
+  --eval SET PERSIST $var = $value
+  --source ../inc/audit_comp_uninstall.inc
+  --source ../inc/audit_comp_install.inc
+  --eval SELECT @@global.$var
+  --eval RESET PERSIST $var
+  --source ../inc/audit_comp_uninstall.inc
+  --source ../inc/audit_comp_install.inc
+  --eval SELECT @@global.$var
+
+  --inc $i
+}
+
+--echo #
+--echo # Cleanup
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

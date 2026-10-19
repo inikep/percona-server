@@ -19,6 +19,7 @@
 #include "components/audit_log_filter/audit_log_reader.h"
 
 #include "sql/mysqld.h"
+#include "sql/persisted_variable.h"
 #include "sql/sql_class.h"
 #include "sql/sql_error.h"
 #include "sql/sql_plugin_var.h"
@@ -30,6 +31,7 @@
 #include <mysql/components/services/mysql_thd_store_service.h>
 #include <mysql/components/services/security_context.h>
 #include <mysql/components/services/system_variable_source.h>
+#include <scope_guard.h>
 
 #include <syslog.h>
 #include <atomic>
@@ -45,6 +47,7 @@ namespace {
 
 constexpr std::string_view kCompName{"audit_log_filter"};
 const std::string kMaxSizeVarName{"audit_log_filter.max_size"};
+const std::string kPruneSecondsVarName{"audit_log_filter.prune_seconds"};
 const size_t kMaxDbNameLength = 64;
 
 constexpr std::string_view kReaderContextSlotName{
@@ -251,6 +254,12 @@ bool json_with_unix_timestamp = false;
 bool log_direct_io = false;
 ulong read_buffer_size = 0;
 
+// Set while SysVars::init() registers the variables, see
+// replay_persisted_prune_settings()
+bool registering_sys_vars = false;
+bool max_size_set_on_register = false;
+bool prune_seconds_set_on_register = false;
+
 const char *audit_log_filter_handler_names[] = {"FILE", "SYSLOG", nullptr};
 TYPE_LIB audit_log_filter_handler_typelib = {
     array_elements(audit_log_filter_handler_names) - 1,
@@ -276,14 +285,28 @@ TYPE_LIB audit_log_filter_strategy_typelib = {
     "audit_log_filter_strategy_typelib", audit_log_filter_strategy_names,
     nullptr};
 
+/*
+  Persisted values are applied while the component variables are registered,
+  before the component instance is created, so the update callbacks below must
+  not assume the instance exists. Without an instance there is nothing to
+  rotate or invalidate yet, and audit_log_filter_init() prunes the logs and
+  the encryption passwords once it has created the instance.
+*/
 void max_size_update_func(MYSQL_THD, SYS_VAR *, void *val_ptr,
                           const void *save) {
   const auto *val = static_cast<const ulonglong *>(save);
   *static_cast<ulonglong *>(val_ptr) = *val;
 
+  if (registering_sys_vars) {
+    max_size_set_on_register = true;
+    return;
+  }
+
   if (*val > 0) {
     log_prune_seconds = 0;
-    get_audit_log_filter_instance()->on_audit_log_prune_requested();
+    if (auto *instance = get_audit_log_filter_instance(); instance != nullptr) {
+      instance->on_audit_log_prune_requested();
+    }
   }
 }
 
@@ -292,9 +315,16 @@ void prune_seconds_update_func(MYSQL_THD, SYS_VAR *, void *val_ptr,
   const auto *val = static_cast<const ulonglong *>(save);
   *static_cast<ulonglong *>(val_ptr) = *val;
 
+  if (registering_sys_vars) {
+    prune_seconds_set_on_register = true;
+    return;
+  }
+
   if (*val > 0) {
     log_max_size = 0;
-    get_audit_log_filter_instance()->on_audit_log_prune_requested();
+    if (auto *instance = get_audit_log_filter_instance(); instance != nullptr) {
+      instance->on_audit_log_prune_requested();
+    }
   }
 }
 
@@ -305,7 +335,9 @@ void event_mode_update_func(MYSQL_THD, SYS_VAR *, void *val_ptr,
   *static_cast<ulong *>(val_ptr) = new_val;
 
   if (old_val != new_val) {
-    get_audit_log_filter_instance()->invalidate_audit_rules();
+    if (auto *instance = get_audit_log_filter_instance(); instance != nullptr) {
+      instance->invalidate_audit_rules();
+    }
     SysVars::bump_filter_rule_generation();
   }
 }
@@ -400,7 +432,9 @@ void password_history_keep_days_update_func(MYSQL_THD, SYS_VAR *, void *val_ptr,
                                             const void *save) {
   const auto *val = static_cast<const ulonglong *>(save);
   *static_cast<ulonglong *>(val_ptr) = *val;
-  get_audit_log_filter_instance()->on_encryption_password_prune_requested();
+  if (auto *instance = get_audit_log_filter_instance(); instance != nullptr) {
+    instance->on_encryption_password_prune_requested();
+  }
 }
 
 int format_unix_timestamp_check_func(MYSQL_THD thd, SYS_VAR *var, void *save,
@@ -421,9 +455,11 @@ void format_unix_timestamp_update_func(MYSQL_THD, SYS_VAR *, void *val_ptr,
   if (json_with_unix_timestamp != new_val) {
     *static_cast<bool *>(val_ptr) = new_val;
 
-    if (SysVars::get_format_type() == AuditLogFormatType::Json ||
-        SysVars::get_format_type() == AuditLogFormatType::Jsonl) {
-      get_audit_log_filter_instance()->on_audit_log_rotate_requested();
+    auto *instance = get_audit_log_filter_instance();
+    if (instance != nullptr &&
+        (SysVars::get_format_type() == AuditLogFormatType::Json ||
+         SysVars::get_format_type() == AuditLogFormatType::Jsonl)) {
+      instance->on_audit_log_rotate_requested();
     }
   }
 }
@@ -779,6 +815,64 @@ std::string get_log_file_name_value(const char *full_path) {
                                  : default_log_file_name;
 }
 
+/*
+  On INSTALL COMPONENT the server applies the persisted value of each variable
+  as soon as it is registered, so the persisted max_size and prune_seconds
+  would be applied in registration order. max_size_update_func() and
+  prune_seconds_update_func() only record that during registration. Apply
+  them here in the order they were persisted, as a server restart does, so a
+  non-zero value clears the other variable only if it was persisted later.
+*/
+void replay_persisted_prune_settings() {
+  if (!max_size_set_on_register && !prune_seconds_set_on_register) {
+    return;
+  }
+
+  ulonglong max_size_timestamp = 0;
+  ulonglong prune_seconds_timestamp = 0;
+
+  if (auto *persisted_vars = Persisted_variables_cache::get_instance();
+      persisted_vars != nullptr) {
+    persisted_vars->lock();
+    for (const auto &var : *persisted_vars->get_persisted_dynamic_variables()) {
+      if (var.key == kMaxSizeVarName) {
+        max_size_timestamp = var.timestamp;
+      } else if (var.key == kPruneSecondsVarName) {
+        prune_seconds_timestamp = var.timestamp;
+      }
+    }
+    persisted_vars->unlock();
+  }
+
+  const ulonglong max_size = log_max_size;
+  const ulonglong prune_seconds = log_prune_seconds;
+
+  const auto apply_max_size = [max_size] {
+    log_max_size = max_size;
+    if (max_size > 0) {
+      log_prune_seconds = 0;
+    }
+  };
+  const auto apply_prune_seconds = [prune_seconds] {
+    log_prune_seconds = prune_seconds;
+    if (prune_seconds > 0) {
+      log_max_size = 0;
+    }
+  };
+
+  if (!prune_seconds_set_on_register) {
+    apply_max_size();
+  } else if (!max_size_set_on_register) {
+    apply_prune_seconds();
+  } else if (max_size_timestamp <= prune_seconds_timestamp) {
+    apply_max_size();
+    apply_prune_seconds();
+  } else {
+    apply_prune_seconds();
+    apply_max_size();
+  }
+}
+
 }  // namespace
 
 bool SysVars::init() noexcept {
@@ -830,6 +924,12 @@ bool SysVars::init() noexcept {
     return false;
   }
 
+  max_size_set_on_register = false;
+  prune_seconds_set_on_register = false;
+  registering_sys_vars = true;
+  auto registering_guard =
+      create_scope_guard([] { registering_sys_vars = false; });
+
   for (auto &var : sys_vars) {
     if (sys_var_registration_srv->register_variable(
             kCompName.data(), var.first.name, var.first.flags,
@@ -842,6 +942,9 @@ bool SysVars::init() noexcept {
 
     var.second = true;
   }
+
+  registering_sys_vars = false;
+  replay_persisted_prune_settings();
 
   return true;
 }

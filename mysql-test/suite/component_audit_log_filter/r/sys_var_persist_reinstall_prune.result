@@ -1,0 +1,77 @@
+#
+# PS-11934: on component install the persisted max_size, prune_seconds
+# and the log pruning take effect as they do on server restart
+#
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_all');
+audit_log_filter_set_user('%', 'log_all')
+OK
+SELECT audit_log_filter_remove_user('%');
+audit_log_filter_remove_user('%')
+OK
+Logs size exceeds expected 8192 bytes
+#
+# Server start does not prune with max_size from the command line
+# that a persisted max_size overrides
+SET PERSIST audit_log_filter.max_size = 0;
+# restart: --audit_log_filter.max_size=8192
+SELECT @@global.audit_log_filter.max_size;
+@@global.audit_log_filter.max_size
+0
+Logs size exceeds expected 8192 bytes
+RESET PERSIST audit_log_filter.max_size;
+# restart:
+#
+# Logs are pruned on install with max_size persisted
+SET PERSIST_ONLY audit_log_filter.max_size = 8192;
+Logs size exceeds expected 8192 bytes
+SELECT @@global.audit_log_filter.max_size;
+@@global.audit_log_filter.max_size
+8192
+Logs size doesn't exceed expected 8192 bytes
+RESET PERSIST audit_log_filter.max_size;
+#
+# max_size persisted after prune_seconds, max_size wins
+SET PERSIST audit_log_filter.prune_seconds = 86400;
+SET PERSIST audit_log_filter.max_size = 1073741824;
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.max_size	@@global.audit_log_filter.prune_seconds
+1073741824	0
+# restart:
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.max_size	@@global.audit_log_filter.prune_seconds
+1073741824	0
+RESET PERSIST audit_log_filter.prune_seconds;
+RESET PERSIST audit_log_filter.max_size;
+#
+# prune_seconds persisted after max_size, prune_seconds wins
+SET PERSIST audit_log_filter.max_size = 1073741824;
+SET PERSIST audit_log_filter.prune_seconds = 86400;
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.max_size	@@global.audit_log_filter.prune_seconds
+0	86400
+# restart:
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.max_size	@@global.audit_log_filter.prune_seconds
+0	86400
+RESET PERSIST audit_log_filter.max_size;
+RESET PERSIST audit_log_filter.prune_seconds;
+#
+# Persisted max_size wins over prune_seconds from the command line
+SET PERSIST audit_log_filter.max_size = 1073741824;
+# restart: --audit_log_filter.prune_seconds=86400
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.max_size	@@global.audit_log_filter.prune_seconds
+1073741824	0
+SELECT @@global.audit_log_filter.max_size, @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.max_size	@@global.audit_log_filter.prune_seconds
+1073741824	0
+RESET PERSIST audit_log_filter.max_size;
+# restart:
+#
+# Cleanup
+SELECT audit_log_filter_remove_filter('log_all');
+audit_log_filter_remove_filter('log_all')
+OK
