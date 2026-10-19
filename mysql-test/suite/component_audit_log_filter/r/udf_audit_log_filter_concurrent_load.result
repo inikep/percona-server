@@ -1,0 +1,33 @@
+#
+# PS-11934: concurrent loads of the filter tables were not ordered, so a
+# load which read the tables first could install its older snapshot
+# last, and a filter assignment reported as OK was missing from memory
+#
+CREATE USER user1@localhost;
+CREATE USER user2@localhost;
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}')
+OK
+# The load after the first assignment reads the tables, then waits
+# before installing them, while a new filter and the second
+# assignment are loaded
+SET DEBUG_SYNC = 'audit_log_filter_before_rules_swap SIGNAL rules_read WAIT_FOR install_rules';
+SELECT audit_log_filter_set_user('user1@localhost', 'log_all');
+SET DEBUG_SYNC = 'now WAIT_FOR rules_read';
+SELECT audit_log_filter_set_filter('log_second', '{"filter": {"log": true}}');
+audit_log_filter_set_filter('log_second', '{"filter": {"log": true}}')
+OK
+SELECT audit_log_filter_set_user('user2@localhost', 'log_second');
+audit_log_filter_set_user('user2@localhost', 'log_second')
+OK
+SET DEBUG_SYNC = 'now SIGNAL install_rules';
+audit_log_filter_set_user('user1@localhost', 'log_all')
+OK
+SET DEBUG_SYNC = 'RESET';
+# Both users use their filters
+include/assert.inc [user1 uses log_all]
+include/assert.inc [user2 uses log_second]
+#
+# Cleanup
+DROP USER user1@localhost;
+DROP USER user2@localhost;
