@@ -115,7 +115,7 @@ void AuditLogReader::set_files_to_read_list(
 
     if (is_last_item || reader_context->next_event_bookmark.timestamp <=
                             next_item->second->first_timestamp) {
-      auto *file_info = item->second.get();
+      const auto &file_info = item->second;
 
       if (file_info->is_encrypted && file_info->encryption_options == nullptr) {
         continue;
@@ -226,7 +226,7 @@ bool AuditLogReader::init() noexcept {
 
     assert(!is_encrypted || !encryption_options_id.empty());
 
-    auto file_info = std::make_unique<FileInfo>(log_name, encryption_options_id,
+    auto file_info = std::make_shared<FileInfo>(log_name, encryption_options_id,
                                                 is_compressed, is_encrypted);
 
     if (file_info->is_encrypted && !file_info->encryption_options_id.empty()) {
@@ -309,7 +309,7 @@ bool AuditLogReader::read(AuditLogReaderContext *reader_context) noexcept try {
       reader_context->files_to_read.pop_front();
 
       if (!reader_context->audit_json_read_stream->open(
-              reader_context->current_file)) {
+              reader_context->current_file.get())) {
         return false;
       }
 

@@ -53,8 +53,10 @@ struct AuditLogReaderContext {
   std::unique_ptr<json_reader::AuditJsonHandler> audit_json_handler;
   std::unique_ptr<json_reader::AuditJsonReadStream> audit_json_read_stream;
   std::unique_ptr<rapidjson::Reader> reader;
-  std::deque<FileInfo *> files_to_read;
-  FileInfo *current_file{nullptr};
+  // Shared with AuditLogReader, which may drop a file that was removed from
+  // disk while the session still refers to it
+  std::deque<std::shared_ptr<FileInfo>> files_to_read;
+  std::shared_ptr<FileInfo> current_file;
   bool is_session_end{false};
   bool is_batch_end{false};
 };
@@ -94,7 +96,7 @@ class AuditLogReader {
   void set_files_to_read_list(AuditLogReaderContext *reader_context) noexcept;
 
  private:
-  std::map<LogFileTimestamp, std::unique_ptr<FileInfo>> m_timestamp_to_file_map;
+  std::map<LogFileTimestamp, std::shared_ptr<FileInfo>> m_timestamp_to_file_map;
   std::shared_mutex m_reader_mutex;
   std::atomic<bool> m_reload_requested;
 };
