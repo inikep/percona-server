@@ -28,6 +28,7 @@
 
 #include "my_dbug.h"
 
+#include <cerrno>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -172,10 +173,11 @@ bool LogWriterFile::do_open_file() noexcept {
     return false;
   }
   bool is_new_file = !file_exists;
+  bool is_footer_removed = false;
 
   if (!is_new_file) {
-    if (!FileHandle::remove_file_footer(file_path,
-                                        get_formatter()->get_file_footer())) {
+    if (!FileHandle::remove_file_footer(
+            file_path, get_formatter()->get_file_footer(), is_footer_removed)) {
       const auto file_path_str = file_path.string();
       LogComponentErr(ERROR_LEVEL, ER_AUDIT_LOG_FILE_PREPARE_FAILURE,
                       file_path_str.c_str());
@@ -183,13 +185,35 @@ bool LogWriterFile::do_open_file() noexcept {
     }
   }
 
+  // Put back the footer of an existing file that cannot be opened, the file
+  // is rotated as it is. Keep errno of the failed open for the caller.
+  auto restore_footer = [&]() noexcept {
+    const int open_errno = errno;
+    if (is_footer_removed &&
+        !FileHandle::append_file_footer(file_path,
+                                        get_formatter()->get_file_footer())) {
+      const auto file_path_str = file_path.string();
+      LogComponentErr(ERROR_LEVEL, ER_AUDIT_LOG_FILE_PREPARE_FAILURE,
+                      file_path_str.c_str());
+    }
+    errno = open_errno;
+  };
+
   if (!m_file_handle.open_file(file_path, SysVars::get_direct_io(),
                                SysVars::get_file_strategy_type() ==
                                    AuditLogStrategyType::Semisynchronous)) {
+    restore_footer();
     return false;
   }
 
   if (!m_file_writer->open()) {
+    m_file_handle.close_file();
+    // Do not leave a file without a header behind, the next open would
+    // append to it
+    if (is_new_file) {
+      FileHandle::remove_file(file_path);
+    }
+    restore_footer();
     return false;
   }
 
@@ -212,6 +236,8 @@ bool LogWriterFile::do_open_file() noexcept {
   return true;
 }
 
+bool LogWriterFile::is_opened() const noexcept { return m_is_opened; }
+
 bool LogWriterFile::do_close_file() noexcept {
   if (!m_is_opened) {
     return true;
@@ -220,6 +246,8 @@ bool LogWriterFile::do_close_file() noexcept {
   do_write(get_formatter()->get_file_footer(), false);
   m_file_writer->close();
   m_is_opened = false;
+  // There is no current log until a new file is opened
+  SysVars::set_current_log_size(0);
 
   return m_file_handle.close_file();
 }
@@ -344,9 +372,6 @@ void LogWriterFile::rotate(FileRotationResult *result) noexcept {
 
 void LogWriterFile::do_rotate(FileRotationResult *result) noexcept {
   m_is_rotating = true;
-  const auto current_log_path = m_file_handle.get_file_path();
-
-  do_close_file();
 
   std::unique_ptr<FileRotationResult> local_result;
   if (result == nullptr) {
@@ -354,14 +379,40 @@ void LogWriterFile::do_rotate(FileRotationResult *result) noexcept {
     result = local_result.get();
   }
 
-  FileHandle::rotate(current_log_path, result);
+  std::filesystem::path current_log_path;
 
-  if (result->error_code != 0) {
-    LogComponentErr(ERROR_LEVEL, ER_AUDIT_LOG_ROTATE_INTERNAL_FAILURE,
-                    result->error_code, result->status_string.c_str());
+  if (m_is_opened) {
+    current_log_path = m_file_handle.get_file_path();
+    do_close_file();
+  } else if (!FileHandle::get_not_rotated_file_path(SysVars::get_file_dir(),
+                                                    SysVars::get_file_name(),
+                                                    current_log_path)) {
+    // The log is closed after a failed reopen. Rotate the file left behind
+    // when the failed rotation could not rename it, as open() does.
+    LogComponentErr(ERROR_LEVEL, ER_AUDIT_LOG_DIR_LIST_FAILURE,
+                    SysVars::get_file_dir().c_str());
   }
 
-  do_open_file();
+  if (!current_log_path.empty()) {
+    FileHandle::rotate(current_log_path, result);
+
+    if (result->error_code != 0) {
+      LogComponentErr(ERROR_LEVEL, ER_AUDIT_LOG_ROTATE_INTERNAL_FAILURE,
+                      result->error_code, result->status_string.c_str());
+    }
+  }
+
+  if (!do_open_file()) {
+    // Events are lost until a later rotation opens the file
+    LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
+                    "Failed to open audit log file after rotation, events "
+                    "are not logged until the log is rotated again");
+    if (result->error_code == 0) {
+      result->error_code = EIO;
+      result->status_string = "Failed to open audit log file";
+    }
+  }
+
   m_is_rotating = false;
 
   get_audit_log_filter_instance()->on_audit_log_rotated();

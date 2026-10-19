@@ -123,11 +123,24 @@ class FileHandle {
    *
    * @param file_path File path
    * @param expected_footer Expected log footer
+   * @param[out] is_removed true if the footer was found and removed
    * @return true if footer was removed or was not present, false on I/O error
    */
   [[nodiscard]] static bool remove_file_footer(
       const std::filesystem::path &file_path,
-      const std::string &expected_footer) noexcept;
+      const std::string &expected_footer, bool &is_removed) noexcept;
+
+  /**
+   * @brief Append log footer to the end of a file, restoring a footer
+   *        removed by @ref remove_file_footer.
+   *
+   * @param file_path File path
+   * @param footer Log footer
+   * @return true on success, false on I/O error
+   */
+  [[nodiscard]] static bool append_file_footer(
+      const std::filesystem::path &file_path,
+      const std::string &footer) noexcept;
 
   /**
    * @brief Rotate file.

@@ -78,6 +78,16 @@ class LogWriter<AuditLogHandlerType::File> : public LogWriterBase {
    */
   void prune() noexcept override;
 
+ protected:
+  /**
+   * @brief Check if the log file is open, called with m_write_mutex held.
+   *        The file stays closed after a failed reopen on rotation until a
+   *        later rotation opens it.
+   *
+   * @return true in case the log file is open, false otherwise
+   */
+  [[nodiscard]] bool is_opened() const noexcept override;
+
  private:
   /**
    * @brief Rotate log file.

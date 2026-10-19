@@ -38,7 +38,12 @@ bool FileWriterCompressing::open() noexcept {
     return false;
   }
 
-  return FileWriterDecoratorBase::open();
+  if (!FileWriterDecoratorBase::open()) {
+    deflateEnd(&m_strm);
+    return false;
+  }
+
+  return true;
 }
 
 void FileWriterCompressing::close() noexcept {

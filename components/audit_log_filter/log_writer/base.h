@@ -90,11 +90,14 @@ class LogWriterBase {
    *
    * @param record Audit record represented as an instance of
    *               @ref AuditRecordVariant
+   * @return false if the log is not open, for example after a failed reopen
+   *         on rotation. Nothing is written in that case, and the caller
+   *         counts the event as lost.
    * @throw std::exception if the record cannot be formatted, for example
    *        when memory cannot be allocated. Nothing is written in that case,
    *        and the caller counts the event as lost.
    */
-  void write(const AuditRecordVariant &record);
+  bool write(const AuditRecordVariant &record);
 
   /**
    * @brief Write audit record to log.
@@ -141,6 +144,14 @@ class LogWriterBase {
    * @brief Init log formatter.
    */
   void init_formatter() noexcept;
+
+  /**
+   * @brief Check if the log is open for writing, called with m_write_mutex
+   *        held.
+   *
+   * @return true in case records can be written, false otherwise
+   */
+  [[nodiscard]] virtual bool is_opened() const noexcept { return true; }
 
   /**
    * @brief Mutex serializing record formatting with writer state changes.
