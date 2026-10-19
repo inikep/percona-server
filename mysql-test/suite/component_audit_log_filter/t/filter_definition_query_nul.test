@@ -1,0 +1,74 @@
+--echo #
+--echo # PS-11934: the query.str field of the query and parse classes ended at
+--echo # the first NUL byte, so a statement with a NUL in a comment got around
+--echo # the filter
+--echo #
+
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE USER nul_user@localhost;
+GRANT SELECT ON test.* TO nul_user@localhost;
+
+--let nul_sql = $MYSQLTEST_VARDIR/tmp/query_nul.sql
+--let plain_sql = $MYSQLTEST_VARDIR/tmp/query_plain.sql
+perl;
+  open my $f, '>:raw', $ENV{nul_sql} or die $!;
+  print $f "SELECT 1 /*\x00*/ AS nul_secret;\n";
+  close $f;
+  open $f, '>:raw', $ENV{plain_sql} or die $!;
+  print $f "SELECT 1 /**/ AS nul_secret;\n";
+  close $f;
+EOF
+
+--echo #
+--echo # Logging: one query start and one parse preparse event match
+SELECT audit_log_filter_set_filter('nul_log', '{"filter": {"class": [{"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "regex": "nul_secret"}}}}, {"name": "parse", "event": {"name": "preparse", "log": {"field": {"name": "query.str", "regex": "nul_secret"}}}}]}}');
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_log');
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+--exec $MYSQL --binary-mode -u nul_user test < $nul_sql > /dev/null
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+
+--echo #
+--echo # Value comparison: the whole statement matches, the text before the NUL
+--echo # does not
+SELECT audit_log_filter_set_filter('nul_value', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "value": "SELECT 1 /*\\u0000*/ AS nul_secret"}}}}}}');
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_value');
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+--exec $MYSQL --binary-mode -u nul_user test < $nul_sql > /dev/null
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+
+SELECT audit_log_filter_set_filter('nul_prefix', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "value": "SELECT 1 /*"}}}}}}');
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_prefix');
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+--exec $MYSQL --binary-mode -u nul_user test < $nul_sql > /dev/null
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+
+--echo #
+--echo # string_find(): a NUL in the searched string is kept, only the
+--echo # statement with the NUL matches
+SELECT audit_log_filter_set_filter('nul_find', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"function": {"name": "string_find", "args": [{"string": {"field": "query.str"}}, {"string": {"string": "\\u0000*/ AS nul_secret"}}]}}}}}}');
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_find');
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+--exec $MYSQL --binary-mode -u nul_user test < $plain_sql > /dev/null
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+--exec $MYSQL --binary-mode -u nul_user test < $nul_sql > /dev/null
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+
+--echo #
+--echo # Blocking: the query start event is aborted
+SELECT audit_log_filter_set_filter('nul_block', '{"filter": {"class": {"name": "query", "event": {"name": "start", "abort": {"field": {"name": "query.str", "regex": "nul_secret"}}}}}}');
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_block');
+--replace_regex /at line [0-9]+/at line <n>/
+--error 1
+--exec $MYSQL --binary-mode -u nul_user test < $nul_sql 2>&1
+
+--echo #
+--echo # Cleanup
+--remove_file $nul_sql
+--remove_file $plain_sql
+DROP USER nul_user@localhost;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
