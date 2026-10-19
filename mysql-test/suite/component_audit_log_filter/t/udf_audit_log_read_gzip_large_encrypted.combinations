@@ -1,0 +1,9 @@
+[json_aes_gzip]
+loose-audit_log_filter.format=JSON
+loose-audit_log_filter.encryption=AES
+loose-audit_log_filter.compression=GZIP
+
+[jsonl_aes_gzip]
+loose-audit_log_filter.format=JSONL
+loose-audit_log_filter.encryption=AES
+loose-audit_log_filter.compression=GZIP
