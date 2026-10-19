@@ -1,0 +1,68 @@
+--echo #
+--echo # PS-11926: audit_log_read() must report an error, not loop, when a
+--echo # compressed log fails to decompress after its first chunk
+--echo #
+
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE t1 (c1 INT);
+
+SELECT audit_log_filter_set_filter('log_table_insert', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+SELECT audit_log_filter_set_user('%', 'log_table_insert');
+
+--source clean_all_audit_logs.inc
+
+delimiter |;
+CREATE PROCEDURE insert_rows(n INT)
+BEGIN
+  DECLARE i INT DEFAULT 0;
+  WHILE i < n DO
+    INSERT INTO t1 VALUES (i);
+    SET i = i + 1;
+  END WHILE;
+END|
+
+CREATE PROCEDURE read_all_events()
+BEGIN
+  DECLARE batch JSON;
+  SET batch = audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+  WHILE batch IS NOT NULL AND JSON_LENGTH(batch) > 0 AND
+        JSON_TYPE(JSON_EXTRACT(batch, '$[last]')) <> 'NULL' DO
+    SET batch = audit_log_read();
+  END WHILE;
+END|
+delimiter ;|
+
+CALL insert_rows(3000);
+--let $rotated_log_name = `SELECT audit_log_rotate()`
+--let ROTATED_LOG_FILE = `SELECT CONCAT(@@global.datadir, '$rotated_log_name')`
+
+--echo # Corrupt the CRC in the gzip trailer, so that inflate() fails on the
+--echo # last read of the log
+perl;
+  my $file = $ENV{'ROTATED_LOG_FILE'};
+  open(my $fh, '+<:raw', $file) or die "Can't open $file: $!";
+  my $size = -s $fh;
+  die "$file has $size bytes, more than 32768 are needed" if $size <= 32768;
+  seek($fh, $size - 8, 0) or die "Can't seek $file: $!";
+  read($fh, my $byte, 1) == 1 or die "Can't read $file: $!";
+  seek($fh, $size - 8, 0) or die "Can't seek $file: $!";
+  print $fh chr(ord($byte) ^ 0xff) or die "Can't write $file: $!";
+  close($fh) or die "Can't close $file: $!";
+EOF
+
+--error ER_UDF_ERROR
+CALL read_all_events();
+
+--echo #
+--echo # Cleanup
+DROP PROCEDURE insert_rows;
+DROP PROCEDURE read_all_events;
+DROP TABLE t1;
+
+--let $audit_filter_log_path = `SELECT @@global.datadir`
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
+--remove_files_wildcard $audit_filter_log_path audit_filter.*
