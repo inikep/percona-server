@@ -47,12 +47,13 @@ class EventFieldActionPrintServiceComp : public EventFieldActionBase {
    *
    * @param fields Audit event field list
    * @param audit_record Audit record
-   * @param audit_rule Effective audit rule
+   * @param replacement_rule Replacement rule of the session the event belongs
+   *                         to, nullptr when the session uses its own rule
    * @return true in case action applied successfully, false otherwise
    */
   bool apply(const AuditRecordFieldsList &fields,
              AuditRecordVariant &audit_record,
-             AuditRule *audit_rule) const noexcept override;
+             const AuditRule *&replacement_rule) const noexcept override;
 
   /**
    * @brief Get element type from its string representation.

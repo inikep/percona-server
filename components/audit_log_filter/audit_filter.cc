@@ -19,65 +19,75 @@
 
 namespace audit_log_filter {
 
-AuditAction AuditEventFilter::apply(AuditRule *rule,
-                                    AuditRecordVariant &audit_record) noexcept {
+AuditAction AuditEventFilter::apply(
+    const AuditRule *rule, AuditRecordVariant &audit_record,
+    const AuditRule *&replacement_rule) noexcept {
   auto event_class_name = std::visit(
       [](const auto &rec) { return rec.event_class_name; }, audit_record);
   auto event_subclass_name = std::visit(
       [](const auto &rec) { return rec.event_subclass_name; }, audit_record);
 
-  if (!rule->has_actions_for(event_class_name, event_subclass_name)) {
-    return rule->should_log_unmatched() ? AuditAction::Log : AuditAction::Skip;
+  // Default action for unmatched events is taken from the session's rule
+  const auto should_log_unmatched = rule->should_log_unmatched();
+
+  // Actions are taken from the replacement rule while it is active. Use the
+  // same rule for the whole event, the event may change replacement_rule.
+  const auto *actions_rule =
+      replacement_rule != nullptr ? replacement_rule : rule;
+
+  if (!actions_rule->has_actions_for(event_class_name, event_subclass_name)) {
+    return should_log_unmatched ? AuditAction::Log : AuditAction::Skip;
   }
 
   const auto event_fields =
       std::visit([](const auto &rec) { return get_audit_record_fields(rec); },
                  audit_record);
 
-  const auto *block_action = rule->get_action(
+  const auto *block_action = actions_rule->get_action(
       EventActionType::Block, event_class_name, event_subclass_name);
 
   if (block_action != nullptr &&
-      block_action->apply(event_fields, audit_record, rule)) {
+      block_action->apply(event_fields, audit_record, replacement_rule)) {
     return AuditAction::Block;
   }
 
-  const auto *replace_field_action = rule->get_action(
+  const auto *replace_field_action = actions_rule->get_action(
       EventActionType::ReplaceField, event_class_name, event_subclass_name);
-  const auto *replace_filter_action = rule->get_action(
+  const auto *replace_filter_action = actions_rule->get_action(
       EventActionType::ReplaceFilter, event_class_name, event_subclass_name);
-  const auto *print_query_attrs_action = rule->get_action(
+  const auto *print_query_attrs_action = actions_rule->get_action(
       EventActionType::PrintQueryAttrs, event_class_name, event_subclass_name);
-  const auto *print_service_comp_action = rule->get_action(
+  const auto *print_service_comp_action = actions_rule->get_action(
       EventActionType::PrintServiceComp, event_class_name, event_subclass_name);
 
   if (replace_field_action != nullptr) {
-    replace_field_action->apply(event_fields, audit_record, rule);
+    replace_field_action->apply(event_fields, audit_record, replacement_rule);
   }
   if (print_query_attrs_action != nullptr) {
-    print_query_attrs_action->apply(event_fields, audit_record, rule);
+    print_query_attrs_action->apply(event_fields, audit_record,
+                                    replacement_rule);
   }
   if (print_service_comp_action != nullptr) {
-    print_service_comp_action->apply(event_fields, audit_record, rule);
+    print_service_comp_action->apply(event_fields, audit_record,
+                                     replacement_rule);
   }
 
-  const auto *log_action = rule->get_action(
+  const auto *log_action = actions_rule->get_action(
       EventActionType::Log, event_class_name, event_subclass_name);
 
   AuditAction result = AuditAction::None;
 
   if (log_action == nullptr) {
-    result =
-        rule->should_log_unmatched() ? AuditAction::Log : AuditAction::Skip;
+    result = should_log_unmatched ? AuditAction::Log : AuditAction::Skip;
   } else {
-    result = log_action->apply(event_fields, audit_record, rule)
+    result = log_action->apply(event_fields, audit_record, replacement_rule)
                  ? AuditAction::Log
                  : AuditAction::Skip;
   }
 
   // Filter replacement if any should not affect current event processing
   if (replace_filter_action != nullptr) {
-    replace_filter_action->apply(event_fields, audit_record, rule);
+    replace_filter_action->apply(event_fields, audit_record, replacement_rule);
   }
 
   return result;

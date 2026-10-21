@@ -1,0 +1,190 @@
+#
+# PS-11934: the replacement filter activated by an event of one session
+# was stored in the rule shared by all sessions using the filter, so it
+# switched the other sessions to the replacement filter too
+#
+CREATE TABLE t1 (id INT);
+CREATE TABLE t2 (id INT);
+INSERT INTO t1 VALUES (1);
+CREATE USER user_a@localhost;
+CREATE USER user_b@localhost;
+GRANT ALL ON test.* TO user_a@localhost, user_b@localhost;
+# An update of t1 activates the replacement filter, which logs table
+# reads and switches back to the main filter on an insert
+SELECT audit_log_filter_set_filter('replace_sessions', '{
+"filter": {
+"id": "main",
+"class": {
+"name": "table_access",
+"event": {
+"name": "update",
+"log": false,
+"filter": {
+"class": {
+"name": "table_access",
+"event": [
+{"name": "read", "log": true},
+{"name": "insert", "log": false, "filter": {"ref": "main"}}
+]
+},
+"activate": {"field": {"name": "table_name.str", "value": "t1"}}
+}
+}
+}
+}
+}');
+audit_log_filter_set_filter('replace_sessions', '{
+"filter": {
+"id": "main",
+"class": {
+"name": "table_access",
+"event": {
+"name": "update",
+"log": false,
+"filter": {
+"class": {
+"name": "table_access",
+"event": [
+{"name": "read", "log": true},
+{"name": "i
+OK
+SELECT audit_log_filter_set_user('user_a@localhost', 'replace_sessions');
+audit_log_filter_set_user('user_a@localhost', 'replace_sessions')
+OK
+SELECT audit_log_filter_set_user('user_b@localhost', 'replace_sessions');
+audit_log_filter_set_user('user_b@localhost', 'replace_sessions')
+OK
+# Both sessions use the main filter, which does not log reads
+SELECT * FROM t1;
+id
+1
+SELECT * FROM t1;
+id
+1
+written: 0
+# Session A activates the replacement filter
+UPDATE t1 SET id = 2;
+# Session B still uses the main filter
+SELECT * FROM t1;
+id
+2
+written: 0
+# Session A uses the replacement filter
+SELECT * FROM t1;
+id
+2
+written: 1
+# An insert of session B does not switch session A back
+INSERT INTO t2 VALUES (1);
+SELECT * FROM t1;
+id
+2
+written: 1
+# An insert of session A switches it back to the main filter
+INSERT INTO t2 VALUES (2);
+SELECT * FROM t1;
+id
+2
+written: 0
+#
+# The replacement filter activated by the connect event of a session
+# which connects while the filtering rules are reloaded
+#
+CREATE USER user_c@localhost;
+GRANT ALL ON test.* TO user_c@localhost;
+# A successful connect activates the replacement filter
+SELECT audit_log_filter_set_filter('replace_connect', '{
+"filter": {
+"id": "main",
+"class": {
+"name": "connection",
+"event": {
+"name": "connect",
+"log": false,
+"filter": {
+"class": {
+"name": "table_access",
+"event": [
+{"name": "read", "log": true},
+{"name": "insert", "log": false, "filter": {"ref": "main"}}
+]
+},
+"activate": {"field": {"name": "status", "value": 0}}
+}
+}
+}
+}
+}');
+audit_log_filter_set_filter('replace_connect', '{
+"filter": {
+"id": "main",
+"class": {
+"name": "connection",
+"event": {
+"name": "connect",
+"log": false,
+"filter": {
+"class": {
+"name": "table_access",
+"event": [
+{"name": "read", "log": true},
+{"name": "ins
+OK
+SELECT audit_log_filter_set_user('user_c@localhost', 'replace_connect');
+audit_log_filter_set_user('user_c@localhost', 'replace_connect')
+OK
+# Let audit_log_filter_remove_user() update the users table and wait in
+# the reload of the filtering rules, which reads the locked filters
+# table
+ALTER TABLE mysql.audit_log_user DROP FOREIGN KEY audit_log_user_ibfk_1;
+# Session C connects while the rules are reloaded
+LOCK TABLES mysql.audit_log_filter WRITE;
+SELECT audit_log_filter_remove_user('user_unmapped@localhost');
+# Session C uses the replacement filter during the reload
+SELECT * FROM t1;
+id
+2
+written: 1
+UNLOCK TABLES;
+audit_log_filter_remove_user('user_unmapped@localhost')
+OK
+# Session C uses the replacement filter after the reload
+SELECT * FROM t1;
+id
+2
+written: 1
+# An insert of session C switches it back to the main filter
+INSERT INTO t2 VALUES (3);
+SELECT * FROM t1;
+id
+2
+written: 0
+# Session D connects while the rules are reloaded, the reload ends
+# before its next event
+LOCK TABLES mysql.audit_log_filter WRITE;
+SELECT audit_log_filter_remove_user('user_unmapped@localhost');
+UNLOCK TABLES;
+audit_log_filter_remove_user('user_unmapped@localhost')
+OK
+# Session D uses the replacement filter
+SELECT * FROM t1;
+id
+2
+written: 1
+# Session E connects while audit_log_filter_flush() reloads the rules
+LOCK TABLES mysql.audit_log_filter WRITE;
+SELECT audit_log_filter_flush();
+# Session E uses the replacement filter during the flush
+SELECT * FROM t1;
+id
+2
+written: 1
+UNLOCK TABLES;
+audit_log_filter_flush()
+OK
+#
+# Cleanup
+DROP USER user_a@localhost;
+DROP USER user_b@localhost;
+DROP USER user_c@localhost;
+DROP TABLE t1, t2;

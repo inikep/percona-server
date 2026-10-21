@@ -1109,7 +1109,7 @@ void SysVars::set_session_filter_rule(
   if (cache == nullptr) {
     auto *new_cache = new (std::nothrow) SessionFilterRuleCache{
         generation, detach_generation, current_removed_filter_generation,
-        std::move(rule)};
+        std::move(rule), nullptr};
 
     if (new_cache != nullptr) {
       if (thd_store_service->set(thd, session_filter_rule_slot,
@@ -1123,9 +1123,13 @@ void SysVars::set_session_filter_rule(
                       "Failed to allocate session_filter_rule");
     }
   } else {
+    // The replacement rule belongs to the cached rule, keep it only while the
+    // session still uses that rule
+    const auto *replacement_rule =
+        cache->rule == rule ? cache->replacement_rule : nullptr;
     *cache = SessionFilterRuleCache{generation, detach_generation,
                                     current_removed_filter_generation,
-                                    std::move(rule)};
+                                    std::move(rule), replacement_rule};
   }
 }
 

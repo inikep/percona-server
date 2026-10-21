@@ -60,12 +60,16 @@ class EventFieldActionBase {
    *
    * @param fields Audit event field list
    * @param audit_record Audit record
-   * @param audit_rule Effective audit rule
+   * @param replacement_rule Replacement rule of the session the event belongs
+   *                         to, nullptr when the session uses its own rule.
+   *                         A rule is shared by all sessions using its
+   *                         filter, so the replacement rule activated by an
+   *                         event is kept per session.
    * @return true in case action applied successfully, false otherwise
    */
   virtual bool apply(const AuditRecordFieldsList &fields,
                      AuditRecordVariant &audit_record,
-                     AuditRule *audit_rule) const noexcept = 0;
+                     const AuditRule *&replacement_rule) const noexcept = 0;
 };
 
 }  // namespace event_field_action

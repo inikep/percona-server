@@ -450,17 +450,14 @@ rx_next_sentinel
 rx_next_sentinel
 # Records: 1
 #   1 x general SELECT 'rx_next_sentinel'
-# Known issue, independent of regex conditions: the replace_filter action
-# stores the activated replacement in the rule object shared by all
-# sessions using the filter, so a new session starts with the replacement
-# still active. A nonmatching insert followed by the sentinel statement
-# records the current behaviour; a fix changes this result
+# The activated replacement belongs to the session that activated it, so
+# a new session starts with the original filter: a nonmatching insert
+# followed by the sentinel statement logs nothing
 INSERT INTO keep_1 VALUES (2, 2);
 SELECT 'rx_next_sentinel';
 rx_next_sentinel
 rx_next_sentinel
-# Records: 1
-#   1 x general SELECT 'rx_next_sentinel'
+# Records: 0
 # Starting from reloaded rules and a fresh session, a nonmatching insert
 # does not activate the replacement
 SELECT audit_log_filter_flush() AS result;

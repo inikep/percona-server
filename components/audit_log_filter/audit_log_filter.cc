@@ -648,13 +648,25 @@ int AuditLogFilter::notify_event(audit_event_class_t event_class,
       return 0;
     }
 
-    if (may_cache) {
-      SysVars::set_session_filter_rule(thd, current_gen, current_detach_gen,
-                                       current_removed_gen, filter_rule);
-    } else {
-      SysVars::set_session_filter_rule(thd, ~current_gen, current_detach_gen,
-                                       current_removed_gen, nullptr);
+    // A rule cached with ~current_gen was resolved while a reload was in
+    // progress, the user is resolved again only to pick up a changed
+    // mapping. Keep the cached rule, and the replacement rule an event
+    // activated in it, when the user still maps to the same filter. A
+    // filter cannot be redefined, a reload only creates new rule objects
+    // for it. A changed generation requires the new rule objects, the rule
+    // parsing depends on the event mode.
+    if (!detach_session && rule_cache != nullptr &&
+        rule_cache->rule != nullptr && rule_cache->generation == ~current_gen &&
+        rule_cache->rule->get_filter_id() == filter_rule->get_filter_id()) {
+      filter_rule = rule_cache->rule;
     }
+
+    // While a reload is in progress, cache the rule with ~current_gen so
+    // that the next event resolves the user again. The cached rule keeps
+    // the replacement rule an event activates in it.
+    SysVars::set_session_filter_rule(
+        thd, may_cache ? current_gen : ~current_gen, current_detach_gen,
+        current_removed_gen, filter_rule);
   }
 
   SysVars::set_session_filter_id(thd, filter_rule->get_filter_id());
@@ -735,9 +747,18 @@ int AuditLogFilter::notify_event(audit_event_class_t event_class,
       rec->extended_info.query_charset = get_query_charset(thd);
     }
 
-    // Apply filtering rule
+    // Apply filtering rule. The replacement rule an event activates is kept
+    // in the session's rule cache, the rule itself is shared by all sessions
+    // using the filter. Without a cache entry for the rule, e.g. when the
+    // cache entry cannot be allocated, the replacement does not persist.
+    auto *session_rule_cache = SysVars::get_session_filter_rule(thd);
+    const AuditRule *uncached_replacement_rule = nullptr;
+    const AuditRule *&replacement_rule =
+        session_rule_cache != nullptr && session_rule_cache->rule == filter_rule
+            ? session_rule_cache->replacement_rule
+            : uncached_replacement_rule;
     AuditAction filter_result =
-        AuditEventFilter::apply(filter_rule.get(), record);
+        AuditEventFilter::apply(filter_rule.get(), record, replacement_rule);
 
     if (filter_result == AuditAction::Skip) {
       SysVars::inc_events_filtered();

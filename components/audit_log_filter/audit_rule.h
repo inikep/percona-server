@@ -60,18 +60,6 @@ class AuditRule {
   [[nodiscard]] std::string_view get_rule_name_view() const noexcept;
 
   /**
-   * @brief Set temporary replacement filtering rule.
-   *
-   * @param rule Pointer to replacement filtering rule
-   */
-  void set_replacement_rule(AuditRule *rule) noexcept;
-
-  /**
-   * @brief Clear temporary replacement filtering rule.
-   */
-  void clear_replacement_rule() noexcept;
-
-  /**
    * @brief Check if event not matching the rule should be written to log.
    *
    * Default 'log' action is specified on rule global level like
@@ -151,7 +139,6 @@ class AuditRule {
                      std::vector<std::shared_ptr<EventFieldActionBase>>>
       m_matched_event_to_action_map;
 
-  AuditRule *m_replacement_rule;
   std::string m_parse_error;
 };
 

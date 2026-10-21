@@ -50,7 +50,7 @@ EventActionType EventFieldActionPrintServiceComp::get_action_type()
 bool EventFieldActionPrintServiceComp::apply(const AuditRecordFieldsList &fields
                                              [[maybe_unused]],
                                              AuditRecordVariant &audit_record,
-                                             AuditRule *audit_rule
+                                             const AuditRule *&replacement_rule
                                              [[maybe_unused]]) const noexcept {
   auto *comp_reg_srv = SysVars::get_comp_registry_srv();
 

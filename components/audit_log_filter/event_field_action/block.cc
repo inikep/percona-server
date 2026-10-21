@@ -32,7 +32,7 @@ EventActionType EventFieldActionBlock::get_action_type() const noexcept {
 bool EventFieldActionBlock::apply(const AuditRecordFieldsList &fields,
                                   AuditRecordVariant &audit_record
                                   [[maybe_unused]],
-                                  AuditRule *audit_rule
+                                  const AuditRule *&replacement_rule
                                   [[maybe_unused]]) const noexcept {
   return m_condition->check_applies(fields);
 }

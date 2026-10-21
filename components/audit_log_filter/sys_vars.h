@@ -34,6 +34,9 @@ struct SessionFilterRuleCache {
   uint64_t detach_generation;
   uint64_t removed_filter_generation;
   std::shared_ptr<AuditRule> rule;
+  // Replacement rule activated by an event of the session, owned by rule,
+  // nullptr when the session uses rule
+  const AuditRule *replacement_rule;
 };
 
 struct AuditLogReaderContext;

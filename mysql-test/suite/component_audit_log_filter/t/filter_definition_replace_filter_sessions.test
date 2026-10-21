@@ -1,0 +1,268 @@
+--echo #
+--echo # PS-11934: the replacement filter activated by an event of one session
+--echo # was stored in the rule shared by all sessions using the filter, so it
+--echo # switched the other sessions to the replacement filter too
+--echo #
+
+--source include/have_component_audit_log.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE t1 (id INT);
+CREATE TABLE t2 (id INT);
+INSERT INTO t1 VALUES (1);
+
+CREATE USER user_a@localhost;
+CREATE USER user_b@localhost;
+GRANT ALL ON test.* TO user_a@localhost, user_b@localhost;
+
+--echo # An update of t1 activates the replacement filter, which logs table
+--echo # reads and switches back to the main filter on an insert
+let $filter = {
+  "filter": {
+    "id": "main",
+    "class": {
+      "name": "table_access",
+      "event": {
+        "name": "update",
+        "log": false,
+        "filter": {
+          "class": {
+            "name": "table_access",
+            "event": [
+              {"name": "read", "log": true},
+              {"name": "insert", "log": false, "filter": {"ref": "main"}}
+            ]
+          },
+          "activate": {"field": {"name": "table_name.str", "value": "t1"}}
+        }
+      }
+    }
+  }
+};
+
+eval SELECT audit_log_filter_set_filter('replace_sessions', '$filter');
+SELECT audit_log_filter_set_user('user_a@localhost', 'replace_sessions');
+SELECT audit_log_filter_set_user('user_b@localhost', 'replace_sessions');
+
+connect (conn_a, localhost, user_a,, test);
+connect (conn_b, localhost, user_b,, test);
+
+--let $events_written = SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written'
+
+--echo # Both sessions use the main filter, which does not log reads
+--connection default
+--let $written_before = `$events_written`
+--connection conn_a
+SELECT * FROM t1;
+--connection conn_b
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # Session A activates the replacement filter
+--connection conn_a
+UPDATE t1 SET id = 2;
+
+--echo # Session B still uses the main filter
+--connection default
+--let $written_before = `$events_written`
+--connection conn_b
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # Session A uses the replacement filter
+--let $written_before = `$events_written`
+--connection conn_a
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # An insert of session B does not switch session A back
+--connection conn_b
+INSERT INTO t2 VALUES (1);
+--connection default
+--let $written_before = `$events_written`
+--connection conn_a
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # An insert of session A switches it back to the main filter
+--connection conn_a
+INSERT INTO t2 VALUES (2);
+--connection default
+--let $written_before = `$events_written`
+--connection conn_a
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--disconnect conn_a
+--disconnect conn_b
+--connection default
+
+--echo #
+--echo # The replacement filter activated by the connect event of a session
+--echo # which connects while the filtering rules are reloaded
+--echo #
+CREATE USER user_c@localhost;
+GRANT ALL ON test.* TO user_c@localhost;
+
+--echo # A successful connect activates the replacement filter
+let $filter = {
+  "filter": {
+    "id": "main",
+    "class": {
+      "name": "connection",
+      "event": {
+        "name": "connect",
+        "log": false,
+        "filter": {
+          "class": {
+            "name": "table_access",
+            "event": [
+              {"name": "read", "log": true},
+              {"name": "insert", "log": false, "filter": {"ref": "main"}}
+            ]
+          },
+          "activate": {"field": {"name": "status", "value": 0}}
+        }
+      }
+    }
+  }
+};
+
+eval SELECT audit_log_filter_set_filter('replace_connect', '$filter');
+SELECT audit_log_filter_set_user('user_c@localhost', 'replace_connect');
+
+--echo # Let audit_log_filter_remove_user() update the users table and wait in
+--echo # the reload of the filtering rules, which reads the locked filters
+--echo # table
+ALTER TABLE mysql.audit_log_user DROP FOREIGN KEY audit_log_user_ibfk_1;
+--connect (locker, localhost, root,, test)
+--let $wait_reload = SELECT COUNT(*) > 0 FROM performance_schema.metadata_locks WHERE OBJECT_SCHEMA = 'mysql' AND OBJECT_NAME = 'audit_log_filter' AND LOCK_STATUS = 'PENDING'
+
+--echo # Session C connects while the rules are reloaded
+--connection locker
+LOCK TABLES mysql.audit_log_filter WRITE;
+--connect (reloader, localhost, root,, test)
+--send SELECT audit_log_filter_remove_user('user_unmapped@localhost')
+--connection default
+--let $wait_condition = $wait_reload
+--source include/wait_condition.inc
+--connect (conn_c, localhost, user_c,, test)
+
+--echo # Session C uses the replacement filter during the reload
+--connection default
+--let $written_before = `$events_written`
+--connection conn_c
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--connection locker
+UNLOCK TABLES;
+--connection reloader
+--reap
+
+--echo # Session C uses the replacement filter after the reload
+--connection default
+--let $written_before = `$events_written`
+--connection conn_c
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # An insert of session C switches it back to the main filter
+--connection conn_c
+INSERT INTO t2 VALUES (3);
+--connection default
+--let $written_before = `$events_written`
+--connection conn_c
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # Session D connects while the rules are reloaded, the reload ends
+--echo # before its next event
+--connection locker
+LOCK TABLES mysql.audit_log_filter WRITE;
+--connection reloader
+--send SELECT audit_log_filter_remove_user('user_unmapped@localhost')
+--connection default
+--let $wait_condition = $wait_reload
+--source include/wait_condition.inc
+--connect (conn_d, localhost, user_c,, test)
+--connection locker
+UNLOCK TABLES;
+--connection reloader
+--reap
+
+--echo # Session D uses the replacement filter
+--connection default
+--let $written_before = `$events_written`
+--connection conn_d
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--echo # Session E connects while audit_log_filter_flush() reloads the rules
+--connection locker
+LOCK TABLES mysql.audit_log_filter WRITE;
+--connection reloader
+--send SELECT audit_log_filter_flush()
+--connection default
+--let $wait_condition = $wait_reload
+--source include/wait_condition.inc
+--connect (conn_e, localhost, user_c,, test)
+
+--echo # Session E uses the replacement filter during the flush
+--connection default
+--let $written_before = `$events_written`
+--connection conn_e
+SELECT * FROM t1;
+--connection default
+--let $written_after = `$events_written`
+--expr $written = $written_after - $written_before
+--echo written: $written
+
+--connection locker
+UNLOCK TABLES;
+--connection reloader
+--reap
+
+--echo #
+--echo # Cleanup
+--disconnect conn_c
+--disconnect conn_d
+--disconnect conn_e
+--disconnect locker
+--disconnect reloader
+--connection default
+DROP USER user_a@localhost;
+DROP USER user_b@localhost;
+DROP USER user_c@localhost;
+DROP TABLE t1, t2;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

@@ -33,11 +33,16 @@ class AuditEventFilter {
    *
    * @param rule Filtering rule
    * @param audit_record Audit record
+   * @param replacement_rule Replacement rule of the session the event belongs
+   *                         to, nullptr when the session uses the rule.
+   *                         Updated when the event activates a replacement
+   *                         rule or switches back to the rule.
    * @return Action which should be applied to a record by audit filter,
    *         one of actions defined by @ref AuditAction
    */
   [[nodiscard]] static AuditAction apply(
-      AuditRule *rule, AuditRecordVariant &audit_record) noexcept;
+      const AuditRule *rule, AuditRecordVariant &audit_record,
+      const AuditRule *&replacement_rule) noexcept;
 };
 
 }  // namespace audit_log_filter
