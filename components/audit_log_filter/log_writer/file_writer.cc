@@ -17,11 +17,15 @@
 
 #include "file_handle.h"
 
+#include "my_dbug.h"
+
 namespace audit_log_filter::log_writer {
 
 FileWriter::FileWriter(FileHandle &file_handle) : m_file_handle{file_handle} {}
 
 bool FileWriter::open() noexcept {
+  DBUG_EXECUTE_IF("audit_log_filter_file_writer_open_failure",
+                  { return false; });
   return true;  // nothing to do
 }
 

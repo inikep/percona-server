@@ -33,8 +33,12 @@ LogWriterBase::~LogWriterBase() = default;
 
 void LogWriterBase::init_formatter() noexcept { SysVars::init_record_id(0); }
 
-void LogWriterBase::write(const AuditRecordVariant &record) {
+bool LogWriterBase::write(const AuditRecordVariant &record) {
   std::lock_guard<std::mutex> write_guard{m_write_mutex};
+
+  if (!is_opened()) {
+    return false;
+  }
 
   m_formatter->discard_pending_bookmark();
 
@@ -62,6 +66,8 @@ void LogWriterBase::write(const AuditRecordVariant &record) {
   // Formatting and payload allocation must succeed before advancing the
   // bookmark.
   m_formatter->publish_pending_bookmark();
+
+  return true;
 }
 
 }  // namespace audit_log_filter::log_writer

@@ -779,7 +779,10 @@ int AuditLogFilter::notify_event(audit_event_class_t event_class,
     if (!query_output_is_ready(record)) {
       throw std::runtime_error("Audit query output was not prepared");
     }
-    m_log_writer->write(record);
+    if (!m_log_writer->write(record)) {
+      SysVars::inc_events_lost();
+      return 0;
+    }
   } catch (...) {
     SysVars::inc_events_lost();
     throw;
@@ -838,7 +841,7 @@ void AuditLogFilter::send_audit_start_event() noexcept try {
     }
   }
 
-  m_log_writer->write(*audit_record);
+  (void)m_log_writer->write(*audit_record);
 } catch (...) {
   LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
                   "Caught exception in send_audit_start_event");
@@ -861,7 +864,7 @@ void AuditLogFilter::send_audit_stop_event() noexcept try {
     return;
   }
 
-  m_log_writer->write(*audit_record);
+  (void)m_log_writer->write(*audit_record);
 } catch (...) {
   LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
                   "Caught exception in send_audit_stop_event");

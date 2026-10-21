@@ -1,0 +1,151 @@
+#
+# PS-11934: a failed reopen of the log file on rotation was ignored, and
+# the next write used the closed writer: with encryption it crashed in
+# EVP_EncryptUpdate(), with compression it wrote to a finished stream
+#
+# ----------------------------------------------------------------------
+# Setup
+# Creating local configuration file for keyring component: component_keyring_file
+# Creating manifest file for current MySQL server instance
+# Re-starting mysql server with manifest file
+# ----------------------------------------------------------------------
+call mtr.add_suppression("Component audit_log_filter reported: 'Failed to fetch options for id");
+call mtr.add_suppression("Component audit_log_filter reported: 'Failed to open audit log file after rotation");
+call mtr.add_suppression("Component audit_log_filter reported: 'Log rotation failed");
+call mtr.add_suppression("Component audit_log_filter reported: 'Failed to rotate audit filter log");
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_all');
+audit_log_filter_set_user('%', 'log_all')
+OK
+#
+# 1. The new log file cannot be created
+SET GLOBAL DEBUG = '+d,audit_log_filter_file_open_failure';
+SELECT audit_log_rotate();
+audit_log_rotate()
+ERROR: Log rotation failed: 'Failed to open audit log file'
+# A rotation while the file still cannot be created does not rotate
+SELECT audit_log_rotate();
+audit_log_rotate()
+ERROR: Log rotation failed: 'Failed to open audit log file'
+SET GLOBAL DEBUG = '-d,audit_log_filter_file_open_failure';
+# Events are lost while the log is closed
+SELECT 1 AS step;
+step
+1
+events lost: 1, current log size: 0
+rotated logs: 1, current log: 0
+# The next rotation opens the log again
+SELECT audit_log_rotate() = '' AS is_nothing_rotated;
+is_nothing_rotated
+1
+SELECT 1 AS step;
+step
+1
+events written: 1, events lost: 0, current log size > 0: 1
+rotated logs: 1, current log: 1
+#
+# 2. The log writer cannot be opened, the compressing and encrypting
+# writers above it release their state
+SET GLOBAL DEBUG = '+d,audit_log_filter_file_writer_open_failure';
+SELECT audit_log_rotate();
+audit_log_rotate()
+ERROR: Log rotation failed: 'Failed to open audit log file'
+SET GLOBAL DEBUG = '-d,audit_log_filter_file_writer_open_failure';
+# Events are lost while the log is closed
+SELECT 2 AS step;
+step
+2
+events lost: 1, current log size: 0
+rotated logs: 2, current log: 0
+# The next rotation opens the log again
+SELECT audit_log_rotate() = '' AS is_nothing_rotated;
+is_nothing_rotated
+1
+SELECT 2 AS step;
+step
+2
+events written: 1, events lost: 0, current log size > 0: 1
+rotated logs: 2, current log: 1
+#
+# 3. The encryption options cannot be fetched (without encryption the
+# log writer cannot be opened)
+SELECT audit_log_rotate();
+audit_log_rotate()
+ERROR: Log rotation failed: 'Failed to open audit log file'
+# Events are lost while the log is closed
+SELECT 3 AS step;
+step
+3
+events lost: 1, current log size: 0
+rotated logs: 3, current log: 0
+# The next rotation opens the log again
+SELECT audit_log_rotate() = '' AS is_nothing_rotated;
+is_nothing_rotated
+1
+SELECT 3 AS step;
+step
+3
+events written: 1, events lost: 0, current log size > 0: 1
+rotated logs: 3, current log: 1
+#
+# 4. The log file cannot be renamed and then the log writer cannot be
+# opened: the file keeps its footer and the next rotation renames it
+SET GLOBAL DEBUG = '+d,audit_log_filter_rotate_rename_failure,audit_log_filter_file_writer_open_failure';
+SELECT audit_log_rotate();
+audit_log_rotate()
+ERROR: Log rotation failed: 'Permission denied'
+SET GLOBAL DEBUG = '-d,audit_log_filter_rotate_rename_failure,audit_log_filter_file_writer_open_failure';
+# Events are lost while the log is closed
+SELECT 4 AS step;
+step
+4
+events lost: 1, current log size: 0
+rotated logs: 3, current log: 1
+# The next rotation opens the log again
+SELECT audit_log_rotate() <> '' AS is_file_rotated;
+is_file_rotated
+1
+SELECT 4 AS step;
+step
+4
+events written: 1, events lost: 0, current log size > 0: 1
+rotated logs: 4, current log: 1
+#
+# 5. The log file cannot be renamed and then not opened
+SET GLOBAL DEBUG = '+d,audit_log_filter_rotate_rename_failure,audit_log_filter_file_open_failure';
+SELECT audit_log_rotate();
+audit_log_rotate()
+ERROR: Log rotation failed: 'Permission denied'
+SET GLOBAL DEBUG = '-d,audit_log_filter_rotate_rename_failure,audit_log_filter_file_open_failure';
+# Events are lost while the log is closed
+SELECT 5 AS step;
+step
+5
+events lost: 1, current log size: 0
+rotated logs: 4, current log: 1
+# The next rotation opens the log again
+SELECT audit_log_rotate() <> '' AS is_file_rotated;
+is_file_rotated
+1
+SELECT 5 AS step;
+step
+5
+events written: 1, events lost: 0, current log size > 0: 1
+rotated logs: 5, current log: 1
+#
+# The logs can be read
+log read: 1
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# Cleanup
+# ----------------------------------------------------------------------
+# Teardown
+# Removing manifest file for current MySQL server instance
+# Removing local keyring file for keyring component: component_keyring_file
+# Removing local configuration file for keyring component: component_keyring_file
+# Restarting server without the manifest file
+# ----------------------------------------------------------------------
