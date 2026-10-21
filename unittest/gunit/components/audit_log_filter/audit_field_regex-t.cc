@@ -24,6 +24,8 @@
 #include "components/audit_log_filter/event_field_condition/or.h"
 
 #include <mysql/components/services/defs/event_tracking_general_defs.h>
+#include <mysql/components/services/defs/event_tracking_parse_defs.h>
+#include <mysql/components/services/defs/event_tracking_query_defs.h>
 #include <mysql/components/services/defs/event_tracking_table_access_defs.h>
 
 #include <atomic>
@@ -400,7 +402,7 @@ TEST_F(AuditFieldRegexTest, BooleanComposition) {
 }
 
 /*
- * Real field maps produced for general and table access events
+ * Real field maps produced for general, table access, query and parse events
  */
 TEST_F(AuditFieldRegexTest, GeneralFieldMap) {
   mysql_event_tracking_general_data event{};
@@ -474,6 +476,64 @@ TEST_F(AuditFieldRegexTest, TableAccessFieldMap) {
 
   event.table_name = {"customer1", 9};
   EXPECT_FALSE(table->check_applies(get_audit_record_fields(record)));
+  EXPECT_EQ(g_error_count.load(), 0U);
+}
+
+TEST_F(AuditFieldRegexTest, QueryFieldMapKeepsNul) {
+  constexpr auto kQuery = "SELECT 1 /*\0*/ AS nul_secret"sv;
+  mysql_event_tracking_query_data event{};
+  event.sql_command = "select";
+  event.query = {kQuery.data(), kQuery.size()};
+  event.query_charset = "utf8mb4";
+  AuditRecordQuery record{};
+  record.event = &event;
+
+  auto marker = make_condition("query.str", "nul_secret");
+  ASSERT_NE(marker, nullptr);
+
+  const auto fields = get_audit_record_fields(record);
+  EXPECT_EQ(std::get<std::string>(fields.at("query.str")), kQuery);
+  EXPECT_EQ(std::get<std::string>(fields.at("query.length")),
+            std::to_string(kQuery.size()));
+  EXPECT_TRUE(marker->check_applies(fields));
+  EXPECT_TRUE(field_value_matches(fields.at("query.str"), std::string{kQuery}));
+  EXPECT_FALSE(field_value_matches(fields.at("query.str"), "SELECT 1 /*"));
+  EXPECT_EQ(g_error_count.load(), 0U);
+}
+
+TEST_F(AuditFieldRegexTest, ParseFieldMapKeepsNul) {
+  constexpr auto kQuery = "SELECT 1 /*\0*/ AS nul_secret"sv;
+  constexpr auto kRewritten = "SELECT 2 /*\0*/ AS nul_rewritten"sv;
+  mysql_event_tracking_parse_data event{};
+  event.query = {kQuery.data(), kQuery.size()};
+  AuditRecordParse record{};
+  record.event = &event;
+
+  auto query = make_condition("query.str", "nul_secret");
+  auto rewritten = make_condition("rewritten_query.str", "nul_rewritten");
+  ASSERT_NE(query, nullptr);
+  ASSERT_NE(rewritten, nullptr);
+
+  // No rewritten query
+  auto fields = get_audit_record_fields(record);
+  EXPECT_EQ(std::get<std::string>(fields.at("query.str")), kQuery);
+  EXPECT_TRUE(query->check_applies(fields));
+  EXPECT_TRUE(field_value_matches(fields.at("query.str"), std::string{kQuery}));
+  EXPECT_FALSE(field_value_matches(fields.at("query.str"), "SELECT 1 /*"));
+  EXPECT_EQ(std::get<std::string>(fields.at("rewritten_query.str")), "");
+  EXPECT_FALSE(rewritten->check_applies(fields));
+
+  mysql_cstring_with_length rewritten_query{kRewritten.data(),
+                                            kRewritten.size()};
+  event.rewritten_query = &rewritten_query;
+  fields = get_audit_record_fields(record);
+  EXPECT_EQ(std::get<std::string>(fields.at("rewritten_query.str")),
+            kRewritten);
+  EXPECT_EQ(std::get<std::string>(fields.at("rewritten_query.length")),
+            std::to_string(kRewritten.size()));
+  EXPECT_TRUE(rewritten->check_applies(fields));
+  EXPECT_TRUE(field_value_matches(fields.at("rewritten_query.str"),
+                                  std::string{kRewritten}));
   EXPECT_EQ(g_error_count.load(), 0U);
 }
 

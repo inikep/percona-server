@@ -10,6 +10,13 @@ filter-definition validation through `audit_log_filter_set_filter()`.
   count those bytes, before conversion or replacement. For example, a UTF-8
   filter value containing `café` matches a utf8mb4 statement but not the same
   statement sent as latin1.
+- The component does not cut strings at a NUL byte. Field values keep the
+  length the server reports for the event, and `value` literals and `string`
+  function arguments keep their full length, so `"value": "a\u0000b"` matches
+  only the three bytes `a`, NUL, `b`. The server passes some fields as C
+  strings, which end at the first NUL byte before the component gets them:
+  `user.str` and `host.str` of `authentication`, `command.str`,
+  `variable_name.str`, and `database.str` and `name.str` of `stored_program`.
 - SQL text written to JSON, JSONL, NEW XML, OLD XML, and syslog is converted to
   UTF-8 (utf8mb4) after filtering and before escaping. Digest replacements are
   already UTF-8. `audit_log_read()` returns the converted file bytes; historical
@@ -136,10 +143,9 @@ query text is not converted from the client character set before matching, the
 same as for `value` comparisons: an ASCII marker is found in latin1 statements,
 but a UTF-8 literal such as `café` does not match the latin1 bytes `caf\xE9`,
 even though the record selected by another condition is logged as UTF-8
-`café`. Distinct malformed sequences may decode to the same character. Field
-values are matched as extracted for the event: connection, table and other
-fields extracted as C strings end at the first NUL byte, while the query text
-fields keep their full length.
+`café`. Distinct malformed sequences may decode to the same character. A NUL
+byte in a field value is matched like any other character, see the note on NUL
+bytes above.
 
 ### Errors
 
