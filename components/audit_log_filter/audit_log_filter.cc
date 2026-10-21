@@ -412,6 +412,15 @@ mysql_service_status_t audit_log_filter_init() try {
   // rather than overwrite, so that initializing twice cannot leak.
   delete audit_log_filter;
   audit_log_filter = local_audit_log_filter.release();
+
+  // On INSTALL COMPONENT the sys var update callbacks skip pruning while there
+  // is no instance, and log_writer->open() rotated the previous log, so prune
+  // now as after any other rotation. Not on server start: the persisted values
+  // are applied only later, through the update callbacks, which prune then.
+  if (mysqld_server_started) {
+    audit_log_filter->on_audit_log_prune_requested();
+    audit_log_filter->on_encryption_password_prune_requested();
+  }
   return 0;
 } catch (const std::exception &e) {
   LogComponentErr(ERROR_LEVEL, ER_AUDIT_INIT_EXCEPTION, e.what());

@@ -1,0 +1,4 @@
+--loose-audit_log_filter.file=audit_filter.log
+--loose-audit_log_filter.format=JSON
+--loose-audit_log_filter.rotate_on_size=0
+--loose-audit_log_filter.max_size=0
