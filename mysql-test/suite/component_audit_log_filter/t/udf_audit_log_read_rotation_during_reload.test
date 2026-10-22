@@ -1,0 +1,47 @@
+--echo #
+--echo # PS-11934: a rotation while a read sequence read the file list marked
+--echo # the list as up to date at the end, so the rotated file stayed out of
+--echo # it until the next rotation
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_debug.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE t1 (c1 INT);
+
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+
+--source clean_all_audit_logs.inc
+
+# Records of different logs get different timestamps
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+
+INSERT INTO t1 VALUES (1);
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (2);
+SET @bookmark = audit_log_read_bookmark();
+INSERT INTO t1 VALUES (3);
+
+--echo # The log is rotated after the read sequence has listed the log files,
+--echo # the sequence fails instead of skipping events 2 and 3
+SET SESSION DEBUG = '+d,audit_log_filter_rotate_during_reader_init';
+--error ER_UDF_ERROR
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+SET SESSION DEBUG = '-d,audit_log_filter_rotate_during_reader_init';
+
+--echo # The next read sequence lists the log files again
+INSERT INTO t1 VALUES (4);
+SELECT JSON_EXTRACT(audit_log_read(@bookmark), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo #
+--echo # Cleanup
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

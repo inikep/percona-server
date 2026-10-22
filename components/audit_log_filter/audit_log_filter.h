@@ -129,9 +129,20 @@ class AuditLogFilter {
   void on_encryption_password_prune_requested() noexcept;
 
   /**
+   * @brief Handle the start of a log rotation, before the current log is
+   *        renamed.
+   */
+  void on_audit_log_rotation_started() noexcept;
+
+  /**
    * @brief Handle successful log rotation event.
    */
   void on_audit_log_rotated() noexcept;
+
+  /**
+   * @brief Handle removal of rotated log files by pruning.
+   */
+  void on_audit_log_pruned() noexcept;
 
  private:
   void get_connection_attrs(MYSQL_THD thd, AuditRecordVariant &audit_record);

@@ -1,0 +1,38 @@
+#
+# PS-11934: a rotation while a read sequence read the file list marked
+# the list as up to date at the end, so the rotated file stayed out of
+# it until the next rotation
+#
+CREATE TABLE t1 (c1 INT);
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+audit_log_filter_set_user('%', 'log_inserts')
+OK
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+INSERT INTO t1 VALUES (1);
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (2);
+SET @bookmark = audit_log_read_bookmark();
+INSERT INTO t1 VALUES (3);
+# The log is rotated after the read sequence has listed the log files,
+# the sequence fails instead of skipping events 2 and 3
+SET SESSION DEBUG = '+d,audit_log_filter_rotate_during_reader_init';
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+SET SESSION DEBUG = '-d,audit_log_filter_rotate_during_reader_init';
+# The next read sequence lists the log files again
+INSERT INTO t1 VALUES (4);
+SELECT JSON_EXTRACT(audit_log_read(@bookmark), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (2)", "INSERT INTO t1 VALUES (3)", "INSERT INTO t1 VALUES (4)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# Cleanup
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;

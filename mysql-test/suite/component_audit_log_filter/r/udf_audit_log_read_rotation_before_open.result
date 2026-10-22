@@ -1,0 +1,72 @@
+#
+# PS-11934: a read sequence which checked for a rotation before it opened
+# the current log by name could open the new file of a rotation which
+# happened in between, and silently skipped the records which had moved
+# to the rotated file
+#
+CREATE TABLE t1 (c1 INT);
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+audit_log_filter_set_user('%', 'log_inserts')
+OK
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+INSERT INTO t1 VALUES (3);
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+INSERT INTO t1 VALUES (6);
+# The log is rotated just before the read sequence opens the current
+# log, the sequence fails instead of skipping events 4 to 6
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)"]
+SET SESSION DEBUG = '+d,audit_log_filter_rotate_before_reader_open';
+SELECT audit_log_read('{"max_array_length": 10}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+SET SESSION DEBUG = '-d,audit_log_filter_rotate_before_reader_open';
+# A new read sequence reads the records of all logs
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)", "INSERT INTO t1 VALUES (3)", "INSERT INTO t1 VALUES (4)", "INSERT INTO t1 VALUES (5)", "INSERT INTO t1 VALUES (6)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# The read sequence opens the current log after the rotation has opened
+# the new file and before it has finished
+INSERT INTO t1 VALUES (7);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)"]
+SET SESSION DEBUG = '+d,audit_log_filter_rotate_before_reader_open,audit_log_filter_skip_rotated_notification';
+SELECT audit_log_read('{"max_array_length": 10}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+SET SESSION DEBUG = '-d,audit_log_filter_rotate_before_reader_open,audit_log_filter_skip_rotated_notification';
+# A read sequence which lists the log files while the rotation is in
+# progress fails when it opens the current log
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+# The next rotation completes the one in progress, a new read sequence
+# reads the records of all logs then
+SET SESSION DEBUG = '+d,audit_log_filter_skip_rotation_started_notification';
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+SET SESSION DEBUG = '-d,audit_log_filter_skip_rotation_started_notification';
+INSERT INTO t1 VALUES (8);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)", "INSERT INTO t1 VALUES (3)", "INSERT INTO t1 VALUES (4)", "INSERT INTO t1 VALUES (5)", "INSERT INTO t1 VALUES (6)", "INSERT INTO t1 VALUES (7)", "INSERT INTO t1 VALUES (8)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# Cleanup
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;
