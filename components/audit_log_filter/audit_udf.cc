@@ -31,6 +31,7 @@
 
 #include <mysql/components/services/dynamic_privilege.h>
 #include <mysql/components/services/mysql_current_thread_reader.h>
+#include <mysql/components/services/mysql_string.h>
 #include <mysql/components/services/security_context.h>
 #include <mysql/components/services/udf_metadata.h>
 #include <mysql/components/services/udf_registration.h>
@@ -41,7 +42,9 @@
 #include <cassert>
 #include <cstring>
 #include <regex>
+#include <tuple>
 #include <unordered_set>
+#include <vector>
 
 namespace audit_log_filter {
 namespace {
@@ -262,6 +265,115 @@ char *set_wrong_argument_result(char *result, unsigned long *length,
   return result;
 }
 
+/*
+  The server passes a constant argument to the _init function in its own
+  character set, but converts the arguments passed to the UDF function to
+  the character set requested with set_args_charset(). For the lifetime of
+  this object the constant string arguments are replaced with their utf8mb4
+  conversions, so that the _init function checks, and caches, the values
+  the UDF function gets. Must be used before set_args_charset().
+*/
+class ConstantArgsConverter {
+ public:
+  explicit ConstantArgsConverter(UDF_ARGS *udf_args) noexcept
+      : m_udf_args{udf_args} {}
+
+  ConstantArgsConverter(const ConstantArgsConverter &) = delete;
+  ConstantArgsConverter &operator=(const ConstantArgsConverter &) = delete;
+
+  ~ConstantArgsConverter() {
+    for (const auto &[arg_index, arg, arg_length] : m_original_args) {
+      m_udf_args->args[arg_index] = arg;
+      m_udf_args->lengths[arg_index] = arg_length;
+    }
+  }
+
+  bool convert(char *message) noexcept {
+    try {
+      if (convert_args()) {
+        return true;
+      }
+    } catch (...) {
+    }
+
+    std::snprintf(message, MYSQL_ERRMSG_SIZE,
+                  "Unable to convert the arguments to utf8mb4");
+    return false;
+  }
+
+ private:
+  bool convert_args() {
+    const auto *reg_srv = SysVars::get_comp_registry_srv();
+    my_service<SERVICE_TYPE(mysql_udf_metadata)> udf_metadata_srv(
+        "mysql_udf_metadata", reg_srv);
+    my_service<SERVICE_TYPE(mysql_charset)> charset_srv("mysql_charset",
+                                                        reg_srv);
+    my_service<SERVICE_TYPE(mysql_string_factory)> string_srv(
+        "mysql_string_factory", reg_srv);
+    my_service<SERVICE_TYPE(mysql_string_copy_converter)> convert_srv(
+        "mysql_string_copy_converter", reg_srv);
+    my_service<SERVICE_TYPE(mysql_string_get_data_in_charset)> data_srv(
+        "mysql_string_get_data_in_charset", reg_srv);
+
+    if (!udf_metadata_srv.is_valid() || !charset_srv.is_valid() ||
+        !string_srv.is_valid() || !convert_srv.is_valid() ||
+        !data_srv.is_valid()) {
+      return false;
+    }
+
+    // The arguments point to the values, which must not move
+    m_values.reserve(m_udf_args->arg_count);
+
+    for (unsigned int index = 0; index < m_udf_args->arg_count; ++index) {
+      if (m_udf_args->arg_type[index] != STRING_RESULT ||
+          m_udf_args->args[index] == nullptr) {
+        continue;
+      }
+
+      void *collation_name = nullptr;
+
+      if (udf_metadata_srv->argument_get(m_udf_args, "collation", index,
+                                         &collation_name)) {
+        return false;
+      }
+
+      CHARSET_INFO_h arg_charset =
+          charset_srv->get(static_cast<const char *>(collation_name));
+
+      if (arg_charset == nullptr) {
+        return false;
+      }
+
+      audit_table::HStringContainer converted{string_srv};
+      uint errors = 0;
+      const char *data = nullptr;
+      size_t data_length = 0;
+      CHARSET_INFO_h data_charset = nullptr;
+
+      if (converted.get() == nullptr ||
+          convert_srv->copy_convert(converted.get(), m_udf_args->args[index],
+                                    m_udf_args->lengths[index], arg_charset,
+                                    charset_srv->get_utf8mb4(), &errors) ||
+          data_srv->get_data(converted.get(), &data, &data_length,
+                             &data_charset)) {
+        return false;
+      }
+
+      m_values.emplace_back(data, data_length);
+      m_original_args.emplace_back(index, m_udf_args->args[index],
+                                   m_udf_args->lengths[index]);
+      m_udf_args->args[index] = m_values.back().data();
+      m_udf_args->lengths[index] = m_values.back().length();
+    }
+
+    return true;
+  }
+
+  UDF_ARGS *m_udf_args;
+  std::vector<std::string> m_values;
+  std::vector<std::tuple<unsigned int, char *, unsigned long>> m_original_args;
+};
+
 bool reload_audit_rules_or_set_error(char *result,
                                      unsigned long *length) noexcept {
   std::string error_msg;
@@ -371,6 +483,12 @@ bool AuditUdf::audit_log_filter_set_filter_udf_init(AuditUdf *udf
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument type: "
                   "audit_log_filter_set_filter(string, string)");
+    return true;
+  }
+
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
     return true;
   }
 
@@ -541,6 +659,12 @@ bool AuditUdf::audit_log_filter_remove_filter_udf_init(AuditUdf *udf
     return true;
   }
 
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
   if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
@@ -667,6 +791,12 @@ bool AuditUdf::audit_log_filter_set_user_udf_init(AuditUdf *udf
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument type: "
                   "audit_log_filter_set_user(string, string)");
+    return true;
+  }
+
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
     return true;
   }
 
@@ -836,6 +966,12 @@ bool AuditUdf::audit_log_filter_remove_user_udf_init(AuditUdf *udf
   if (udf_args->arg_type[0] != STRING_RESULT) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument type: audit_log_filter_remove_user(string)");
+    return true;
+  }
+
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
     return true;
   }
 
@@ -1410,7 +1546,15 @@ bool AuditUdf::audit_log_encryption_password_get_udf_init(
           "Wrong argument type: audit_log_encryption_password_get(string)");
       return true;
     }
+  }
 
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (udf_args->arg_count == 1) {
     if (is_empty_constant_arg(udf_args, 0)) {
       std::snprintf(message, MYSQL_ERRMSG_SIZE,
                     "Wrong argument: empty keyring_id");
@@ -1534,6 +1678,12 @@ bool AuditUdf::audit_log_encryption_password_set_udf_init(
     std::snprintf(
         message, MYSQL_ERRMSG_SIZE,
         "Wrong argument type: audit_log_encryption_password_set(string)");
+    return true;
+  }
+
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
     return true;
   }
 
