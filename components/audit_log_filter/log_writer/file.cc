@@ -346,6 +346,13 @@ void LogWriterFile::do_rotate(FileRotationResult *result) noexcept {
   m_is_rotating = true;
   const auto current_log_path = m_file_handle.get_file_path();
 
+  // Read sequences which open the current log from now on may open the new
+  // file
+  if (!DBUG_EVALUATE_IF("audit_log_filter_skip_rotation_started_notification",
+                        true, false)) {
+    get_audit_log_filter_instance()->on_audit_log_rotation_started();
+  }
+
   do_close_file();
 
   std::unique_ptr<FileRotationResult> local_result;
@@ -364,7 +371,10 @@ void LogWriterFile::do_rotate(FileRotationResult *result) noexcept {
   do_open_file();
   m_is_rotating = false;
 
-  get_audit_log_filter_instance()->on_audit_log_rotated();
+  if (!DBUG_EVALUATE_IF("audit_log_filter_skip_rotated_notification", true,
+                        false)) {
+    get_audit_log_filter_instance()->on_audit_log_rotated();
+  }
 }
 
 void LogWriterFile::prune() noexcept {

@@ -86,6 +86,10 @@ class AuditLogReader {
   // Requests a reload of the log file list
   void reset() noexcept;
 
+  // Requests a reload of the log file list before the current log is renamed
+  // on rotation
+  void reset_before_rotation() noexcept;
+
   // Requests a reload of the log file list after the current log was rotated
   void reset_after_rotation() noexcept;
 
@@ -108,7 +112,8 @@ class AuditLogReader {
   std::atomic<uint64_t> m_requested_files_version{0};
   // Version of the log files in m_timestamp_to_file_map
   std::atomic<uint64_t> m_loaded_files_version{0};
-  // Incremented when the current log is rotated
+  // Incremented before the current log is renamed on rotation and after the
+  // new current log is opened, odd while a rotation is in progress
   std::atomic<uint64_t> m_rotation_count{0};
   // Rotation count of the log files in m_timestamp_to_file_map
   uint64_t m_loaded_rotation_count{0};

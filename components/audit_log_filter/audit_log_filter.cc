@@ -920,6 +920,12 @@ void AuditLogFilter::on_encryption_password_prune_requested() noexcept try {
                   "Caught exception in on_encryption_password_prune_requested");
 }
 
+void AuditLogFilter::on_audit_log_rotation_started() noexcept {
+  if (m_is_active) {
+    m_log_reader->reset_before_rotation();
+  }
+}
+
 void AuditLogFilter::on_audit_log_rotated() noexcept {
   if (m_is_active) {
     m_log_reader->reset_after_rotation();

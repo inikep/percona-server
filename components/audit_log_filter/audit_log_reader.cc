@@ -156,6 +156,11 @@ void AuditLogReader::set_files_to_read_list(
 
 void AuditLogReader::reset() noexcept { ++m_requested_files_version; }
 
+void AuditLogReader::reset_before_rotation() noexcept {
+  ++m_rotation_count;
+  reset();
+}
+
 void AuditLogReader::reset_after_rotation() noexcept {
   ++m_rotation_count;
   reset();
@@ -380,19 +385,30 @@ bool AuditLogReader::read(AuditLogReaderContext *reader_context) noexcept try {
         return true;
       }
 
-      // A rotation since the file list was read moved the records of the
-      // current log to a file which is not in the list, and the file under
-      // the current log name has only later records
-      if (reader_context->rotation_count != m_rotation_count &&
-          is_current_log_name(reader_context->files_to_read.front()->name)) {
-        return false;
-      }
-
       reader_context->current_file = reader_context->files_to_read.front();
       reader_context->files_to_read.pop_front();
 
+      DBUG_EXECUTE_IF("audit_log_filter_rotate_before_reader_open", {
+        if (is_current_log_name(reader_context->current_file->name)) {
+          DBUG_SET("-d,audit_log_filter_rotate_before_reader_open");
+          get_audit_log_filter_instance()->on_audit_log_rotate_requested();
+        }
+      });
+
       if (!reader_context->audit_json_read_stream->open(
               reader_context->current_file.get())) {
+        return false;
+      }
+
+      // A rotation since the file list was read moved the records of the
+      // current log to a file which is not in the list, and the file under
+      // the current log name has only later records. The rotation count is
+      // checked after the open: a rotation which starts later renames the
+      // opened file, which keeps the records. A list read while a rotation
+      // was in progress may name the current log from before the rename.
+      if (is_current_log_name(reader_context->current_file->name) &&
+          (reader_context->rotation_count % 2 != 0 ||
+           reader_context->rotation_count != m_rotation_count)) {
         return false;
       }
 
