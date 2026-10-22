@@ -206,6 +206,17 @@ bool is_empty_arg(const UDF_ARGS *udf_args, unsigned int arg_index) noexcept {
 }
 
 /*
+  A NULL constant and a prepared statement parameter, which has no value
+  yet when the statement is reprepared for execution, are NULL with a zero
+  length in the _init function, so the UDF function checks them.
+*/
+bool is_empty_constant_arg(const UDF_ARGS *udf_args,
+                           unsigned int arg_index) noexcept {
+  return udf_args->args[arg_index] != nullptr &&
+         udf_args->lengths[arg_index] == 0;
+}
+
+/*
   Names and passwords are stored and looked up as C strings, so a value with
   a NUL byte would be used truncated.
 */
@@ -363,13 +374,13 @@ bool AuditUdf::audit_log_filter_set_filter_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
     return true;
   }
 
-  if (udf_args->lengths[1] == 0) {
+  if (is_empty_constant_arg(udf_args, 1)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter definition");
     return true;
@@ -530,7 +541,7 @@ bool AuditUdf::audit_log_filter_remove_filter_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
     return true;
@@ -659,13 +670,13 @@ bool AuditUdf::audit_log_filter_set_user_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty user name");
     return true;
   }
 
-  if (udf_args->lengths[1] == 0) {
+  if (is_empty_constant_arg(udf_args, 1)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
     return true;
@@ -828,7 +839,7 @@ bool AuditUdf::audit_log_filter_remove_user_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty user name");
     return true;
@@ -1400,7 +1411,7 @@ bool AuditUdf::audit_log_encryption_password_get_udf_init(
       return true;
     }
 
-    if (udf_args->lengths[0] == 0) {
+    if (is_empty_constant_arg(udf_args, 0)) {
       std::snprintf(message, MYSQL_ERRMSG_SIZE,
                     "Wrong argument: empty keyring_id");
       return true;
@@ -1526,7 +1537,7 @@ bool AuditUdf::audit_log_encryption_password_set_udf_init(
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE, "Wrong argument: empty password");
     return true;
   }
