@@ -18,8 +18,19 @@
 #include "components/audit_log_filter/audit_rule.h"
 #include "components/audit_log_filter/sys_vars.h"
 
+#include <mysql/components/component_implementation.h>
+#ifndef NDEBUG
+#include <mysql/components/services/mysql_current_thread_reader.h>
+#include <mysql/components/services/mysql_debug_sync_service.h>
+#endif
+
 #include <string>
 #include <tuple>
+
+#ifndef NDEBUG
+extern REQUIRES_SERVICE_PLACEHOLDER(mysql_current_thread_reader);
+extern REQUIRES_SERVICE_PLACEHOLDER(mysql_debug_sync_service);
+#endif
 
 namespace audit_log_filter {
 namespace {
@@ -121,6 +132,7 @@ void AuditRuleRegistry::invalidate() noexcept { m_is_initialised = false; }
 
 bool AuditRuleRegistry::load(std::string &error_message) noexcept {
   m_loads_in_progress.fetch_add(1, std::memory_order_release);
+  const auto load_ticket = m_load_ticket.fetch_add(1) + 1;
 
   audit_table::AuditLogFilter audit_log_filter{
       SysVars::get_config_database_name()};
@@ -134,11 +146,26 @@ bool AuditRuleRegistry::load(std::string &error_message) noexcept {
        audit_table::TableResult::Ok) &&
       (audit_log_user.load_users(tmp_users) == audit_table::TableResult::Ok);
 
+#ifndef NDEBUG
+  MYSQL_THD thd = nullptr;
+  if (mysql_service_mysql_current_thread_reader->get(&thd) == 0 &&
+      thd != nullptr) {
+    mysql_service_mysql_debug_sync_service->debug_sync(
+        thd, "audit_log_filter_before_rules_swap");
+  }
+#endif
+
   if (is_success) {
     std::unique_lock lock(m_registry_mutex);
-    m_audit_users.swap(tmp_users);
-    m_audit_filter_rules.swap(tmp_rules);
-    m_load_version.fetch_add(1, std::memory_order_release);
+
+    // A load which started later and finished first has read at least the
+    // changes committed before this one started, keep its snapshot
+    if (load_ticket > m_applied_load_ticket) {
+      m_audit_users.swap(tmp_users);
+      m_audit_filter_rules.swap(tmp_rules);
+      m_applied_load_ticket = load_ticket;
+      m_load_version.fetch_add(1, std::memory_order_release);
+    }
   }
 
   m_loads_in_progress.fetch_sub(1, std::memory_order_release);

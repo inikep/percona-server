@@ -30,6 +30,9 @@
 #include <mysql/components/service_implementation.h>
 
 #include <mysql/components/services/mysql_connection_attributes_iterator.h>
+#ifndef NDEBUG
+#include <mysql/components/services/mysql_debug_sync_service.h>
+#endif
 #include <mysql/components/services/mysql_thd_attributes.h>
 
 #include <mysql/components/services/event_tracking_authentication_service.h>
@@ -71,6 +74,9 @@ REQUIRES_SERVICE_PLACEHOLDER(mysql_thd_attributes);
 REQUIRES_SERVICE_PLACEHOLDER(mysql_string_get_data_in_charset);
 REQUIRES_SERVICE_PLACEHOLDER(mysql_string_factory);
 REQUIRES_PSI_MEMORY_SERVICE_PLACEHOLDER;
+#ifndef NDEBUG
+REQUIRES_SERVICE_PLACEHOLDER(mysql_debug_sync_service);
+#endif
 
 SERVICE_TYPE(log_builtins) *log_bi = nullptr;
 SERVICE_TYPE(log_builtins_string) *log_bs = nullptr;
@@ -1256,6 +1262,9 @@ REQUIRES_SERVICE(registry), REQUIRES_SERVICE(log_builtins),
     REQUIRES_SERVICE(mysql_current_thread_reader),
     REQUIRES_SERVICE(mysql_string_get_data_in_charset),
     REQUIRES_SERVICE(mysql_string_factory), REQUIRES_PSI_MEMORY_SERVICE,
+#ifndef NDEBUG
+    REQUIRES_SERVICE(mysql_debug_sync_service),
+#endif
     END_COMPONENT_REQUIRES();
 
 BEGIN_COMPONENT_METADATA(component_audit_log_filter)

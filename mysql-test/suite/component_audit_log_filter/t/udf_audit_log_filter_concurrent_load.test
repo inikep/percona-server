@@ -1,0 +1,62 @@
+--echo #
+--echo # PS-11934: concurrent loads of the filter tables were not ordered, so a
+--echo # load which read the tables first could install its older snapshot
+--echo # last, and a filter assignment reported as OK was missing from memory
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_debug_sync.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE USER user1@localhost;
+CREATE USER user2@localhost;
+
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+--let $filter_id = `SELECT filter_id FROM mysql.audit_log_filter WHERE name = 'log_all'`
+
+--echo # The load after the first assignment reads the tables, then waits
+--echo # before installing them, while a new filter and the second
+--echo # assignment are loaded
+connect (conn1, localhost, root,, test);
+SET DEBUG_SYNC = 'audit_log_filter_before_rules_swap SIGNAL rules_read WAIT_FOR install_rules';
+--send SELECT audit_log_filter_set_user('user1@localhost', 'log_all')
+
+connection default;
+SET DEBUG_SYNC = 'now WAIT_FOR rules_read';
+SELECT audit_log_filter_set_filter('log_second', '{"filter": {"log": true}}');
+--let $second_filter_id = `SELECT filter_id FROM mysql.audit_log_filter WHERE name = 'log_second'`
+SELECT audit_log_filter_set_user('user2@localhost', 'log_second');
+SET DEBUG_SYNC = 'now SIGNAL install_rules';
+
+connection conn1;
+--reap
+disconnect conn1;
+
+connection default;
+SET DEBUG_SYNC = 'RESET';
+
+--echo # Both users use their filters
+connect (conn_user1, localhost, user1,, );
+--let $session_filter_id = `SELECT audit_log_session_filter_id()`
+--let $assert_text = user1 uses log_all
+--let $assert_cond = $session_filter_id = $filter_id
+--source include/assert.inc
+disconnect conn_user1;
+
+connection default;
+connect (conn_user2, localhost, user2,, );
+--let $session_filter_id = `SELECT audit_log_session_filter_id()`
+--let $assert_text = user2 uses log_second
+--let $assert_cond = $session_filter_id = $second_filter_id
+--source include/assert.inc
+disconnect conn_user2;
+
+--echo #
+--echo # Cleanup
+connection default;
+DROP USER user1@localhost;
+DROP USER user2@localhost;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
