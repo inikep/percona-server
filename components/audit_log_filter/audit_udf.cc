@@ -20,7 +20,6 @@
 #include "components/audit_log_filter/audit_keyring.h"
 #include "components/audit_log_filter/audit_log_filter.h"
 #include "components/audit_log_filter/audit_log_reader.h"
-#include "components/audit_log_filter/audit_psi_info.h"
 #include "components/audit_log_filter/audit_rule_parser.h"
 #include "components/audit_log_filter/audit_table/audit_log_filter.h"
 #include "components/audit_log_filter/audit_table/audit_log_user.h"
@@ -32,16 +31,20 @@
 
 #include <mysql/components/services/dynamic_privilege.h>
 #include <mysql/components/services/mysql_current_thread_reader.h>
+#include <mysql/components/services/mysql_string.h>
 #include <mysql/components/services/security_context.h>
 #include <mysql/components/services/udf_metadata.h>
 #include <mysql/components/services/udf_registration.h>
 
 #include <boost/algorithm/string/trim.hpp>
 
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <regex>
+#include <tuple>
 #include <unordered_set>
+#include <vector>
 
 namespace audit_log_filter {
 namespace {
@@ -60,6 +63,12 @@ struct UserNameInfo {
 std::unique_ptr<UserNameInfo> check_parse_user_name_host(
     const std::string &user_name_host, char *message) {
   // user_name format is "user_name@host_name" or "%"
+  if (user_name_host.find('\0') != std::string::npos) {
+    std::snprintf(message, MYSQL_ERRMSG_SIZE,
+                  "Wrong argument: user_name contains a NUL byte");
+    return nullptr;
+  }
+
   auto max_username_len = audit_table::kAuditFieldLengthUsername +
                           audit_table::kAuditFieldLengthUserhost + 1;
 
@@ -70,10 +79,11 @@ std::unique_ptr<UserNameInfo> check_parse_user_name_host(
     return nullptr;
   }
 
-  const std::regex user_name_all_regex("^%$");
-  const std::regex user_name_regex("(.*)@(.*)");
-  const std::regex deprecated_account_name_characters_regex("[*|%]");
-  const std::regex deprecated_host_name_characters_regex("[*|]");
+  // Built once, a user name which is not a constant is parsed for each row
+  static const std::regex user_name_all_regex("^%$");
+  static const std::regex user_name_regex("(.*)@(.*)");
+  static const std::regex deprecated_account_name_characters_regex("[*|%]");
+  static const std::regex deprecated_host_name_characters_regex("[*|]");
 
   auto user_info_data = std::make_unique<UserNameInfo>();
 
@@ -188,6 +198,182 @@ bool check_timestamp_valid(std::string &timestamp_str) {
   return false;
 }
 
+/*
+  An argument which is not a constant is NULL in the _init function and is
+  checked by the UDF function. There a NULL value is reported as empty, the
+  same as an empty constant is reported by the _init function.
+*/
+bool is_empty_arg(const UDF_ARGS *udf_args, unsigned int arg_index) noexcept {
+  return udf_args->args[arg_index] == nullptr ||
+         udf_args->lengths[arg_index] == 0;
+}
+
+/*
+  A NULL constant and a prepared statement parameter, which has no value
+  yet when the statement is reprepared for execution, are NULL with a zero
+  length in the _init function, so the UDF function checks them.
+*/
+bool is_empty_constant_arg(const UDF_ARGS *udf_args,
+                           unsigned int arg_index) noexcept {
+  return udf_args->args[arg_index] != nullptr &&
+         udf_args->lengths[arg_index] == 0;
+}
+
+/*
+  Names and passwords are stored and looked up as C strings, so a value with
+  a NUL byte would be used truncated.
+*/
+bool has_nul_byte(const UDF_ARGS *udf_args, unsigned int arg_index) noexcept {
+  return udf_args->args[arg_index] != nullptr &&
+         std::memchr(udf_args->args[arg_index], '\0',
+                     udf_args->lengths[arg_index]) != nullptr;
+}
+
+char *set_error_result(char *result, unsigned long *length,
+                       const char *error) noexcept {
+  static constexpr char prefix[] = "ERROR: ";
+  std::snprintf(result, MYSQL_ERRMSG_SIZE, "%s%.*s", prefix,
+                static_cast<int>(MYSQL_ERRMSG_SIZE - sizeof(prefix)), error);
+  *length = std::strlen(result);
+  return result;
+}
+
+/*
+  The length of an argument which is not a constant is its maximum length in
+  the _init function, so _init checks the length of constants only and the
+  UDF function checks the length of each value.
+*/
+bool is_constant_arg_too_long(const UDF_ARGS *udf_args, unsigned int arg_index,
+                              size_t max_length) noexcept {
+  return udf_args->args[arg_index] != nullptr &&
+         udf_args->lengths[arg_index] > max_length;
+}
+
+char *set_too_long_result(char *result, unsigned long *length,
+                          const char *arg_name, size_t max_length) noexcept {
+  std::snprintf(result, MYSQL_ERRMSG_SIZE,
+                "ERROR: Wrong argument: %s is too long, max length is %zu",
+                arg_name, max_length);
+  *length = std::strlen(result);
+  return result;
+}
+
+char *set_wrong_argument_result(char *result, unsigned long *length,
+                                const char *error) noexcept {
+  std::snprintf(result, MYSQL_ERRMSG_SIZE, "ERROR: Wrong argument: %s", error);
+  *length = std::strlen(result);
+  return result;
+}
+
+/*
+  The server passes a constant argument to the _init function in its own
+  character set, but converts the arguments passed to the UDF function to
+  the character set requested with set_args_charset(). For the lifetime of
+  this object the constant string arguments are replaced with their utf8mb4
+  conversions, so that the _init function checks, and caches, the values
+  the UDF function gets. Must be used before set_args_charset().
+*/
+class ConstantArgsConverter {
+ public:
+  explicit ConstantArgsConverter(UDF_ARGS *udf_args) noexcept
+      : m_udf_args{udf_args} {}
+
+  ConstantArgsConverter(const ConstantArgsConverter &) = delete;
+  ConstantArgsConverter &operator=(const ConstantArgsConverter &) = delete;
+
+  ~ConstantArgsConverter() {
+    for (const auto &[arg_index, arg, arg_length] : m_original_args) {
+      m_udf_args->args[arg_index] = arg;
+      m_udf_args->lengths[arg_index] = arg_length;
+    }
+  }
+
+  bool convert(char *message) noexcept {
+    try {
+      if (convert_args()) {
+        return true;
+      }
+    } catch (...) {
+    }
+
+    std::snprintf(message, MYSQL_ERRMSG_SIZE,
+                  "Unable to convert the arguments to utf8mb4");
+    return false;
+  }
+
+ private:
+  bool convert_args() {
+    const auto *reg_srv = SysVars::get_comp_registry_srv();
+    my_service<SERVICE_TYPE(mysql_udf_metadata)> udf_metadata_srv(
+        "mysql_udf_metadata", reg_srv);
+    my_service<SERVICE_TYPE(mysql_charset)> charset_srv("mysql_charset",
+                                                        reg_srv);
+    my_service<SERVICE_TYPE(mysql_string_factory)> string_srv(
+        "mysql_string_factory", reg_srv);
+    my_service<SERVICE_TYPE(mysql_string_copy_converter)> convert_srv(
+        "mysql_string_copy_converter", reg_srv);
+    my_service<SERVICE_TYPE(mysql_string_get_data_in_charset)> data_srv(
+        "mysql_string_get_data_in_charset", reg_srv);
+
+    if (!udf_metadata_srv.is_valid() || !charset_srv.is_valid() ||
+        !string_srv.is_valid() || !convert_srv.is_valid() ||
+        !data_srv.is_valid()) {
+      return false;
+    }
+
+    // The arguments point to the values, which must not move
+    m_values.reserve(m_udf_args->arg_count);
+
+    for (unsigned int index = 0; index < m_udf_args->arg_count; ++index) {
+      if (m_udf_args->arg_type[index] != STRING_RESULT ||
+          m_udf_args->args[index] == nullptr) {
+        continue;
+      }
+
+      void *collation_name = nullptr;
+
+      if (udf_metadata_srv->argument_get(m_udf_args, "collation", index,
+                                         &collation_name)) {
+        return false;
+      }
+
+      CHARSET_INFO_h arg_charset =
+          charset_srv->get(static_cast<const char *>(collation_name));
+
+      if (arg_charset == nullptr) {
+        return false;
+      }
+
+      audit_table::HStringContainer converted{string_srv};
+      uint errors = 0;
+      const char *data = nullptr;
+      size_t data_length = 0;
+      CHARSET_INFO_h data_charset = nullptr;
+
+      if (converted.get() == nullptr ||
+          convert_srv->copy_convert(converted.get(), m_udf_args->args[index],
+                                    m_udf_args->lengths[index], arg_charset,
+                                    charset_srv->get_utf8mb4(), &errors) ||
+          data_srv->get_data(converted.get(), &data, &data_length,
+                             &data_charset)) {
+        return false;
+      }
+
+      m_values.emplace_back(data, data_length);
+      m_original_args.emplace_back(index, m_udf_args->args[index],
+                                   m_udf_args->lengths[index]);
+      m_udf_args->args[index] = m_values.back().data();
+      m_udf_args->lengths[index] = m_values.back().length();
+    }
+
+    return true;
+  }
+
+  UDF_ARGS *m_udf_args;
+  std::vector<std::string> m_values;
+  std::vector<std::tuple<unsigned int, char *, unsigned long>> m_original_args;
+};
+
 bool reload_audit_rules_or_set_error(char *result,
                                      unsigned long *length) noexcept {
   std::string error_msg;
@@ -209,6 +395,24 @@ bool reload_audit_rules_or_set_error(char *result,
   *length = std::strlen(result);
   return false;
 }
+
+#ifndef NDEBUG
+std::atomic<int> password_result_buffer_count{0};
+#endif
+
+/*
+  The result buffer of audit_log_encryption_password_get(), allocated by its
+  _init function and freed by its _deinit function. Debug builds count the
+  buffers, so that deinit() can check that none of them leaked.
+*/
+struct PasswordResultBuffer {
+#ifndef NDEBUG
+  PasswordResultBuffer() noexcept { ++password_result_buffer_count; }
+  ~PasswordResultBuffer() { --password_result_buffer_count; }
+#endif
+
+  std::string value;
+};
 
 }  // namespace
 
@@ -243,11 +447,18 @@ void AuditUdf::deinit() noexcept {
     my_service<SERVICE_TYPE(udf_registration)> udf_registration_srv(
         "udf_registration", SysVars::get_comp_registry_srv());
 
+    [[maybe_unused]] bool all_unregistered = true;
+
     for (const auto &name : m_active_udf_names) {
-      udf_registration_srv->udf_unregister(name.c_str(), &was_present);
+      if (udf_registration_srv->udf_unregister(name.c_str(), &was_present)) {
+        all_unregistered = false;
+      }
     }
 
     m_active_udf_names.clear();
+
+    // A UDF in use is not unregistered, an unused one was deinitialized
+    assert(!all_unregistered || password_result_buffer_count == 0);
   }
 }
 
@@ -275,26 +486,34 @@ bool AuditUdf::audit_log_filter_set_filter_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
     return true;
   }
 
-  if (udf_args->lengths[1] == 0) {
+  if (is_empty_constant_arg(udf_args, 1)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter definition");
     return true;
   }
 
-  if (udf_args->lengths[0] > audit_table::kAuditFieldLengthFiltername) {
+  if (is_constant_arg_too_long(udf_args, 0,
+                               audit_table::kAuditFieldLengthFiltername)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: filter_name is too long, max length is %ld",
                   audit_table::kAuditFieldLengthFiltername);
     return true;
   }
 
-  if (udf_args->lengths[1] > audit_table::kAuditFieldLengthFilter) {
+  if (is_constant_arg_too_long(udf_args, 1,
+                               audit_table::kAuditFieldLengthFilter)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: definition is too long, max length is %ld",
                   audit_table::kAuditFieldLengthFilter);
@@ -319,7 +538,39 @@ char *AuditUdf::audit_log_filter_set_filter_udf(
     unsigned char *is_null, unsigned char *error) noexcept {
   *is_null = 0;
   *error = 0;
-  auto rule = std::make_unique<AuditRule>(udf_args->args[0]);
+
+  if (is_empty_arg(udf_args, 0)) {
+    return set_wrong_argument_result(result, length, "empty filter name");
+  }
+
+  if (is_empty_arg(udf_args, 1)) {
+    return set_wrong_argument_result(result, length, "empty filter definition");
+  }
+
+  if (has_nul_byte(udf_args, 0)) {
+    return set_wrong_argument_result(result, length,
+                                     "filter name contains a NUL byte");
+  }
+
+  if (has_nul_byte(udf_args, 1)) {
+    return set_wrong_argument_result(result, length,
+                                     "filter definition contains a NUL byte");
+  }
+
+  if (udf_args->lengths[0] > audit_table::kAuditFieldLengthFiltername) {
+    return set_too_long_result(result, length, "filter_name",
+                               audit_table::kAuditFieldLengthFiltername);
+  }
+
+  if (udf_args->lengths[1] > audit_table::kAuditFieldLengthFilter) {
+    return set_too_long_result(result, length, "definition",
+                               audit_table::kAuditFieldLengthFilter);
+  }
+
+  const std::string filter_name{udf_args->args[0], udf_args->lengths[0]};
+  const std::string filter_definition{udf_args->args[1], udf_args->lengths[1]};
+
+  auto rule = std::make_unique<AuditRule>(filter_name.c_str());
 
   if (rule == nullptr) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_UDF_INTERNAL_ERROR);
@@ -328,9 +579,9 @@ char *AuditUdf::audit_log_filter_set_filter_udf(
     return result;
   }
 
-  if (!AuditRuleParser::parse(udf_args->args[1], rule.get())) {
+  if (!AuditRuleParser::parse(filter_definition.c_str(), rule.get())) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_UDF_SET_FILTER_BAD_DEFINITION,
-                    udf_args->args[1]);
+                    filter_definition.c_str());
     if (rule->get_parse_error().empty()) {
       std::snprintf(result, MYSQL_ERRMSG_SIZE,
                     "ERROR: Incorrect rule definition");
@@ -346,7 +597,7 @@ char *AuditUdf::audit_log_filter_set_filter_udf(
   audit_table::AuditLogFilter audit_log_filter{
       SysVars::get_config_database_name()};
 
-  auto check_result = audit_log_filter.check_name_exists(udf_args->args[0]);
+  auto check_result = audit_log_filter.check_name_exists(filter_name);
 
   if (check_result == audit_table::TableResult::Fail) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_UDF_SET_FILTER_UNIQUE_CHECK_FAIL);
@@ -358,7 +609,7 @@ char *AuditUdf::audit_log_filter_set_filter_udf(
 
   if (check_result == audit_table::TableResult::Found) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_UDF_SET_FILTER_NAME_EXISTS,
-                    udf_args->args[0]);
+                    filter_name.c_str());
     std::snprintf(result, MYSQL_ERRMSG_SIZE,
                   "ERROR: Rule with this name already exists");
     *length = std::strlen(result);
@@ -366,11 +617,11 @@ char *AuditUdf::audit_log_filter_set_filter_udf(
   }
 
   auto insert_result =
-      audit_log_filter.insert_filter(udf_args->args[0], udf_args->args[1]);
+      audit_log_filter.insert_filter(filter_name, filter_definition);
 
   if (insert_result != audit_table::TableResult::Ok) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_UDF_SET_FILTER_FAILURE,
-                    udf_args->args[0], udf_args->args[1]);
+                    filter_name.c_str(), filter_definition.c_str());
     std::snprintf(result, MYSQL_ERRMSG_SIZE, "ERROR: Failed to insert rule");
     *length = std::strlen(result);
     return result;
@@ -408,13 +659,20 @@ bool AuditUdf::audit_log_filter_remove_filter_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
     return true;
   }
 
-  if (udf_args->lengths[0] > audit_table::kAuditFieldLengthFiltername) {
+  if (is_constant_arg_too_long(udf_args, 0,
+                               audit_table::kAuditFieldLengthFiltername)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: filter_name is too long, max length is %ld",
                   audit_table::kAuditFieldLengthFiltername);
@@ -440,13 +698,29 @@ char *AuditUdf::audit_log_filter_remove_filter_udf(
   *is_null = 0;
   *error = 0;
 
+  if (is_empty_arg(udf_args, 0)) {
+    return set_wrong_argument_result(result, length, "empty filter name");
+  }
+
+  if (has_nul_byte(udf_args, 0)) {
+    return set_wrong_argument_result(result, length,
+                                     "filter name contains a NUL byte");
+  }
+
+  if (udf_args->lengths[0] > audit_table::kAuditFieldLengthFiltername) {
+    return set_too_long_result(result, length, "filter_name",
+                               audit_table::kAuditFieldLengthFiltername);
+  }
+
+  const std::string filter_name{udf_args->args[0], udf_args->lengths[0]};
+
   audit_table::AuditLogFilter audit_log_filter{
       SysVars::get_config_database_name()};
   audit_table::AuditLogUser audit_log_user{SysVars::get_config_database_name()};
 
   uint64_t removed_filter_id = 0;
   auto check_result =
-      audit_log_filter.get_filter_id(udf_args->args[0], removed_filter_id);
+      audit_log_filter.get_filter_id(filter_name, removed_filter_id);
 
   if (check_result == audit_table::TableResult::Fail) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_REMOVE_FILTER_UDF_NAME_CHECK_FAIL);
@@ -462,20 +736,20 @@ char *AuditUdf::audit_log_filter_remove_filter_udf(
     return result;
   }
 
-  if (audit_log_user.delete_user_by_filter(udf_args->args[0]) ==
+  if (audit_log_user.delete_user_by_filter(filter_name) ==
       audit_table::TableResult::Fail) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_REMOVE_FILTER_UDF_REMOVE_USER_FAIL,
-                    udf_args->args[0]);
+                    filter_name.c_str());
     std::snprintf(result, MYSQL_ERRMSG_SIZE,
                   "ERROR: Failed to remove filter from users table");
     *length = std::strlen(result);
     return result;
   }
 
-  if (audit_log_filter.delete_filter(udf_args->args[0]) ==
+  if (audit_log_filter.delete_filter(filter_name) ==
       audit_table::TableResult::Fail) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_REMOVE_FILTER_UDF_REMOVE_FILTER_FAIL,
-                    udf_args->args[0]);
+                    filter_name.c_str());
     std::snprintf(result, MYSQL_ERRMSG_SIZE, "ERROR: Failed to remove filter");
     *length = std::strlen(result);
     return result;
@@ -520,25 +794,38 @@ bool AuditUdf::audit_log_filter_set_user_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty user name");
     return true;
   }
 
-  if (udf_args->lengths[1] == 0) {
+  if (is_empty_constant_arg(udf_args, 1)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty filter name");
     return true;
   }
 
-  auto user_info_data = check_parse_user_name_host(udf_args->args[0], message);
+  // A user name which is not a constant is parsed for each row
+  std::unique_ptr<UserNameInfo> user_info_data;
 
-  if (user_info_data == nullptr) {
-    return true;
+  if (udf_args->args[0] != nullptr) {
+    user_info_data = check_parse_user_name_host(
+        std::string{udf_args->args[0], udf_args->lengths[0]}, message);
+
+    if (user_info_data == nullptr) {
+      return true;
+    }
   }
 
-  if (udf_args->lengths[1] > audit_table::kAuditFieldLengthFiltername) {
+  if (is_constant_arg_too_long(udf_args, 1,
+                               audit_table::kAuditFieldLengthFiltername)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: filter_name is too long, max length is %ld",
                   audit_table::kAuditFieldLengthFiltername);
@@ -568,11 +855,44 @@ char *AuditUdf::audit_log_filter_set_user_udf(AuditUdf *udf [[maybe_unused]],
   *is_null = 0;
   *error = 0;
 
+  std::unique_ptr<UserNameInfo> row_user_info_data;
+  auto *user_info_data = reinterpret_cast<UserNameInfo *>(initid->ptr);
+
+  if (user_info_data == nullptr) {
+    if (is_empty_arg(udf_args, 0)) {
+      return set_wrong_argument_result(result, length, "empty user name");
+    }
+
+    char message[MYSQL_ERRMSG_SIZE];
+    row_user_info_data = check_parse_user_name_host(
+        std::string{udf_args->args[0], udf_args->lengths[0]}, message);
+
+    if (row_user_info_data == nullptr) {
+      return set_error_result(result, length, message);
+    }
+
+    user_info_data = row_user_info_data.get();
+  }
+
+  if (is_empty_arg(udf_args, 1)) {
+    return set_wrong_argument_result(result, length, "empty filter name");
+  }
+
+  if (has_nul_byte(udf_args, 1)) {
+    return set_wrong_argument_result(result, length,
+                                     "filter name contains a NUL byte");
+  }
+
+  if (udf_args->lengths[1] > audit_table::kAuditFieldLengthFiltername) {
+    return set_too_long_result(result, length, "filter_name",
+                               audit_table::kAuditFieldLengthFiltername);
+  }
+
   audit_table::AuditLogFilter audit_log_filter{
       SysVars::get_config_database_name()};
   audit_table::AuditLogUser audit_log_user{SysVars::get_config_database_name()};
 
-  std::string filter_name{udf_args->args[1]};
+  std::string filter_name{udf_args->args[1], udf_args->lengths[1]};
 
   auto filter_check_result = audit_log_filter.check_name_exists(filter_name);
 
@@ -593,8 +913,6 @@ char *AuditUdf::audit_log_filter_set_user_udf(AuditUdf *udf [[maybe_unused]],
     *length = std::strlen(result);
     return result;
   }
-
-  auto *user_info_data = reinterpret_cast<UserNameInfo *>(initid->ptr);
 
   auto filter_set_result = audit_log_user.set_update_filter(
       user_info_data->username, user_info_data->userhost, filter_name);
@@ -651,16 +969,28 @@ bool AuditUdf::audit_log_filter_remove_user_udf_init(AuditUdf *udf
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: empty user name");
     return true;
   }
 
-  auto user_info_data = check_parse_user_name_host(udf_args->args[0], message);
+  // A user name which is not a constant is parsed for each row
+  std::unique_ptr<UserNameInfo> user_info_data;
 
-  if (user_info_data == nullptr) {
-    return true;
+  if (udf_args->args[0] != nullptr) {
+    user_info_data = check_parse_user_name_host(
+        std::string{udf_args->args[0], udf_args->lengths[0]}, message);
+
+    if (user_info_data == nullptr) {
+      return true;
+    }
   }
 
   if (!set_return_value_charset(initid) || !set_args_charset(udf_args)) {
@@ -678,15 +1008,32 @@ bool AuditUdf::audit_log_filter_remove_user_udf_init(AuditUdf *udf
 }
 
 char *AuditUdf::audit_log_filter_remove_user_udf(
-    AuditUdf *udf [[maybe_unused]], UDF_INIT *initid,
-    UDF_ARGS *udf_args [[maybe_unused]], char *result, unsigned long *length,
-    unsigned char *is_null, unsigned char *error) noexcept {
+    AuditUdf *udf [[maybe_unused]], UDF_INIT *initid, UDF_ARGS *udf_args,
+    char *result, unsigned long *length, unsigned char *is_null,
+    unsigned char *error) noexcept {
   *is_null = 0;
   *error = 0;
 
-  audit_table::AuditLogUser audit_log_user{SysVars::get_config_database_name()};
-
+  std::unique_ptr<UserNameInfo> row_user_info_data;
   auto *user_info_data = reinterpret_cast<UserNameInfo *>(initid->ptr);
+
+  if (user_info_data == nullptr) {
+    if (is_empty_arg(udf_args, 0)) {
+      return set_wrong_argument_result(result, length, "empty user name");
+    }
+
+    char message[MYSQL_ERRMSG_SIZE];
+    row_user_info_data = check_parse_user_name_host(
+        std::string{udf_args->args[0], udf_args->lengths[0]}, message);
+
+    if (row_user_info_data == nullptr) {
+      return set_error_result(result, length, message);
+    }
+
+    user_info_data = row_user_info_data.get();
+  }
+
+  audit_table::AuditLogUser audit_log_user{SysVars::get_config_database_name()};
 
   if (audit_log_user.delete_user_by_name_host(user_info_data->username,
                                               user_info_data->userhost) ==
@@ -840,11 +1187,19 @@ char *AuditUdf::audit_log_read_udf(AuditUdf *udf [[maybe_unused]],
   auto *reader_context = SysVars::get_log_reader_context(thd);
   auto reader_args = std::make_unique<AuditLogReaderArgs>();
 
-  if (udf_args->arg_count == 1 && udf_args->args != nullptr &&
-      udf_args->args[0] != nullptr) {
+  // A NULL value is not the JSON null which closes the read sequence, and
+  // rapidjson takes a NUL byte for the end of the JSON text
+  if (udf_args->arg_count == 1 &&
+      (udf_args->args[0] == nullptr || has_nul_byte(udf_args, 0))) {
+    my_error(ER_UDF_ERROR, MYF(0), "audit_log_read", "Bad JSON format");
+    *error = 1;
+    return result;
+  }
+
+  if (udf_args->arg_count == 1) {
     // argument either JSON null or JSON hash
     rapidjson::Document json_doc;
-    json_doc.Parse(udf_args->args[0]);
+    json_doc.Parse(udf_args->args[0], udf_args->lengths[0]);
 
     if (json_doc.HasParseError()) {
       my_error(ER_UDF_ERROR, MYF(0), "audit_log_read", "Bad JSON format");
@@ -1191,14 +1546,22 @@ bool AuditUdf::audit_log_encryption_password_get_udf_init(
           "Wrong argument type: audit_log_encryption_password_get(string)");
       return true;
     }
+  }
 
-    if (udf_args->lengths[0] == 0) {
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (udf_args->arg_count == 1) {
+    if (is_empty_constant_arg(udf_args, 0)) {
       std::snprintf(message, MYSQL_ERRMSG_SIZE,
                     "Wrong argument: empty keyring_id");
       return true;
     }
 
-    if (udf_args->lengths[0] > kKeyringIdLength) {
+    if (is_constant_arg_too_long(udf_args, 0, kKeyringIdLength)) {
       std::snprintf(message, MYSQL_ERRMSG_SIZE,
                     "Wrong argument: keyring_id is too long, max length is %ld",
                     kKeyringIdLength);
@@ -1213,6 +1576,16 @@ bool AuditUdf::audit_log_encryption_password_get_udf_init(
     return true;
   }
 
+  // The result buffer of all rows
+  auto *result_buffer = new (std::nothrow) PasswordResultBuffer;
+
+  if (result_buffer == nullptr) {
+    std::snprintf(message, MYSQL_ERRMSG_SIZE,
+                  "Could not allocate result buffer");
+    return true;
+  }
+
+  initid->ptr = reinterpret_cast<char *>(result_buffer);
   initid->maybe_null = false;
   initid->const_item = false;
 
@@ -1228,9 +1601,30 @@ char *AuditUdf::audit_log_encryption_password_get_udf(
 
   std::unique_ptr<encryption::EncryptionOptions> options;
 
-  if (udf_args->arg_count == 1 && udf_args->args != nullptr &&
-      udf_args->args[0] != nullptr) {
-    options = audit_keyring::get_encryption_options(udf_args->args[0]);
+  if (udf_args->arg_count == 1) {
+    const char *arg_error = nullptr;
+    char message[MYSQL_ERRMSG_SIZE];
+
+    if (is_empty_arg(udf_args, 0)) {
+      arg_error = "Wrong argument: empty keyring_id";
+    } else if (has_nul_byte(udf_args, 0)) {
+      arg_error = "Wrong argument: keyring_id contains a NUL byte";
+    } else if (udf_args->lengths[0] > kKeyringIdLength) {
+      std::snprintf(message, sizeof(message),
+                    "Wrong argument: keyring_id is too long, max length is %zu",
+                    kKeyringIdLength);
+      arg_error = message;
+    }
+
+    if (arg_error != nullptr) {
+      my_error(ER_UDF_ERROR, MYF(0), "audit_log_encryption_password_get_udf",
+               arg_error);
+      *error = 1;
+      return result;
+    }
+
+    options = audit_keyring::get_encryption_options(
+        std::string{udf_args->args[0], udf_args->lengths[0]});
   } else {
     options = audit_keyring::get_encryption_options();
   }
@@ -1242,28 +1636,25 @@ char *AuditUdf::audit_log_encryption_password_get_udf(
     return result;
   }
 
-  const auto options_json_str = options->to_json_string();
+  auto *result_buffer = reinterpret_cast<PasswordResultBuffer *>(initid->ptr);
 
-  initid->ptr =
-      static_cast<char *>(my_malloc(key_memory_audit_log_filter_password_buffer,
-                                    options_json_str.length(), MY_ZEROFILL));
-
-  if (initid->ptr == nullptr) {
+  try {
+    result_buffer->value = options->to_json_string();
+  } catch (...) {
     my_error(ER_UDF_ERROR, MYF(0), "audit_log_encryption_password_get_udf",
              "Could not allocate result buffer");
     *error = 1;
     return result;
   }
 
-  memcpy(initid->ptr, options_json_str.c_str(), options_json_str.length());
-  *length = options_json_str.length();
+  *length = result_buffer->value.length();
 
-  return initid->ptr;
+  return result_buffer->value.data();
 }
 
 void AuditUdf::audit_log_encryption_password_get_udf_deinit(UDF_INIT *initid) {
-  if (initid != nullptr && initid->ptr != nullptr) {
-    my_free(initid->ptr);
+  if (initid != nullptr) {
+    delete reinterpret_cast<PasswordResultBuffer *>(initid->ptr);
   }
 }
 
@@ -1290,12 +1681,18 @@ bool AuditUdf::audit_log_encryption_password_set_udf_init(
     return true;
   }
 
-  if (udf_args->lengths[0] == 0) {
+  ConstantArgsConverter constant_args{udf_args};
+
+  if (!constant_args.convert(message)) {
+    return true;
+  }
+
+  if (is_empty_constant_arg(udf_args, 0)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE, "Wrong argument: empty password");
     return true;
   }
 
-  if (udf_args->lengths[0] > kKeyringPasswordLength) {
+  if (is_constant_arg_too_long(udf_args, 0, kKeyringPasswordLength)) {
     std::snprintf(message, MYSQL_ERRMSG_SIZE,
                   "Wrong argument: password is too long, max length is %ld",
                   kKeyringPasswordLength);
@@ -1322,7 +1719,33 @@ char *AuditUdf::audit_log_encryption_password_set_udf(
   *is_null = 0;
   *error = 0;
 
-  if (!audit_keyring::set_encryption_options(udf_args->args[0])) {
+  if (is_empty_arg(udf_args, 0)) {
+    my_error(ER_UDF_ERROR, MYF(0), "audit_log_encryption_password_set_udf",
+             "Wrong argument: empty password");
+    *error = 1;
+    return result;
+  }
+
+  if (has_nul_byte(udf_args, 0)) {
+    my_error(ER_UDF_ERROR, MYF(0), "audit_log_encryption_password_set_udf",
+             "Wrong argument: password contains a NUL byte");
+    *error = 1;
+    return result;
+  }
+
+  if (udf_args->lengths[0] > kKeyringPasswordLength) {
+    char message[MYSQL_ERRMSG_SIZE];
+    std::snprintf(message, sizeof(message),
+                  "Wrong argument: password is too long, max length is %zu",
+                  kKeyringPasswordLength);
+    my_error(ER_UDF_ERROR, MYF(0), "audit_log_encryption_password_set_udf",
+             message);
+    *error = 1;
+    return result;
+  }
+
+  if (!audit_keyring::set_encryption_options(
+          std::string{udf_args->args[0], udf_args->lengths[0]})) {
     my_error(ER_UDF_ERROR, MYF(0), "audit_log_encryption_password_set_udf",
              "ERROR: Could not set password");
     *error = 1;

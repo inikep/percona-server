@@ -1,0 +1,60 @@
+--echo #
+--echo # PS-11934: The _init functions of the audit_log_filter UDFs checked and
+--echo # cached constant arguments in their own character set, while the UDF
+--echo # functions get the arguments converted to utf8mb4
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_component_keyring_file.inc
+--source suite/component_keyring_file/inc/setup_component.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+
+--echo #
+--echo # A latin1 user name, josé@localhost, is stored in utf8mb4 both from a
+--echo # constant and from a column
+SELECT audit_log_filter_set_user(_latin1 x'6A6F73E9406C6F63616C686F7374', 'log_all') AS result;
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+SELECT audit_log_filter_remove_user(_latin1 x'6A6F73E9406C6F63616C686F7374') AS result;
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+CREATE TABLE latin1_users (name VARCHAR(64) CHARACTER SET latin1);
+INSERT INTO latin1_users VALUES (x'6A6F73E9406C6F63616C686F7374');
+SELECT audit_log_filter_set_user(name, 'log_all') AS result FROM latin1_users;
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+SELECT audit_log_filter_remove_user(_latin1 x'6A6F73E9406C6F63616C686F7374') AS result;
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # utf16le constants contain NUL bytes before their conversion
+SELECT audit_log_filter_set_user(CONVERT('%' USING utf16le), 'log_all') AS result;
+SELECT audit_log_filter_set_user(CONVERT('user1@localhost' USING utf16le), CONVERT('log_all' USING utf16le)) AS result;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+SELECT audit_log_filter_remove_user(CONVERT('%' USING utf16le)) AS result;
+SELECT audit_log_filter_remove_user(CONVERT('user1@localhost' USING utf16le)) AS result;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # The length limits apply to the utf8mb4 values
+SELECT audit_log_filter_set_filter(CONVERT(REPEAT('a', 64) USING utf32), '{"filter": {"log": true}}') AS result;
+SELECT LENGTH(name) FROM mysql.audit_log_filter WHERE name LIKE 'a%';
+SELECT audit_log_filter_remove_filter(CONVERT(REPEAT('a', 64) USING utf32)) AS result;
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_filter(CONVERT(REPEAT('a', 256) USING utf32), '{"filter": {"log": true}}');
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_filter(CONVERT(REPEAT('é', 128) USING latin1), '{"filter": {"log": true}}');
+SELECT audit_log_encryption_password_set(CONVERT('pässword' USING utf32)) AS result;
+SELECT JSON_UNQUOTE(JSON_EXTRACT(audit_log_encryption_password_get(), '$.password')) AS password;
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_encryption_password_set(CONVERT(REPEAT('é', 384) USING latin1));
+
+--echo #
+--echo # Cleanup
+DROP TABLE latin1_users;
+SELECT audit_log_filter_remove_filter('log_all');
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
+--source suite/component_keyring_file/inc/teardown_component.inc

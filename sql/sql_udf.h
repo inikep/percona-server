@@ -84,6 +84,8 @@ class udf_handler {
  protected:
   udf_func *u_d;
   String *buffers{nullptr};
+  /// Copies of the string arguments, passed to the UDF function
+  String *arg_buffers{nullptr};
   UDF_ARGS f_args;
   UDF_INIT initid;
   char *num_buffer{nullptr};
