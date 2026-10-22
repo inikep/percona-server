@@ -375,6 +375,7 @@ void LogWriterFile::prune() noexcept {
 void LogWriterFile::do_prune() noexcept {
   const auto log_max_size = SysVars::get_log_max_size();
   const auto prune_seconds = SysVars::get_log_prune_seconds();
+  bool is_file_removed = false;
 
   if (log_max_size > 0) {
     PruneFilesList log_file_list;
@@ -403,8 +404,10 @@ void LogWriterFile::do_prune() noexcept {
       const auto &entry = file_queue.top();
 
       if (!FileHandle::remove_file(entry.path)) {
-        return;
+        break;
       }
+
+      is_file_removed = true;
 
       current_logs_size =
           (entry.size < current_logs_size) ? current_logs_size - entry.size : 0;
@@ -418,8 +421,9 @@ void LogWriterFile::do_prune() noexcept {
     }
 
     for (const auto &entry : log_file_list) {
-      if (entry.age > std::chrono::seconds(prune_seconds)) {
-        FileHandle::remove_file(entry.path);
+      if (entry.age > std::chrono::seconds(prune_seconds) &&
+          FileHandle::remove_file(entry.path)) {
+        is_file_removed = true;
       }
     }
   }
@@ -428,6 +432,10 @@ void LogWriterFile::do_prune() noexcept {
   if (FileHandle::get_total_log_size(SysVars::get_file_dir(),
                                      SysVars::get_file_name(), total_size)) {
     SysVars::set_total_log_size(total_size);
+  }
+
+  if (is_file_removed) {
+    get_audit_log_filter_instance()->on_audit_log_pruned();
   }
 }
 

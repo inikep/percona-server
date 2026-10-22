@@ -133,6 +133,11 @@ class AuditLogFilter {
    */
   void on_audit_log_rotated() noexcept;
 
+  /**
+   * @brief Handle removal of rotated log files by pruning.
+   */
+  void on_audit_log_pruned() noexcept;
+
  private:
   void get_connection_attrs(MYSQL_THD thd, AuditRecordVariant &audit_record);
 

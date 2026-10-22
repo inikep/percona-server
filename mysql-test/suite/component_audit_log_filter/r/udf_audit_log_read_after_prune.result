@@ -1,0 +1,80 @@
+#
+# PS-11934: pruning removed rotated logs without telling the reader, so
+# read sequences kept trying to read the removed files
+#
+CREATE TABLE t1 (c1 INT);
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+audit_log_filter_set_user('%', 'log_inserts')
+OK
+SET @old_max_size = @@global.audit_log_filter.max_size;
+SET @old_prune_seconds = @@global.audit_log_filter.prune_seconds;
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+INSERT INTO t1 VALUES (1);
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (2);
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (3);
+# The reader lists the log files
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)", "INSERT INTO t1 VALUES (3)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+# A read sequence has read the first rotated log and opened the second
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)"]
+# Pruning by age removes both rotated logs, the next read sequence lists
+# the log files again
+SET GLOBAL audit_log_filter.prune_seconds = 1;
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (3)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+# Pruning does not move the records of the current log, the read
+# sequence goes on
+SELECT JSON_EXTRACT(audit_log_read('{"max_array_length": 10}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (2)", "INSERT INTO t1 VALUES (3)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# Pruning by size
+SET GLOBAL audit_log_filter.prune_seconds = 0;
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (7);
+# The reader lists the log files
+SELECT JSON_LENGTH(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}')) AS events;
+events
+6
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+# Pruning removes the rotated log with the large records, the next read
+# sequence lists the log files again
+SET GLOBAL audit_log_filter.max_size = 8192;
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (7)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# Cleanup
+SET GLOBAL audit_log_filter.max_size = @old_max_size;
+SET GLOBAL audit_log_filter.prune_seconds = @old_prune_seconds;
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;

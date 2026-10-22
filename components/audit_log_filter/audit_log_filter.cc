@@ -922,6 +922,12 @@ void AuditLogFilter::on_encryption_password_prune_requested() noexcept try {
 
 void AuditLogFilter::on_audit_log_rotated() noexcept {
   if (m_is_active) {
+    m_log_reader->reset_after_rotation();
+  }
+}
+
+void AuditLogFilter::on_audit_log_pruned() noexcept {
+  if (m_is_active) {
     m_log_reader->reset();
   }
 }
