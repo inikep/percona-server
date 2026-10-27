@@ -29,7 +29,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstring>
 #include <unordered_map>
 
 namespace audit_log_filter {
@@ -296,10 +295,11 @@ std::string_view event_subclass_to_string(
   return kNameUnknown;
 }
 
+// Use the length, the value may contain NUL bytes, e.g. the query text
 inline std::string mysql_cstring_to_string(
     const mysql_cstring_with_length *str) {
-  return str != nullptr && str->str != nullptr && std::strlen(str->str) > 0
-             ? str->str
+  return str != nullptr && str->str != nullptr
+             ? std::string{str->str, str->length}
              : "";
 }
 

@@ -1,0 +1,70 @@
+#
+# PS-11934: the query.str field of the query and parse classes ended at
+# the first NUL byte, so a statement with a NUL in a comment got around
+# the filter
+#
+CREATE USER nul_user@localhost;
+GRANT SELECT ON test.* TO nul_user@localhost;
+#
+# Logging: one query start and one parse preparse event match
+SELECT audit_log_filter_set_filter('nul_log', '{"filter": {"class": [{"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "regex": "nul_secret"}}}}, {"name": "parse", "event": {"name": "preparse", "log": {"field": {"name": "query.str", "regex": "nul_secret"}}}}]}}');
+audit_log_filter_set_filter('nul_log', '{"filter": {"class": [{"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "regex": "nul_secret"}}}}, {"name": "parse", "event": {"name": "preparse", "log": {"field": {"name": "query.s
+OK
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_log');
+audit_log_filter_set_user('nul_user@localhost', 'nul_log')
+OK
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+written
+2
+#
+# Value comparison: the whole statement matches, the text before the NUL
+# does not
+SELECT audit_log_filter_set_filter('nul_value', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "value": "SELECT 1 /*\\u0000*/ AS nul_secret"}}}}}}');
+audit_log_filter_set_filter('nul_value', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "value": "SELECT 1 /*\\u0000*/ AS nul_secret"}}}}}}')
+OK
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_value');
+audit_log_filter_set_user('nul_user@localhost', 'nul_value')
+OK
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+written
+1
+SELECT audit_log_filter_set_filter('nul_prefix', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "value": "SELECT 1 /*"}}}}}}');
+audit_log_filter_set_filter('nul_prefix', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"field": {"name": "query.str", "value": "SELECT 1 /*"}}}}}}')
+OK
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_prefix');
+audit_log_filter_set_user('nul_user@localhost', 'nul_prefix')
+OK
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+written
+0
+#
+# string_find(): a NUL in the searched string is kept, only the
+# statement with the NUL matches
+SELECT audit_log_filter_set_filter('nul_find', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"function": {"name": "string_find", "args": [{"string": {"field": "query.str"}}, {"string": {"string": "\\u0000*/ AS nul_secret"}}]}}}}}}');
+audit_log_filter_set_filter('nul_find', '{"filter": {"class": {"name": "query", "event": {"name": "start", "log": {"function": {"name": "string_find", "args": [{"string": {"field": "query.str"}}, {"string": {"string": "\\u0000*/ AS nul_secret"}}]}}}}}}')
+OK
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_find');
+audit_log_filter_set_user('nul_user@localhost', 'nul_find')
+OK
+SELECT VARIABLE_VALUE INTO @written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+written
+0
+SELECT VARIABLE_VALUE - @written AS written FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Audit_log_filter_events_written';
+written
+1
+#
+# Blocking: the query start event is aborted
+SELECT audit_log_filter_set_filter('nul_block', '{"filter": {"class": {"name": "query", "event": {"name": "start", "abort": {"field": {"name": "query.str", "regex": "nul_secret"}}}}}}');
+audit_log_filter_set_filter('nul_block', '{"filter": {"class": {"name": "query", "event": {"name": "start", "abort": {"field": {"name": "query.str", "regex": "nul_secret"}}}}}}')
+OK
+SELECT audit_log_filter_set_user('nul_user@localhost', 'nul_block');
+audit_log_filter_set_user('nul_user@localhost', 'nul_block')
+OK
+ERROR 3164 (HY000) at line <n>: Statement was aborted by an audit log filter.
+#
+# Cleanup
+DROP USER nul_user@localhost;

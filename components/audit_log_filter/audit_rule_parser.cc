@@ -938,7 +938,7 @@ std::shared_ptr<EventFieldConditionBase> AuditRuleParser::parse_condition_json(
       std::string field_value;
 
       if (value_json.IsString()) {
-        field_value = value_json.GetString();
+        field_value = json_string_view(value_json);
       } else if (value_json.IsInt64()) {
         field_value = std::to_string(value_json.GetInt64());
       } else if (value_json.IsUint64()) {
@@ -1364,7 +1364,7 @@ std::unique_ptr<EventFilterFunctionBase> AuditRuleParser::parse_function(
     if (func_type == EventFilterFunctionType::QueryDigest &&
         function_json["args"].IsString()) {
       args.push_back({FunctionArgType::String, FunctionArgSourceType::String,
-                      function_json["args"].GetString()});
+                      std::string{json_string_view(function_json["args"])}});
     } else if (!parse_function_args_json(function_json["args"], args,
                                          class_name, audit_rule)) {
       LogComponentErr(ERROR_LEVEL, ER_AUDIT_PARSE_FUNCTION_BAD_ARGS_FORMAT,
@@ -1444,7 +1444,7 @@ bool AuditRuleParser::parse_function_args_json(
       return false;
     }
 
-    const std::string arg_value = arg_value_json->value.GetString();
+    const std::string arg_value{json_string_view(arg_value_json->value)};
 
     if (arg_source_type == FunctionArgSourceType::Field &&
         !class_name.empty() &&
