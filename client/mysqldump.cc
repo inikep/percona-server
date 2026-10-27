@@ -3434,7 +3434,7 @@ static void print_optional_create_compression_dictionary(
     if (row == nullptr) {
       mysql_free_result(result);
       maybe_die(EX_MYSQLERR,
-                "Couldn't read data for compresion dictionary %s (%s)\n",
+                "Couldn't read data for compression dictionary %s (%s)\n",
                 dictionary_name, mysql_error(mysql));
       DBUG_VOID_RETURN;
     }
