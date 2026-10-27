@@ -1,0 +1,58 @@
+#
+# PS-11934: persisted values of the variables whose update callbacks act
+# on the component instance are applied while the component variables
+# are registered, before the instance exists, so reinstalling the
+# component crashed the server
+#
+#
+# audit_log_filter.max_size
+SET PERSIST audit_log_filter.max_size = 1073741824;
+SELECT @@global.audit_log_filter.max_size;
+@@global.audit_log_filter.max_size
+1073741824
+RESET PERSIST audit_log_filter.max_size;
+SELECT @@global.audit_log_filter.max_size;
+@@global.audit_log_filter.max_size
+0
+#
+# audit_log_filter.prune_seconds
+SET PERSIST audit_log_filter.prune_seconds = 86400;
+SELECT @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.prune_seconds
+86400
+RESET PERSIST audit_log_filter.prune_seconds;
+SELECT @@global.audit_log_filter.prune_seconds;
+@@global.audit_log_filter.prune_seconds
+0
+#
+# audit_log_filter.password_history_keep_days
+SET PERSIST audit_log_filter.password_history_keep_days = 10;
+SELECT @@global.audit_log_filter.password_history_keep_days;
+@@global.audit_log_filter.password_history_keep_days
+10
+RESET PERSIST audit_log_filter.password_history_keep_days;
+SELECT @@global.audit_log_filter.password_history_keep_days;
+@@global.audit_log_filter.password_history_keep_days
+0
+#
+# audit_log_filter.event_mode
+SET PERSIST audit_log_filter.event_mode = FULL;
+SELECT @@global.audit_log_filter.event_mode;
+@@global.audit_log_filter.event_mode
+FULL
+RESET PERSIST audit_log_filter.event_mode;
+SELECT @@global.audit_log_filter.event_mode;
+@@global.audit_log_filter.event_mode
+REDUCED
+#
+# audit_log_filter.format_unix_timestamp
+SET PERSIST audit_log_filter.format_unix_timestamp = ON;
+SELECT @@global.audit_log_filter.format_unix_timestamp;
+@@global.audit_log_filter.format_unix_timestamp
+1
+RESET PERSIST audit_log_filter.format_unix_timestamp;
+SELECT @@global.audit_log_filter.format_unix_timestamp;
+@@global.audit_log_filter.format_unix_timestamp
+0
+#
+# Cleanup
