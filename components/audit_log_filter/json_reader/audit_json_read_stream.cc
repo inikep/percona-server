@@ -49,11 +49,13 @@ AuditJsonReadStream::AuditJsonReadStream()
       m_current{nullptr},
       m_read_count{0},
       m_count{0},
-      m_eof{false} {}
+      m_eof{false},
+      m_error{false} {}
 
 bool AuditJsonReadStream::init() noexcept {
   assert(kStreamBufferSize >= 4);
-  m_buffer = std::make_unique<Ch[]>(kStreamBufferSize);
+  // One extra byte for the '\0' appended after the last chunk
+  m_buffer = std::make_unique<Ch[]>(kStreamBufferSize + 1);
 
   if (m_buffer == nullptr) {
     return false;
@@ -72,12 +74,13 @@ bool AuditJsonReadStream::open(FileInfo *file_info) noexcept {
     return false;
   }
 
-  memset(m_buffer.get(), 0, kStreamBufferSize);
+  memset(m_buffer.get(), 0, kStreamBufferSize + 1);
   m_current = m_buffer.get();
   m_buffer_last = m_current;
   m_read_count = 0;
   m_count = 0;
   m_eof = false;
+  m_error = false;
 
   return read();
 }
@@ -90,6 +93,8 @@ void AuditJsonReadStream::close() noexcept {
 bool AuditJsonReadStream::check_eof_reached() const noexcept {
   return m_eof && m_current == m_buffer_last;
 }
+
+bool AuditJsonReadStream::has_error() const noexcept { return m_error; }
 
 AuditJsonReadStream::Ch AuditJsonReadStream::Peek() const { return *m_current; }
 
@@ -130,14 +135,21 @@ bool AuditJsonReadStream::read() noexcept {
 
   if (m_current < m_buffer_last)
     ++m_current;
-  else if (!m_eof) {
+  else if (!m_eof && !m_error) {
     m_count += m_read_count;
     status =
         m_file_reader->read(m_buffer.get(), kStreamBufferSize, &m_read_count);
     m_buffer_last = m_buffer.get() + m_read_count - 1;
     m_current = m_buffer.get();
 
-    if (status == ReadStatus::Eof) {
+    if (status == ReadStatus::Error) {
+      // Take() ignores the result, so stop the parser with a '\0' instead of
+      // letting it read stale buffer content, and do not read again
+      m_read_count = 0;
+      m_buffer[0] = '\0';
+      m_buffer_last = m_buffer.get();
+      m_error = true;
+    } else if (status == ReadStatus::Eof) {
       m_buffer[m_read_count] = '\0';
       ++m_buffer_last;
       m_eof = true;

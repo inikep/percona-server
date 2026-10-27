@@ -36,17 +36,13 @@ bool FileReaderDecompressing::open(FileInfo *file_info) noexcept {
     return false;
   }
 
-  if (ReadStatus::Error == FileReaderDecoratorBase::read(
-                               m_in_buff, kInBufferSize,
-                               reinterpret_cast<size_t *>(&m_strm.avail_in))) {
-    FileReaderDecoratorBase::close();
-    return false;
-  }
-
   m_strm.zalloc = Z_NULL;
   m_strm.zfree = Z_NULL;
   m_strm.opaque = Z_NULL;
   m_strm.next_in = m_in_buff;
+  m_strm.avail_in = 0;
+  m_in_eof = false;
+  m_stream_end = false;
 
   auto ret = inflateInit2(&m_strm, MAX_WBITS + 16);
 
@@ -69,38 +65,66 @@ void FileReaderDecompressing::close() noexcept {
   }
 }
 
+bool FileReaderDecompressing::read_input() noexcept {
+  size_t in_size = 0;
+  const auto status =
+      FileReaderDecoratorBase::read(m_in_buff, kInBufferSize, &in_size);
+
+  if (status == ReadStatus::Error) {
+    return false;
+  }
+
+  m_in_eof = status == ReadStatus::Eof;
+  m_strm.next_in = m_in_buff;
+  m_strm.avail_in = static_cast<uInt>(in_size);
+
+  return true;
+}
+
 ReadStatus FileReaderDecompressing::read(unsigned char *out_buffer,
                                          const size_t out_buffer_size,
                                          size_t *read_size) noexcept {
-  auto status = ReadStatus::Ok;
+  *read_size = 0;
 
-  if (m_strm.avail_in == 0) {
-    status = FileReaderDecoratorBase::read(
-        m_in_buff, kInBufferSize, reinterpret_cast<size_t *>(&m_strm.avail_in));
-
-    if (status == ReadStatus::Error) {
-      inflateEnd(&m_strm);
-      return status;
-    }
-
-    m_strm.next_in = m_in_buff;
+  if (m_stream_end) {
+    return ReadStatus::Eof;
   }
 
   m_strm.next_out = out_buffer;
-  m_strm.avail_out = out_buffer_size;
+  m_strm.avail_out = static_cast<uInt>(out_buffer_size);
 
-  int ret = inflate(&m_strm, Z_SYNC_FLUSH);
+  // The last input chunk may inflate to much more than one output buffer, so
+  // keep inflating until the output buffer is full or the stream ends
+  while (m_strm.avail_out > 0) {
+    if (m_strm.avail_in == 0 && !m_in_eof && !read_input()) {
+      return ReadStatus::Error;
+    }
+
+    const int ret = inflate(&m_strm, Z_NO_FLUSH);
+
+    if (ret == Z_STREAM_END) {
+      m_stream_end = true;
+      break;
+    }
+
+    if (ret == Z_BUF_ERROR && m_strm.avail_in == 0) {
+      if (m_in_eof) {
+        // No gzip trailer, as in the current log or a log left by a crash,
+        // return what could be decompressed
+        m_stream_end = true;
+        break;
+      }
+      continue;
+    }
+
+    if (ret != Z_OK) {
+      return ReadStatus::Error;
+    }
+  }
 
   *read_size = out_buffer_size - m_strm.avail_out;
 
-  if (ret == Z_STREAM_END || status == ReadStatus::Eof) {
-    status = ReadStatus::Eof;
-  } else if (ret != Z_OK) {
-    status = ReadStatus::Error;
-    inflateEnd(&m_strm);
-  }
-
-  return status;
+  return m_stream_end ? ReadStatus::Eof : ReadStatus::Ok;
 }
 
 }  // namespace audit_log_filter::json_reader
