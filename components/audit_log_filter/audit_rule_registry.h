@@ -35,6 +35,11 @@ class AuditRuleRegistry {
   /**
    * @brief Load filtering rules from DB.
    *
+   * Concurrent loads may finish in any order. A load which started later
+   * read at least the changes committed before an earlier one started, so
+   * the snapshot of an earlier load does not replace the snapshot of a later
+   * one.
+   *
    * @param error_message Out-parameter for a human-readable error
    * @return true in case filtering rules are loaded successfully,
    *         false otherwise
@@ -116,6 +121,11 @@ class AuditRuleRegistry {
   std::shared_mutex m_registry_mutex;
   std::atomic<uint64_t> m_load_version{0};
   std::atomic<uint32_t> m_loads_in_progress{0};
+  // Order of load() calls, taken before reading the tables
+  std::atomic<uint64_t> m_load_ticket{0};
+  // Ticket of the load whose snapshot is in use, protected by
+  // m_registry_mutex
+  uint64_t m_applied_load_ticket{0};
   audit_table::AuditLogUser::AuditUsersContainer m_audit_users;
   audit_table::AuditLogFilter::AuditRulesContainer m_audit_filter_rules;
 };
