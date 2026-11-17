@@ -1,0 +1,175 @@
+--echo #
+--echo # PS-11934: audit_log_filter_set_user() and audit_log_filter_remove_user()
+--echo # parsed a user name which is not a constant in their _init functions,
+--echo # where it is NULL, and the UDFs built strings from NULL values, which
+--echo # terminated the server
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_component_keyring_file.inc
+--source suite/component_keyring_file/inc/setup_component.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE filters (name VARCHAR(32), definition VARCHAR(255));
+INSERT INTO filters VALUES ('log_all', '{"filter": {"log": true}}'),
+                           ('log_none', '{"filter": {"log": false}}'),
+                           (NULL, '{"filter": {"log": true}}'),
+                           ('log_null', NULL),
+                           ('', '{"filter": {"log": true}}');
+
+CREATE TABLE users (name VARCHAR(128), filter VARCHAR(32));
+INSERT INTO users VALUES ('user1@localhost', 'log_all'),
+                         ('user2@localhost', 'log_none'),
+                         ('%', 'log_all'),
+                         (NULL, 'log_all'),
+                         ('user3@localhost', NULL),
+                         ('user4', 'log_all'),
+                         ('', 'log_all');
+
+--echo #
+--echo # audit_log_filter_set_filter()
+SELECT name, audit_log_filter_set_filter(name, definition) AS result FROM filters;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+
+--echo #
+--echo # audit_log_filter_set_user()
+SELECT name, filter, audit_log_filter_set_user(name, filter) AS result FROM users;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # audit_log_filter_remove_user()
+SELECT name, audit_log_filter_remove_user(name) AS result FROM users;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # audit_log_filter_remove_filter()
+SELECT name, audit_log_filter_remove_filter(name) AS result FROM filters;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+
+--echo #
+--echo # Names, definitions and passwords with a NUL byte are rejected, names
+--echo # and passwords are stored and looked up as C strings
+SELECT audit_log_filter_set_filter('same', '{"filter": {"log": false}}');
+SELECT audit_log_filter_set_filter(CONCAT('same', CHAR(0), 'tail'), '{"filter": {"log": true}}') AS result;
+SELECT audit_log_filter_set_filter('nul_definition', CONCAT('{"filter": {"log": true}}', CHAR(0), 'x')) AS result;
+DELETE FROM filters;
+INSERT INTO filters VALUES (CONCAT('same', CHAR(0), 'tail'), '{"filter": {"log": true}}'),
+                           ('nul_definition', CONCAT('{"filter": {"log": true}}', CHAR(0), 'x'));
+SELECT HEX(name), audit_log_filter_set_filter(name, definition) AS result FROM filters;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+
+SELECT audit_log_filter_set_user('user1@localhost', CONCAT('same', CHAR(0), 'tail')) AS result;
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_user(CONCAT('user1', CHAR(0), '@localhost'), 'same');
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_remove_user(CONCAT('user1', CHAR(0), '@localhost'));
+DELETE FROM users;
+INSERT INTO users VALUES ('user1@localhost', CONCAT('same', CHAR(0), 'tail')),
+                         (CONCAT('user1', CHAR(0), '@localhost'), 'same');
+SELECT HEX(name), HEX(filter), audit_log_filter_set_user(name, filter) AS result FROM users;
+SELECT HEX(name), audit_log_filter_remove_user(name) AS result FROM users;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+SELECT audit_log_filter_remove_filter(CONCAT('same', CHAR(0), 'tail')) AS result;
+SELECT HEX(name), audit_log_filter_remove_filter(name) AS result FROM filters;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+SELECT audit_log_filter_remove_filter('same') AS result;
+
+--echo #
+--echo # audit_log_encryption_password_set()
+CREATE TABLE passwords (password VARCHAR(64));
+INSERT INTO passwords VALUES (NULL);
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_set(password) FROM passwords;
+DELETE FROM passwords;
+INSERT INTO passwords VALUES ('');
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_set(password) FROM passwords;
+DELETE FROM passwords;
+INSERT INTO passwords VALUES (CONCAT(CHAR(0), 'password'));
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_set(password) FROM passwords;
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_set(CONCAT(CHAR(0), 'password'));
+DELETE FROM passwords;
+INSERT INTO passwords VALUES ('new_password');
+SELECT audit_log_encryption_password_set(password) AS result FROM passwords;
+SELECT JSON_UNQUOTE(JSON_EXTRACT(audit_log_encryption_password_get(), '$.password')) AS password;
+
+--echo #
+--echo # The length limits apply to the values, not to the maximum length of
+--echo # the columns
+CREATE TABLE wide (name VARCHAR(300), definition TEXT, user_name VARCHAR(255),
+                   password VARCHAR(1024));
+INSERT INTO wide VALUES ('log_all', '{"filter": {"log": true}}', 'user1@localhost', 'password'),
+                        (REPEAT('n', 256), '{"filter": {"log": true}}', 'user2@localhost', REPEAT('p', 767));
+SELECT LENGTH(name), audit_log_filter_set_filter(name, definition) AS result FROM wide;
+SELECT LENGTH(name), audit_log_filter_set_user(user_name, name) AS result FROM wide;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+SELECT audit_log_filter_remove_user(user_name) AS result FROM wide;
+SELECT LENGTH(name), audit_log_filter_remove_filter(name) AS result FROM wide;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_set(password) FROM wide WHERE LENGTH(password) > 766;
+CREATE TABLE long_definitions (name VARCHAR(16), definition TEXT);
+INSERT INTO long_definitions VALUES
+  ('def_16384', CONCAT('{"filter": {"log": true}}', REPEAT(' ', 16384 - 25))),
+  ('def_16385', CONCAT('{"filter": {"log": true}}', REPEAT(' ', 16385 - 25)));
+SELECT name, LENGTH(definition), audit_log_filter_set_filter(name, definition) AS result FROM long_definitions;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+SELECT audit_log_filter_remove_filter('def_16384') AS result;
+
+--echo #
+--echo # audit_log_encryption_password_get() with a keyring_id
+CREATE TABLE keyring_ids (id VARCHAR(1024));
+INSERT INTO keyring_ids VALUES (NULL);
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_get(id) FROM keyring_ids;
+DELETE FROM keyring_ids;
+INSERT INTO keyring_ids VALUES ('');
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_get(id) FROM keyring_ids;
+DELETE FROM keyring_ids;
+INSERT INTO keyring_ids VALUES (CONCAT('audit_log', CHAR(0), 'x'));
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_get(id) FROM keyring_ids;
+DELETE FROM keyring_ids;
+INSERT INTO keyring_ids VALUES (REPEAT('k', 767));
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_get(id) FROM keyring_ids;
+--echo # One result buffer for all rows
+SELECT JSON_UNQUOTE(JSON_EXTRACT(audit_log_encryption_password_get(), '$.password')) AS password FROM wide;
+
+--echo #
+--echo # A constant in the _init function need not be NUL terminated
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+SELECT audit_log_filter_set_user(SUBSTRING('user1@localhostXYZ', 1, 15), 'log_all') AS result;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+SELECT audit_log_filter_remove_user(SUBSTRING('user1@localhostXYZ', 1, 15)) AS result;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+SELECT audit_log_filter_remove_filter('log_all');
+
+--echo #
+--echo # audit_log_read() with a NULL value or a NUL byte while a read sequence
+--echo # is open
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+SELECT audit_log_filter_set_user('%', 'log_all');
+SELECT 1;
+--disable_result_log
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}');
+--enable_result_log
+--error ER_UDF_ERROR
+SELECT audit_log_read(NULL);
+--error ER_UDF_ERROR
+SELECT audit_log_read(CONCAT('null', CHAR(0), 'x'));
+SELECT audit_log_filter_remove_user('%');
+SELECT audit_log_filter_remove_filter('log_all');
+
+--echo #
+--echo # Cleanup
+DROP TABLE filters, users, passwords, wide, long_definitions, keyring_ids;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
+--source suite/component_keyring_file/inc/teardown_component.inc

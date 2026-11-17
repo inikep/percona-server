@@ -1,0 +1,31 @@
+#
+# Bug#36314928: Assertion failure !s.uses_buffer_owned_by(this) in
+# sql_string.cc. A UDF argument such as CONCAT(), which writes its
+# result to the buffer passed to val_str(), got a buffer which overlapped
+# its own result of the previous row.
+#
+CREATE FUNCTION metaphon RETURNS STRING SONAME "UDF_EXAMPLE_LIB";
+CREATE TABLE t1 (id INT, name VARCHAR(16) CHARACTER SET latin1);
+INSERT INTO t1 VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma');
+SELECT id, metaphon(CONCAT('word', id)) AS result FROM t1 ORDER BY id;
+id	result
+1	WRT
+2	WRT
+3	WRT
+SELECT id, metaphon(CONCAT(name, id)) AS result FROM t1 ORDER BY id;
+id	result
+1	ALF
+2	BT
+3	KM
+SELECT id, metaphon(CONCAT(name, 'x')) AS result FROM t1 ORDER BY id;
+id	result
+1	ALFK
+2	BTK
+3	KMK
+SELECT id, metaphon(name) AS result FROM t1 ORDER BY id;
+id	result
+1	ALF
+2	BT
+3	KM
+DROP TABLE t1;
+DROP FUNCTION metaphon;

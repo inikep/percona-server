@@ -1,0 +1,118 @@
+--echo #
+--echo # PS-11934: The _init functions of the audit_log_filter UDFs rejected
+--echo # prepared statement parameters, which have no value yet when the
+--echo # statement is reprepared for execution, as empty arguments
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_component_keyring_file.inc
+--source suite/component_keyring_file/inc/setup_component.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+--echo #
+--echo # audit_log_filter_set_filter()
+PREPARE set_filter FROM 'SELECT audit_log_filter_set_filter(?, ?) AS result';
+SET @name = 'log_all', @definition = '{"filter": {"log": true}}';
+EXECUTE set_filter USING @name, @definition;
+SET @name = 'log_none', @definition = '{"filter": {"log": false}}';
+EXECUTE set_filter USING @name, @definition;
+SET @name = NULL;
+EXECUTE set_filter USING @name, @definition;
+SET @name = '';
+EXECUTE set_filter USING @name, @definition;
+SET @name = 'log_empty', @definition = '';
+EXECUTE set_filter USING @name, @definition;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+
+--echo #
+--echo # audit_log_filter_set_user()
+PREPARE set_user FROM 'SELECT audit_log_filter_set_user(?, ?) AS result';
+SET @user = 'user1@localhost', @filter = 'log_all';
+EXECUTE set_user USING @user, @filter;
+SET @user = 'user2@localhost', @filter = 'log_none';
+EXECUTE set_user USING @user, @filter;
+SET @user = NULL;
+EXECUTE set_user USING @user, @filter;
+SET @user = 'user3@localhost', @filter = NULL;
+EXECUTE set_user USING @user, @filter;
+PREPARE set_user_constant FROM 'SELECT audit_log_filter_set_user(''%'', ?) AS result';
+SET @filter = 'log_all';
+EXECUTE set_user_constant USING @filter;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # audit_log_filter_remove_user()
+PREPARE remove_user FROM 'SELECT audit_log_filter_remove_user(?) AS result';
+SET @user = 'user1@localhost';
+EXECUTE remove_user USING @user;
+SET @user = '%';
+EXECUTE remove_user USING @user;
+SET @user = NULL;
+EXECUTE remove_user USING @user;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # audit_log_filter_remove_filter()
+PREPARE remove_filter FROM 'SELECT audit_log_filter_remove_filter(?) AS result';
+SET @name = 'log_all';
+EXECUTE remove_filter USING @name;
+SET @name = 'log_none';
+EXECUTE remove_filter USING @name;
+SET @name = NULL;
+EXECUTE remove_filter USING @name;
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+
+--echo #
+--echo # audit_log_encryption_password_set() and _get()
+PREPARE set_password FROM 'SELECT audit_log_encryption_password_set(?) AS result';
+SET @password = 'ps_password';
+EXECUTE set_password USING @password;
+SET @password = NULL;
+--error ER_UDF_ERROR
+EXECUTE set_password USING @password;
+SET @password = '';
+--error ER_UDF_ERROR
+EXECUTE set_password USING @password;
+SELECT JSON_UNQUOTE(JSON_EXTRACT(audit_log_encryption_password_get(), '$.password')) AS password;
+
+PREPARE get_password FROM 'SELECT JSON_EXTRACT(audit_log_encryption_password_get(?), ''$.password'') IS NOT NULL AS has_password';
+SELECT KEY_ID INTO @keyring_id FROM performance_schema.keyring_keys
+  WHERE KEY_ID LIKE 'audit_log%' ORDER BY KEY_ID LIMIT 1;
+EXECUTE get_password USING @keyring_id;
+SET @keyring_id = NULL;
+--error ER_UDF_ERROR
+EXECUTE get_password USING @keyring_id;
+
+--echo #
+--echo # A NULL constant is checked by the UDF function, an empty constant is
+--echo # still rejected by the _init function
+SELECT audit_log_filter_set_filter(NULL, '{"filter": {"log": true}}') AS result;
+SELECT audit_log_filter_set_user(NULL, 'log_all') AS result;
+SELECT audit_log_filter_remove_user(NULL) AS result;
+SELECT audit_log_filter_remove_filter(NULL) AS result;
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_set(NULL);
+--error ER_UDF_ERROR
+SELECT audit_log_encryption_password_get(NULL);
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_filter('', '{"filter": {"log": true}}');
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_filter_set_user('', 'log_all');
+--error ER_CANT_INITIALIZE_UDF
+SELECT audit_log_encryption_password_set('');
+
+--echo #
+--echo # Cleanup
+DEALLOCATE PREPARE set_filter;
+DEALLOCATE PREPARE set_user;
+DEALLOCATE PREPARE set_user_constant;
+DEALLOCATE PREPARE remove_user;
+DEALLOCATE PREPARE remove_filter;
+DEALLOCATE PREPARE set_password;
+DEALLOCATE PREPARE get_password;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
+--source suite/component_keyring_file/inc/teardown_component.inc

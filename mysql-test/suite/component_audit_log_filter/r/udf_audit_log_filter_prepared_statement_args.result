@@ -1,0 +1,170 @@
+#
+# PS-11934: The _init functions of the audit_log_filter UDFs rejected
+# prepared statement parameters, which have no value yet when the
+# statement is reprepared for execution, as empty arguments
+#
+# ----------------------------------------------------------------------
+# Setup
+# Creating local configuration file for keyring component: component_keyring_file
+# Creating manifest file for current MySQL server instance
+# Re-starting mysql server with manifest file
+# ----------------------------------------------------------------------
+#
+# audit_log_filter_set_filter()
+PREPARE set_filter FROM 'SELECT audit_log_filter_set_filter(?, ?) AS result';
+SET @name = 'log_all', @definition = '{"filter": {"log": true}}';
+EXECUTE set_filter USING @name, @definition;
+result
+OK
+SET @name = 'log_none', @definition = '{"filter": {"log": false}}';
+EXECUTE set_filter USING @name, @definition;
+result
+OK
+SET @name = NULL;
+EXECUTE set_filter USING @name, @definition;
+result
+ERROR: Wrong argument: empty filter name
+SET @name = '';
+EXECUTE set_filter USING @name, @definition;
+result
+ERROR: Wrong argument: empty filter name
+SET @name = 'log_empty', @definition = '';
+EXECUTE set_filter USING @name, @definition;
+result
+ERROR: Wrong argument: empty filter definition
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+name
+log_all
+log_none
+#
+# audit_log_filter_set_user()
+PREPARE set_user FROM 'SELECT audit_log_filter_set_user(?, ?) AS result';
+SET @user = 'user1@localhost', @filter = 'log_all';
+EXECUTE set_user USING @user, @filter;
+result
+OK
+SET @user = 'user2@localhost', @filter = 'log_none';
+EXECUTE set_user USING @user, @filter;
+result
+OK
+SET @user = NULL;
+EXECUTE set_user USING @user, @filter;
+result
+ERROR: Wrong argument: empty user name
+SET @user = 'user3@localhost', @filter = NULL;
+EXECUTE set_user USING @user, @filter;
+result
+ERROR: Wrong argument: empty filter name
+PREPARE set_user_constant FROM 'SELECT audit_log_filter_set_user(''%'', ?) AS result';
+SET @filter = 'log_all';
+EXECUTE set_user_constant USING @filter;
+result
+OK
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+username	userhost	filtername
+%	%	log_all
+user1	localhost	log_all
+user2	localhost	log_none
+#
+# audit_log_filter_remove_user()
+PREPARE remove_user FROM 'SELECT audit_log_filter_remove_user(?) AS result';
+SET @user = 'user1@localhost';
+EXECUTE remove_user USING @user;
+result
+OK
+SET @user = '%';
+EXECUTE remove_user USING @user;
+result
+OK
+SET @user = NULL;
+EXECUTE remove_user USING @user;
+result
+ERROR: Wrong argument: empty user name
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+username	userhost	filtername
+user2	localhost	log_none
+#
+# audit_log_filter_remove_filter()
+PREPARE remove_filter FROM 'SELECT audit_log_filter_remove_filter(?) AS result';
+SET @name = 'log_all';
+EXECUTE remove_filter USING @name;
+result
+OK
+SET @name = 'log_none';
+EXECUTE remove_filter USING @name;
+result
+OK
+SET @name = NULL;
+EXECUTE remove_filter USING @name;
+result
+ERROR: Wrong argument: empty filter name
+SELECT name FROM mysql.audit_log_filter ORDER BY name;
+name
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+username	userhost	filtername
+#
+# audit_log_encryption_password_set() and _get()
+PREPARE set_password FROM 'SELECT audit_log_encryption_password_set(?) AS result';
+SET @password = 'ps_password';
+EXECUTE set_password USING @password;
+result
+OK
+SET @password = NULL;
+EXECUTE set_password USING @password;
+ERROR HY000: audit_log_encryption_password_set_udf UDF failed; Wrong argument: empty password
+SET @password = '';
+EXECUTE set_password USING @password;
+ERROR HY000: audit_log_encryption_password_set_udf UDF failed; Wrong argument: empty password
+SELECT JSON_UNQUOTE(JSON_EXTRACT(audit_log_encryption_password_get(), '$.password')) AS password;
+password
+ps_password
+PREPARE get_password FROM 'SELECT JSON_EXTRACT(audit_log_encryption_password_get(?), ''$.password'') IS NOT NULL AS has_password';
+SELECT KEY_ID INTO @keyring_id FROM performance_schema.keyring_keys
+WHERE KEY_ID LIKE 'audit_log%' ORDER BY KEY_ID LIMIT 1;
+EXECUTE get_password USING @keyring_id;
+has_password
+1
+SET @keyring_id = NULL;
+EXECUTE get_password USING @keyring_id;
+ERROR HY000: audit_log_encryption_password_get_udf UDF failed; Wrong argument: empty keyring_id
+#
+# A NULL constant is checked by the UDF function, an empty constant is
+# still rejected by the _init function
+SELECT audit_log_filter_set_filter(NULL, '{"filter": {"log": true}}') AS result;
+result
+ERROR: Wrong argument: empty filter name
+SELECT audit_log_filter_set_user(NULL, 'log_all') AS result;
+result
+ERROR: Wrong argument: empty user name
+SELECT audit_log_filter_remove_user(NULL) AS result;
+result
+ERROR: Wrong argument: empty user name
+SELECT audit_log_filter_remove_filter(NULL) AS result;
+result
+ERROR: Wrong argument: empty filter name
+SELECT audit_log_encryption_password_set(NULL);
+ERROR HY000: audit_log_encryption_password_set_udf UDF failed; Wrong argument: empty password
+SELECT audit_log_encryption_password_get(NULL);
+ERROR HY000: audit_log_encryption_password_get_udf UDF failed; Wrong argument: empty keyring_id
+SELECT audit_log_filter_set_filter('', '{"filter": {"log": true}}');
+ERROR HY000: Can't initialize function 'audit_log_filter_set_filter'; Wrong argument: empty filter name
+SELECT audit_log_filter_set_user('', 'log_all');
+ERROR HY000: Can't initialize function 'audit_log_filter_set_user'; Wrong argument: empty user name
+SELECT audit_log_encryption_password_set('');
+ERROR HY000: Can't initialize function 'audit_log_encryption_password_set'; Wrong argument: empty password
+#
+# Cleanup
+DEALLOCATE PREPARE set_filter;
+DEALLOCATE PREPARE set_user;
+DEALLOCATE PREPARE set_user_constant;
+DEALLOCATE PREPARE remove_user;
+DEALLOCATE PREPARE remove_filter;
+DEALLOCATE PREPARE set_password;
+DEALLOCATE PREPARE get_password;
+# ----------------------------------------------------------------------
+# Teardown
+# Removing manifest file for current MySQL server instance
+# Removing local keyring file for keyring component: component_keyring_file
+# Removing local configuration file for keyring component: component_keyring_file
+# Restarting server without the manifest file
+# ----------------------------------------------------------------------

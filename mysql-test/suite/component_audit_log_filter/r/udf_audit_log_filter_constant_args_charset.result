@@ -1,0 +1,97 @@
+#
+# PS-11934: The _init functions of the audit_log_filter UDFs checked and
+# cached constant arguments in their own character set, while the UDF
+# functions get the arguments converted to utf8mb4
+#
+# ----------------------------------------------------------------------
+# Setup
+# Creating local configuration file for keyring component: component_keyring_file
+# Creating manifest file for current MySQL server instance
+# Re-starting mysql server with manifest file
+# ----------------------------------------------------------------------
+SELECT audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}');
+audit_log_filter_set_filter('log_all', '{"filter": {"log": true}}')
+OK
+#
+# A latin1 user name, josé@localhost, is stored in utf8mb4 both from a
+# constant and from a column
+SELECT audit_log_filter_set_user(_latin1 x'6A6F73E9406C6F63616C686F7374', 'log_all') AS result;
+result
+OK
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+HEX(username)	userhost	filtername
+6A6F73C3A9	localhost	log_all
+SELECT audit_log_filter_remove_user(_latin1 x'6A6F73E9406C6F63616C686F7374') AS result;
+result
+OK
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+HEX(username)	userhost	filtername
+CREATE TABLE latin1_users (name VARCHAR(64) CHARACTER SET latin1);
+INSERT INTO latin1_users VALUES (x'6A6F73E9406C6F63616C686F7374');
+SELECT audit_log_filter_set_user(name, 'log_all') AS result FROM latin1_users;
+result
+OK
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+HEX(username)	userhost	filtername
+6A6F73C3A9	localhost	log_all
+SELECT audit_log_filter_remove_user(_latin1 x'6A6F73E9406C6F63616C686F7374') AS result;
+result
+OK
+SELECT HEX(username), userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+HEX(username)	userhost	filtername
+#
+# utf16le constants contain NUL bytes before their conversion
+SELECT audit_log_filter_set_user(CONVERT('%' USING utf16le), 'log_all') AS result;
+result
+OK
+SELECT audit_log_filter_set_user(CONVERT('user1@localhost' USING utf16le), CONVERT('log_all' USING utf16le)) AS result;
+result
+OK
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+username	userhost	filtername
+%	%	log_all
+user1	localhost	log_all
+SELECT audit_log_filter_remove_user(CONVERT('%' USING utf16le)) AS result;
+result
+OK
+SELECT audit_log_filter_remove_user(CONVERT('user1@localhost' USING utf16le)) AS result;
+result
+OK
+SELECT username, userhost, filtername FROM mysql.audit_log_user ORDER BY username, userhost;
+username	userhost	filtername
+#
+# The length limits apply to the utf8mb4 values
+SELECT audit_log_filter_set_filter(CONVERT(REPEAT('a', 64) USING utf32), '{"filter": {"log": true}}') AS result;
+result
+OK
+SELECT LENGTH(name) FROM mysql.audit_log_filter WHERE name LIKE 'a%';
+LENGTH(name)
+64
+SELECT audit_log_filter_remove_filter(CONVERT(REPEAT('a', 64) USING utf32)) AS result;
+result
+OK
+SELECT audit_log_filter_set_filter(CONVERT(REPEAT('a', 256) USING utf32), '{"filter": {"log": true}}');
+ERROR HY000: Can't initialize function 'audit_log_filter_set_filter'; Wrong argument: filter_name is too long, max length is 255
+SELECT audit_log_filter_set_filter(CONVERT(REPEAT('é', 128) USING latin1), '{"filter": {"log": true}}');
+ERROR HY000: Can't initialize function 'audit_log_filter_set_filter'; Wrong argument: filter_name is too long, max length is 255
+SELECT audit_log_encryption_password_set(CONVERT('pässword' USING utf32)) AS result;
+result
+OK
+SELECT JSON_UNQUOTE(JSON_EXTRACT(audit_log_encryption_password_get(), '$.password')) AS password;
+password
+pässword
+SELECT audit_log_encryption_password_set(CONVERT(REPEAT('é', 384) USING latin1));
+ERROR HY000: Can't initialize function 'audit_log_encryption_password_set'; Wrong argument: password is too long, max length is 766
+#
+# Cleanup
+DROP TABLE latin1_users;
+SELECT audit_log_filter_remove_filter('log_all');
+audit_log_filter_remove_filter('log_all')
+OK
+# ----------------------------------------------------------------------
+# Teardown
+# Removing manifest file for current MySQL server instance
+# Removing local keyring file for keyring component: component_keyring_file
+# Removing local configuration file for keyring component: component_keyring_file
+# Restarting server without the manifest file
+# ----------------------------------------------------------------------
