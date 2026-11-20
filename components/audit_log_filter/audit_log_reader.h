@@ -53,8 +53,12 @@ struct AuditLogReaderContext {
   std::unique_ptr<json_reader::AuditJsonHandler> audit_json_handler;
   std::unique_ptr<json_reader::AuditJsonReadStream> audit_json_read_stream;
   std::unique_ptr<rapidjson::Reader> reader;
-  std::deque<FileInfo *> files_to_read;
-  FileInfo *current_file{nullptr};
+  // Shared with AuditLogReader, which may drop a file that was removed from
+  // disk while the session still refers to it
+  std::deque<std::shared_ptr<FileInfo>> files_to_read;
+  std::shared_ptr<FileInfo> current_file;
+  // Rotation count of the log file list files_to_read was taken from
+  uint64_t rotation_count{0};
   bool is_session_end{false};
   bool is_batch_end{false};
 };
@@ -79,7 +83,15 @@ class AuditLogReader {
  public:
   AuditLogReader() = default;
 
+  // Requests a reload of the log file list
   void reset() noexcept;
+
+  // Requests a reload of the log file list before the current log is renamed
+  // on rotation
+  void reset_before_rotation() noexcept;
+
+  // Requests a reload of the log file list after the current log was rotated
+  void reset_after_rotation() noexcept;
 
   bool init() noexcept;
 
@@ -94,9 +106,18 @@ class AuditLogReader {
   void set_files_to_read_list(AuditLogReaderContext *reader_context) noexcept;
 
  private:
-  std::map<LogFileTimestamp, std::unique_ptr<FileInfo>> m_timestamp_to_file_map;
+  std::map<LogFileTimestamp, std::shared_ptr<FileInfo>> m_timestamp_to_file_map;
   std::shared_mutex m_reader_mutex;
-  std::atomic<bool> m_reload_requested;
+  // Incremented when log files are rotated or pruned
+  std::atomic<uint64_t> m_requested_files_version{0};
+  // Version of the log files in m_timestamp_to_file_map
+  std::atomic<uint64_t> m_loaded_files_version{0};
+  // Incremented before the current log is renamed on rotation and after the
+  // new current log is opened, odd while a rotation is in progress
+  std::atomic<uint64_t> m_rotation_count{0};
+  // Rotation count of the log files in m_timestamp_to_file_map
+  uint64_t m_loaded_rotation_count{0};
+  std::atomic<bool> m_current_log_has_timestamp{false};
 };
 
 }  // namespace audit_log_filter

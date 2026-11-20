@@ -1,0 +1,86 @@
+--echo #
+--echo # PS-11934: pruning removed rotated logs without telling the reader, so
+--echo # read sequences kept trying to read the removed files
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_debug.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE t1 (c1 INT);
+
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+
+--source clean_all_audit_logs.inc
+
+SET @old_max_size = @@global.audit_log_filter.max_size;
+SET @old_prune_seconds = @@global.audit_log_filter.prune_seconds;
+
+# Records of different logs get different timestamps
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+
+INSERT INTO t1 VALUES (1);
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (2);
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (3);
+
+--echo # The reader lists the log files
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo # A read sequence has read the first rotated log and opened the second
+connect (conn_a, localhost, root,,);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+
+--echo # Pruning by age removes both rotated logs, the next read sequence lists
+--echo # the log files again
+connection default;
+SET GLOBAL audit_log_filter.prune_seconds = 1;
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo # Pruning does not move the records of the current log, the read
+--echo # sequence goes on
+connection conn_a;
+SELECT JSON_EXTRACT(audit_log_read('{"max_array_length": 10}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+disconnect conn_a;
+connection default;
+
+--echo #
+--echo # Pruning by size
+SET GLOBAL audit_log_filter.prune_seconds = 0;
+--let $comment = `SELECT REPEAT('x', 4000)`
+--disable_query_log
+--eval INSERT INTO t1 VALUES (4) /* $comment */
+--eval INSERT INTO t1 VALUES (5) /* $comment */
+--eval INSERT INTO t1 VALUES (6) /* $comment */
+--enable_query_log
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (7);
+
+--echo # The reader lists the log files
+SELECT JSON_LENGTH(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}')) AS events;
+SELECT audit_log_read('null');
+
+--echo # Pruning removes the rotated log with the large records, the next read
+--echo # sequence lists the log files again
+SET GLOBAL audit_log_filter.max_size = 8192;
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo #
+--echo # Cleanup
+SET GLOBAL audit_log_filter.max_size = @old_max_size;
+SET GLOBAL audit_log_filter.prune_seconds = @old_prune_seconds;
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

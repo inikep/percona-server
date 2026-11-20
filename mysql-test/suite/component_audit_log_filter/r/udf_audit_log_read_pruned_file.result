@@ -1,0 +1,41 @@
+#
+# PS-11934: read sessions kept raw pointers to the reader's file list,
+# and a read sequence started by another session freed the entries of
+# the log files removed from disk, so the next audit_log_read() of the
+# first session used freed memory
+#
+call mtr.add_suppression("Component audit_log_filter reported: 'Failed to open file for reading");
+CREATE TABLE t1 (c1 INT);
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+audit_log_filter_set_user('%', 'log_inserts')
+OK
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+# Two rotated logs with three events each
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+INSERT INTO t1 VALUES (3);
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+INSERT INTO t1 VALUES (6);
+# Session A reads the first event, the second log is still to be read
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}');
+# The second log is removed, and session B starts a read sequence, which
+# drops the removed log from the reader's file list
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+# Session A reads the rest of the first log, then fails to open the
+# removed one instead of using the freed entry
+SELECT audit_log_read('{"max_array_length": 10}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+#
+# Cleanup
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;

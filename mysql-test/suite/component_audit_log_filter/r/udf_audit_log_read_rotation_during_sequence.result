@@ -1,0 +1,80 @@
+#
+# PS-11934: a read sequence which still had the current log to read
+# opened the log by name after a rotation, which had moved the records
+# it was going to read to the rotated file
+#
+CREATE TABLE t1 (c1 INT);
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+audit_log_filter_set_user('%', 'log_inserts')
+OK
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+INSERT INTO t1 VALUES (3);
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+INSERT INTO t1 VALUES (6);
+# Session A reads the first event, the current log is still to be read
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)"]
+# The current log is rotated, and session B starts a read sequence,
+# which reads the file list again
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (7);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)", "INSERT INTO t1 VALUES (3)", "INSERT INTO t1 VALUES (4)", "INSERT INTO t1 VALUES (5)", "INSERT INTO t1 VALUES (6)", "INSERT INTO t1 VALUES (7)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+# Session A fails instead of skipping events 4-6
+SELECT audit_log_read('{"max_array_length": 10}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+# Without another read sequence in between, it fails the same way
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (1)"]
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+SELECT audit_log_read('{"max_array_length": 10}');
+ERROR HY000: audit_log_read UDF failed; Could not read log
+#
+# A sequence which is reading the current log when it is rotated
+# reads the rest of it from the rotated file
+INSERT INTO t1 VALUES (11);
+INSERT INTO t1 VALUES (12);
+INSERT INTO t1 VALUES (13);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (11)"]
+SELECT audit_log_rotate();
+audit_log_rotate()
+<file_name>
+INSERT INTO t1 VALUES (14);
+SELECT JSON_EXTRACT(audit_log_read('{"max_array_length": 10}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (12)", "INSERT INTO t1 VALUES (13)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+# A new sequence reads the records of both logs
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+queries
+["INSERT INTO t1 VALUES (11)", "INSERT INTO t1 VALUES (12)", "INSERT INTO t1 VALUES (13)", "INSERT INTO t1 VALUES (14)"]
+SELECT audit_log_read('null');
+audit_log_read('null')
+OK
+#
+# Cleanup
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;

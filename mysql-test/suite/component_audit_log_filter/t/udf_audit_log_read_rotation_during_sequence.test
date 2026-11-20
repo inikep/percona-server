@@ -1,0 +1,90 @@
+--echo #
+--echo # PS-11934: a read sequence which still had the current log to read
+--echo # opened the log by name after a rotation, which had moved the records
+--echo # it was going to read to the rotated file
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_debug.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE t1 (c1 INT);
+
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+
+--source clean_all_audit_logs.inc
+
+# Records of different logs get different timestamps
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+INSERT INTO t1 VALUES (3);
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+INSERT INTO t1 VALUES (6);
+
+--echo # Session A reads the first event, the current log is still to be read
+connect (conn_a, localhost, root,, test);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+
+--echo # The current log is rotated, and session B starts a read sequence,
+--echo # which reads the file list again
+connection default;
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (7);
+connect (conn_b, localhost, root,, test);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+disconnect conn_b;
+
+--echo # Session A fails instead of skipping events 4-6
+connection conn_a;
+--error ER_UDF_ERROR
+SELECT audit_log_read('{"max_array_length": 10}');
+
+--echo # Without another read sequence in between, it fails the same way
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+connection default;
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+connection conn_a;
+--error ER_UDF_ERROR
+SELECT audit_log_read('{"max_array_length": 10}');
+
+--echo #
+--echo # A sequence which is reading the current log when it is rotated
+--echo # reads the rest of it from the rotated file
+--source clean_all_audit_logs.inc
+connection default;
+INSERT INTO t1 VALUES (11);
+INSERT INTO t1 VALUES (12);
+INSERT INTO t1 VALUES (13);
+connection conn_a;
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+connection default;
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (14);
+connection conn_a;
+SELECT JSON_EXTRACT(audit_log_read('{"max_array_length": 10}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo # A new sequence reads the records of both logs
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+disconnect conn_a;
+
+--echo #
+--echo # Cleanup
+connection default;
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

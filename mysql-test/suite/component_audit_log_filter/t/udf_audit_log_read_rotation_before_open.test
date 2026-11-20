@@ -1,0 +1,81 @@
+--echo #
+--echo # PS-11934: a read sequence which checked for a rotation before it opened
+--echo # the current log by name could open the new file of a rotation which
+--echo # happened in between, and silently skipped the records which had moved
+--echo # to the rotated file
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_debug.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+CREATE TABLE t1 (c1 INT);
+
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+
+--source clean_all_audit_logs.inc
+
+# Records of different logs get different timestamps
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+INSERT INTO t1 VALUES (3);
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+INSERT INTO t1 VALUES (6);
+
+connect (conn_a, localhost, root,,);
+
+--echo # The log is rotated just before the read sequence opens the current
+--echo # log, the sequence fails instead of skipping events 4 to 6
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+SET SESSION DEBUG = '+d,audit_log_filter_rotate_before_reader_open';
+--error ER_UDF_ERROR
+SELECT audit_log_read('{"max_array_length": 10}');
+SET SESSION DEBUG = '-d,audit_log_filter_rotate_before_reader_open';
+
+--echo # A new read sequence reads the records of all logs
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo #
+--echo # The read sequence opens the current log after the rotation has opened
+--echo # the new file and before it has finished
+INSERT INTO t1 VALUES (7);
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}, "max_array_length": 1}'), '$[*].table_access_data.query') AS queries;
+SET SESSION DEBUG = '+d,audit_log_filter_rotate_before_reader_open,audit_log_filter_skip_rotated_notification';
+--error ER_UDF_ERROR
+SELECT audit_log_read('{"max_array_length": 10}');
+SET SESSION DEBUG = '-d,audit_log_filter_rotate_before_reader_open,audit_log_filter_skip_rotated_notification';
+
+--echo # A read sequence which lists the log files while the rotation is in
+--echo # progress fails when it opens the current log
+--error ER_UDF_ERROR
+SELECT audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+
+--echo # The next rotation completes the one in progress, a new read sequence
+--echo # reads the records of all logs then
+connection default;
+SET SESSION DEBUG = '+d,audit_log_filter_skip_rotation_started_notification';
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+SET SESSION DEBUG = '-d,audit_log_filter_skip_rotation_started_notification';
+INSERT INTO t1 VALUES (8);
+connection conn_a;
+SELECT JSON_EXTRACT(audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+disconnect conn_a;
+
+--echo #
+--echo # Cleanup
+connection default;
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc

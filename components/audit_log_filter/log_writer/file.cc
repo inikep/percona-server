@@ -346,6 +346,13 @@ void LogWriterFile::do_rotate(FileRotationResult *result) noexcept {
   m_is_rotating = true;
   const auto current_log_path = m_file_handle.get_file_path();
 
+  // Read sequences which open the current log from now on may open the new
+  // file
+  if (!DBUG_EVALUATE_IF("audit_log_filter_skip_rotation_started_notification",
+                        true, false)) {
+    get_audit_log_filter_instance()->on_audit_log_rotation_started();
+  }
+
   do_close_file();
 
   std::unique_ptr<FileRotationResult> local_result;
@@ -364,7 +371,10 @@ void LogWriterFile::do_rotate(FileRotationResult *result) noexcept {
   do_open_file();
   m_is_rotating = false;
 
-  get_audit_log_filter_instance()->on_audit_log_rotated();
+  if (!DBUG_EVALUATE_IF("audit_log_filter_skip_rotated_notification", true,
+                        false)) {
+    get_audit_log_filter_instance()->on_audit_log_rotated();
+  }
 }
 
 void LogWriterFile::prune() noexcept {
@@ -375,6 +385,7 @@ void LogWriterFile::prune() noexcept {
 void LogWriterFile::do_prune() noexcept {
   const auto log_max_size = SysVars::get_log_max_size();
   const auto prune_seconds = SysVars::get_log_prune_seconds();
+  bool is_file_removed = false;
 
   if (log_max_size > 0) {
     PruneFilesList log_file_list;
@@ -403,8 +414,10 @@ void LogWriterFile::do_prune() noexcept {
       const auto &entry = file_queue.top();
 
       if (!FileHandle::remove_file(entry.path)) {
-        return;
+        break;
       }
+
+      is_file_removed = true;
 
       current_logs_size =
           (entry.size < current_logs_size) ? current_logs_size - entry.size : 0;
@@ -418,8 +431,9 @@ void LogWriterFile::do_prune() noexcept {
     }
 
     for (const auto &entry : log_file_list) {
-      if (entry.age > std::chrono::seconds(prune_seconds)) {
-        FileHandle::remove_file(entry.path);
+      if (entry.age > std::chrono::seconds(prune_seconds) &&
+          FileHandle::remove_file(entry.path)) {
+        is_file_removed = true;
       }
     }
   }
@@ -428,6 +442,10 @@ void LogWriterFile::do_prune() noexcept {
   if (FileHandle::get_total_log_size(SysVars::get_file_dir(),
                                      SysVars::get_file_name(), total_size)) {
     SysVars::set_total_log_size(total_size);
+  }
+
+  if (is_file_removed) {
+    get_audit_log_filter_instance()->on_audit_log_pruned();
   }
 }
 

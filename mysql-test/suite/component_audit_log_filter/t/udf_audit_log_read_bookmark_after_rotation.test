@@ -1,0 +1,93 @@
+--echo #
+--echo # PS-11934: the current log keeps its name on rotation, and the reader
+--echo # kept the first timestamp it had read from it before the rotation, so
+--echo # a read from a bookmark in the rotated log skipped that log and found
+--echo # nothing
+--echo #
+
+--source include/have_component_audit_log.inc
+--source include/have_debug.inc
+--source ../inc/audit_tables_init.inc
+--source ../inc/audit_comp_install.inc
+
+--let $audit_filter_log_path = `SELECT @@global.datadir`
+
+CREATE TABLE t1 (c1 INT);
+
+SELECT audit_log_filter_set_filter('log_inserts', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+SELECT audit_log_filter_set_user('%', 'log_inserts');
+
+--source clean_all_audit_logs.inc
+
+# Each record gets a later timestamp
+SET GLOBAL DEBUG = '+d,audit_log_filter_debug_timestamp';
+
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+SET @bookmark = audit_log_read_bookmark();
+INSERT INTO t1 VALUES (3);
+
+--echo # The reader reads the first timestamp of the current log
+SELECT JSON_LENGTH(audit_log_read(@bookmark)) AS events;
+SELECT audit_log_read('null');
+
+--echo # The records are rotated, the current log gets new records
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (4);
+INSERT INTO t1 VALUES (5);
+
+--echo # A read from the bookmark returns the records from both logs
+SELECT JSON_EXTRACT(audit_log_read(@bookmark), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo #
+--echo # A read sequence starts while the current log has no records
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+SELECT JSON_EXTRACT(audit_log_read(JSON_SET(@bookmark, '$.max_array_length', 1)), '$[*].table_access_data.query') AS queries;
+
+--echo # The sequence also reads the records written to the current log later
+INSERT INTO t1 VALUES (6);
+SET @bookmark_current = audit_log_read_bookmark();
+SELECT JSON_EXTRACT(audit_log_read('{"max_array_length": 10}'), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo # So does a new read sequence
+SELECT JSON_EXTRACT(audit_log_read(@bookmark_current), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo #
+--echo # A read sequence starts while the current log is missing, a later read
+--echo # sequence reads the file list again and finds it
+--replace_column 1 <file_name>
+SELECT audit_log_rotate();
+INSERT INTO t1 VALUES (7);
+--move_file $audit_filter_log_path/audit_filter.log $audit_filter_log_path/hidden.log
+SELECT JSON_EXTRACT(audit_log_read(@bookmark_current), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+--move_file $audit_filter_log_path/hidden.log $audit_filter_log_path/audit_filter.log
+SELECT JSON_EXTRACT(audit_log_read(@bookmark_current), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+
+--echo #
+--echo # Another file with the log name in its name, here a copy of a rotated
+--echo # log, does not take the place of the current log
+--let $rotated_log = `SELECT audit_log_rotate()`
+INSERT INTO t1 VALUES (8);
+--copy_file $audit_filter_log_path/$rotated_log $audit_filter_log_path/audit_filter.log.bak
+--move_file $audit_filter_log_path/audit_filter.log $audit_filter_log_path/hidden.log
+SELECT JSON_EXTRACT(audit_log_read(@bookmark_current), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+--move_file $audit_filter_log_path/hidden.log $audit_filter_log_path/audit_filter.log
+SELECT JSON_EXTRACT(audit_log_read(@bookmark_current), '$[*].table_access_data.query') AS queries;
+SELECT audit_log_read('null');
+--remove_file $audit_filter_log_path/audit_filter.log.bak
+
+--echo #
+--echo # Cleanup
+SET GLOBAL DEBUG = '-d,audit_log_filter_debug_timestamp';
+DROP TABLE t1;
+
+--source ../inc/audit_comp_uninstall.inc
+--source ../inc/audit_tables_cleanup.inc
