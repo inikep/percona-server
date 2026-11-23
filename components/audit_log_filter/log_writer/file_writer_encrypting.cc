@@ -19,6 +19,8 @@
 #include "components/audit_log_filter/audit_keyring.h"
 #include "components/audit_log_filter/sys_vars.h"
 
+#include "my_dbug.h"
+
 #include <openssl/err.h>
 
 #include <include/scope_guard.h>
@@ -65,7 +67,10 @@ bool FileWriterEncrypting::open() noexcept {
   assert(m_key != nullptr && m_iv != nullptr && m_out_buff != nullptr);
 
   std::string keyring_key_id = SysVars::get_encryption_options_id();
-  const auto options = audit_keyring::get_encryption_options(keyring_key_id);
+  auto options = audit_keyring::get_encryption_options(keyring_key_id);
+
+  DBUG_EXECUTE_IF("audit_log_filter_encryption_options_fetch_failure",
+                  { options.reset(); });
 
   if (options == nullptr || !options->check_valid()) {
     LogComponentErr(ERROR_LEVEL, ER_AUDIT_ENCRYPTION_OPTIONS_FETCH_FAILURE,
@@ -132,6 +137,8 @@ bool FileWriterEncrypting::open() noexcept {
   }
 
   if (!FileWriterDecoratorBase::open()) {
+    EVP_CIPHER_CTX_free(m_ctx);
+    m_ctx = nullptr;
     return false;
   }
 

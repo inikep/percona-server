@@ -122,6 +122,9 @@ FileHandle::~FileHandle() noexcept {
 bool FileHandle::open_file(const std::filesystem::path &file_path,
                            bool direct_io, bool flush_on_write) noexcept {
   assert(m_file < 0 && m_path.empty());
+
+  DBUG_EXECUTE_IF("audit_log_filter_file_open_failure", { return false; });
+
   m_path = std::move(file_path);
   m_flush_on_write = false;
   const auto path_str = m_path.string();
@@ -569,10 +572,11 @@ bool FileHandle::remove_file(const std::filesystem::path &path) noexcept {
   return std::filesystem::remove(path, ec);
 }
 
-bool FileHandle::remove_file_footer(
-    const std::filesystem::path &file_path,
-    const std::string &expected_footer) noexcept {
+bool FileHandle::remove_file_footer(const std::filesystem::path &file_path,
+                                    const std::string &expected_footer,
+                                    bool &is_removed) noexcept {
   assert(expected_footer.length() > 0);
+  is_removed = false;
   const auto path_str = file_path.string();
   const auto file = my_open(path_str.c_str(), O_RDWR, MYF(0));
   if (file < 0) {
@@ -620,8 +624,24 @@ bool FileHandle::remove_file_footer(
   }
 
   my_close(file, MYF(0));
+  is_removed = true;
 
   return true;
+}
+
+bool FileHandle::append_file_footer(const std::filesystem::path &file_path,
+                                    const std::string &footer) noexcept {
+  const auto path_str = file_path.string();
+  const auto file = my_open(path_str.c_str(), O_WRONLY | O_APPEND, MYF(0));
+  if (file < 0) {
+    return false;
+  }
+
+  const bool is_written =
+      my_write(file, reinterpret_cast<const uchar *>(footer.data()),
+               footer.length(), MYF(MY_NABP)) == 0;
+
+  return my_close(file, MYF(0)) == 0 && is_written;
 }
 
 void FileHandle::rotate(const std::filesystem::path &current_file_path,
@@ -684,7 +704,12 @@ void FileHandle::rotate(const std::filesystem::path &current_file_path,
     return;
   }
 
-  std::filesystem::rename(current_file_path, new_file_path, ec);
+  DBUG_EXECUTE_IF("audit_log_filter_rotate_rename_failure",
+                  { ec = std::make_error_code(std::errc::permission_denied); });
+
+  if (!ec) {
+    std::filesystem::rename(current_file_path, new_file_path, ec);
+  }
 
   result->error_code = ec.value();
 

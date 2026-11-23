@@ -1,0 +1,11 @@
+[plain]
+
+[gzip]
+loose-audit_log_filter.compression=GZIP
+
+[aes]
+loose-audit_log_filter.encryption=AES
+
+[aes_gzip]
+loose-audit_log_filter.encryption=AES
+loose-audit_log_filter.compression=GZIP
