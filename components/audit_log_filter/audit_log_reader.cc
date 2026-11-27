@@ -332,6 +332,10 @@ bool AuditLogReader::read(AuditLogReaderContext *reader_context) noexcept try {
           *reader_context->audit_json_read_stream,
           *reader_context->audit_json_handler);
 
+      if (reader_context->audit_json_read_stream->has_error()) {
+        return false;
+      }
+
       // We don't want reading to fail because of EOF during parsing.
       // This would break reading of currently open log file, as its
       // top-level array isn't closed yet.

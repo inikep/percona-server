@@ -37,9 +37,13 @@ class FileReaderDecompressing final : public FileReaderDecoratorBase {
                   size_t *read_size) noexcept override;
 
  private:
+  bool read_input() noexcept;
+
   z_stream m_strm{};
   unsigned char m_in_buff[kInBufferSize] = {0};
   bool is_opened = false;
+  bool m_in_eof = false;
+  bool m_stream_end = false;
 };
 
 }  // namespace audit_log_filter::json_reader

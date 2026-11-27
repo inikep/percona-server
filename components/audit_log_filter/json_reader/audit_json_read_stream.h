@@ -43,6 +43,7 @@ class AuditJsonReadStream {
   bool open(FileInfo *file_info) noexcept;
   void close() noexcept;
   [[nodiscard]] bool check_eof_reached() const noexcept;
+  [[nodiscard]] bool has_error() const noexcept;
 
   [[nodiscard]] Ch Peek() const;
   [[nodiscard]] Ch Take();
@@ -66,6 +67,7 @@ class AuditJsonReadStream {
   size_t m_read_count;
   size_t m_count;  // Number of characters read
   bool m_eof;
+  bool m_error;
 };
 
 }  // namespace json_reader

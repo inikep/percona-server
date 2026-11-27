@@ -1,0 +1,38 @@
+#
+# PS-11934: audit_log_read() must report an error, not loop, when a
+# compressed log fails to decompress after its first chunk
+#
+CREATE TABLE t1 (c1 INT);
+SELECT audit_log_filter_set_filter('log_table_insert', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}');
+audit_log_filter_set_filter('log_table_insert', '{"filter": {"class": {"name": "table_access", "event": {"name": "insert", "log": true}}}}')
+OK
+SELECT audit_log_filter_set_user('%', 'log_table_insert');
+audit_log_filter_set_user('%', 'log_table_insert')
+OK
+CREATE PROCEDURE insert_rows(n INT)
+BEGIN
+DECLARE i INT DEFAULT 0;
+WHILE i < n DO
+INSERT INTO t1 VALUES (i);
+SET i = i + 1;
+END WHILE;
+END|
+CREATE PROCEDURE read_all_events()
+BEGIN
+DECLARE batch JSON;
+SET batch = audit_log_read('{"start": {"timestamp": "2000-01-01 00:00:00"}}');
+WHILE batch IS NOT NULL AND JSON_LENGTH(batch) > 0 AND
+JSON_TYPE(JSON_EXTRACT(batch, '$[last]')) <> 'NULL' DO
+SET batch = audit_log_read();
+END WHILE;
+END|
+CALL insert_rows(3000);
+# Corrupt the CRC in the gzip trailer, so that inflate() fails on the
+# last read of the log
+CALL read_all_events();
+ERROR HY000: audit_log_read UDF failed; Could not read log
+#
+# Cleanup
+DROP PROCEDURE insert_rows;
+DROP PROCEDURE read_all_events;
+DROP TABLE t1;
